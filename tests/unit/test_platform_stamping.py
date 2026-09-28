@@ -19,11 +19,15 @@ from fyp.scrape.platform_scraper import get_scraper
 def main() -> int:
     scraper = get_scraper("tiktok")
 
-    raw = pd.DataFrame({
-        "item_id": ["1", "2"],
-        "createTime": pd.Series([pd.Timestamp("2026-01-01")] * 2, dtype="timestamp[ns][pyarrow]"),
-        "stats_playCount": pd.Series([1000, 2000], dtype="int64[pyarrow]"),
-    })
+    raw = pd.DataFrame(
+        {
+            "item_id": ["1", "2"],
+            "createTime": pd.Series(
+                [pd.Timestamp("2026-01-01")] * 2, dtype="timestamp[ns][pyarrow]"
+            ),
+            "stats_playCount": pd.Series([1000, 2000], dtype="int64[pyarrow]"),
+        }
+    )
     out = scraper.canonicalize_batch(raw.copy(), status="ok")
 
     assert "source_platform" in out.columns, "canonicalize_batch must stamp source_platform"
@@ -40,9 +44,7 @@ def main() -> int:
     legacy = pd.DataFrame({"item_id": ["9"]})
     if "source_platform" not in legacy.columns:
         legacy["source_platform"] = pd.NA
-    legacy["source_platform"] = (
-        legacy["source_platform"].fillna(default).astype("string[pyarrow]")
-    )
+    legacy["source_platform"] = legacy["source_platform"].fillna(default).astype("string[pyarrow]")
     assert legacy["source_platform"].tolist() == [default]
 
     mixed = pd.concat([out, legacy], ignore_index=True)

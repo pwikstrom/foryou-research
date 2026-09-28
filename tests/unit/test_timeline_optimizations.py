@@ -3,6 +3,7 @@
 Tests compute_break, moving_average, and analyse_timeline with synthetic
 data to verify correctness after the performance optimizations.
 """
+
 import json
 import math
 import sys

@@ -48,10 +48,6 @@ PROMPT_ADDENDUM = (
 )
 
 
-
-
-
-
 def _qwen_cf() -> dict:
     """The ``[machine.qwen_local]`` config block with pilot-tuned defaults."""
     stored = get_config()["machine"].get("qwen_local", {}) or {}
@@ -67,10 +63,6 @@ def _qwen_cf() -> dict:
     return {**defaults, **stored}
 
 
-
-
-
-
 class QwenLocalBackend(AnnotationBackend):
     """Qwen3-Omni running locally via mlx-vlm (frames + audio)."""
 
@@ -84,11 +76,9 @@ class QwenLocalBackend(AnnotationBackend):
     _loaded_model_id = None
     _load_lock = threading.Lock()
 
-
     def _effective_cf(self) -> dict:
         """The ``[machine.qwen_local]`` config with variant overrides applied."""
         return {**_qwen_cf(), **self.overrides}
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Hardware/dependency readiness (see ``qwen_support.check_all``).
@@ -105,16 +95,13 @@ class QwenLocalBackend(AnnotationBackend):
 
         return qwen_support.availability(self._effective_cf()["model_id"])
 
-
     def prompt_suffix(self) -> str:
         """The frames+audio addendum (part of the version identity)."""
         return PROMPT_ADDENDUM
 
-
     def effective_model_id(self) -> str:
         """The configured local model id."""
         return self._effective_cf()["model_id"]
-
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
@@ -127,7 +114,6 @@ class QwenLocalBackend(AnnotationBackend):
             "max_output_tokens": qwen_cf["max_tokens"],
         }
 
-
     def version_extra_params(self) -> dict:
         """Frame/audio sampling parameters (output-affecting → identity)."""
         qwen_cf = self._effective_cf()
@@ -138,7 +124,6 @@ class QwenLocalBackend(AnnotationBackend):
             "with_audio": qwen_cf["with_audio"],
             "repetition_penalty": qwen_cf["repetition_penalty"],
         }
-
 
     def _ensure_model(self):
         """Load the model once per process (thread-safe); returns (model, processor)."""
@@ -153,7 +138,8 @@ class QwenLocalBackend(AnnotationBackend):
                 raise RuntimeError(
                     f"local model {cls._loaded_model_id!r} is already resident; "
                     f"cannot load {model_id!r} in the same process — restart the "
-                    f"worker to switch local-model variants")
+                    f"worker to switch local-model variants"
+                )
             if cls._model is None:
                 from fyp.annotation.backends.qwen_rope_fix import apply_patches
 
@@ -164,11 +150,14 @@ class QwenLocalBackend(AnnotationBackend):
                 logger.info("Local Qwen model loaded")
         return cls._model, cls._processor
 
-
-    def annotate_one(self, item_id: str, platform: str | None = None,
-                     gen_overrides: dict | None = None,
-                     prompt_text: str | None = None,
-                     response_schema=None) -> dict:
+    def annotate_one(
+        self,
+        item_id: str,
+        platform: str | None = None,
+        gen_overrides: dict | None = None,
+        prompt_text: str | None = None,
+        response_schema=None,
+    ) -> dict:
         """Annotate one item; returns the production raw-row dict.
 
         Args:
@@ -191,8 +180,10 @@ class QwenLocalBackend(AnnotationBackend):
         from fyp.annotation import annotation_versioning
         from fyp.annotation.annotation_schema import get_annotation_json_schema
 
-        qwen_cf = {**self._effective_cf(),
-                   **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
+        qwen_cf = {
+            **self._effective_cf(),
+            **{k: v for k, v in (gen_overrides or {}).items() if v is not None},
+        }
         now = _dt.datetime.now()
         row: dict = {
             "item_id": item_id,
@@ -229,14 +220,21 @@ class QwenLocalBackend(AnnotationBackend):
                 return row
 
             duration = _probe_duration(local_video) or 60.0
-            frames = _sample_frames(local_video, duration, work_dir,
-                                    qwen_cf["fps"], qwen_cf["max_frames"], qwen_cf["frame_scale"])
+            frames = _sample_frames(
+                local_video,
+                duration,
+                work_dir,
+                qwen_cf["fps"],
+                qwen_cf["max_frames"],
+                qwen_cf["frame_scale"],
+            )
             audio = _extract_audio(local_video, work_dir) if qwen_cf["with_audio"] else None
 
             model, processor = self._ensure_model()
             start = _dt.datetime.now()
-            result = _generate(model, processor, frames, audio, duration,
-                               system_prompt, response_schema, qwen_cf)
+            result = _generate(
+                model, processor, frames, audio, duration, system_prompt, response_schema, qwen_cf
+            )
             row["inference_duration"] = (_dt.datetime.now() - start).total_seconds()
 
             row["response"] = result["text"]
@@ -245,7 +243,7 @@ class QwenLocalBackend(AnnotationBackend):
                 "candidates_tokens": result.get("generation_tokens"),
                 "thoughts_tokens": 0,
                 "total_tokens": (result.get("prompt_tokens") or 0)
-                                + (result.get("generation_tokens") or 0),
+                + (result.get("generation_tokens") or 0),
             }
             parsed = json.loads(row["response"] or "null")
             if not isinstance(parsed, dict):
@@ -265,19 +263,11 @@ class QwenLocalBackend(AnnotationBackend):
         return row
 
 
-
-
-
-
 def _default_platform() -> str:
     """The default source platform (mirrors ``call_machine``'s fallback)."""
     from fyp.scrape import scrape_queues
 
     return scrape_queues.default_platform()
-
-
-
-
 
 
 def _fetch_media(item_id: str, platform: str | None):
@@ -321,29 +311,23 @@ def _fetch_media(item_id: str, platform: str | None):
     return tmp, _cleanup
 
 
-
-
-
-
 def _probe_duration(path: str) -> float | None:
     """Media duration in seconds via ffprobe, or None."""
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=30,
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         return float(out.stdout.strip())
     except (ValueError, subprocess.SubprocessError):
         return None
 
 
-
-
-
-
-def _sample_frames(video_file: str, duration: float, out_dir: str,
-                   fps: float, max_frames: int, scale: int) -> list[str]:
+def _sample_frames(
+    video_file: str, duration: float, out_dir: str, fps: float, max_frames: int, scale: int
+) -> list[str]:
     """Extract evenly-spaced mid-segment frames with ffmpeg, in order."""
     n = max(2, min(int(max_frames), math.ceil(duration * fps)))
     paths = []
@@ -351,17 +335,26 @@ def _sample_frames(video_file: str, duration: float, out_dir: str,
         t = (i + 0.5) * duration / n
         path = os.path.join(out_dir, f"f{i:02}.jpg")
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{t:.2f}",
-             "-i", video_file, "-vframes", "1",
-             "-vf", f"scale='min({scale},iw)':-2", path],
-            check=True, timeout=60,
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{t:.2f}",
+                "-i",
+                video_file,
+                "-vframes",
+                "1",
+                "-vf",
+                f"scale='min({scale},iw)':-2",
+                path,
+            ],
+            check=True,
+            timeout=60,
         )
         paths.append(path)
     return paths
-
-
-
-
 
 
 def _extract_audio(video_file: str, out_dir: str) -> str | None:
@@ -369,44 +362,68 @@ def _extract_audio(video_file: str, out_dir: str) -> str | None:
     path = os.path.join(out_dir, "audio.wav")
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", video_file,
-             "-vn", "-ac", "1", "-ar", "16000", path],
-            check=True, timeout=120,
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                video_file,
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                path,
+            ],
+            check=True,
+            timeout=120,
         )
     except subprocess.SubprocessError:
         return None
     return path if os.path.exists(path) and os.path.getsize(path) > 1000 else None
 
 
-
-
-
-
-def _generate(model, processor, frames: list[str], audio: str | None,
-              duration: float, system_prompt: str, schema: dict, qwen_cf: dict) -> dict:
+def _generate(
+    model,
+    processor,
+    frames: list[str],
+    audio: str | None,
+    duration: float,
+    system_prompt: str,
+    schema: dict,
+    qwen_cf: dict,
+) -> dict:
     """Run one constrained generation; returns text + token counts."""
     from mlx_vlm.generate import generate
     from mlx_vlm.prompt_utils import apply_chat_template
     from mlx_vlm.structured import build_json_schema_logits_processor
 
-    user_text = (f"These are {len(frames)} frames sampled evenly, in order, "
-                 f"from one short video (duration {duration:.0f} seconds)"
-                 + (" together with the video's audio track" if audio else "")
-                 + ". Analyze this video")
+    user_text = (
+        f"These are {len(frames)} frames sampled evenly, in order, "
+        f"from one short video (duration {duration:.0f} seconds)"
+        + (" together with the video's audio track" if audio else "")
+        + ". Analyze this video"
+    )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_text},
     ]
     prompt = apply_chat_template(
-        processor, model.config, messages,
-        num_images=len(frames), num_audios=1 if audio else 0,
+        processor,
+        model.config,
+        messages,
+        num_images=len(frames),
+        num_audios=1 if audio else 0,
         enable_thinking=False,
     )
     tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
     logits_processor = build_json_schema_logits_processor(tokenizer, schema)
 
     result = generate(
-        model, processor, prompt,
+        model,
+        processor,
+        prompt,
         image=frames,
         audio=[audio] if audio else None,
         temperature=qwen_cf.get("temperature", 0.0),

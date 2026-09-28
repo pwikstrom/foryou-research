@@ -45,17 +45,9 @@ DISPOSITION_DEAD = "dead"
 _REDACT_ARG_KEYS = {"launched_by", "item_ids", "collections", "arms_spec"}
 
 
-
-
-
-
 def _now_iso() -> str:
     """Return the current UTC time as an ISO-8601 string."""
     return datetime.now(UTC).isoformat()
-
-
-
-
 
 
 def _redact_args(task_args: dict | None) -> dict:
@@ -73,33 +65,29 @@ def _redact_args(task_args: dict | None) -> dict:
     return out
 
 
-
-
-
-
 def load_failures() -> list:
     """Return the ledger entries, newest last (never raises)."""
     try:
         # A missing file is the normal no-failures state — check exists() first
         # so every health poll doesn't log a [DATA_IO] load error for it.
-        if not data_io.exists(storage_location=FAILURES_LOCATION,
-                              filename=FAILURES_FILENAME):
+        if not data_io.exists(storage_location=FAILURES_LOCATION, filename=FAILURES_FILENAME):
             return []
-        entries = data_io.load_json(storage_location=FAILURES_LOCATION,
-                                    filename=FAILURES_FILENAME)
+        entries = data_io.load_json(storage_location=FAILURES_LOCATION, filename=FAILURES_FILENAME)
         return entries if isinstance(entries, list) else []
     except Exception as e:
         logger.warning(f"Could not load task failures: {e}")
         return []
 
 
-
-
-
-
-def record_failure(task: str, error: str, status_key: str = "",
-                   retry_count: int = 0, disposition: str = DISPOSITION_DEAD,
-                   task_args: dict | None = None, phase: str = "run") -> None:
+def record_failure(
+    task: str,
+    error: str,
+    status_key: str = "",
+    retry_count: int = 0,
+    disposition: str = DISPOSITION_DEAD,
+    task_args: dict | None = None,
+    phase: str = "run",
+) -> None:
     """Append one failed attempt to the ledger. Never raises.
 
     Args:
@@ -137,16 +125,18 @@ def record_failure(task: str, error: str, status_key: str = "",
         return entries[-MAX_ENTRIES:]
 
     try:
-        data_io.update_json(storage_location=FAILURES_LOCATION,
-                            filename=FAILURES_FILENAME, mutate=_mutate, default=[])
-        logger.warning(f"  [tasks] Recorded {disposition} failure for '{task}' "
-                       f"(attempt {entry['retry_count']}, phase={phase}).")
+        data_io.update_json(
+            storage_location=FAILURES_LOCATION,
+            filename=FAILURES_FILENAME,
+            mutate=_mutate,
+            default=[],
+        )
+        logger.warning(
+            f"  [tasks] Recorded {disposition} failure for '{task}' "
+            f"(attempt {entry['retry_count']}, phase={phase})."
+        )
     except Exception as e:
         logger.warning(f"Could not record task failure for '{task}': {e}")
-
-
-
-
 
 
 def acknowledge(entry_id: str = "") -> int:
@@ -174,16 +164,16 @@ def acknowledge(entry_id: str = "") -> int:
         return entries
 
     try:
-        data_io.update_json(storage_location=FAILURES_LOCATION,
-                            filename=FAILURES_FILENAME, mutate=_mutate, default=[])
+        data_io.update_json(
+            storage_location=FAILURES_LOCATION,
+            filename=FAILURES_FILENAME,
+            mutate=_mutate,
+            default=[],
+        )
     except Exception as e:
         logger.warning(f"Could not acknowledge task failures: {e}")
         return 0
     return changed[0]
-
-
-
-
 
 
 def unacknowledged_dead(within_hours: int = 48) -> list:

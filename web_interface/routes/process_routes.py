@@ -47,7 +47,7 @@ from ..task_status import (
     stamp_task_status,
 )
 
-process_bp = Blueprint('process_bp', __name__)
+process_bp = Blueprint("process_bp", __name__)
 
 # A forked leaf (meta/pca/timelines) that has not reached a fresh "running" or
 # terminal state within this many seconds of the fan-out is treated as having
@@ -108,7 +108,8 @@ QUEUE_RETRY_SAFE: set[str] = {
 # storm if the queue is reconfigured upward.
 MAX_APP_RETRIES = 4
 
-@process_bp.route('/api/start/<name>', methods=['POST'])
+
+@process_bp.route("/api/start/<name>", methods=["POST"])
 @auth.admin_required
 def api_start(name):
     if name not in processes:
@@ -122,11 +123,15 @@ def api_start(name):
     if name in ("queue_annotator", "queue_annotator_batch"):
         try:
             from fyp.annotation.machine_annotation import annotation_configured
+
             gemini_ok, gemini_reason = annotation_configured()
         except Exception as exc:
-            gemini_ok, gemini_reason = False, (
-                "Gemini annotation is unavailable: the google-genai library "
-                f"could not be loaded ({exc})."
+            gemini_ok, gemini_reason = (
+                False,
+                (
+                    "Gemini annotation is unavailable: the google-genai library "
+                    f"could not be loaded ({exc})."
+                ),
             )
         if not gemini_ok:
             return jsonify({"status": "error", "message": gemini_reason}), 400
@@ -138,6 +143,7 @@ def api_start(name):
     if name == "embeddings_refresh":
         try:
             from fyp.analysis.embedding_backends import active_backend_name, get_backend
+
             avail = get_backend(active_backend_name()).availability()
             embed_ok, embed_reason = avail.ok, avail.reason
         except Exception as exc:
@@ -154,36 +160,46 @@ def api_start(name):
     if name in refresh_pipeline.STEP_ORDER and refresh_pipeline.run_in_flight():
         run = refresh_pipeline.load_run() or {}
         origin = run.get("origin_label") or run.get("origin") or "another step"
-        return jsonify({
-            "status": "busy",
-            "message": (f"A refresh run started from {origin} is still in "
-                        f"progress. Wait for it to finish before starting "
-                        f"another step."),
-        }), 423
+        return jsonify(
+            {
+                "status": "busy",
+                "message": (
+                    f"A refresh run started from {origin} is still in "
+                    f"progress. Wait for it to finish before starting "
+                    f"another step."
+                ),
+            }
+        ), 423
 
     data = request.json or {}
     args = []
-    
+
     if "study_name" in data:
         args.append(data["study_name"])
 
-    if name in ["downloader", "annotator", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"] or name.startswith("queue_scraper_"):
+    if name in [
+        "downloader",
+        "annotator",
+        "queue_annotator",
+        "queue_annotator_batch",
+        "embeddings_refresh",
+    ] or name.startswith("queue_scraper_"):
         # batch_size / max_batches go straight into a worker argv — validate
         # and bound them here rather than trusting the client blindly.
-        for key, flag, upper in (("batch_size", "--batch-size", 5000),
-                                 ("max_batches", "--max-batches", None)):
+        for key, flag, upper in (
+            ("batch_size", "--batch-size", 5000),
+            ("max_batches", "--max-batches", None),
+        ):
             raw = data.get(key)
             if raw is None or not str(raw).strip():
                 continue
             try:
                 value = int(str(raw).strip())
             except (TypeError, ValueError):
-                return jsonify({"status": "error",
-                                "message": f"{key} must be an integer"}), 400
+                return jsonify({"status": "error", "message": f"{key} must be an integer"}), 400
             if value < 1 or (upper is not None and value > upper):
                 bound = f"1-{upper}" if upper is not None else ">= 1"
-                return jsonify({"status": "error",
-                                "message": f"{key} must be {bound}"}), 400
+                return jsonify({"status": "error", "message": f"{key} must be {bound}"}), 400
             args.extend([flag, str(value)])
 
     # Capture the launching user (their username is their email) so the async
@@ -232,7 +248,7 @@ def api_start(name):
             if data.get(key) and str(data[key]).strip():
                 args.extend([flag, str(data[key])])
 
-    study_name = data.get("study_name") 
+    study_name = data.get("study_name")
 
     script_map = {
         **{scraper_name: QUEUE_SCRAPER_SCRIPT for scraper_name in SCRAPER_PROCESS_NAMES},
@@ -247,7 +263,7 @@ def api_start(name):
         "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
         "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
     }
-    
+
     # Plan the run before starting the origin, so the chart can show what is
     # coming from the first poll instead of appearing only once the first
     # dependent has been dispatched.
@@ -257,11 +273,19 @@ def api_start(name):
     if name in refresh_pipeline.STEP_ORDER:
         # A consolidation only cascades when the caller asked it to; every other
         # step's whole purpose is to feed the ones below it.
-        mode = ("refresh" if name != "consolidate_enrichment" or data.get("auto_refresh")
-                else "consolidate_only")
+        mode = (
+            "refresh"
+            if name != "consolidate_enrichment" or data.get("auto_refresh")
+            else "consolidate_only"
+        )
         record = refresh_pipeline.plan_run(
-            name, kind="card", started_by=started_by, mode=mode,
-            origin_task_args=dict(data), provisional=True)
+            name,
+            kind="card",
+            started_by=started_by,
+            mode=mode,
+            origin_task_args=dict(data),
+            provisional=True,
+        )
         refresh_pipeline.seed_run(record)
         run_task_args = {
             "pipeline_run_id": record["run_id"],
@@ -269,9 +293,14 @@ def api_start(name):
             "pipeline_stage_total": record["stage_total"],
         }
 
-    success, msg = start_process(name, script_map[name], args, study_name=study_name,
-                                 started_by=started_by,
-                                 extra_task_args=run_task_args)
+    success, msg = start_process(
+        name,
+        script_map[name],
+        args,
+        study_name=study_name,
+        started_by=started_by,
+        extra_task_args=run_task_args,
+    )
     if not success and record is not None:
         # Nothing started, so nothing will ever finish this run — leaving the
         # record in flight would lock every card until the stale-flag sweep.
@@ -289,12 +318,12 @@ def api_start(name):
         return jsonify({"status": "error", "message": msg}), 409
 
 
-@process_bp.route('/api/stop/<name>', methods=['POST'])
+@process_bp.route("/api/stop/<name>", methods=["POST"])
 @auth.admin_required
 def api_stop(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
-    
+
     success, msg = stop_process(name)
     if success:
         activity_log.record(
@@ -306,7 +335,7 @@ def api_stop(name):
     return jsonify({"status": "success" if success else "error", "message": msg})
 
 
-@process_bp.route('/api/stop_graceful/<name>', methods=['POST'])
+@process_bp.route("/api/stop_graceful/<name>", methods=["POST"])
 @auth.admin_required
 def api_stop_graceful(name):
     if name not in processes:
@@ -326,16 +355,12 @@ def _redact_status_for_viewer(status_data: dict) -> dict:
     """
     is_admin_attr = getattr(current_user, "is_admin", False)
     is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
-    if is_admin or user_has_permission(current_user, 'tab.data_management'):
+    if is_admin or user_has_permission(current_user, "tab.data_management"):
         return status_data
     for entry in status_data.values():
         entry.pop("task_args", None)
         entry.pop("last_run_study", None)
     return status_data
-
-
-
-
 
 
 # /api/status is polled every few seconds by every open tab, and on Cloud Run
@@ -367,8 +392,8 @@ def _read_all_task_statuses() -> dict[str, dict]:
         # exist — so its blanket except made it silently return nothing.
         from fyp.core.fyp_config import fyp_cf
 
-        bucket = fyp_cf['data_io'].get('bucket')
-        gcs_prefix = fyp_cf['gcs_paths'].get('cache', '')
+        bucket = fyp_cf["data_io"].get("bucket")
+        gcs_prefix = fyp_cf["gcs_paths"].get("cache", "")
         if bucket is None or not gcs_prefix:
             return statuses
         prefix = f"{gcs_prefix}/{STATUS_PREFIX}/"
@@ -377,9 +402,7 @@ def _read_all_task_statuses() -> dict[str, dict]:
             if not fname.endswith(".json") or fname.endswith(CANCEL_SUFFIX):
                 continue
             try:
-                statuses[fname[: -len(".json")]] = json.loads(
-                    blob.download_as_bytes()
-                )
+                statuses[fname[: -len(".json")]] = json.loads(blob.download_as_bytes())
             except Exception:
                 continue
     except Exception:
@@ -387,16 +410,13 @@ def _read_all_task_statuses() -> dict[str, dict]:
     return statuses
 
 
-@process_bp.route('/api/status', methods=['GET'])
+@process_bp.route("/api/status", methods=["GET"])
 @login_required
 def api_status():
     if is_cloud_run():
         with _status_cache_lock:
             now = time.monotonic()
-            if (
-                _status_cache["payload"] is None
-                or now - _status_cache["ts"] >= _STATUS_CACHE_TTL
-            ):
+            if _status_cache["payload"] is None or now - _status_cache["ts"] >= _STATUS_CACHE_TTL:
                 _status_cache["payload"] = _build_status_payload()
                 _status_cache["ts"] = time.monotonic()
             # Per-entry copies: redaction pops top-level keys and must never
@@ -425,8 +445,7 @@ def _build_status_payload() -> dict:
             (
                 s
                 for key, s in gcs_statuses.items()
-                if key.startswith("study_refresh__")
-                and s.get("state") == "running"
+                if key.startswith("study_refresh__") and s.get("state") == "running"
             ),
             None,
         )
@@ -448,6 +467,7 @@ def _build_status_payload() -> dict:
                 updated_str = gcs_status.get("updated_at", "")
                 if updated_str:
                     from datetime import datetime
+
                     try:
                         updated_at = datetime.fromisoformat(updated_str)
                         age = (datetime.now(UTC) - updated_at).total_seconds()
@@ -464,21 +484,20 @@ def _build_status_payload() -> dict:
             # so it falls through to the idle path with outcome=Fail.
             if gcs_status and gcs_status.get("state") in ("failed", "error"):
                 from datetime import datetime
+
                 stats_end = process_stats.get(name, {}).get("last_run_end_time")
                 updated_str = gcs_status.get("updated_at", "")
                 try:
                     newer = bool(updated_str) and (
                         not stats_end
-                        or datetime.fromisoformat(updated_str)
-                        > datetime.fromisoformat(stats_end)
+                        or datetime.fromisoformat(updated_str) > datetime.fromisoformat(stats_end)
                     )
                 except (ValueError, TypeError):
                     newer = False
                 if not newer:
                     gcs_status = None
 
-            if gcs_status and gcs_status.get("state") in ("running", "queued",
-                                                          "failed", "error"):
+            if gcs_status and gcs_status.get("state") in ("running", "queued", "failed", "error"):
                 stats_entry = process_stats.get(name, {})
                 status_data[name] = {
                     "state": gcs_status["state"],
@@ -528,7 +547,7 @@ def _build_status_payload() -> dict:
     return status_data
 
 
-@process_bp.route('/api/status/study_refresh/<study_name>', methods=['GET'])
+@process_bp.route("/api/status/study_refresh/<study_name>", methods=["GET"])
 @login_required
 def api_study_refresh_status(study_name: str):
     """Get status of a single-study refresh task."""
@@ -542,6 +561,7 @@ def api_study_refresh_status(study_name: str):
                 updated_str = gcs_status.get("updated_at", "")
                 if updated_str:
                     from datetime import datetime
+
                     try:
                         updated_at = datetime.fromisoformat(updated_str)
                         age = (datetime.now(UTC) - updated_at).total_seconds()
@@ -552,24 +572,29 @@ def api_study_refresh_status(study_name: str):
                         pass
 
             stats_entry = process_stats.get(status_key, {})
-            return jsonify({
-                "state": gcs_status.get("state", "unknown"),
-                "progress": gcs_status.get("progress", {}),
-                "data": gcs_status.get("data", {}),
-                "last_run_outcome": stats_entry.get("last_run_outcome"),
-            })
+            return jsonify(
+                {
+                    "state": gcs_status.get("state", "unknown"),
+                    "progress": gcs_status.get("progress", {}),
+                    "data": gcs_status.get("data", {}),
+                    "last_run_outcome": stats_entry.get("last_run_outcome"),
+                }
+            )
 
     # Local dev: read the in-process status dict populated by the background
     # thread spawned from save_study.
     from web_interface.task_status import read_local_thread_status
+
     local_status = read_local_thread_status(status_key)
     if local_status:
-        return jsonify({
-            "state": local_status.get("state", "unknown"),
-            "progress": local_status.get("progress", {}),
-            "data": local_status.get("data", {}),
-            "last_run_outcome": None,
-        })
+        return jsonify(
+            {
+                "state": local_status.get("state", "unknown"),
+                "progress": local_status.get("progress", {}),
+                "data": local_status.get("data", {}),
+                "last_run_outcome": None,
+            }
+        )
 
     return jsonify({"state": "unknown"})
 
@@ -598,9 +623,7 @@ def _resolve_log_key(name: str) -> str | None:
     return None
 
 
-
-
-@process_bp.route('/api/logs/clear/<name>', methods=['POST'])
+@process_bp.route("/api/logs/clear/<name>", methods=["POST"])
 @auth.admin_required
 def api_clear_logs(name):
     """Delete a process's whole run history (all retained runs)."""
@@ -614,7 +637,7 @@ def api_clear_logs(name):
     return jsonify({"status": "success"})
 
 
-@process_bp.route('/api/logs/<name>', methods=['GET'])
+@process_bp.route("/api/logs/<name>", methods=["GET"])
 @auth.admin_required
 def api_logs(name):
     """Return a run's log lines, plus the run list for the modal's picker.
@@ -645,22 +668,31 @@ def api_logs(name):
             legacy = "\n".join(gcs_status.get("logs", []))
         if not legacy and key in processes:
             legacy = "".join(processes[key]["logs"])
-        return jsonify({"logs": legacy, "next_since": 0, "reset": True,
-                        "run_id": "", "run": None, "runs": [], "key": key})
+        return jsonify(
+            {
+                "logs": legacy,
+                "next_since": 0,
+                "reset": True,
+                "run_id": "",
+                "run": None,
+                "runs": [],
+                "key": key,
+            }
+        )
 
     # `logs` stays a newline-joined string: the async-annotator card feed reads
     # this same endpoint and splits on newlines.
-    return jsonify({
-        "logs": "\n".join(payload["lines"]),
-        "next_since": payload["next_since"],
-        "reset": payload["reset"],
-        "run_id": (payload["run"] or {}).get("run_id", ""),
-        "run": payload["run"],
-        "runs": payload["runs"],
-        "key": key,
-    })
-
-
+    return jsonify(
+        {
+            "logs": "\n".join(payload["lines"]),
+            "next_since": payload["next_since"],
+            "reset": payload["reset"],
+            "run_id": (payload["run"] or {}).get("run_id", ""),
+            "run": payload["run"],
+            "runs": payload["runs"],
+            "key": key,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -668,7 +700,7 @@ def api_logs(name):
 # Lives in a separate blueprint so it can be fully CSRF-exempted.
 # ---------------------------------------------------------------------------
 
-internal_bp = Blueprint('internal_bp', __name__)
+internal_bp = Blueprint("internal_bp", __name__)
 
 # Registry of task functions for Cloud Tasks execution.
 _task_functions_loaded = False
@@ -705,36 +737,38 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_timelines_refresh import run_timelines_refresh
     from web_interface.run_video_map_refresh import run_video_map_refresh
 
-    TASK_FUNCTIONS.update({
-        "consolidate_enrichment": run_consolidate_enrichment,
-        "recode_refresh_studies": run_recode_refresh_studies,
-        "meta_refresh_groups": run_meta_refresh_groups,
-        "pca_refresh": run_pca_refresh,
-        "study_refresh": run_study_refresh,
-        "queue_annotator": run_queue_annotator,
-        "queue_annotator_batch": run_queue_annotator_batch,
-        # One entry per platform; the bare name is a transition alias so an
-        # in-flight chain dispatched before the per-platform rename still runs
-        # (it defaults to the contract's default platform).
-        **{scraper_name: run_queue_scraper for scraper_name in SCRAPER_PROCESS_NAMES},
-        "queue_scraper": run_queue_scraper,
-        "timelines_refresh": run_timelines_refresh,
-        "ingest_refresh": run_ingest_refresh,
-        "aio_fetch": run_aio_fetch,
-        "collection_metadata_refresh": run_collection_metadata_refresh,
-        "collection_delete": run_collection_delete,
-        "benchmark_parquet_read": run_benchmark_parquet_read,
-        "sequence_refresh": run_sequence_refresh,
-        "sessions_refresh": run_sessions_refresh,
-        "embeddings_refresh": run_embeddings_refresh,
-        "video_map_refresh": run_video_map_refresh,
-        "retokenise_hashtags": run_retokenise_hashtags,
-        "ab_eval": run_ab_eval,
-        # Deliberately NOT in QUEUE_RETRY_SAFE: a queue retry would re-send
-        # the report email. A failed run lands in the task-failures ledger.
-        "ops_report": run_ops_report,
-        "enrichment_supervisor": run_enrichment_supervisor,
-    })
+    TASK_FUNCTIONS.update(
+        {
+            "consolidate_enrichment": run_consolidate_enrichment,
+            "recode_refresh_studies": run_recode_refresh_studies,
+            "meta_refresh_groups": run_meta_refresh_groups,
+            "pca_refresh": run_pca_refresh,
+            "study_refresh": run_study_refresh,
+            "queue_annotator": run_queue_annotator,
+            "queue_annotator_batch": run_queue_annotator_batch,
+            # One entry per platform; the bare name is a transition alias so an
+            # in-flight chain dispatched before the per-platform rename still runs
+            # (it defaults to the contract's default platform).
+            **{scraper_name: run_queue_scraper for scraper_name in SCRAPER_PROCESS_NAMES},
+            "queue_scraper": run_queue_scraper,
+            "timelines_refresh": run_timelines_refresh,
+            "ingest_refresh": run_ingest_refresh,
+            "aio_fetch": run_aio_fetch,
+            "collection_metadata_refresh": run_collection_metadata_refresh,
+            "collection_delete": run_collection_delete,
+            "benchmark_parquet_read": run_benchmark_parquet_read,
+            "sequence_refresh": run_sequence_refresh,
+            "sessions_refresh": run_sessions_refresh,
+            "embeddings_refresh": run_embeddings_refresh,
+            "video_map_refresh": run_video_map_refresh,
+            "retokenise_hashtags": run_retokenise_hashtags,
+            "ab_eval": run_ab_eval,
+            # Deliberately NOT in QUEUE_RETRY_SAFE: a queue retry would re-send
+            # the report email. A failed run lands in the task-failures ledger.
+            "ops_report": run_ops_report,
+            "enrichment_supervisor": run_enrichment_supervisor,
+        }
+    )
 
 
 def _get_status_key(name: str, task_args: dict) -> str:
@@ -765,8 +799,6 @@ def _pipeline_actor(task_args: dict, parent: str) -> str:
     return f"{origin} (via {parent})"
 
 
-
-
 # A status heartbeat older than this marks the run as dead — the same 600 s
 # rule /api/status and _is_worker_running apply.
 _STALE_HEARTBEAT_SECONDS = 600
@@ -790,27 +822,26 @@ def _ledger_stale_predecessor(name: str, status_key: str) -> None:
             return
         updated_str = prior.get("updated_at") or ""
         try:
-            age = (datetime.now(UTC)
-                   - datetime.fromisoformat(updated_str)).total_seconds()
+            age = (datetime.now(UTC) - datetime.fromisoformat(updated_str)).total_seconds()
         except (ValueError, TypeError):
             return  # malformed heartbeat: can't prove it's a corpse
         if age <= _STALE_HEARTBEAT_SECONDS:
             return
         task_failures.record_failure(
             task=name,
-            error=(f"Previous run found dead: status stuck at 'running' with a "
-                   f"heartbeat {age / 60:.0f} min old (last message: "
-                   f"{prior.get('message') or '—'!s}). No failure was recorded "
-                   f"by the run itself — the process was most likely "
-                   f"SIGKILLed (out of memory)."),
+            error=(
+                f"Previous run found dead: status stuck at 'running' with a "
+                f"heartbeat {age / 60:.0f} min old (last message: "
+                f"{prior.get('message') or '—'!s}). No failure was recorded "
+                f"by the run itself — the process was most likely "
+                f"SIGKILLed (out of memory)."
+            ),
             status_key=status_key,
             disposition=task_failures.DISPOSITION_DEAD,
             phase="presumed_oom",
         )
     except Exception as exc:
         print(f"[{name}] stale-predecessor ledger check failed: {exc}")
-
-
 
 
 def _chain_run_start(link_start: datetime, status_start: str | None) -> datetime:
@@ -838,13 +869,17 @@ def _chain_run_start(link_start: datetime, status_start: str | None) -> datetime
     return link_start
 
 
-
-
-
-
-def _merge_run_stats(existing: dict, run_data: dict, *, name: str, task_args: dict,
-                     outcome: str, end_time: datetime, duration: float,
-                     study_name: str | None) -> dict:
+def _merge_run_stats(
+    existing: dict,
+    run_data: dict,
+    *,
+    name: str,
+    task_args: dict,
+    outcome: str,
+    end_time: datetime,
+    duration: float,
+    study_name: str | None,
+) -> dict:
     """The process_stats entry for a task after one run of it.
 
     A run's emitted data is merged over the stored entry and the last-run
@@ -857,19 +892,25 @@ def _merge_run_stats(existing: dict, run_data: dict, *, name: str, task_args: di
     """
     merged = {**existing, **run_data}
     if name == "consolidate_enrichment" and task_args.get("verify_consolidation"):
-        merged.update({
-            "last_verify_end_time": end_time.isoformat(),
-            "last_verify_duration": duration,
-            "last_verify_outcome": outcome,
-        })
+        merged.update(
+            {
+                "last_verify_end_time": end_time.isoformat(),
+                "last_verify_duration": duration,
+                "last_verify_outcome": outcome,
+            }
+        )
         return merged
-    merged.update({
-        "last_success": end_time.isoformat() if outcome == "Success" else merged.get("last_success"),
-        "last_run_end_time": end_time.isoformat(),
-        "last_run_duration": duration,
-        "last_run_outcome": outcome,
-        "last_run_study": study_name,
-    })
+    merged.update(
+        {
+            "last_success": end_time.isoformat()
+            if outcome == "Success"
+            else merged.get("last_success"),
+            "last_run_end_time": end_time.isoformat(),
+            "last_run_duration": duration,
+            "last_run_outcome": outcome,
+            "last_run_study": study_name,
+        }
+    )
     return merged
 
 
@@ -944,9 +985,13 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # knows who clicked Start), so one click yields one run rather than a
     # dispatch run plus a worker run — and so every link of a self-chain writes
     # into the same continuous log.
-    run_logs.attach_run(status_key, run_id=task_args.get("log_run_id", ""),
-                        started_by=task_args.get("started_by", ""),
-                        task_args=task_args, mode="cloud")
+    run_logs.attach_run(
+        status_key,
+        run_id=task_args.get("log_run_id", ""),
+        started_by=task_args.get("started_by", ""),
+        task_args=task_args,
+        mode="cloud",
+    )
 
     if task_args.get("chunk_index", 0) > 0 or task_args.get("phase") == "poll":
         reporter.resume()
@@ -982,6 +1027,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         # an admin edit on the web service.
         try:
             from fyp.core.fyp_config import reload_var_schema_if_changed
+
             reload_var_schema_if_changed()
         except Exception as e:
             print(f"[task {name}] reload_var_schema_if_changed failed: {e}")
@@ -999,8 +1045,9 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
             next_args = chain_result["next_task_args"]
             # A worker may name its own chain deadline; otherwise fall back to
             # the shared table rather than to Cloud Tasks' 600s default.
-            deadline = (chain_result.get("dispatch_deadline_seconds")
-                        or dispatch_deadline_for(next_task_name, next_args))
+            deadline = chain_result.get("dispatch_deadline_seconds") or dispatch_deadline_for(
+                next_task_name, next_args
+            )
             cross_task = next_task_name != name
 
             if cross_task:
@@ -1008,8 +1055,9 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # step shows as Success, then dispatch a fresh task.
                 reporter.complete()
                 outcome = "Success"
-                success, msg = _dispatch_cloud_task(next_task_name, next_args,
-                                                    dispatch_deadline_seconds=deadline)
+                success, msg = _dispatch_cloud_task(
+                    next_task_name, next_args, dispatch_deadline_seconds=deadline
+                )
                 if success:
                     print(f"[{name}] Pipeline: dispatched {next_task_name}: {msg}")
                     # Mark the pipeline as in-flight so the UI keeps polling
@@ -1034,14 +1082,22 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # log_run_id and started_by ride along too, so every batch of a
                 # self-chaining scraper or annotator appends to one continuous
                 # run instead of starting a fresh, unattributed log per link.
-                for k in ("pipeline_run_id", "pipeline_remaining",
-                          "pipeline_stage_total", "pipeline_stage_index",
-                          "pipeline_fanout", "pipeline_leaves",
-                          "pipeline_fork_ts", "log_run_id", "started_by"):
+                for k in (
+                    "pipeline_run_id",
+                    "pipeline_remaining",
+                    "pipeline_stage_total",
+                    "pipeline_stage_index",
+                    "pipeline_fanout",
+                    "pipeline_leaves",
+                    "pipeline_fork_ts",
+                    "log_run_id",
+                    "started_by",
+                ):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
                 success, msg = _dispatch_cloud_task(
-                    name, next_args,
+                    name,
+                    next_args,
                     dispatch_deadline_seconds=deadline,
                     schedule_delay_seconds=chain_result.get("next_dispatch_delay_seconds"),
                 )
@@ -1049,17 +1105,21 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                     # A worker that chains for a reason other than "here comes
                     # the next batch" (the batch annotator re-polling the same
                     # Gemini job, say) can supply its own wording.
-                    reporter.log(chain_result.get("chain_log_message")
-                                 or f"Chained to next batch: {msg}")
+                    reporter.log(
+                        chain_result.get("chain_log_message") or f"Chained to next batch: {msg}"
+                    )
                 else:
                     reporter.fail(f"Chain dispatch failed: {msg}")
                     # A broken hand-off used to leave no stats row at all —
                     # the ledger is the only durable trace of it.
                     task_failures.record_failure(
-                        task=name, error=f"Chain dispatch failed: {msg}",
-                        status_key=status_key, retry_count=retry_count,
+                        task=name,
+                        error=f"Chain dispatch failed: {msg}",
+                        status_key=status_key,
+                        retry_count=retry_count,
                         disposition=task_failures.DISPOSITION_DEAD,
-                        task_args=task_args, phase="chain_dispatch",
+                        task_args=task_args,
+                        phase="chain_dispatch",
                     )
                 # Stop the heartbeat so it doesn't race with the next chain
                 # link's reporter writing to the same GCS status file.
@@ -1085,15 +1145,21 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         chain_result = None
         # Retry-safe tasks get another queue attempt until the app-side bound
         # is reached; everything else is terminal on the first failure.
-        will_retry = (name in QUEUE_RETRY_SAFE
-                      and retry_count < MAX_APP_RETRIES - 1
-                      and not reporter.check_cancelled())
+        will_retry = (
+            name in QUEUE_RETRY_SAFE
+            and retry_count < MAX_APP_RETRIES - 1
+            and not reporter.check_cancelled()
+        )
         task_failures.record_failure(
-            task=name, error=f"{e}\n{traceback.format_exc()}",
-            status_key=status_key, retry_count=retry_count,
-            disposition=(task_failures.DISPOSITION_RETRYING if will_retry
-                         else task_failures.DISPOSITION_DEAD),
-            task_args=task_args, phase="run",
+            task=name,
+            error=f"{e}\n{traceback.format_exc()}",
+            status_key=status_key,
+            retry_count=retry_count,
+            disposition=(
+                task_failures.DISPOSITION_RETRYING if will_retry else task_failures.DISPOSITION_DEAD
+            ),
+            task_args=task_args,
+            phase="run",
         )
     finally:
         # Runs on the chain hop's early return too — a stale sink would keep
@@ -1102,14 +1168,21 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
 
     # Update process_stats (same logic as monitor_process_completion)
     end_time = datetime.now(UTC)
-    duration = (end_time - _chain_run_start(
-        start_time, reporter._status.get("start_time"))).total_seconds()
+    duration = (
+        end_time - _chain_run_start(start_time, reporter._status.get("start_time"))
+    ).total_seconds()
 
     load_process_stats()
     process_stats[status_key] = _merge_run_stats(
-        process_stats.get(status_key, {}), reporter._status.get("data", {}),
-        name=name, task_args=task_args, outcome=outcome, end_time=end_time,
-        duration=duration, study_name=study_name)
+        process_stats.get(status_key, {}),
+        reporter._status.get("data", {}),
+        name=name,
+        task_args=task_args,
+        outcome=outcome,
+        end_time=end_time,
+        duration=duration,
+        study_name=study_name,
+    )
     save_process_stats()
 
     # ---- Refresh-run advance. Every finished step asks the planner what, if
@@ -1168,14 +1241,19 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     if not entry.get("auto_armed"):
         # Say so: 2026-09-03 two armed refreshes failed to fire and every exit
         # here was silent, so the record could not tell which one it was.
-        print(f"[{just_finished}] Armed consolidate: no arm flag in process_stats "
-              f"(keys: {sorted(k for k in entry if 'arm' in k) or 'none'}).")
+        print(
+            f"[{just_finished}] Armed consolidate: no arm flag in process_stats "
+            f"(keys: {sorted(k for k in entry if 'arm' in k) or 'none'})."
+        )
         return False
 
     # The other enrichment workers may still be running on separate task-runner
     # instances — read their GCS status (single source of truth across instances).
-    others = [w for w in SCRAPER_PROCESS_NAMES + ["queue_annotator", "queue_annotator_batch"]
-              if w != just_finished]
+    others = [
+        w
+        for w in SCRAPER_PROCESS_NAMES + ["queue_annotator", "queue_annotator_batch"]
+        if w != just_finished
+    ]
     for worker in others:
         st = read_task_status(worker) or {}
         if (st.get("state") or "").lower() == "running":
@@ -1183,19 +1261,25 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
             try:
                 age = (datetime.now(UTC) - datetime.fromisoformat(updated)).total_seconds()
                 if age <= 600:
-                    print(f"[{just_finished}] Armed consolidate deferred: {worker} still "
-                          f"running (heartbeat {age:.0f}s ago).")
+                    print(
+                        f"[{just_finished}] Armed consolidate deferred: {worker} still "
+                        f"running (heartbeat {age:.0f}s ago)."
+                    )
                     return False
             except (ValueError, TypeError):
-                print(f"[{just_finished}] Armed consolidate deferred: {worker} running "
-                      f"with an unreadable heartbeat {updated!r}.")
+                print(
+                    f"[{just_finished}] Armed consolidate deferred: {worker} running "
+                    f"with an unreadable heartbeat {updated!r}."
+                )
                 return False  # Malformed heartbeat — treat as running, be safe.
 
     # Don't double-fire onto an already-running consolidate.
     cs = read_task_status("consolidate_enrichment") or {}
     if (cs.get("state") or "").lower() == "running":
-        print(f"[{just_finished}] Armed consolidate deferred: a consolidation is already "
-              f"running (since {cs.get('start_time')}).")
+        print(
+            f"[{just_finished}] Armed consolidate deferred: a consolidation is already "
+            f"running (since {cs.get('start_time')})."
+        )
         return False
 
     # Defer while a local scrape-queue drain holds a lease on the shared
@@ -1203,6 +1287,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     # set, so the next worker completion — or a manual trigger — re-checks.
     try:
         from web_interface import drain_lease
+
         if drain_lease.active_drain_leases():
             print(f"[{just_finished}] Armed consolidate deferred: local drain lease active.")
             return False
@@ -1228,18 +1313,23 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     # Plan the run before dispatching, exactly as the button does, so an armed
     # refresh that fires while nobody is watching is charted like any other.
     record = refresh_pipeline.plan_run(
-        "consolidate_enrichment", kind="armed",
+        "consolidate_enrichment",
+        kind="armed",
         started_by=f"auto-pipeline (armed, after {just_finished})",
         mode="refresh" if auto_refresh else "consolidate_only",
-        origin_task_args=task_args, provisional=bool(auto_refresh))
+        origin_task_args=task_args,
+        provisional=bool(auto_refresh),
+    )
     refresh_pipeline.seed_run(record)
     task_args["pipeline_run_id"] = record["run_id"]
     task_args["pipeline_stage_index"] = 1
     task_args["pipeline_stage_total"] = record["stage_total"]
 
     success, msg = _dispatch_cloud_task(
-        "consolidate_enrichment", task_args,
-        dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", task_args))
+        "consolidate_enrichment",
+        task_args,
+        dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", task_args),
+    )
     if success:
         print(f"[{just_finished}] Armed Consolidate & Refresh fired: {msg}")
         return True
@@ -1276,7 +1366,7 @@ def loop_owes_work() -> dict:
         owed = ce.get_meta(SETTLE_OWED_KEY)
         if owed:
             out["settle"] = True
-            out["settle_since"] = (owed.get("since") if isinstance(owed, dict) else None)
+            out["settle_since"] = owed.get("since") if isinstance(owed, dict) else None
         deferred = downstream_refresh.get_deferred_impact() or {}
         if deferred and deferred.get("from_plan"):
             out["refresh"] = True
@@ -1305,21 +1395,27 @@ def _tick_enrichment_supervisor(just_finished: str) -> None:
     """
     try:
         from web_interface.services import collection_enrichment as ce
+
         owes = loop_owes_work()
         if not ce.armed_plans() and not (owes["settle"] or owes["refresh"]):
             return
         from ..process_manager import _dispatch_cloud_task, dispatch_deadline_for
+
         success, msg = _dispatch_cloud_task(
-            "enrichment_supervisor", {},
-            dispatch_deadline_seconds=dispatch_deadline_for("enrichment_supervisor", {}))
-        print(f"[{just_finished}] Enrichment supervisor tick: {msg}" if success else
-              f"[{just_finished}] Enrichment supervisor tick failed to dispatch: {msg}")
+            "enrichment_supervisor",
+            {},
+            dispatch_deadline_seconds=dispatch_deadline_for("enrichment_supervisor", {}),
+        )
+        print(
+            f"[{just_finished}] Enrichment supervisor tick: {msg}"
+            if success
+            else f"[{just_finished}] Enrichment supervisor tick failed to dispatch: {msg}"
+        )
     except Exception as exc:
         print(f"[{just_finished}] Enrichment supervisor tick skipped: {exc}")
 
 
-def _advance_refresh_run(name: str, task_args: dict, outcome: str,
-                         cancelled: bool = False) -> None:
+def _advance_refresh_run(name: str, task_args: dict, outcome: str, cancelled: bool = False) -> None:
     """Move the refresh run forward now that ``name`` has finished.
 
     The run's shape is planned when it starts; this decides, one completion at a
@@ -1355,27 +1451,30 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
 
     if name in leaves:
         _maybe_finish_forked_pipeline(
-            leaves, fork_ts=task_args.get("pipeline_fork_ts"), run_id=run_id)
+            leaves, fork_ts=task_args.get("pipeline_fork_ts"), run_id=run_id
+        )
         return
 
     if cancelled:
         print(f"[{name}] Refresh run {run_id}: cancelled; stopping the run.")
-        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
-                                             reason="cancelled", run_id=run_id)
+        record = refresh_pipeline.finish_run(
+            partial=True, failed_at=name, reason="cancelled", run_id=run_id
+        )
         _publish_run_summary(record)
         return
 
     if outcome != "Success":
         print(f"[{name}] Refresh run {run_id}: step failed; stopping the run.")
-        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
-                                             run_id=run_id)
+        record = refresh_pipeline.finish_run(partial=True, failed_at=name, run_id=run_id)
         _publish_run_summary(record)
         return
 
     record = refresh_pipeline.load_run()
     if not record or record.get("run_id") != run_id:
-        print(f"[{name}] Refresh run {run_id} is no longer the current run "
-              f"({(record or {}).get('run_id')}); not advancing.")
+        print(
+            f"[{name}] Refresh run {run_id} is no longer the current run "
+            f"({(record or {}).get('run_id')}); not advancing."
+        )
         return
 
     action = refresh_pipeline.next_actions(record)  # prunes applied to the copy
@@ -1384,8 +1483,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
         print(f"[{name}] Refresh run: skipping {step} — {reason}.")
 
     if action["action"] == "finish":
-        record = refresh_pipeline.finish_run(partial=False, prunes=prunes,
-                                             run_id=run_id)
+        record = refresh_pipeline.finish_run(partial=False, prunes=prunes, run_id=run_id)
         _publish_run_summary(record)
         print(f"[{name}] Refresh run finished: {(record or {}).get('summary')}")
         return
@@ -1412,15 +1510,24 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
         # nothing running, nothing completed, record untouched — and the
         # abandoned-run sweep kills the run while its next step is on its way.
         stamp_task_status(
-            next_name, "queued", "Queued — waiting for a worker…",
+            next_name,
+            "queued",
+            "Queued — waiting for a worker…",
             stage={"stage_index": stage_index, "stage_total": stage_total},
         )
         # Run log first, task second — see start_process for the race.
-        run_logs.open_run(next_name, run_id=next_args["log_run_id"],
-                          started_by=actor, task_args=next_args, mode="cloud")
+        run_logs.open_run(
+            next_name,
+            run_id=next_args["log_run_id"],
+            started_by=actor,
+            task_args=next_args,
+            mode="cloud",
+        )
         success, msg = _dispatch_cloud_task(
-            next_name, next_args,
-            dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
+            next_name,
+            next_args,
+            dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args),
+        )
         if success:
             print(f"[{name}] Refresh run: advanced to {next_name}: {msg}")
             # Record the scope this step was actually given, and why. The
@@ -1430,16 +1537,20 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
             # numbers while the run rebuilt far more.
             refresh_pipeline.record_dispatch(
                 run_id,
-                {next_name: {
-                    "scope": refresh_pipeline.scope_note(next_name, action["task_args"]),
-                    "reason": (action.get("reasons") or {}).get(next_name, ""),
-                }},
-                prunes=prunes)
+                {
+                    next_name: {
+                        "scope": refresh_pipeline.scope_note(next_name, action["task_args"]),
+                        "reason": (action.get("reasons") or {}).get(next_name, ""),
+                    }
+                },
+                prunes=prunes,
+            )
         else:
             print(f"[{name}] Refresh run: advance to {next_name} failed: {msg}")
             run_logs.abort_run(next_name, msg)
-            record = refresh_pipeline.finish_run(partial=True, failed_at=next_name,
-                                                 prunes=prunes, run_id=run_id)
+            record = refresh_pipeline.finish_run(
+                partial=True, failed_at=next_name, prunes=prunes, run_id=run_id
+            )
             _publish_run_summary(record)
         return
 
@@ -1461,14 +1572,18 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
         # this-run status rather than a stale one. A booting task overwrites it
         # with "running"; a dropped one stays queued and the grace check below
         # flips it to failed.
-        stamp_task_status(leaf, "queued", "Queued — waiting for a worker…",
-                          stage=leaf_stage)
+        stamp_task_status(leaf, "queued", "Queued — waiting for a worker…", stage=leaf_stage)
         # Run log first, task second — see start_process for the race.
-        run_logs.open_run(leaf, run_id=child_args["log_run_id"],
-                          started_by=actor, task_args=child_args, mode="cloud")
+        run_logs.open_run(
+            leaf,
+            run_id=child_args["log_run_id"],
+            started_by=actor,
+            task_args=child_args,
+            mode="cloud",
+        )
         success, msg = _dispatch_cloud_task(
-            leaf, child_args,
-            dispatch_deadline_seconds=dispatch_deadline_for(leaf, child_args))
+            leaf, child_args, dispatch_deadline_seconds=dispatch_deadline_for(leaf, child_args)
+        )
         if success:
             print(f"[{name}] Refresh run: forked {leaf}: {msg}")
             dispatched[leaf] = {
@@ -1479,17 +1594,23 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
             print(f"[{name}] Refresh run: fork of {leaf} failed: {msg}")
             run_logs.abort_run(leaf, msg)
             stamp_task_status(
-                leaf, "failed",
+                leaf,
+                "failed",
                 "Couldn't start — the task could not be queued for a worker.",
-                error=f"Dispatch failed: {msg}", stage=leaf_stage)
+                error=f"Dispatch failed: {msg}",
+                stage=leaf_stage,
+            )
             any_failed = True
 
     refresh_pipeline.record_dispatch(
-        run_id, dispatched, prunes=prunes, fork_at=name,
-        fork={"leaves": leaf_names, "fork_ts": fork_ts})
+        run_id,
+        dispatched,
+        prunes=prunes,
+        fork_at=name,
+        fork={"leaves": leaf_names, "fork_ts": fork_ts},
+    )
     if any_failed:
-        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
-                                             run_id=run_id)
+        record = refresh_pipeline.finish_run(partial=True, failed_at=name, run_id=run_id)
         _publish_run_summary(record)
 
 
@@ -1512,12 +1633,16 @@ def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
     next_args["started_by"] = _pipeline_actor(task_args, name)
     next_args["log_run_id"] = run_logs.new_run_id()
     # Run log first, task second — see start_process for the race.
-    run_logs.open_run(next_name, run_id=next_args["log_run_id"],
-                      started_by=next_args["started_by"],
-                      task_args=next_args, mode="cloud")
+    run_logs.open_run(
+        next_name,
+        run_id=next_args["log_run_id"],
+        started_by=next_args["started_by"],
+        task_args=next_args,
+        mode="cloud",
+    )
     success, msg = _dispatch_cloud_task(
-        next_name, next_args,
-        dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
+        next_name, next_args, dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args)
+    )
     if success:
         print(f"[{name}] Chained to {next_name}: {msg}")
     else:
@@ -1535,7 +1660,10 @@ def _publish_run_summary(record: dict | None) -> None:
     overwrite the consolidation's standing summary.
     """
     if not record or record.get("origin_kind") not in (
-            "consolidate", "armed", "refresh_downstream"):
+        "consolidate",
+        "armed",
+        "refresh_downstream",
+    ):
         return
     refreshed = refresh_pipeline.run_refreshed_anything(record)
     load_process_stats()
@@ -1574,12 +1702,14 @@ def resolve_forked_pipeline() -> None:
     fork = (record or {}).get("fork")
     if not record or not record.get("in_flight") or not fork:
         return
-    _maybe_finish_forked_pipeline(fork.get("leaves") or [], fork.get("fork_ts"),
-                                  run_id=record.get("run_id"))
+    _maybe_finish_forked_pipeline(
+        fork.get("leaves") or [], fork.get("fork_ts"), run_id=record.get("run_id")
+    )
 
 
-def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None,
-                                  run_id: str | None = None) -> None:
+def _maybe_finish_forked_pipeline(
+    leaves: list[str], fork_ts: str | None = None, run_id: str | None = None
+) -> None:
     """Finalize the fan-out once every forked leaf has reached a terminal state.
 
     Called both by each completing leaf (event-driven) and by the status-poll
@@ -1638,7 +1768,8 @@ def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None,
         # past the grace window counts as failed-to-start (dropped by a 429).
         if grace_exceeded and state != "running":
             stamp_task_status(
-                leaf, "failed",
+                leaf,
+                "failed",
                 "Couldn't start — no worker was available, so the task was "
                 "dropped. The other steps ran; retry this one.",
                 error="Task was not initiated (HTTP 429 / no instance, no retry).",
@@ -1674,7 +1805,7 @@ def _set_pipeline_in_flight(value: bool) -> None:
     refresh_pipeline.set_in_flight(value)
 
 
-@internal_bp.route('/internal/run-task/<name>', methods=['POST'])
+@internal_bp.route("/internal/run-task/<name>", methods=["POST"])
 def internal_run_task(name: str):
     """Endpoint called by Google Cloud Tasks to execute a background task.
     The internal_bp blueprint is CSRF-exempted since Cloud Tasks authenticates
@@ -1710,4 +1841,3 @@ def internal_run_task(name: str):
     if name in QUEUE_RETRY_SAFE and retry_count < MAX_APP_RETRIES - 1:
         return f"Task {name} failed; retry requested", 503
     return "Task failed (terminal)", 200
-

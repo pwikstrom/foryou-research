@@ -17,13 +17,11 @@ from fyp.analysis.pca import (
 def test_single_col():
     print("Testing single column dataframe...")
     # Create a dummy counts dataframe with 1 column (category) and multiple groups
-    df = pd.DataFrame({
-        "cat1": [10, 20, 30, 40, 50]
-    }, index=["g1", "g2", "g3", "g4", "g5"])
-    
+    df = pd.DataFrame({"cat1": [10, 20, 30, 40, 50]}, index=["g1", "g2", "g3", "g4", "g5"])
+
     print("Dataframe:")
     print(df)
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         try:
@@ -35,20 +33,23 @@ def test_single_col():
                 max_components=15,
                 target_explained_variance=0.8,
                 drop_rare_globally_below=0.001,
-                verbose=True)
-            
+                verbose=True,
+            )
+
             print("\nResult:")
             print(wer)
-            
+
         except Exception as e:
             print(f"\nCaught exception: {e}")
             import traceback
+
             traceback.print_exc()
 
     print(f"\nCaught {len(w)} warnings.")
     for warning in w:
         print(f"{warning.category.__name__}: {warning.message}")
         print(f"  File: {warning.filename}, Line: {warning.lineno}")
+
 
 if __name__ == "__main__":
     test_single_col()

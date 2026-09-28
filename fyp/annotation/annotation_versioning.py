@@ -52,13 +52,12 @@ def _data_io():
     return data_io
 
 
-
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
+
 
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
@@ -86,13 +85,9 @@ _VERSION_GEN_PARAM_KEYS = (
 _DESCRIPTOR_CACHE: dict = {}
 
 
-
-
 def _sha256_hex(text: str, length: int = 64) -> str:
     """Return the hex SHA-256 of ``text`` truncated to ``length`` chars."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
-
-
 
 
 def compute_schema_hash(schema_json: dict | None) -> str:
@@ -109,8 +104,6 @@ def compute_schema_hash(schema_json: dict | None) -> str:
         return "none"
     canonical = json.dumps(schema_json, sort_keys=True, ensure_ascii=False)
     return _sha256_hex(canonical, 16)
-
-
 
 
 def build_version_descriptor(
@@ -177,8 +170,6 @@ def build_version_descriptor(
     return descriptor
 
 
-
-
 def active_prompt_text() -> str:
     """Return the active system-instruction prompt text.
 
@@ -223,8 +214,6 @@ def legacy_prompt_text() -> str:
     except OSError as e:
         logger.warning(f"WARNING: legacy prompt file unreadable ({e}).")
         return ""
-
-
 
 
 def active_version_descriptor(fresh: bool = False) -> dict:
@@ -321,8 +310,6 @@ def active_version_descriptor(fresh: bool = False) -> dict:
     return descriptor
 
 
-
-
 def active_annotation_version(fresh: bool = False) -> str:
     """Return just the active ``annotation_version`` id, never raising.
 
@@ -335,13 +322,9 @@ def active_annotation_version(fresh: bool = False) -> str:
         return "unknown"
 
 
-
-
 def empty_registry() -> dict:
     """Return a fresh, empty version registry."""
     return {"versions": {}, "preferred": None}
-
-
 
 
 def _snapshot_field_metadata() -> dict:
@@ -356,8 +339,6 @@ def _snapshot_field_metadata() -> dict:
     from fyp.core import registry_metadata as rm
 
     return rm.snapshot_field_metadata(ac)
-
-
 
 
 def _register_into(
@@ -398,8 +379,6 @@ def _register_into(
     return registry
 
 
-
-
 def _promote_into(registry: dict, version: str) -> dict:
     """Return a copy of ``registry`` with ``preferred`` set to ``version``."""
     registry = _copy.deepcopy(registry)
@@ -408,8 +387,6 @@ def _promote_into(registry: dict, version: str) -> dict:
     registry.pop("active", None)  # drop the pre-2026-07 key name if present
     registry["preferred"] = version
     return registry
-
-
 
 
 def load_registry() -> dict:
@@ -433,15 +410,11 @@ def load_registry() -> dict:
     return empty_registry()
 
 
-
-
 def save_registry(registry: dict) -> None:
     """Persist the version registry to storage."""
     _data_io().save_json(
         data=registry, storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
-
-
 
 
 def register_version(
@@ -471,14 +444,17 @@ def register_version(
 
     registry = load_registry()
     updated = _register_into(
-        registry, descriptor, prompt_text, schema_json, created_at, field_metadata,
+        registry,
+        descriptor,
+        prompt_text,
+        schema_json,
+        created_at,
+        field_metadata,
         contract_text=contract_text,
     )
     if updated != registry:
         save_registry(updated)
     return updated
-
-
 
 
 def get_preferred_version() -> str | None:
@@ -488,8 +464,6 @@ def get_preferred_version() -> str | None:
     new annotations are stamped with (:func:`active_annotation_version`).
     """
     return load_registry().get("preferred")
-
-
 
 
 def promote_version(version: str) -> dict:
@@ -508,8 +482,6 @@ def promote_version(version: str) -> dict:
     return registry
 
 
-
-
 def list_versions() -> list[dict]:
     """Return version summaries (without the bulky prompt/schema/metadata snapshots).
 
@@ -522,7 +494,8 @@ def list_versions() -> list[dict]:
     summaries = []
     for version, info in registry.get("versions", {}).items():
         summary = {
-            k: v for k, v in info.items()
+            k: v
+            for k, v in info.items()
             if k not in ("prompt_text", "schema_json", "field_metadata", "contract_text")
         }
         summary["preferred"] = version == preferred
@@ -531,11 +504,7 @@ def list_versions() -> list[dict]:
     return summaries
 
 
-
-
 VERSIONS_IN_DATA_FILENAME = "annotation_versions_in_data.json"
-
-
 
 
 def versions_in_data() -> set | None:
@@ -562,8 +531,6 @@ def versions_in_data() -> set | None:
     return None
 
 
-
-
 def record_versions_in_data(versions) -> None:
     """Persist the distinct ``annotation_version`` values present in the archive.
 
@@ -587,8 +554,6 @@ def record_versions_in_data(versions) -> None:
         pass
 
 
-
-
 def union_field_metadata(versions_to_include: set | None = None) -> dict:
     """Merge ``field_metadata`` across registered versions.
 
@@ -607,7 +572,9 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     except Exception as e:
         # Loud on purpose: silently returning {} here once hid an import-cycle
         # failure that cost per-instance schema-hash drift.
-        logger.warning(f"WARNING: annotation version registry unreadable ({e}); legacy union empty.")
+        logger.warning(
+            f"WARNING: annotation version registry unreadable ({e}); legacy union empty."
+        )
         return {}
     if versions_to_include is None:
         in_data = versions_in_data()
@@ -616,8 +583,6 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     from fyp.core import registry_metadata as rm
 
     return rm.union_field_metadata(registry, versions_to_include)
-
-
 
 
 def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
@@ -630,8 +595,6 @@ def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
     if "source_platform" in df.columns:
         return ["source_platform", item_col]
     return [item_col]
-
-
 
 
 def select_preferred_view(
@@ -676,8 +639,6 @@ def select_preferred_view(
     return combined.reset_index(drop=True)
 
 
-
-
 def select_version_view(
     df: pd.DataFrame,
     version: str,
@@ -698,8 +659,6 @@ def select_version_view(
     return rows.reset_index(drop=True)
 
 
-
-
 def ensure_active_version_registered() -> str:
     """Register the current config's version if new; return its id.
 
@@ -717,8 +676,6 @@ def ensure_active_version_registered() -> str:
         return descriptor["annotation_version"]
     except Exception:
         return "unknown"
-
-
 
 
 def _harvest_orphan_metadata() -> dict:
@@ -747,8 +704,6 @@ def _harvest_orphan_metadata() -> dict:
         return out
     except Exception:
         return {}
-
-
 
 
 def backfill_legacy_metadata(orphan_metadata: dict | None = None) -> dict:
@@ -785,8 +740,6 @@ def backfill_legacy_metadata(orphan_metadata: dict | None = None) -> dict:
     if changed:
         save_registry(registry)
     return registry
-
-
 
 
 if __name__ == "__main__":

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Script Name: 
-Description: 
+Script Name:
+Description:
 Author: Patrik
-Date: 
+Date:
 """
-
 
 import copy
 import functools
@@ -34,11 +33,14 @@ from fyp.core.logging_setup import get_logger
 from fyp.core.polars_ops import fast_vertical_concat
 from fyp.annotation.recode_variables import infer_timezone_offset
 from fyp.core.types import convert_dtypes_to_pyarrow
-from fyp.core.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, RECEIVED_ACTIVITY_TYPES, share_method_base
+from fyp.core.utils import (
+    ACTIVITY_TYPE_MAP,
+    KNOWN_ACTIVITY_TYPES,
+    RECEIVED_ACTIVITY_TYPES,
+    share_method_base,
+)
 
 logger = get_logger(__name__)
-
-
 
 
 def _cf():
@@ -48,8 +50,6 @@ def _cf():
     return fyp_cf
 
 
-
-
 def _collections_label() -> str:
     """Lazy accessor for the config-derived collections label."""
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
@@ -57,9 +57,15 @@ def _collections_label() -> str:
     return COLLECTIONS_LABEL
 
 
-
-
-WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
+WEEKDAY_MAPPER = {
+    1: "monday",
+    2: "tuesday",
+    3: "wednesday",
+    4: "thursday",
+    5: "friday",
+    6: "saturday",
+    7: "sunday",
+}
 
 # Maps a collection's standard donated-metadata scratch columns to the canonical
 # scrape base fields (config/scrape_contract.toml) written by save_enrichment_seed.
@@ -115,7 +121,9 @@ def _zone_offset_hours(utc_timestamps: pd.Series, tz) -> pd.Series:
     measures the wall-clock difference. ``NaT`` rows stay ``NaN``.
     """
     converted = utc_timestamps.dt.tz_convert(tz)
-    return (converted.dt.tz_localize(None) - utc_timestamps.dt.tz_localize(None)) / pd.Timedelta(hours=1)
+    return (converted.dt.tz_localize(None) - utc_timestamps.dt.tz_localize(None)) / pd.Timedelta(
+        hours=1
+    )
 
 
 def _first_manifest_tz(df: pd.DataFrame):
@@ -155,10 +163,12 @@ except Exception:
         "link_method": "string[pyarrow]",
     }
     _ACTIVITY_REQUIRED_CORE = [
-        "activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset",
+        "activity_type",
+        "utc_timestamp",
+        "collection_id",
+        "data_source",
+        "tz_offset",
     ]
-
-
 
 
 def _day_segment_from_hour(hour: int) -> str:
@@ -171,8 +181,6 @@ def _day_segment_from_hour(hour: int) -> str:
     if hour <= 17:
         return "afternoon"
     return "evening"
-
-
 
 
 COLLECTION_TAGS_FILENAME = "collections_tags.json"
@@ -212,8 +220,6 @@ LEDGER_SKIP_OUTCOMES: set[str] = {
 # ledger under that name (it belongs to the older file) and never pruned
 # from the manifest.
 BLOCKED_OUTCOME = "blocked_name_collision"
-
-
 
 
 def apply_cid_remap_to_metadata(
@@ -266,7 +272,10 @@ def apply_cid_remap_to_metadata(
     # --- collections_tags.json ---
     tags = {}
     if data_io.exists(storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME):
-        tags = data_io.load_json(storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME) or {}
+        tags = (
+            data_io.load_json(storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME)
+            or {}
+        )
 
     tags_changed = False
     for old_cid, new_cid in cid_remap.items():
@@ -297,12 +306,16 @@ def apply_cid_remap_to_metadata(
             if "user_id" in old_entry:
                 if "user_id" not in new_entry:
                     new_entry["user_id"] = old_entry["user_id"]
-                elif (new_entry.get("user_id") and old_entry.get("user_id")
-                      and new_entry["user_id"] != old_entry["user_id"]):
+                elif (
+                    new_entry.get("user_id")
+                    and old_entry.get("user_id")
+                    and new_entry["user_id"] != old_entry["user_id"]
+                ):
                     logger.warning(
                         f"cid_remap {old_cid} -> {new_cid}: collections linked to different "
                         f"accounts ({old_entry['user_id']!r} vs {new_entry['user_id']!r}); "
-                        f"keeping {new_entry['user_id']!r}")
+                        f"keeping {new_entry['user_id']!r}"
+                    )
             tags[new_cid] = new_entry
             summary["tag_keys_merged"].append((old_cid, new_cid))
         else:
@@ -311,12 +324,16 @@ def apply_cid_remap_to_metadata(
         tags_changed = True
 
     if tags_changed and save:
-        data_io.save_json(data=tags, storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME)
+        data_io.save_json(
+            data=tags, storage_location=storage_location, filename=COLLECTION_TAGS_FILENAME
+        )
 
     # --- studies.json ---
     studies = {}
     if data_io.exists(storage_location=storage_location, filename=STUDIES_FILENAME):
-        studies = data_io.load_json(storage_location=storage_location, filename=STUDIES_FILENAME) or {}
+        studies = (
+            data_io.load_json(storage_location=storage_location, filename=STUDIES_FILENAME) or {}
+        )
 
     studies_changed = False
     for sname, sdata in studies.items():
@@ -339,7 +356,9 @@ def apply_cid_remap_to_metadata(
             studies_changed = True
 
     if studies_changed and save:
-        data_io.save_json(data=studies, storage_location=storage_location, filename=STUDIES_FILENAME)
+        data_io.save_json(
+            data=studies, storage_location=storage_location, filename=STUDIES_FILENAME
+        )
 
     if verbose:
         logger.info(
@@ -350,14 +369,6 @@ def apply_cid_remap_to_metadata(
         )
 
     return summary
-
-
-
-
-
-
-
-
 
 
 def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> pd.DataFrame:
@@ -414,8 +425,6 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> 
     return df
 
 
-
-
 def _engagement_token(atype: str, edata) -> str:
     """Build one folded ``extra_data`` token: ``"<atype>"`` or ``"<atype>:context"``."""
     if edata is not pd.NA and pd.notna(edata):
@@ -423,8 +432,6 @@ def _engagement_token(atype: str, edata) -> str:
         if edata_clean:
             return f"{atype}:{edata_clean}"
     return str(atype)
-
-
 
 
 def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFrame:
@@ -517,17 +524,29 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
             # Find the start of this run by walking back
             run_item = df.at[idx, "item_id"]
             run_start = idx
-            while run_start - 1 in df.index and pd.notna(df.at[run_start - 1, "item_id"]) and df.at[run_start - 1, "item_id"] == run_item:
+            while (
+                run_start - 1 in df.index
+                and pd.notna(df.at[run_start - 1, "item_id"])
+                and df.at[run_start - 1, "item_id"] == run_item
+            ):
                 run_start -= 1
             # Find the end of the run by walking forward
             run_end = idx
-            while run_end + 1 in df.index and pd.notna(df.at[run_end + 1, "item_id"]) and df.at[run_end + 1, "item_id"] == run_item:
+            while (
+                run_end + 1 in df.index
+                and pd.notna(df.at[run_end + 1, "item_id"])
+                and df.at[run_end + 1, "item_id"] == run_item
+            ):
                 run_end += 1
             run_slice = list(range(run_start, run_end + 1))
             visited.update(run_slice)
 
             # Find the first play activity in the run
-            play_rows = [i for i in run_slice if df.at[i, "activity_type"] is not pd.NA and df.at[i, "activity_type"] == "play"]
+            play_rows = [
+                i
+                for i in run_slice
+                if df.at[i, "activity_type"] is not pd.NA and df.at[i, "activity_type"] == "play"
+            ]
             if not play_rows:
                 df.loc[run_slice, "play_duration"] = pd.NA
                 continue
@@ -561,9 +580,14 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     is_engagement = df["activity_type"].isin(list(ACTIVITY_TYPE_MAP.keys()))
     is_play = df["activity_type"] == "play"
     first_play_ts = df.loc[is_play.fillna(False), "utc_timestamp"].min() if is_play.any() else None
-    in_window = (df["utc_timestamp"] >= first_play_ts).fillna(False) if first_play_ts is not None \
+    in_window = (
+        (df["utc_timestamp"] >= first_play_ts).fillna(False)
+        if first_play_ts is not None
         else pd.Series(False, index=df.index)
-    pending = df.index[is_engagement & df["item_id"].notna() & in_window & ~df.index.isin(list(folded_rows))]
+    )
+    pending = df.index[
+        is_engagement & df["item_id"].notna() & in_window & ~df.index.isin(list(folded_rows))
+    ]
     if len(pending) > 0:
         plays = df.loc[is_play & df["item_id"].notna(), "item_id"]
         play_rows_by_item = {k: list(v) for k, v in plays.groupby(plays).groups.items()}
@@ -595,18 +619,16 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
         df.at[idx, "link_method"] = ",".join(parts)
 
     # 5. Cap play_duration at cap_seconds and cast to the project dtype.
-    df["play_duration"] = df["play_duration"].map(
-        lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA
-    ).astype("int64[pyarrow]")
+    df["play_duration"] = (
+        df["play_duration"]
+        .map(lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA)
+        .astype("int64[pyarrow]")
+    )
 
     return df
 
 
-
-
-
 class ForYouBaseCollection(ABC):
-
     platform_url_template: str | None = None
     # Class attributes so registries (e.g. the viewer's platform URL map, the
     # raw-upload location list) can read platform facts without instantiating;
@@ -628,10 +650,6 @@ class ForYouBaseCollection(ABC):
         if cls.__name__ != "ForYouCollection":
             ForYouBaseCollection._registry.append(cls)
             cls._register_class_raw_location()
-
-
-
-
 
     @classmethod
     def _register_class_raw_location(cls) -> None:
@@ -661,7 +679,9 @@ class ForYouBaseCollection(ABC):
             abs_path = os.path.join(_cf()["paths"]["activity_data"], source_platform, raw_path)
             data_io.register_location(raw_path, abs_path)
         except Exception as exc:
-            logger.warning(f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}")
+            logger.warning(
+                f"WARNING: could not register raw location '{raw_path}' for {cls.__name__}: {exc}"
+            )
 
     # The canonical required columns come from config/activity_contract.toml.
     REQUIRED_COLUMNS = _ACTIVITY_REQUIRED_COLUMNS
@@ -671,9 +691,6 @@ class ForYouBaseCollection(ABC):
     # column filter; save_enrichment_seed persists them separately as a scrape
     # enrichment seed. Keys of _SEED_TO_CANONICAL.
     SEED_SCRATCH_COLUMNS = list(_SEED_TO_CANONICAL.keys())
-
-
-
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         self.collection_id = collection_id
@@ -722,34 +739,34 @@ class ForYouBaseCollection(ABC):
         self.records_read_this_run: dict[str, int] = {}
         self.load_drops_this_run: dict[str, dict[str, int]] = {}
 
-
     def clear(self):
         self.data = pd.DataFrame()
         self.state = "empty"
 
+    def load_processed(self, processed_fn: str, drop_similar_activity_sequences: bool = True):
 
-
-    def load_processed(
-        self, 
-        processed_fn: str, 
-        drop_similar_activity_sequences: bool = True):
-        
         if self.verbose:
-            logger.info(f"Loading processed data from {processed_fn}. Data source: {self.source_platform}_{self.data_source}")
+            logger.info(
+                f"Loading processed data from {processed_fn}. Data source: {self.source_platform}_{self.data_source}"
+            )
 
         new_processed_data = data_io.load_parquet(
             storage_location=self.processed_storage_location,
             filename=processed_fn,
-            verbose=False#self.verbose
+            verbose=False,  # self.verbose
         )
 
         if len(self.data) > 0:
             if self.state != "processed":
                 if self.verbose:
-                    logger.warning(f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data.")
+                    logger.warning(
+                        f"Warning: There is data in this collection but the state is '{self.state}'. Existing data must be processed. Cannot load new data."
+                    )
                 return
             if self.verbose:
-                logger.info(f"Adding {len( new_processed_data):,} new processed activities to existing {len(self.data):,} activities.")
+                logger.info(
+                    f"Adding {len(new_processed_data):,} new processed activities to existing {len(self.data):,} activities."
+                )
             # Vertical concat via polars: parallel, avoids pandas' O(n) copy
             # on accumulating appends. Matters at events-scale (tens of millions
             # of rows). See fyp/polars_ops.py.
@@ -763,7 +780,9 @@ class ForYouBaseCollection(ABC):
 
         if drop_similar_activity_sequences:
             if self.verbose:
-                logger.info("Dropping activities from files with overlapping/similar activity sequences")
+                logger.info(
+                    "Dropping activities from files with overlapping/similar activity sequences"
+                )
             cid_remap = self.identify_similar_file_content(drop_them=True)
             if cid_remap:
                 apply_cid_remap_to_metadata(cid_remap, verbose=self.verbose)
@@ -771,43 +790,38 @@ class ForYouBaseCollection(ABC):
         if self.verbose:
             logger.info(f"There are now {len(self.data):,} activities in the collection.")
 
-
-
-
     def save_processed(self):
 
         if self.state != "processed":
-            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            logger.warning(
+                f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first."
+            )
             return
-        
+
         fn = f"{self.source_platform}_{self.data_source}_processed_activities.parquet"
 
         if len(self.data) > 0:
             local_time_cols = [c for c in self.data.columns if c.startswith("local_")]
             if len(local_time_cols) > 0:
-                logger.info("This dataset seem to have 'local time features' added. I am dropping these columns when saving.")
+                logger.info(
+                    "This dataset seem to have 'local time features' added. I am dropping these columns when saving."
+                )
                 self.data.drop(local_time_cols, axis=1, inplace=True)
-                
+
             _ = data_io.save_parquet(
-                df=self.data,
-                storage_location=self.processed_storage_location,
-                filename=fn)
+                df=self.data, storage_location=self.processed_storage_location, filename=fn
+            )
 
         for collection in self.collections:
             self.discarded_raw_files.extend(collection.discarded_raw_files)
         self.discarded_raw_files = list(set(self.discarded_raw_files))
 
-
         data_io.save_json(
             data=self.discarded_raw_files,
             storage_location=self.processed_storage_location,
             filename=self.discarded_collections_filename,
-            verbose=False#self.verbose
+            verbose=False,  # self.verbose
         )
-
-
-
-
 
     @staticmethod
     def _finalize_activity_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -829,10 +843,6 @@ class ForYouBaseCollection(ABC):
         df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
         df.reset_index(drop=True, inplace=True)
         return df
-
-
-
-
 
     def save_enrichment_seed(self) -> None:
         """Persist donated item metadata as an enrichment seed (platform-agnostic).
@@ -909,13 +919,9 @@ class ForYouBaseCollection(ABC):
         if self.verbose:
             logger.info(f"Saved {len(seed):,} donated enrichment-seed rows to {fn}.")
 
-
-
-
-
-
-    def load_raw(self, skip_these_raw_files: list[str] = [],
-                 held_for_review: set[str] | None = None):
+    def load_raw(
+        self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None
+    ):
         """Load every raw file in ``raw_path`` that is not in the skip set.
 
         Args:
@@ -928,10 +934,14 @@ class ForYouBaseCollection(ABC):
                 file, so the name-collision tripwire must not fire on them.
         """
         if self.verbose:
-            logger.info(f"Loading raw data for collection '{self.source_platform}_{self.data_source}'.")
+            logger.info(
+                f"Loading raw data for collection '{self.source_platform}_{self.data_source}'."
+            )
 
         if self.state != "empty":
-            logger.info(f"This collection '{self.source_platform}_{self.data_source}' is not empty. The current data will be replaced.")
+            logger.info(
+                f"This collection '{self.source_platform}_{self.data_source}' is not empty. The current data will be replaced."
+            )
 
         if self.raw_path is None:
             raise ValueError("No raw path has been set for this collection.")
@@ -951,21 +961,28 @@ class ForYouBaseCollection(ABC):
 
         MANIFEST_FILENAME = "ingestion_manifest.json"
 
-        all_the_files = [fn for fn in data_io.listdir(self.raw_path)
-                         if not fn.startswith(".") and fn != MANIFEST_FILENAME]
+        all_the_files = [
+            fn
+            for fn in data_io.listdir(self.raw_path)
+            if not fn.startswith(".") and fn != MANIFEST_FILENAME
+        ]
 
-        all_the_files = [fn for fn in all_the_files if fn not in skip_these_raw_files+self.discarded_raw_files]
+        all_the_files = [
+            fn for fn in all_the_files if fn not in skip_these_raw_files + self.discarded_raw_files
+        ]
 
         # Load ingestion manifest (written at upload time with collection_id / tags per file)
         manifest: dict = {}
         if data_io.exists(storage_location=self.raw_path, filename=MANIFEST_FILENAME):
-            manifest = data_io.load_json(
-                storage_location=self.raw_path,
-                filename=MANIFEST_FILENAME,
-                verbose=False
-            ) or {}
-        self.manifest_this_run = {fn: (meta if isinstance(meta, dict) else {})
-                                  for fn, meta in manifest.items()}
+            manifest = (
+                data_io.load_json(
+                    storage_location=self.raw_path, filename=MANIFEST_FILENAME, verbose=False
+                )
+                or {}
+            )
+        self.manifest_this_run = {
+            fn: (meta if isinstance(meta, dict) else {}) for fn, meta in manifest.items()
+        }
 
         # Tripwire. A manifest entry is an upload waiting for THIS run; when
         # its stored name is in the skip set the loop below never opens it,
@@ -980,17 +997,17 @@ class ForYouBaseCollection(ABC):
         for fn in manifest:
             if fn not in skip_set or fn in held:
                 continue
-            reason = ("its name is in the discard list"
-                      if fn in self.discarded_raw_files
-                      else "its name is already a raw file in the dataset")
+            reason = (
+                "its name is in the discard list"
+                if fn in self.discarded_raw_files
+                else "its name is already a raw file in the dataset"
+            )
             self.blocked_this_run[fn] = reason
             logger.error(
                 f"ERROR: pending upload '{fn}' in {self.raw_path} was NOT ingested: "
                 f"{reason}. The entry stays pending; give the file a fresh stored "
-                f"name or remove the entry.")
-
-
-
+                f"name or remove the entry."
+            )
 
         many_dfs = []
         # load all files in the directory
@@ -1028,7 +1045,7 @@ class ForYouBaseCollection(ABC):
                 self.file_stats_this_run[fn]["parse_notes"] = list(parse_notes)
 
             if len(one_df) > 0:
-                mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
+                mtime = data_io.getmtime(storage_location=self.raw_path, filename=fn)
                 one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
                 one_df["raw_file"] = fn
 
@@ -1041,9 +1058,12 @@ class ForYouBaseCollection(ABC):
 
                 # Per-file donor timezone for the offset resolver (scratch column,
                 # dropped by process()'s filter before _standardize()).
-                one_df[_MANIFEST_TZ_COLUMN] = self._current_file_tz if self._current_file_tz else pd.NA
+                one_df[_MANIFEST_TZ_COLUMN] = (
+                    self._current_file_tz if self._current_file_tz else pd.NA
+                )
 
-                if self.verbose: logger.info(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
+                if self.verbose:
+                    logger.info(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
 
             # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
             if len(one_df) >= self.min_required_rows_per_raw_file:
@@ -1060,23 +1080,29 @@ class ForYouBaseCollection(ABC):
                         variant = "reviewed" if file_meta.get("client_reviewed") else None
                         verdict = self.sentinel.check_raw(self, fn, one_df, variant=variant)
                     except Exception as exc:
-                        logger.warning(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
+                        logger.warning(
+                            f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway."
+                        )
                 withheld = list((verdict or {}).get("withheld_sections") or [])
                 if withheld:
                     # The donor's choice, not drift: noted on the ledger entry.
                     self.file_stats_this_run[fn]["withheld_sections"] = withheld
                     if self.verbose:
-                        logger.info(f"   [{fn}] Donation leaves out {len(withheld)} section(s): "
-                                    + ", ".join(withheld[:8]) + (" …" if len(withheld) > 8 else ""))
+                        logger.info(
+                            f"   [{fn}] Donation leaves out {len(withheld)} section(s): "
+                            + ", ".join(withheld[:8])
+                            + (" …" if len(withheld) > 8 else "")
+                        )
                 if verdict is not None and verdict["status"] == "quarantined":
                     self.quarantined_this_run[fn] = verdict
-                    if self.verbose: logger.info(f"Quarantining file: {fn} (structure drift).")
+                    if self.verbose:
+                        logger.info(f"Quarantining file: {fn} (structure drift).")
                 else:
                     many_dfs.append(one_df)
             else:
-                if self.verbose: logger.info(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
+                if self.verbose:
+                    logger.info(f"Discarding file: {fn}. Too few rows: {len(one_df):,}")
                 self.discarded_raw_files.append(fn)
-
 
         if len(many_dfs) > 1:
             # Vertical concat via polars — fast multi-frame stack of per-file
@@ -1090,8 +1116,6 @@ class ForYouBaseCollection(ABC):
         else:
             self.data = pd.DataFrame()
             self.state = "empty"
-
-
 
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
@@ -1123,9 +1147,6 @@ class ForYouBaseCollection(ABC):
         section it does not list before upload.
         """
 
-
-
-
     def note_file(self, filename: str, message: str) -> None:
         """Record a per-file note from a parser for the ingestion ledger.
 
@@ -1140,12 +1161,9 @@ class ForYouBaseCollection(ABC):
         """
         self.parse_notes_this_run.setdefault(filename, []).append(message)
 
-
-
-
-
-    def record_load_count(self, filename: str, records_read: int,
-                          dropped: dict[str, int] | None = None) -> None:
+    def record_load_count(
+        self, filename: str, records_read: int, dropped: dict[str, int] | None = None
+    ) -> None:
         """Record what ``load_single_raw`` read when its frame does not show it.
 
         A parser that drops records while loading (a browser capture's
@@ -1162,21 +1180,14 @@ class ForYouBaseCollection(ABC):
         """
         self.records_read_this_run[filename] = int(records_read)
         if dropped:
-            self.load_drops_this_run[filename] = {k: int(v) for k, v in dropped.items() if int(v) > 0}
-
-
-
-
+            self.load_drops_this_run[filename] = {
+                k: int(v) for k, v in dropped.items() if int(v) > 0
+            }
 
     def _explicit_drops(self, filename: str) -> int:
         """Rows already recorded under any drop reason for ``filename`` this run."""
         dropped = (self.file_stats_this_run.get(str(filename)) or {}).get("dropped") or {}
         return int(sum(int(n) for n in dropped.values()))
-
-
-
-
-
 
     def _record_file_drops(self, counts, reason: str) -> None:
         """Accumulate per-file dropped-row counts under a reason key.
@@ -1195,8 +1206,6 @@ class ForYouBaseCollection(ABC):
             dropped = entry.setdefault("dropped", {})
             dropped[reason] = dropped.get(reason, 0) + n
 
-
-
     @classmethod
     def accepted_upload_suffixes(cls) -> list[str]:
         """File suffixes this platform's ``load_single_raw`` can actually parse.
@@ -1210,8 +1219,6 @@ class ForYouBaseCollection(ABC):
             empty list when any file type is accepted.
         """
         return []
-
-
 
     @classmethod
     def zip_member_suffixes(cls) -> list[str]:
@@ -1227,8 +1234,6 @@ class ForYouBaseCollection(ABC):
             does not apply to this platform.
         """
         return []
-
-
 
     @classmethod
     def review_manifest(cls) -> dict | None:
@@ -1246,9 +1251,6 @@ class ForYouBaseCollection(ABC):
             platform has no pre-upload review (uploads go through unchanged).
         """
         return None
-
-
-
 
     def fingerprint_raw(self, filename: str) -> dict:
         """Extract a structure fingerprint from one raw upload (drift detection).
@@ -1278,7 +1280,9 @@ class ForYouBaseCollection(ABC):
             if not local_path:
                 raise ValueError(f"could not fetch '{filename}' from '{self.raw_path}'")
             try:
-                return _structure_sentinel.fingerprint_zip(local_path, type(self).zip_member_suffixes())
+                return _structure_sentinel.fingerprint_zip(
+                    local_path, type(self).zip_member_suffixes()
+                )
             finally:
                 data_io.release_local_copy(local_path)
         # Extensionless uploads (e.g. AIO donations fetched from S3 are bare
@@ -1291,24 +1295,26 @@ class ForYouBaseCollection(ABC):
             pass
         return {"kind": "unknown", "member_paths": [], "key_paths": [], "stats": {}}
 
-
-
-
     def process(self):
 
         if self.state == "empty":
             if self.verbose:
-                logger.info(f"There is no data from platform/data_source '{self.source_platform}_{self.data_source}'. Nothing for me to do.")
+                logger.info(
+                    f"There is no data from platform/data_source '{self.source_platform}_{self.data_source}'. Nothing for me to do."
+                )
             return
-
 
         if self.state != "raw":
             if self.verbose:
-                logger.warning(f"Platform/data_source '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first.")
+                logger.warning(
+                    f"Platform/data_source '{self.source_platform}_{self.data_source}' is not in raw state. Cannot process. Please load raw data first."
+                )
             return
 
         if self.verbose:
-            logger.info(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
+            logger.info(
+                f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'..."
+            )
 
         # Per-file row counts before/after the platform's process_single pass:
         # the difference is rows the platform could not turn into activities
@@ -1318,7 +1324,9 @@ class ForYouBaseCollection(ABC):
         _before = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
         _explicit_before = {fn: self._explicit_drops(fn) for fn in _before}
 
-        self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
+        self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(
+            self.process_single
+        )
 
         self._note_undeclared_activity_types()
 
@@ -1329,7 +1337,10 @@ class ForYouBaseCollection(ABC):
         if "raw_file" in self.data.columns and len(self.data) > 0:
             _after = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
         self._record_file_drops(
-            {fn: n - _after.get(fn, 0) - (self._explicit_drops(fn) - _explicit_before[fn]) for fn, n in _before.items()},
+            {
+                fn: n - _after.get(fn, 0) - (self._explicit_drops(fn) - _explicit_before[fn])
+                for fn, n in _before.items()
+            },
             "not_parseable",
         )
 
@@ -1342,15 +1353,19 @@ class ForYouBaseCollection(ABC):
                 **_activity_contract.platform_columns(_ACTIVITY_CONTRACT, self.source_platform),
             }
 
-        good_columns = list((set(self.additional_columns.keys()) | set(list(self.REQUIRED_COLUMNS.keys()))) & set(self.data.columns))
-        
+        good_columns = list(
+            (set(self.additional_columns.keys()) | set(list(self.REQUIRED_COLUMNS.keys())))
+            & set(self.data.columns)
+        )
+
         self.data = self.data[good_columns].copy()
         self._standardize()
         self.state = "processed"
 
         if self.verbose:
-            logger.info(f"Raw data from platform/data_source '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}")        
-
+            logger.info(
+                f"Raw data from platform/data_source '{self.source_platform}_{self.data_source}' is now processed. Number of rows: {len(self.data):,}"
+            )
 
     @abstractmethod
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1391,11 +1406,6 @@ class ForYouBaseCollection(ABC):
         ``not_parseable``.
         """
 
-
-
-
-
-
     def _note_undeclared_activity_types(self) -> None:
         """Record, per file, any activity_type outside this class's declaration.
 
@@ -1405,19 +1415,28 @@ class ForYouBaseCollection(ABC):
         ``KNOWN_ACTIVITY_TYPES`` altogether) lands as a ledger note on the
         file, instead of as a silent new category in every downstream count.
         """
-        if not self.emitted_activity_types or "activity_type" not in self.data.columns \
-                or "raw_file" not in self.data.columns or len(self.data) == 0:
+        if (
+            not self.emitted_activity_types
+            or "activity_type" not in self.data.columns
+            or "raw_file" not in self.data.columns
+            or len(self.data) == 0
+        ):
             return
         allowed = set(self.emitted_activity_types) & KNOWN_ACTIVITY_TYPES
-        undeclared = self.data[~self.data["activity_type"].isin(list(allowed)) & self.data["activity_type"].notna()]
+        undeclared = self.data[
+            ~self.data["activity_type"].isin(list(allowed)) & self.data["activity_type"].notna()
+        ]
         if len(undeclared) == 0:
             return
         for raw_file, grp in undeclared.groupby("raw_file"):
             types = ", ".join(sorted(str(t) for t in grp["activity_type"].unique()))
-            self.note_file(str(raw_file), f"{len(grp):,} row(s) carry an undeclared activity type ({types}).")
-            logger.warning(f"[{raw_file}] {len(grp):,} row(s) carry an activity type outside "
-                           f"{type(self).__name__}.emitted_activity_types: {types}")
-
+            self.note_file(
+                str(raw_file), f"{len(grp):,} row(s) carry an undeclared activity type ({types})."
+            )
+            logger.warning(
+                f"[{raw_file}] {len(grp):,} row(s) carry an activity type outside "
+                f"{type(self).__name__}.emitted_activity_types: {types}"
+            )
 
     def identify_similar_file_content(
         self,
@@ -1488,14 +1507,18 @@ class ForYouBaseCollection(ABC):
         del drop_them  # always treated as True; kept for caller compatibility
 
         if self.state != "processed":
-            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first.")
+            logger.warning(
+                f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot identify similar file content. Please process data first."
+            )
             return {}
 
         if len(self.data) == 0:
             return {}
 
         # 1. Per-raw_file timestamp sets at second resolution.
-        seconds = (self.data["utc_timestamp"].astype("int64[pyarrow]") // 1_000_000_000).astype("int64")
+        seconds = (self.data["utc_timestamp"].astype("int64[pyarrow]") // 1_000_000_000).astype(
+            "int64"
+        )
         ts_sets: dict[str, set[int]] = (
             self.data.assign(_sec=seconds)
             .groupby("raw_file", observed=True)["_sec"]
@@ -1522,7 +1545,7 @@ class ForYouBaseCollection(ABC):
             ts_a = ts_sets[a]
             if len(ts_a) == 0:
                 continue
-            for b in raw_files[i + 1:]:
+            for b in raw_files[i + 1 :]:
                 ts_b = ts_sets[b]
                 denom = min(len(ts_a), len(ts_b))
                 if denom == 0:
@@ -1542,14 +1565,14 @@ class ForYouBaseCollection(ABC):
         # 3. For each multi-file cluster, pick canonical collection_id from
         # the raw_file with the latest ts_added_to_dataset.
         canonical_map: dict[str, str] = {}  # raw_file -> canonical collection_id
-        cid_remap: dict[str, str] = {}      # old_collection_id -> new_collection_id
+        cid_remap: dict[str, str] = {}  # old_collection_id -> new_collection_id
         if multi_clusters:
-            latest_per_file = (
-                self.data.groupby("raw_file", observed=True)["ts_added_to_dataset"].max()
-            )
-            collection_id_per_file = (
-                self.data.groupby("raw_file", observed=True)["collection_id"].first()
-            )
+            latest_per_file = self.data.groupby("raw_file", observed=True)[
+                "ts_added_to_dataset"
+            ].max()
+            collection_id_per_file = self.data.groupby("raw_file", observed=True)[
+                "collection_id"
+            ].first()
             for files in multi_clusters:
                 latest_file = max(files, key=lambda f: latest_per_file[f])
                 canonical_collection_id = collection_id_per_file[latest_file]
@@ -1595,8 +1618,10 @@ class ForYouBaseCollection(ABC):
             share_key = pd.Series("", index=self.data.index, dtype="string[pyarrow]")
             if is_share.any():
                 share_key[is_share] = (
-                    self.data.loc[is_share, "extra_data"].astype("string")
-                    .map(share_method_base, na_action="ignore").fillna("")
+                    self.data.loc[is_share, "extra_data"]
+                    .astype("string")
+                    .map(share_method_base, na_action="ignore")
+                    .fillna("")
                 )
         else:
             share_key = pd.Series("", index=self.data.index, dtype="string[pyarrow]")
@@ -1611,28 +1636,25 @@ class ForYouBaseCollection(ABC):
             .copy()
         )
         if self.verbose and rows_before > len(self.data):
-            logger.info(f"Deduped {rows_before - len(self.data):,} overlapping rows within clusters.")
+            logger.info(
+                f"Deduped {rows_before - len(self.data):,} overlapping rows within clusters."
+            )
 
         return cid_remap
-
-
-
-
 
     def add_local_time_features(self) -> None:
         df = self.data
 
         # A refresh with nothing ingested (fresh install, all files pending)
         # leaves an empty frame with no columns — nothing to derive.
-        if len(df) == 0 or 'tz_offset' not in df.columns:
+        if len(df) == 0 or "tz_offset" not in df.columns:
             return
 
-        offset_timedelta = pd.to_timedelta(df['tz_offset'], unit='h')
+        offset_timedelta = pd.to_timedelta(df["tz_offset"], unit="h")
         df["local_timestamp"] = df["utc_timestamp"] + offset_timedelta
 
-
         ts = df["local_timestamp"]
-        
+
         iso = ts.dt.isocalendar()  # DataFrame: year, week, day
         iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
         iso["year_week"] = iso["year"].astype(str) + "-" + iso["week"].astype(str)
@@ -1648,12 +1670,11 @@ class ForYouBaseCollection(ABC):
         # computed here only to derive the day segment and never stored.
         df["local_hour"] = local_hour
 
-        df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(dtype_backend="pyarrow")
+        df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(
+            dtype_backend="pyarrow"
+        )
 
         df["local_date"] = ts.dt.date.astype("date32[pyarrow]")
-
-
-
 
     def add_session_ids(self, gap_threshold_s: int | None = None) -> None:
         """Assign a persistent sitting-level ``session_id`` to every activity.
@@ -1666,32 +1687,27 @@ class ForYouBaseCollection(ABC):
         """
         self.data = assign_session_ids(self.data, gap_threshold_s=gap_threshold_s)
 
-
-
-
-
-
     def _standardize(self):
         """
         Ensures the dataframe has all required columns and correct dtypes.
         """
         df = self.data.copy()
 
-        df['source_platform'] = self.source_platform
-        df['data_source'] = self.data_source
+        df["source_platform"] = self.source_platform
+        df["data_source"] = self.data_source
 
         if "collection_id" not in df.columns:
             if self.collection_id is not None:
-                df['collection_id'] = self.collection_id
+                df["collection_id"] = self.collection_id
             elif "raw_file" in df.columns:
                 logger.warning(
                     "No collection_id on the rows being standardized; falling back "
                     "to the raw filename. Uploads through the Hub always carry a "
-                    "manifest collection_id — this is a legacy path.")
+                    "manifest collection_id — this is a legacy path."
+                )
                 df["collection_id"] = df["raw_file"]
             else:
                 df["collection_id"] = pd.NA
-
 
         # 1. Ensure all required columns exist
         for col, dtype in self.REQUIRED_COLUMNS.items():
@@ -1709,17 +1725,20 @@ class ForYouBaseCollection(ABC):
                     df[col] = df[col].astype(dtype)
                 except Exception as e:
                     if self.verbose:
-                        logger.warning(f"Error casting {col} to {dtype}: {e}. Trying fyp.types.convert_dtypes_to_pyarrow.")
+                        logger.warning(
+                            f"Error casting {col} to {dtype}: {e}. Trying fyp.types.convert_dtypes_to_pyarrow."
+                        )
                     # Fallback to the robust converter
                     # converting specific column to pyarrow backed using the helper
                     # Note: convert_dtypes_to_pyarrow works on DF, but we can try to apply it to the column or the whole DF later
-        
+
         # Use the robust converter for the whole DF for good measure to ensure everything is pyarrow backed where possible
         # and specifically fixing complex types if any
         try:
-             df = convert_dtypes_to_pyarrow(df, verbose=False)
+            df = convert_dtypes_to_pyarrow(df, verbose=False)
         except Exception as e:
-             if self.verbose: logger.warning(f"Warning: convert_dtypes_to_pyarrow failed: {e}")
+            if self.verbose:
+                logger.warning(f"Warning: convert_dtypes_to_pyarrow failed: {e}")
 
         # Hard-drop integrity gate: a row missing any required-core STRUCTURAL field
         # is malformed and dropped. Column presence is already ensured above; this
@@ -1748,20 +1767,10 @@ class ForYouBaseCollection(ABC):
 
         # -----------------------------------------------------
         # It's important to sort by time
-        df.sort_values("utc_timestamp", inplace=True, kind='mergesort')
+        df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
         df.reset_index(drop=True, inplace=True)
 
         self.data = df.copy()
-
-
-
-
-
-
-
-
-
-
 
 
 class ForYouCollection(ForYouBaseCollection):
@@ -1773,9 +1782,6 @@ class ForYouCollection(ForYouBaseCollection):
         self.ledger_filename = INGESTION_LEDGER_FILENAME
         self.ledger: dict = {"schema_version": 1, "files": {}}
         self._load_ledger()
-
-
-
 
     def _load_ledger(self) -> None:
         """Load the per-file ingestion ledger from disk. If absent, fall back
@@ -1842,9 +1848,6 @@ class ForYouCollection(ForYouBaseCollection):
         self._upgrade_legacy_ledger_entries()
         self._refresh_discarded_from_ledger()
 
-
-
-
     def _upgrade_legacy_ledger_entries(self) -> None:
         """Re-stamp entries an older migration mislabelled ``discarded_at_load``.
 
@@ -1865,9 +1868,6 @@ class ForYouCollection(ForYouBaseCollection):
             entry["raw_rows"] = None
             entry["kept_rows"] = None
 
-
-
-
     def _refresh_discarded_from_ledger(self) -> None:
         """Rebuild ``self.discarded_raw_files`` from the ledger, preserving any
         filenames already in the list (e.g. too-few-rows entries a sub-collection
@@ -1877,14 +1877,10 @@ class ForYouCollection(ForYouBaseCollection):
         """
         files = self.ledger.get("files", {})
         ledger_skips = [
-            fn for fn, meta in files.items()
-            if (meta or {}).get("outcome") in LEDGER_SKIP_OUTCOMES
+            fn for fn, meta in files.items() if (meta or {}).get("outcome") in LEDGER_SKIP_OUTCOMES
         ]
         merged = list(dict.fromkeys(ledger_skips + list(self.discarded_raw_files)))
         self.discarded_raw_files[:] = merged
-
-
-
 
     def update_ledger(self, per_file_summary: list[dict]) -> None:
         """Update the in-memory ledger with the outcomes from a freshly
@@ -1940,9 +1936,6 @@ class ForYouCollection(ForYouBaseCollection):
                     files[fn][k] = existing[k]
         self._refresh_discarded_from_ledger()
 
-
-
-
     def prune_manifests(self) -> None:
         """Drop ingestion-manifest entries this run resolved.
 
@@ -1960,11 +1953,12 @@ class ForYouCollection(ForYouBaseCollection):
                 continue
             if not data_io.exists(storage_location=collection.raw_path, filename=MANIFEST_FILENAME):
                 continue
-            manifest = data_io.load_json(
-                storage_location=collection.raw_path,
-                filename=MANIFEST_FILENAME,
-                verbose=False
-            ) or {}
+            manifest = (
+                data_io.load_json(
+                    storage_location=collection.raw_path, filename=MANIFEST_FILENAME, verbose=False
+                )
+                or {}
+            )
             consumed = self._files_consumed_this_run(collection)
             blocked = set(getattr(collection, "blocked_this_run", {}) or {})
             trimmed = {}
@@ -1977,7 +1971,8 @@ class ForYouCollection(ForYouBaseCollection):
                 if not data_io.exists(storage_location=collection.raw_path, filename=fn):
                     logger.warning(
                         f"Dropping manifest entry '{fn}' from {collection.raw_path}: "
-                        f"the raw file no longer exists.")
+                        f"the raw file no longer exists."
+                    )
                     continue
                 trimmed[fn] = meta
             if len(trimmed) < len(manifest):
@@ -1985,13 +1980,12 @@ class ForYouCollection(ForYouBaseCollection):
                     data=trimmed,
                     storage_location=collection.raw_path,
                     filename=MANIFEST_FILENAME,
-                    verbose=False
+                    verbose=False,
                 )
                 if self.verbose:
-                    logger.info(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
-
-
-
+                    logger.info(
+                        f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}"
+                    )
 
     @staticmethod
     def _files_consumed_this_run(collection) -> set[str]:
@@ -2002,9 +1996,6 @@ class ForYouCollection(ForYouBaseCollection):
         held = set(getattr(collection, "quarantined_this_run", {}) or {})
         held |= set(getattr(collection, "load_failed_this_run", {}) or {})
         return {fn for fn in stats if fn not in held}
-
-
-
 
     def save_ledger(self) -> None:
         """Persist the ledger, merging this process's changes into storage.
@@ -2040,9 +2031,6 @@ class ForYouCollection(ForYouBaseCollection):
             verbose=False,
         )
 
-
-
-
     def _merge_ledger_into_storage(self, files: dict, snapshot: dict | None) -> dict:
         """Three-way merge of this process's ledger edits over the stored file.
 
@@ -2073,26 +2061,24 @@ class ForYouCollection(ForYouBaseCollection):
             merged[fn] = entry
         return merged
 
-
-
-
     def _read_stored_ledger_files(self) -> dict | None:
         """The ``files`` mapping currently in storage, or None when unreadable."""
         try:
-            if not data_io.exists(storage_location=self.processed_storage_location,
-                                  filename=self.ledger_filename):
+            if not data_io.exists(
+                storage_location=self.processed_storage_location, filename=self.ledger_filename
+            ):
                 return {}
-            stored = data_io.load_json(storage_location=self.processed_storage_location,
-                                       filename=self.ledger_filename, verbose=False)
+            stored = data_io.load_json(
+                storage_location=self.processed_storage_location,
+                filename=self.ledger_filename,
+                verbose=False,
+            )
         except Exception as exc:
             logger.warning(f"WARNING: could not re-read the ingestion ledger before saving: {exc}")
             return None
         if not isinstance(stored, dict) or not isinstance(stored.get("files"), dict):
             return {}
         return stored["files"]
-
-
-
 
     def _quarantines_reviewed_after_evaluation(self, files: dict) -> set[str]:
         """Stored names this run quarantined that an admin has since reviewed."""
@@ -2101,7 +2087,8 @@ class ForYouCollection(ForYouBaseCollection):
             for fn, verdict in (getattr(collection, "quarantined_this_run", {}) or {}).items():
                 evaluated_at[fn] = (verdict or {}).get("ts_evaluated") or ""
         candidates = {
-            fn for fn, entry in files.items()
+            fn
+            for fn, entry in files.items()
             if (entry or {}).get("outcome") == "quarantined_structure" and fn in evaluated_at
         }
         if not candidates:
@@ -2109,15 +2096,15 @@ class ForYouCollection(ForYouBaseCollection):
         try:
             stored_verdicts = _structure_sentinel.load_verdicts().get("files") or {}
         except Exception as exc:
-            logger.warning(f"WARNING: could not read structure verdicts before saving the ledger: {exc}")
+            logger.warning(
+                f"WARNING: could not read structure verdicts before saving the ledger: {exc}"
+            )
             return set()
         return {
-            fn for fn in candidates
+            fn
+            for fn in candidates
             if _structure_sentinel.review_is_newer(stored_verdicts.get(fn), evaluated_at[fn])
         }
-
-
-
 
     def remove_from_ledger(self, filename: str) -> bool:
         """Drop a single filename from the ledger so it will be rescanned on
@@ -2131,9 +2118,6 @@ class ForYouCollection(ForYouBaseCollection):
             self._refresh_discarded_from_ledger()
             return True
         return False
-
-
-
 
     def set_ledger_outcome(self, filename: str, outcome: str, note: str | None = None) -> bool:
         """Overwrite a single file's ledger outcome (e.g. a structure-review
@@ -2152,14 +2136,11 @@ class ForYouCollection(ForYouBaseCollection):
         self._refresh_discarded_from_ledger()
         return True
 
-
     def load_single_raw(self, fn: str) -> pd.DataFrame:
         raise ValueError("Don't use this class to load raw data")
-    
+
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Don't use this class to process raw data")
-
-
 
     def register_collection_class(self, collection_class: type[ForYouBaseCollection]):
         if not issubclass(collection_class, ForYouBaseCollection):
@@ -2173,8 +2154,6 @@ class ForYouCollection(ForYouBaseCollection):
         if self.verbose:
             logger.info(f"Registered collection class: {collection_class}")
 
-
-
     def load_processed(self):
 
         fn = f"{_collections_label()}_recoded.parquet"
@@ -2184,9 +2163,7 @@ class ForYouCollection(ForYouBaseCollection):
             return
 
         self.data = data_io.load_parquet(
-            storage_location=self.processed_storage_location,
-            filename=fn,
-            verbose=False
+            storage_location=self.processed_storage_location, filename=fn, verbose=False
         )
 
         stale_cols = [c for c in self.data.columns if c.startswith("__")]
@@ -2205,9 +2182,6 @@ class ForYouCollection(ForYouBaseCollection):
             if self.verbose:
                 logger.info("Processed collection file was empty.")
 
-
-
-
     def _backfill_source_platform(self) -> None:
         """Fill missing ``source_platform`` with the default platform (self-heal).
 
@@ -2217,18 +2191,19 @@ class ForYouCollection(ForYouBaseCollection):
         pre-column history is TikTok by definition (same argument as the
         scrape-side backfill in ``fyp.scrape.consolidate_and_save_scrape_data``).
         """
-        default_platform = _scrape_contract.default_platform(_scrape_contract.load_contract()) or "tiktok"
+        default_platform = (
+            _scrape_contract.default_platform(_scrape_contract.load_contract()) or "tiktok"
+        )
         if "source_platform" not in self.data.columns:
             self.data["source_platform"] = pd.NA
         n_missing = int(self.data["source_platform"].isna().sum())
         if n_missing:
-            logger.info(f"Backfilling source_platform='{default_platform}' on {n_missing:,} pre-column activity row(s).")
+            logger.info(
+                f"Backfilling source_platform='{default_platform}' on {n_missing:,} pre-column activity row(s)."
+            )
         self.data["source_platform"] = (
             self.data["source_platform"].fillna(default_platform).astype("string[pyarrow]")
         )
-
-
-
 
     def _backfill_play_duration(self) -> None:
         """Recompute ``play_duration`` for platforms ingested before it went base (self-heal).
@@ -2245,7 +2220,9 @@ class ForYouCollection(ForYouBaseCollection):
         if "raw_file" not in self.data.columns or "activity_type" not in self.data.columns:
             return
         if "play_duration" not in self.data.columns:
-            self.data["play_duration"] = pd.Series(pd.NA, index=self.data.index, dtype="int64[pyarrow]")
+            self.data["play_duration"] = pd.Series(
+                pd.NA, index=self.data.index, dtype="int64[pyarrow]"
+            )
 
         for platform, grp in self.data.groupby("source_platform", dropna=False):
             grp_plays = grp[grp["activity_type"] == "play"]
@@ -2255,20 +2232,19 @@ class ForYouCollection(ForYouBaseCollection):
             for _, file_grp in grp.groupby("raw_file", dropna=False):
                 ordered = file_grp.sort_values("utc_timestamp", kind="mergesort")
                 recomputed = derive_play_duration(ordered)
-                self.data.loc[ordered.index, "play_duration"] = (
-                    recomputed["play_duration"].set_axis(ordered.index)
-                )
-                self.data.loc[ordered.index, "extra_data"] = (
-                    recomputed["extra_data"].set_axis(ordered.index)
+                self.data.loc[ordered.index, "play_duration"] = recomputed[
+                    "play_duration"
+                ].set_axis(ordered.index)
+                self.data.loc[ordered.index, "extra_data"] = recomputed["extra_data"].set_axis(
+                    ordered.index
                 )
         self.data["play_duration"] = self.data["play_duration"].astype("int64[pyarrow]")
 
-
-
-
     def process(self):
         if len(self.collections) == 0:
-            logger.warning("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+            logger.warning(
+                "This ForYouCollection does not have any sub collections. You need to register a collection class first."
+            )
             return
         if self.verbose:
             logger.info("Processing the registered sub collections...")
@@ -2279,13 +2255,12 @@ class ForYouCollection(ForYouBaseCollection):
         if self.verbose:
             logger.info("Done processing the registered sub collections.")
 
-
-
-
     def load_raw(self):
         if len(self.collections) == 0:
             if self.verbose:
-                logger.warning("This ForYouCollection does not have any sub collections. You need to register a collection class first.")
+                logger.warning(
+                    "This ForYouCollection does not have any sub collections. You need to register a collection class first."
+                )
             return
         if self.verbose:
             logger.info("Loading new raw data for the registered sub collections...")
@@ -2295,9 +2270,13 @@ class ForYouCollection(ForYouBaseCollection):
         self.discarded_raw_files = list(set(self.discarded_raw_files))
 
         if len(self.data) > 0:
-            skip_these_raw_files = self.data['raw_file'].unique().tolist() + self.discarded_raw_files
+            skip_these_raw_files = (
+                self.data["raw_file"].unique().tolist() + self.discarded_raw_files
+            )
             if self.verbose:
-                logger.info(f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection.")
+                logger.info(
+                    f"Skipping {len(skip_these_raw_files):,} raw files that are already discarded or already in the collection."
+                )
         else:
             skip_these_raw_files = self.discarded_raw_files
 
@@ -2305,22 +2284,25 @@ class ForYouCollection(ForYouBaseCollection):
         # kept, name in the ledger skip set) until reviewed — legitimate, not
         # a collision, so the sub-collections' tripwire must ignore them.
         held_for_review = {
-            fn for fn, meta in (self.ledger.get("files") or {}).items()
+            fn
+            for fn, meta in (self.ledger.get("files") or {}).items()
             if (meta or {}).get("outcome") == "quarantined_structure"
         }
         for collection in self.collections:
-            collection.load_raw(skip_these_raw_files=skip_these_raw_files,
-                                held_for_review=held_for_review)
-        
+            collection.load_raw(
+                skip_these_raw_files=skip_these_raw_files, held_for_review=held_for_review
+            )
+
         if self.verbose:
-            logger.info(f"Done loading raw {sum([len(collection.data) for collection in self.collections]):,} rows for the registered sub collections.")
-
-
-
+            logger.info(
+                f"Done loading raw {sum([len(collection.data) for collection in self.collections]):,} rows for the registered sub collections."
+            )
 
     def migrate_sub_collections(self):
 
-        processed_collections = [collection for collection in self.collections if collection.state == "processed"]
+        processed_collections = [
+            collection for collection in self.collections if collection.state == "processed"
+        ]
 
         if len(processed_collections) == 0:
             if self.verbose:
@@ -2328,7 +2310,9 @@ class ForYouCollection(ForYouBaseCollection):
             return
 
         if self.verbose:
-            logger.info(f"Migrating {len(processed_collections):,} processed sub collections to the top...")
+            logger.info(
+                f"Migrating {len(processed_collections):,} processed sub collections to the top..."
+            )
             logger.info(f"There are {len(self.data):,} rows in the top collection already.")
 
         # Vertical concat via polars — stacks all processed sub-collections
@@ -2355,27 +2339,25 @@ class ForYouCollection(ForYouBaseCollection):
             self.discarded_raw_files.extend(collection.discarded_raw_files)
         self.discarded_raw_files = list(set(self.discarded_raw_files))
 
-
         for collection in processed_collections:
-            logger.info(f"Migrated {len(collection.data):,} activities from '{collection.source_platform}_{collection.data_source}'.")
+            logger.info(
+                f"Migrated {len(collection.data):,} activities from '{collection.source_platform}_{collection.data_source}'."
+            )
             collection.data = pd.DataFrame()
             collection.state = "empty"
 
         if self.verbose:
-            logger.info(f"Done migrating the sub collections. There are now {len(self.data):,} activities in the top collection. Sub collections are empty.")
-
-
-
-
-
-
+            logger.info(
+                f"Done migrating the sub collections. There are now {len(self.data):,} activities in the top collection. Sub collections are empty."
+            )
 
     def save_processed(self):
 
         if self.state != "processed":
-            logger.warning(f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first.")
+            logger.warning(
+                f"Collection '{self.source_platform}_{self.data_source}' is not processed. Cannot save this data. Please process data first."
+            )
             return
-
 
         # metadata (needs local_* columns present in self.data).
         # Load the existing metadata ourselves so we can (a) regenerate stats
@@ -2392,11 +2374,13 @@ class ForYouCollection(ForYouBaseCollection):
             old_metadata = None
             if data_io.exists(
                 storage_location=self.processed_storage_location,
-                filename=f"{_collections_label()}_metadata.parquet"):
+                filename=f"{_collections_label()}_metadata.parquet",
+            ):
                 old_metadata = data_io.load_parquet(
                     storage_location=self.processed_storage_location,
                     filename=f"{_collections_label()}_metadata.parquet",
-                    verbose=False)
+                    verbose=False,
+                )
 
             self.stats = generate_collection_metadata(
                 self.data,
@@ -2404,38 +2388,46 @@ class ForYouCollection(ForYouBaseCollection):
                 sort_by=None,
                 verbose=True,
                 save_to_disk_ok=False,
-                load_from_disk=False)
+                load_from_disk=False,
+            )
 
             if old_metadata is not None and not old_metadata.empty:
                 # Carry over columns set outside the generator — but never
                 # the demographic ones: those moved to user accounts and a
                 # stale copy must not resurrect them.
                 demographic = set(demographic_metadata_columns(old_metadata.columns))
-                preserved_cols = [c for c in old_metadata.columns
-                                  if c not in self.stats.columns and c not in demographic]
+                preserved_cols = [
+                    c
+                    for c in old_metadata.columns
+                    if c not in self.stats.columns and c not in demographic
+                ]
                 if preserved_cols:
                     self.stats = pd.merge(
-                        self.stats, old_metadata[preserved_cols],
-                        left_index=True, right_index=True, how='left')
+                        self.stats,
+                        old_metadata[preserved_cols],
+                        left_index=True,
+                        right_index=True,
+                        how="left",
+                    )
 
-            self.stats[('other','accepted')] = True
-            self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+            self.stats[("other", "accepted")] = True
+            self.stats[("participants", "date")] = self.stats[("other", "ts_added_to_dataset")]
             self.stats = strip_demographic_columns(self.stats)
 
             data_io.save_parquet(
                 df=self.stats,
                 storage_location=self.processed_storage_location,
                 filename=f"{_collections_label()}_metadata.parquet",
-                asyncronous=False)
-
+                asyncronous=False,
+            )
 
             # activity data
             data_io.save_parquet(
                 df=self.data,
                 storage_location=self.processed_storage_location,
                 filename=f"{_collections_label()}_recoded.parquet",
-                asyncronous=False)
-
+                asyncronous=False,
+            )
 
         # Make sure every too-few-rows filename appended by a sub-collection
         # during this run is reflected in the ledger as ``discarded_at_load``.
@@ -2465,9 +2457,6 @@ class ForYouCollection(ForYouBaseCollection):
 
         self.prune_manifests()
 
-
-
-
     def refresh_collection(self):
         self.load_processed()
         self.load_raw()
@@ -2475,12 +2464,6 @@ class ForYouCollection(ForYouBaseCollection):
         self.migrate_sub_collections()
         self.add_local_time_features()
         self.save_processed()
-
-
-
-
-
-
 
 
 @functools.lru_cache(maxsize=1)
@@ -2501,9 +2484,6 @@ def _config_timezone_offset() -> float:
     return off.total_seconds() / 3600 if off is not None else 0.0
 
 
-
-
-
 def get_main_collection(verbose: bool = False) -> ForYouCollection:
     """Factory function to initialize and configure the main collection.
 
@@ -2515,9 +2495,6 @@ def get_main_collection(verbose: bool = False) -> ForYouCollection:
     for cls in ForYouBaseCollection._registry:
         main_collection.register_collection_class(cls)
     return main_collection
-
-
-
 
 
 def registered_raw_locations() -> tuple[str, ...]:
@@ -2533,9 +2510,6 @@ def registered_raw_locations() -> tuple[str, ...]:
         if isinstance(raw_path, str) and raw_path and raw_path not in locations:
             locations.append(raw_path)
     return tuple(locations)
-
-
-
 
 
 def platform_url_templates() -> dict[str, str]:

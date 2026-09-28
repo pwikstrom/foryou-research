@@ -8,30 +8,26 @@ import pytest
 import fyp.analysis.video_map as video_map
 
 
-
-
-
 def _corpus():
     """Eight vectors clustered around +x, plus one pointing the other way.
 
     The last row is the deliberate outlier: it shares no direction with the
     bulk, so it must score lowest on typicality.
     """
-    bulk = np.array([
-        [1.0, 0.0, 0.0],
-        [1.0, 0.1, 0.0],
-        [1.0, -0.1, 0.0],
-        [1.0, 0.0, 0.1],
-        [1.0, 0.0, -0.1],
-        [0.9, 0.2, 0.0],
-        [0.9, -0.2, 0.0],
-        [0.95, 0.0, 0.15],
-    ])
+    bulk = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [1.0, 0.1, 0.0],
+            [1.0, -0.1, 0.0],
+            [1.0, 0.0, 0.1],
+            [1.0, 0.0, -0.1],
+            [0.9, 0.2, 0.0],
+            [0.9, -0.2, 0.0],
+            [0.95, 0.0, 0.15],
+        ]
+    )
     outlier = np.array([[-1.0, 0.0, 0.0]])
     return np.vstack([bulk, outlier]).astype(np.float32)
-
-
-
 
 
 def test_typicality_ranks_the_outlier_last():
@@ -40,9 +36,6 @@ def test_typicality_ranks_the_outlier_last():
     assert scores.shape == (9,)
     assert scores[-1] == scores.min()
     assert scores[-1] < 0.0 < scores[:-1].min()
-
-
-
 
 
 def test_typicality_ignores_vector_magnitude():
@@ -62,9 +55,6 @@ def test_typicality_ignores_vector_magnitude():
     )
 
 
-
-
-
 def test_typicality_handles_a_corpus_with_no_mean_direction():
     """Opposed vectors cancel to a zero mean; the score degrades to 0, not NaN."""
     matrix = np.array([[1.0, 0.0], [-1.0, 0.0]], dtype=np.float32)
@@ -73,9 +63,6 @@ def test_typicality_handles_a_corpus_with_no_mean_direction():
 
     assert not np.isnan(scores).any()
     assert (scores == 0.0).all()
-
-
-
 
 
 def test_niche_typicality_percentile_follows_the_mean_order():
@@ -92,9 +79,6 @@ def test_niche_typicality_percentile_follows_the_mean_order():
     assert meta[1]["typicality_pct"] == 100.0
 
 
-
-
-
 def test_percentile_rank_orders_and_bounds_the_scores():
     """The per-video analysis variable is the rank, not the raw cosine."""
     values = np.array([0.9, 0.1, 0.5, 0.3], dtype=np.float32)
@@ -104,9 +88,6 @@ def test_percentile_rank_orders_and_bounds_the_scores():
     assert pct.max() == 100.0
     assert list(np.argsort(pct)) == list(np.argsort(values))
     assert (pct > 0).all()
-
-
-
 
 
 def test_percentile_rank_survives_a_shifted_corpus():
@@ -124,9 +105,6 @@ def test_percentile_rank_survives_a_shifted_corpus():
     )
 
 
-
-
-
 def test_percentile_rank_gives_tied_scores_the_same_percentile():
     values = np.array([0.4, 0.4, 0.9], dtype=np.float32)
 
@@ -135,27 +113,17 @@ def test_percentile_rank_gives_tied_scores_the_same_percentile():
     assert pct[0] == pct[1] < pct[2]
 
 
-
-
-
 def test_percentile_rank_handles_an_empty_corpus():
     assert video_map._percentile_rank(np.array([], dtype=np.float32)).size == 0
 
 
-
-
-
 def test_per_video_niche_value_spreads_the_niche_metric():
     labels = np.array([0, 1, 0, 2])
-    meta = {0: {"isolation_pct": 10.0}, 1: {"isolation_pct": 50.0},
-            2: {"isolation_pct": 90.0}}
+    meta = {0: {"isolation_pct": 10.0}, 1: {"isolation_pct": 50.0}, 2: {"isolation_pct": 90.0}}
 
     got = video_map._per_video_niche_value(meta, labels, "isolation_pct")
 
     assert got.tolist() == [10.0, 50.0, 10.0, 90.0]
-
-
-
 
 
 def test_per_video_niche_value_carries_a_declined_metric_as_nan():
@@ -172,17 +140,20 @@ def test_per_video_niche_value_carries_a_declined_metric_as_nan():
     assert np.isnan(got).all()
 
 
-
-
-
 def test_niche_neighbours_are_ordered_by_real_distance():
     """Niche 0 sits beside niche 1; niche 2 is far from both."""
     labels = np.array([0, 0, 1, 1, 2, 2])
-    reduced = np.array([
-        [0.0, 0.0], [0.2, 0.0],
-        [1.0, 0.0], [1.2, 0.0],
-        [9.0, 0.0], [9.2, 0.0],
-    ], dtype=np.float32)
+    reduced = np.array(
+        [
+            [0.0, 0.0],
+            [0.2, 0.0],
+            [1.0, 0.0],
+            [1.2, 0.0],
+            [9.0, 0.0],
+            [9.2, 0.0],
+        ],
+        dtype=np.float32,
+    )
     meta = {0: {}, 1: {}, 2: {}}
 
     video_map._add_niche_neighbours(meta, labels, reduced, n_neighbours=2)
@@ -193,17 +164,20 @@ def test_niche_neighbours_are_ordered_by_real_distance():
     assert all(n not in meta[n]["nearest"] for n in meta)
 
 
-
-
-
 def test_niche_isolation_ranks_the_lonely_niche_highest():
     """Niches 0 and 1 sit together; niche 2 is far from both, so it is loneliest."""
     labels = np.array([0, 0, 1, 1, 2, 2])
-    reduced = np.array([
-        [0.0, 0.0], [0.2, 0.0],
-        [1.0, 0.0], [1.2, 0.0],
-        [9.0, 0.0], [9.2, 0.0],
-    ], dtype=np.float32)
+    reduced = np.array(
+        [
+            [0.0, 0.0],
+            [0.2, 0.0],
+            [1.0, 0.0],
+            [1.2, 0.0],
+            [9.0, 0.0],
+            [9.2, 0.0],
+        ],
+        dtype=np.float32,
+    )
     meta = {0: {}, 1: {}, 2: {}}
 
     video_map._add_niche_neighbours(meta, labels, reduced)
@@ -214,9 +188,6 @@ def test_niche_isolation_ranks_the_lonely_niche_highest():
     assert meta[0]["isolation"] == pytest.approx(meta[1]["isolation"])
 
 
-
-
-
 def test_niche_isolation_is_independent_of_typicality():
     """A niche can sit far from the corpus mean and still have close company.
 
@@ -224,12 +195,19 @@ def test_niche_isolation_is_independent_of_typicality():
     isolated. Niche 2 sits near the corpus centre with nothing beside it.
     """
     labels = np.array([0, 0, 1, 1, 2, 2, 3, 3])
-    reduced = np.array([
-        [9.0, 0.0], [9.1, 0.0],
-        [9.3, 0.0], [9.4, 0.0],
-        [0.0, 3.0], [0.0, 3.1],
-        [0.0, 0.0], [0.1, 0.0],
-    ], dtype=np.float32)
+    reduced = np.array(
+        [
+            [9.0, 0.0],
+            [9.1, 0.0],
+            [9.3, 0.0],
+            [9.4, 0.0],
+            [0.0, 3.0],
+            [0.0, 3.1],
+            [0.0, 0.0],
+            [0.1, 0.0],
+        ],
+        dtype=np.float32,
+    )
     meta = {0: {}, 1: {}, 2: {}, 3: {}}
 
     video_map._add_niche_neighbours(meta, labels, reduced)
@@ -239,22 +217,17 @@ def test_niche_isolation_is_independent_of_typicality():
     assert meta[0]["nearest"][0] == 1
 
 
-
-
-
 def test_niche_isolation_declines_a_lone_niche():
     """One niche has nothing to be isolated from — not an infinite distance."""
     meta = {0: {}}
 
-    video_map._add_niche_neighbours(meta, np.array([0, 0]),
-                                    np.array([[0.0], [1.0]], dtype=np.float32))
+    video_map._add_niche_neighbours(
+        meta, np.array([0, 0]), np.array([[0.0], [1.0]], dtype=np.float32)
+    )
 
     assert meta[0]["nearest"] == []
     assert meta[0]["isolation"] is None
     assert meta[0]["isolation_pct"] is None
-
-
-
 
 
 def test_niche_neighbours_respect_the_requested_count():
@@ -266,9 +239,6 @@ def test_niche_neighbours_respect_the_requested_count():
 
     assert all(len(meta[n]["nearest"]) == 2 for n in meta)
     assert meta[0]["nearest"] == [1, 2]
-
-
-
 
 
 def test_neighbour_preservation_is_perfect_for_a_faithful_layout():
@@ -284,9 +254,6 @@ def test_neighbour_preservation_is_perfect_for_a_faithful_layout():
     assert got["probe"] == 50
 
 
-
-
-
 def test_neighbour_preservation_collapses_for_a_scrambled_layout():
     """A layout unrelated to the real space scores near chance, not near 1."""
     rng = np.random.RandomState(0)
@@ -299,25 +266,17 @@ def test_neighbour_preservation_collapses_for_a_scrambled_layout():
     assert got["chance"] == round(10 / 399, 6)
 
 
-
-
-
 def test_neighbour_preservation_declines_a_sample_too_small_to_have_neighbours():
     tiny = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32)
 
     assert video_map._neighbour_preservation(tiny, tiny.copy()) == {}
 
 
-
-
-
 def test_niche_typicality_percentile_survives_a_single_niche():
     """One niche means no spread to rank against; it must not divide by zero."""
     meta = {0: {}}
 
-    video_map._add_niche_typicality(
-        meta, np.array([0, 0]), np.array([0.4, 0.6], dtype=np.float32)
-    )
+    video_map._add_niche_typicality(meta, np.array([0, 0]), np.array([0.4, 0.6], dtype=np.float32))
 
     assert meta[0]["typicality_pct"] == 0.0
     assert meta[0]["typicality"] == 0.5

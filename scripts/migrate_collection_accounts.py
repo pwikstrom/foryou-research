@@ -51,18 +51,28 @@ def _storage_mode() -> tuple[bool, str]:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--apply", action="store_true",
-                        help="Write changes (default is a dry run that only reports).")
-    parser.add_argument("--allow-local", action="store_true",
-                        help="Allow --apply against LOCAL storage (development/testing only).")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write changes (default is a dry run that only reports).",
+    )
+    parser.add_argument(
+        "--allow-local",
+        action="store_true",
+        help="Allow --apply against LOCAL storage (development/testing only).",
+    )
     args = parser.parse_args(argv)
 
     is_gcs, where = _storage_mode()
     print(f"Storage resolves to: {where}")
     if args.apply and not is_gcs and not args.allow_local:
-        print("REFUSING to apply: storage is not GCS. The production data lives in the bucket; "
-              "set FYP_FORCE_GCS=1 (and FYP_GCS_BUCKET_NAME), or pass --allow-local for a dev run.")
+        print(
+            "REFUSING to apply: storage is not GCS. The production data lives in the bucket; "
+            "set FYP_FORCE_GCS=1 (and FYP_GCS_BUCKET_NAME), or pass --allow-local for a dev run."
+        )
         return 2
 
     from web_interface.collection_accounts import migrate_existing_collections
@@ -72,11 +82,15 @@ def main(argv=None) -> int:
     created = report.get("created_accounts", [])
     placeholders = report.get("placeholders", [])
     if created:
-        print(f"\nParticipant accounts {'to create' if not args.apply else 'created'} ({len(created)}):")
+        print(
+            f"\nParticipant accounts {'to create' if not args.apply else 'created'} ({len(created)}):"
+        )
         for u in created:
             print(f"  {u}")
     if placeholders:
-        print(f"\nPlaceholder accounts {'to create' if not args.apply else 'created'} ({len(placeholders)}):")
+        print(
+            f"\nPlaceholder accounts {'to create' if not args.apply else 'created'} ({len(placeholders)}):"
+        )
         for u in placeholders:
             print(f"  {u}")
     conflicts = report.get("conflicts", {})

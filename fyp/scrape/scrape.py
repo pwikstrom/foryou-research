@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-Script Name: 
-Description: 
+Script Name:
+Description:
 Author: Patrik
-Date: 
+Date:
 """
-
-
 
 import json
 import os
@@ -52,20 +50,14 @@ def _cf():
     return fyp_cf
 
 
-
-
 def _scrapes_label() -> str:
     """Lazy accessor for the config-derived scrapes label."""
     return _cf()["labels"]["SCRAPES_LABEL"]
 
 
-
-
 def _failed_scrapes_label() -> str:
     """Lazy accessor for the config-derived failed-scrapes label."""
     return _cf()["labels"]["FAILED_SCRAPES_LABEL"]
-
-
 
 
 _CONFIG_CONSTANT_ACCESSORS = {
@@ -78,8 +70,6 @@ _CONFIG_CONSTANT_ACCESSORS = {
 }
 
 
-
-
 def __getattr__(name: str):
     """Serve the config-derived module constants lazily (PEP 562)."""
     accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
@@ -88,13 +78,13 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-
 # Consecutive throttle-category failures (across all workers) that trip the
 # batch circuit breaker in download_video_threads.
 CIRCUIT_BREAKER_THRESHOLD = 15
 # Re-runs one item may get after the network comes back mid-batch (see
 # connectivity.ConnectivityGate) — bounds a connection that keeps flapping.
 _OFFLINE_RERUNS = 3
+
 
 # Consecutive same-category *permanent* failures that mark the batch outcome as
 # suspect (a "permanent storm"). A broken/flagged session can make every item
@@ -110,6 +100,7 @@ def _permanent_storm_threshold() -> int:
         return int(_cf()["misc"].get("scraper_permanent_storm_threshold", 15))
     except (KeyError, TypeError, ValueError):
         return 15
+
 
 # Consecutive same-category *transient* failures that mark the batch outcome as
 # suspect (a "transient storm"). The permanent-storm guard's blind spot: a
@@ -145,6 +136,7 @@ def _transient_storm_threshold() -> int:
     except (KeyError, TypeError, ValueError):
         return 25
 
+
 # Fraction of the container memory limit at which a batch stops launching new
 # downloads, drains in-flight work, saves what completed, and defers the rest
 # back to the queue (see the memory safety valve in download_video_threads).
@@ -161,6 +153,7 @@ def _memory_stop_fraction() -> float:
     except (KeyError, TypeError, ValueError):
         return 0.60
 
+
 # Longest edge of a slideshow canvas, in pixels. TikTok photo-mode source
 # images run up to 2160x3840; rendering the slideshow at that native size makes
 # moviepy hold ~15 GiB for a 20-image post (frame buffers scale with canvas
@@ -173,9 +166,6 @@ def _slideshow_max_dimension() -> int:
         return int(_cf()["misc"].get("slideshow_max_dimension", 1000))
     except (KeyError, TypeError, ValueError):
         return 1000
-
-
-
 
 
 def _container_memory_fraction() -> "tuple[float, float] | None":
@@ -216,16 +206,12 @@ def _container_memory_fraction() -> "tuple[float, float] | None":
     return None
 
 
-
-
-
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = Path(_cf()['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    sentinel = (
+        Path(_cf()["paths"]["project_root"]) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    )
     return sentinel.exists()
-
-
-
 
 
 def _patch_moviepy_audio_reader_del() -> None:
@@ -246,7 +232,6 @@ def _patch_moviepy_audio_reader_del() -> None:
         FFMPEG_AudioReader.proc = None
 
 
-
 def make_slideshow(
     files: list[str],
     output: str = "slideshow.mp4",
@@ -260,7 +245,7 @@ def make_slideshow(
     crf: int = 18,
     preset: str = "medium",
     audio_path: str | None = None,
-    verbose=False
+    verbose=False,
 ):
     """Create a slideshow video from a list of image files.
 
@@ -284,11 +269,17 @@ def make_slideshow(
             problem degrades to a silent slideshow rather than failing.
         verbose: unused; kept for call-site symmetry.
     """
-    from moviepy import AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, concatenate_videoclips
+    from moviepy import (
+        AudioFileClip,
+        ColorClip,
+        CompositeVideoClip,
+        ImageClip,
+        concatenate_videoclips,
+    )
 
     _patch_moviepy_audio_reader_del()
 
-    def _normalize_color(color): 
+    def _normalize_color(color):
         if isinstance(color, str):
             try:
                 rgb = ImageColor.getrgb(color)
@@ -301,8 +292,6 @@ def make_slideshow(
             except (TypeError, ValueError) as exc:
                 raise ValueError("bg_color tuple must contain numeric values") from exc
         raise TypeError("bg_color must be a color string or an RGB tuple of length 3")
-
-
 
     def _load_fitted(image_path: str, canvas_size: tuple[int, int]) -> np.ndarray:
         # Decode and downscale with PIL *before* the image enters moviepy, so
@@ -317,8 +306,6 @@ def make_slideshow(
                 im = im.resize(target, Image.LANCZOS)
             return np.asarray(im)
 
-
-
     def _make_swipe_pos(width, transition):
         def pos(t):
             if transition <= 0:
@@ -328,9 +315,8 @@ def make_slideshow(
             else:
                 x = 0
             return (x, "center")
+
         return pos
-
-
 
     def _build_slide(
         image_path: str,
@@ -352,8 +338,6 @@ def make_slideshow(
         slide = CompositeVideoClip([bg, animated]).with_duration(duration)
         return slide
 
-
-
     def _infer_canvas_size(files: list[str]) -> tuple[int, int]:
         widths = []
         heights = []
@@ -371,8 +355,6 @@ def make_slideshow(
 
         return (max(widths), max(heights))
 
-
-
     def _clamp_canvas(size: tuple[int, int]) -> tuple[int, int]:
         # Bound the longest edge, then round down to even dimensions
         # (libx264 with yuv420p rejects odd frame sizes).
@@ -383,8 +365,6 @@ def make_slideshow(
             w = round(w * scale)
             h = round(h * scale)
         return (max(2, w - (w % 2)), max(2, h - (h % 2)))
-
-
 
     # Main function logic starts here
     if not files:
@@ -400,14 +380,7 @@ def make_slideshow(
 
     slides = []
     for f in files:
-        slide = _build_slide(
-            f,
-            duration,
-            canvas_size,
-            bg_color,
-            swipe,
-            transition
-        )
+        slide = _build_slide(f, duration, canvas_size, bg_color, swipe, transition)
         slides.append(slide)
 
     final = concatenate_videoclips(slides, method="compose")
@@ -434,7 +407,7 @@ def make_slideshow(
         preset=preset,
         threads=0,
         ffmpeg_params=["-crf", str(crf)],
-        logger=None
+        logger=None,
     )
 
     for s in slides:
@@ -442,12 +415,6 @@ def make_slideshow(
     if audio_clip is not None:
         audio_clip.close()
     final.close()
-
-
-
-
-
-
 
 
 def _scrape_future_succeeded(f) -> bool:
@@ -470,26 +437,25 @@ def _scrape_future_succeeded(f) -> bool:
 def download_single_video(
     video_id: str = None,
     verbose: bool = True,
-    save_video = True,
+    save_video=True,
     dry_run: bool = False,
     scraper=None,
     platform: str | None = None,
-    ):
-
+):
 
     if dry_run:
         from time import sleep
+
         sleep(1)
         if verbose:
             logger.info(f"Dry run: would have downloaded video {video_id}")
         return video_id
 
-
     if video_id is None:
         raise ValueError("No video id specified")
 
-    use_gcs = _cf()['data_io']['use_gcs_for_media']
-    bucket = _cf()['data_io']['bucket']
+    use_gcs = _cf()["data_io"]["use_gcs_for_media"]
+    bucket = _cf()["data_io"]["bucket"]
     min_size = _cf()["misc"]["min_media_object_size"]
     temp_dir = _cf()["paths"]["temp"]
 
@@ -523,13 +489,14 @@ def download_single_video(
     try:
         # if there are columns in the result and a something has been downloaded
         col_count = len(scrape_metadata.columns)
-        if col_count > 1 and scrape_metadata.loc[0,'video_downloaded']==True:
-
+        if col_count > 1 and scrape_metadata.loc[0, "video_downloaded"] == True:
             # if this is an image post (platform-agnostic hook; 0 for platforms
             # without a carousel concept)
             if scraper.image_count(scrape_metadata.iloc[0]) > 0:
                 if verbose:
-                    logger.info(f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields")
+                    logger.info(
+                        f"OK   - Photos downloaded - '{video_id}' - {col_count} metadata fields"
+                    )
 
                 if use_gcs:
                     # GCS path: check bucket, download jpegs to temp, assemble, upload
@@ -537,7 +504,7 @@ def download_single_video(
                     if blob.exists():
                         if verbose:
                             logger.info("Photo slideshow already in bucket")
-                        scrape_metadata.loc[0,'video_downloaded'] = True
+                        scrape_metadata.loc[0, "video_downloaded"] = True
                     else:
                         if verbose:
                             logger.info("Converting photos to video slideshow")
@@ -548,10 +515,14 @@ def download_single_video(
                         blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
                         while blob and blob.exists():
-                            blob.download_to_filename(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
+                            blob.download_to_filename(
+                                os.path.join(temp_dir, f"{video_id}_{ccc:02}.jpeg")
+                            )
                             source_blob_names.append(blob.name)
                             if blob.size >= min_size:
-                                image_files.append(os.path.join(temp_dir,f"{video_id}_{ccc:02}.jpeg"))
+                                image_files.append(
+                                    os.path.join(temp_dir, f"{video_id}_{ccc:02}.jpeg")
+                                )
                             ccc += 1
                             blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
@@ -564,11 +535,13 @@ def download_single_video(
                             logger.warning(
                                 f"No usable carousel images for '{video_id}' — "
                                 f"skipping slideshow assembly; media stays "
-                                f"queued for retry.")
-                            scrape_metadata.loc[0, 'video_downloaded'] = False
-                            scrape_metadata.attrs['media_error_type'] = 'carousel'
-                            scrape_metadata.attrs['media_error_detail'] = (
-                                'no usable carousel images for slideshow assembly')
+                                f"queued for retry."
+                            )
+                            scrape_metadata.loc[0, "video_downloaded"] = False
+                            scrape_metadata.attrs["media_error_type"] = "carousel"
+                            scrape_metadata.attrs["media_error_detail"] = (
+                                "no usable carousel images for slideshow assembly"
+                            )
                         else:
                             # Audio is optional: any failure yields a silent slideshow.
                             try:
@@ -583,36 +556,44 @@ def download_single_video(
                                     duration=SLIDESHOW_SECONDS_PER_IMAGE,
                                     swipe=False,
                                     audio_path=audio_path,
-                                    verbose=verbose
+                                    verbose=verbose,
                                 )
                             finally:
                                 if audio_path:
-                                    try: os.remove(audio_path)
-                                    except OSError: pass
+                                    try:
+                                        os.remove(audio_path)
+                                    except OSError:
+                                        pass
 
                         if image_files and os.path.getsize(temp_mp4) > min_size:
                             if verbose:
                                 logger.info("Uploading video file to storage bucket...")
                             blob = bucket.blob(f"{media_prefix}/{video_id}.mp4")
                             blob.upload_from_filename(temp_mp4)
-                            scrape_metadata.loc[0,'video_downloaded'] = True
+                            scrape_metadata.loc[0, "video_downloaded"] = True
                             # Source jpegs are no longer needed once the mp4 is
                             # stored (parity with the local branch's cleanup).
                             for name in source_blob_names:
-                                try: bucket.blob(name).delete()
-                                except Exception: pass
+                                try:
+                                    bucket.blob(name).delete()
+                                except Exception:
+                                    pass
                         elif image_files:
                             if verbose:
                                 logger.warning("Generated video file is too small, not uploading.")
-                            scrape_metadata.loc[0,'video_downloaded'] = False
+                            scrape_metadata.loc[0, "video_downloaded"] = False
 
                         # /tmp is memory-backed on Cloud Run — drop the temp
                         # jpegs and the temp mp4 either way.
                         for ttt in range(1, ccc):
-                            try: os.remove(os.path.join(temp_dir, f"{video_id}_{ttt:02}.jpeg"))
-                            except OSError: pass
-                        try: os.remove(temp_mp4)
-                        except OSError: pass
+                            try:
+                                os.remove(os.path.join(temp_dir, f"{video_id}_{ttt:02}.jpeg"))
+                            except OSError:
+                                pass
+                        try:
+                            os.remove(temp_mp4)
+                        except OSError:
+                            pass
                 else:
                     # Local path: jpegs are in media_dir (written by _download_images).
                     # Assemble the slideshow to a temp file, validate size, then atomically
@@ -621,7 +602,7 @@ def download_single_video(
                     if os.path.exists(final_mp4):
                         if verbose:
                             logger.info("Photo slideshow already exists locally")
-                        scrape_metadata.loc[0,'video_downloaded'] = True
+                        scrape_metadata.loc[0, "video_downloaded"] = True
                     else:
                         if verbose:
                             logger.info("Converting photos to video slideshow")
@@ -645,11 +626,13 @@ def download_single_video(
                             logger.warning(
                                 f"No usable carousel images for '{video_id}' — "
                                 f"skipping slideshow assembly; media stays "
-                                f"queued for retry.")
-                            scrape_metadata.loc[0, 'video_downloaded'] = False
-                            scrape_metadata.attrs['media_error_type'] = 'carousel'
-                            scrape_metadata.attrs['media_error_detail'] = (
-                                'no usable carousel images for slideshow assembly')
+                                f"queued for retry."
+                            )
+                            scrape_metadata.loc[0, "video_downloaded"] = False
+                            scrape_metadata.attrs["media_error_type"] = "carousel"
+                            scrape_metadata.attrs["media_error_detail"] = (
+                                "no usable carousel images for slideshow assembly"
+                            )
                         else:
                             # Audio is optional: any failure yields a silent slideshow.
                             try:
@@ -664,35 +647,43 @@ def download_single_video(
                                     duration=SLIDESHOW_SECONDS_PER_IMAGE,
                                     swipe=False,
                                     audio_path=audio_path,
-                                    verbose=verbose
+                                    verbose=verbose,
                                 )
                             finally:
                                 if audio_path:
-                                    try: os.remove(audio_path)
-                                    except OSError: pass
+                                    try:
+                                        os.remove(audio_path)
+                                    except OSError:
+                                        pass
 
                             if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
                                 if verbose:
                                     logger.info("Moving slideshow to media folder...")
                                 os.replace(temp_mp4, final_mp4)
-                                scrape_metadata.loc[0,'video_downloaded'] = True
+                                scrape_metadata.loc[0, "video_downloaded"] = True
                             else:
                                 if verbose:
                                     logger.warning("Generated video file is too small, discarding.")
                                 if os.path.exists(temp_mp4):
-                                    try: os.remove(temp_mp4)
-                                    except OSError: pass
-                                scrape_metadata.loc[0,'video_downloaded'] = False
+                                    try:
+                                        os.remove(temp_mp4)
+                                    except OSError:
+                                        pass
+                                scrape_metadata.loc[0, "video_downloaded"] = False
 
                         # Clean up source jpegs from media_dir either way
                         for cand in image_files:
-                            try: os.remove(cand)
-                            except OSError: pass
+                            try:
+                                os.remove(cand)
+                            except OSError:
+                                pass
 
             # if this is a video...
             else:
                 if verbose:
-                    logger.info(f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields")
+                    logger.info(
+                        f"OK   - Video downloaded '{video_id}' - {col_count} metadata fields"
+                    )
 
                 if use_gcs:
                     # check if it truly is stored and is big enough
@@ -702,15 +693,19 @@ def download_single_video(
                         blob = bucket.get_blob(f"{media_prefix}/{video_id}.mp4")
                         if blob.size < min_size:
                             if verbose:
-                                logger.info(f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes")
+                                logger.info(
+                                    f"   - Deleting video file smaller than threshold: {blob.name} of size {blob.size} bytes"
+                                )
                             blob.delete()
-                            scrape_metadata.loc[0,'video_downloaded'] = False
+                            scrape_metadata.loc[0, "video_downloaded"] = False
                         if verbose:
-                            logger.info(f"   - Video file {blob.name} of size {blob.size:,} bytes is okay")
+                            logger.info(
+                                f"   - Video file {blob.name} of size {blob.size:,} bytes is okay"
+                            )
                     else:
                         if verbose:
                             logger.warning("   - WARNING: File not found")
-                        scrape_metadata.loc[0,'video_downloaded'] = False
+                        scrape_metadata.loc[0, "video_downloaded"] = False
                 else:
                     if verbose:
                         logger.info("Checking video file in local media folder")
@@ -719,46 +714,52 @@ def download_single_video(
                         local_size = os.path.getsize(local_mp4)
                         if local_size < min_size:
                             if verbose:
-                                logger.info(f"   - Deleting video file smaller than threshold: {local_mp4} of size {local_size} bytes")
-                            try: os.remove(local_mp4)
-                            except OSError: pass
-                            scrape_metadata.loc[0,'video_downloaded'] = False
+                                logger.info(
+                                    f"   - Deleting video file smaller than threshold: {local_mp4} of size {local_size} bytes"
+                                )
+                            try:
+                                os.remove(local_mp4)
+                            except OSError:
+                                pass
+                            scrape_metadata.loc[0, "video_downloaded"] = False
                         else:
                             if verbose:
-                                logger.info(f"   - Video file {local_mp4} of size {local_size:,} bytes is okay")
+                                logger.info(
+                                    f"   - Video file {local_mp4} of size {local_size:,} bytes is okay"
+                                )
                     else:
                         if verbose:
                             logger.warning("   - WARNING: File not found")
-                        scrape_metadata.loc[0,'video_downloaded'] = False
+                        scrape_metadata.loc[0, "video_downloaded"] = False
 
             return scrape_metadata
-        
+
         # if metadata is downloaded but no video is downloaded
-        elif col_count > 1 and scrape_metadata.loc[0,'video_downloaded']==False:
+        elif col_count > 1 and scrape_metadata.loc[0, "video_downloaded"] == False:
             if verbose:
-                logger.info(f"Accessed {col_count} metadata fields for {video_id} but did not download media object(s)")
+                logger.info(
+                    f"Accessed {col_count} metadata fields for {video_id} but did not download media object(s)"
+                )
             return scrape_metadata
         else:
             if verbose:
-                logger.warning(f"Insufficient metadata columns ({col_count}) - Download of {video_id} - failed")
+                logger.warning(
+                    f"Insufficient metadata columns ({col_count}) - Download of {video_id} - failed"
+                )
 
     except Exception as e:
         logger.error(e)
 
     # Failure path: return the empty DataFrame if it carries error attrs
     # (from tiktok_dl), otherwise fall back to the video_id string.
-    if isinstance(scrape_metadata, pd.DataFrame) and scrape_metadata.empty and scrape_metadata.attrs.get('error_type'):
+    if (
+        isinstance(scrape_metadata, pd.DataFrame)
+        and scrape_metadata.empty
+        and scrape_metadata.attrs.get("error_type")
+    ):
         return scrape_metadata
 
     return video_id
-
-
-
-
-
-
-
-
 
 
 def _add_storage_link(
@@ -783,29 +784,33 @@ def _add_storage_link(
         The same frame with a ``string[pyarrow]`` ``storage_link`` column.
     """
     overrides = overrides or {}
-    use_gcs = _cf()['data_io']['use_gcs_for_media']
+    use_gcs = _cf()["data_io"]["use_gcs_for_media"]
     if use_gcs:
-        bucket = _cf()['data_io'].get('bucket')
-        prefix = _cf()['data_io']['gcs_media_prefix']
+        bucket = _cf()["data_io"].get("bucket")
+        prefix = _cf()["data_io"]["gcs_media_prefix"]
         bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
+
         def _link(vid: str) -> str:
             return f"gs://{bucket_name}/{prefix}/{media_paths.media_relpath(platform, vid)}"
     else:
-        media_dir = _cf()['paths']['media']
+        media_dir = _cf()["paths"]["media"]
+
         def _link(vid: str) -> str:
             return os.path.join(media_dir, media_paths.media_relpath(platform, vid))
+
     if "video_downloaded" in results.columns:
         downloaded = results["video_downloaded"].fillna(False)
     else:
         downloaded = pd.Series(False, index=results.index)
     results["storage_link"] = pd.Series(
-        [overrides.get(vid) or (_link(vid) if dl else "") for vid, dl in zip(results["item_id"], downloaded)],
+        [
+            overrides.get(vid) or (_link(vid) if dl else "")
+            for vid, dl in zip(results["item_id"], downloaded)
+        ],
         index=results.index,
         dtype="string[pyarrow]",
     )
     return results
-
-
 
 
 def _canonicalize_recode_save(
@@ -837,10 +842,10 @@ def _canonicalize_recode_save(
     scrape_filename = f"{_scrapes_label()}_{fine_ts}.parquet"
 
     # save the raw results to local temp just in case everything goes to pieces
-    results.to_parquet(os.path.join(_cf()['paths']['temp'], "recovered_" + scrape_filename))
+    results.to_parquet(os.path.join(_cf()["paths"]["temp"], "recovered_" + scrape_filename))
 
     try:
-        results.drop(["do_not_modify"], axis=1, errors='ignore', inplace=True)
+        results.drop(["do_not_modify"], axis=1, errors="ignore", inplace=True)
         # platform-specific fix-ups on the RAW names (e.g. TikTok: image_list
         # URL string -> count, slideshow duration override) before the scraper
         # renames video_duration -> duration.
@@ -855,12 +860,16 @@ def _canonicalize_recode_save(
         results = rename_columns(results).copy()
 
         # only keep columns as defined by the variable schema
-        dropped = sorted(set(results.columns) - set(_cf()['var_schema'].variable_name))
-        relevant_cols = [c for c in _cf()['var_schema'].variable_name if c in results.columns]
+        dropped = sorted(set(results.columns) - set(_cf()["var_schema"].variable_name))
+        relevant_cols = [c for c in _cf()["var_schema"].variable_name if c in results.columns]
         results = results[relevant_cols].copy()
         record_dropped_columns(
-            "scrape_whitelist", dropped, reason="whitelist", reporter=reporter,
-            guardrail="off", verbose=verbose,
+            "scrape_whitelist",
+            dropped,
+            reason="whitelist",
+            reporter=reporter,
+            guardrail="off",
+            verbose=verbose,
         )
 
         # recode_events_df drops role=skip columns (scrape_ts / storage_link are
@@ -869,7 +878,8 @@ def _canonicalize_recode_save(
         base_present = [c for c in scraper.base_columns if c in results.columns]
         base_snapshot = (
             results[["item_id"] + [c for c in base_present if c != "item_id"]].copy()
-            if "item_id" in results.columns else None
+            if "item_id" in results.columns
+            else None
         )
 
         # recode the data
@@ -898,7 +908,9 @@ def _canonicalize_recode_save(
         results["scraped_ok"] = (results["scrape_status"] == "ok").astype("bool[pyarrow]")
 
         data_io.save_parquet(df=results, storage_location="scrape", filename=scrape_filename)
-        logger.info(f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these.")
+        logger.info(
+            f"Saved {len(results):,} rows to '{scrape_filename}'. Media downloaded for {len(results[results['video_downloaded']]):,} of these."
+        )
 
     except Exception as e:
         logger.error(f"CRITICAL: Failed to save results to parquet: {e}")
@@ -911,9 +923,6 @@ def _canonicalize_recode_save(
         )
 
     return results
-
-
-
 
 
 def check_existing_media(
@@ -953,14 +962,14 @@ def check_existing_media(
     if not video_ids:
         return {}
 
-    use_gcs = _cf()['data_io']['use_gcs_for_media']
-    min_size = _cf()['misc']['min_media_object_size']
+    use_gcs = _cf()["data_io"]["use_gcs_for_media"]
+    min_size = _cf()["misc"]["min_media_object_size"]
     relpaths = [media_paths.media_relpath(platform, "{vid}")] if platform else []
     relpaths.append("{vid}.mp4")
 
     if use_gcs:
-        bucket = _cf()['data_io']['bucket']
-        gcs_media_prefix = _cf()['data_io']['gcs_media_prefix']
+        bucket = _cf()["data_io"]["bucket"]
+        gcs_media_prefix = _cf()["data_io"]["gcs_media_prefix"]
         if bucket is None:
             return {}
         bucket_name = getattr(bucket, "name", "")
@@ -983,7 +992,7 @@ def check_existing_media(
                     present[result[0]] = result[1]
         return present
 
-    media_dir = _cf()['paths']['media']
+    media_dir = _cf()["paths"]["media"]
     present = {}
     for vid in video_ids:
         for rel_template in relpaths:
@@ -995,9 +1004,6 @@ def check_existing_media(
             except Exception:
                 continue
     return present
-
-
-
 
 
 _yt_dlp_plugins_warmed = False
@@ -1025,14 +1031,11 @@ def _warm_yt_dlp_plugins() -> None:
     _yt_dlp_plugins_warmed = True
 
 
-
-
-
 def download_video_threads(
-    interesting_videos:list[str] = None,
-    max_workers:int = 4,
-    verbose:bool = False,
-    dry_run:bool = False,
+    interesting_videos: list[str] = None,
+    max_workers: int = 4,
+    verbose: bool = False,
+    dry_run: bool = False,
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
@@ -1041,12 +1044,13 @@ def download_video_threads(
     reporter=None,
     on_concurrency_change: "callable | None" = None,
     on_video_done: "callable | None" = None,
-    platform: str | None = None):
-
-
+    platform: str | None = None,
+):
 
     if dry_run:
-        logger.info("********* This is a dry run. It's all fake. No data io action at all. *********")
+        logger.info(
+            "********* This is a dry run. It's all fake. No data io action at all. *********"
+        )
     else:
         if interesting_videos is None:
             raise ValueError("No interesting videos specified")
@@ -1075,8 +1079,11 @@ def download_video_threads(
     # session behind cookies trips behavioural flags beyond that).
     throttle_initial, throttle_min, throttle_max = scraper.throttle_limits(max_workers)
     throttle = ThrottleController(
-        initial=throttle_initial, minimum=throttle_min, maximum=throttle_max,
-        on_change=on_concurrency_change)
+        initial=throttle_initial,
+        minimum=throttle_min,
+        maximum=throttle_max,
+        on_change=on_concurrency_change,
+    )
 
     # Circuit breaker: a run of consecutive throttle-category outcomes (fetch
     # OR media phase) means the session is rate-limited/bot-walled — e.g.
@@ -1115,20 +1122,26 @@ def download_video_threads(
     # out and re-runs the item, and the outage never reaches the breaker, the
     # storm guards or the alert file — it is not the platform's fault.
     offline_gate = connectivity.ConnectivityGate(
-        hosts=connectivity.probe_hosts(urlparse(scraper.url_template or '').hostname),
-        max_wait=connectivity.offline_max_wait())
+        hosts=connectivity.probe_hosts(urlparse(scraper.url_template or "").hostname),
+        max_wait=connectivity.offline_max_wait(),
+    )
     offline_state = {"gave_up": False, "rerun": 0}
 
     def _breaker_track(category, corroborated: bool = False) -> None:
         with breaker_lock:
             if category in THROTTLE_CATEGORIES:
                 breaker_state["consecutive"] += 1
-                if breaker_state["consecutive"] >= CIRCUIT_BREAKER_THRESHOLD and not abort_event.is_set():
+                if (
+                    breaker_state["consecutive"] >= CIRCUIT_BREAKER_THRESHOLD
+                    and not abort_event.is_set()
+                ):
                     breaker_state["tripped"] = True
                     abort_event.set()
-                    logger.warning(f"  [scrape] Circuit breaker: {breaker_state['consecutive']} "
-                                   f"consecutive {sorted(THROTTLE_CATEGORIES)} results — "
-                                   f"aborting batch; remaining items stay queued.")
+                    logger.warning(
+                        f"  [scrape] Circuit breaker: {breaker_state['consecutive']} "
+                        f"consecutive {sorted(THROTTLE_CATEGORIES)} results — "
+                        f"aborting batch; remaining items stay queued."
+                    )
             else:
                 breaker_state["consecutive"] = 0
             if category == SESSION_EXPIRED:
@@ -1157,32 +1170,37 @@ def download_video_threads(
                 if storm_state["consecutive"] >= storm_threshold and not storm_state["tripped"]:
                     storm_state["tripped"] = True
                     abort_event.set()
-                    logger.warning(f"  [scrape] Permanent-storm guard: "
-                                   f"{storm_state['consecutive']} consecutive "
-                                   f"'{classification}' results — the session, not the "
-                                   f"items, is suspect. Aborting batch; affected items "
-                                   f"stay queued and are not recorded as failed.")
+                    logger.warning(
+                        f"  [scrape] Permanent-storm guard: "
+                        f"{storm_state['consecutive']} consecutive "
+                        f"'{classification}' results — the session, not the "
+                        f"items, is suspect. Aborting batch; affected items "
+                        f"stay queued and are not recorded as failed."
+                    )
             else:
                 storm_state["classification"] = None
                 storm_state["consecutive"] = 0
             # 'batch_aborted' is synthetic (post-abort placeholder), never a
             # scraper verdict — it must not seed or extend a transient run.
-            if (classification.startswith("transient")
-                    and category != "batch_aborted"):
+            if classification.startswith("transient") and category != "batch_aborted":
                 if classification == t_storm_state["classification"]:
                     t_storm_state["consecutive"] += 1
                 else:
                     t_storm_state["classification"] = classification
                     t_storm_state["consecutive"] = 1
-                if (t_storm_state["consecutive"] >= t_storm_threshold
-                        and not t_storm_state["tripped"]):
+                if (
+                    t_storm_state["consecutive"] >= t_storm_threshold
+                    and not t_storm_state["tripped"]
+                ):
                     t_storm_state["tripped"] = True
                     abort_event.set()
-                    logger.warning(f"  [scrape] Transient-storm guard: "
-                                   f"{t_storm_state['consecutive']} consecutive "
-                                   f"'{classification}' results — the platform or the "
-                                   f"scraper is likely broken. Aborting batch; the items "
-                                   f"are transient and stay queued for a later retry.")
+                    logger.warning(
+                        f"  [scrape] Transient-storm guard: "
+                        f"{t_storm_state['consecutive']} consecutive "
+                        f"'{classification}' results — the platform or the "
+                        f"scraper is likely broken. Aborting batch; the items "
+                        f"are transient and stay queued for a later retry."
+                    )
             else:
                 t_storm_state["classification"] = None
                 t_storm_state["consecutive"] = 0
@@ -1193,13 +1211,15 @@ def download_video_threads(
         try:
             if abort_event.is_set():
                 aborted = pd.DataFrame()
-                aborted.attrs['error_type'] = 'batch_aborted'
-                aborted.attrs['error_detail'] = 'batch aborted (rate-limit breaker, storm guard or batch deadline)'
+                aborted.attrs["error_type"] = "batch_aborted"
+                aborted.attrs["error_detail"] = (
+                    "batch aborted (rate-limit breaker, storm guard or batch deadline)"
+                )
                 return idx, aborted
             if mem_stop_event.is_set():
                 deferred = pd.DataFrame()
-                deferred.attrs['error_type'] = 'batch_aborted'
-                deferred.attrs['error_detail'] = 'deferred: container memory near limit'
+                deferred.attrs["error_type"] = "batch_aborted"
+                deferred.attrs["error_detail"] = "deferred: container memory near limit"
                 return idx, deferred
             skip_media = video in already_have_media
 
@@ -1209,7 +1229,8 @@ def download_video_threads(
                     verbose=verbose,
                     save_video=not skip_media,
                     dry_run=dry_run,
-                    scraper=scraper)
+                    scraper=scraper,
+                )
 
             started_at = time.monotonic()
             res = _fetch()
@@ -1217,8 +1238,11 @@ def download_video_threads(
             # success) may be the network rather than the item. Bounded, so a
             # connection that flaps cannot pin one item forever.
             for _ in range(_OFFLINE_RERUNS):
-                failed = (not isinstance(res, pd.DataFrame) or res.empty
-                          or res.attrs.get('media_error_type') is not None)
+                failed = (
+                    not isinstance(res, pd.DataFrame)
+                    or res.empty
+                    or res.attrs.get("media_error_type") is not None
+                )
                 if not failed:
                     break
                 verdict = offline_gate.check(abort_event, started_at)
@@ -1236,29 +1260,33 @@ def download_video_threads(
                     offline_state["gave_up"] = True
                     abort_event.set()
                 offline = pd.DataFrame()
-                offline.attrs['error_type'] = 'batch_aborted'
-                offline.attrs['error_detail'] = 'network offline — the item was not attempted to completion'
+                offline.attrs["error_type"] = "batch_aborted"
+                offline.attrs["error_detail"] = (
+                    "network offline — the item was not attempted to completion"
+                )
                 if on_video_done:
-                    on_video_done(idx, False, 'batch_aborted')
+                    on_video_done(idx, False, "batch_aborted")
                 return idx, offline
             # For items where media already exists, reflect actual storage state
             # in the metadata row — save_tiktok returns video_downloaded=False
             # when save_video=False, which is misleading for skipped items.
             if skip_media and isinstance(res, pd.DataFrame) and not res.empty:
                 try:
-                    res.loc[res.index[0], 'video_downloaded'] = True
+                    res.loc[res.index[0], "video_downloaded"] = True
                 except Exception:
                     pass
             # Report outcome to throttle controller. A metadata success whose
             # media phase failed still carries a throttle-relevant category
             # (attrs['media_error_type'], see BaseScraper.fetch contract).
             if isinstance(res, pd.DataFrame) and res.empty:
-                error_cat = res.attrs.get('error_type')
+                error_cat = res.attrs.get("error_type")
             elif isinstance(res, pd.DataFrame):
-                error_cat = res.attrs.get('media_error_type')
+                error_cat = res.attrs.get("media_error_type")
             else:
                 error_cat = None
-            corroborated = isinstance(res, pd.DataFrame) and bool(res.attrs.get('verdict_corroborated'))
+            corroborated = isinstance(res, pd.DataFrame) and bool(
+                res.attrs.get("verdict_corroborated")
+            )
             throttle.report_result(error_cat)
             _breaker_track(error_cat, corroborated)
             if inter_delay > 0:
@@ -1275,10 +1303,11 @@ def download_video_threads(
         finally:
             throttle.release()
 
-
     if verbose:
         logger.info(f"dry_run: {dry_run}")
-        logger.info(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
+        logger.info(
+            f"Scraping data for {len(interesting_videos)} items with {max_workers} threads."
+        )
 
     # Load yt-dlp's plugin registry once before workers spawn: plugin modules
     # (e.g. the bgutil PO-token provider) are imported on the first YoutubeDL
@@ -1290,8 +1319,6 @@ def download_video_threads(
     # actual concurrency — allows dynamic resizing without pool restart
     pool_size = max(max_workers, 12)
     with ThreadPoolExecutor(max_workers=pool_size) as ex:
-
-
         futures = []
         submit_times = {}
         for iv in enumerate(interesting_videos):
@@ -1299,9 +1326,12 @@ def download_video_threads(
             futures.append(fut)
             submit_times[fut] = time.time()
 
-
         monitor_thread = start_monitor(
-            futures, submit_times, interval=5, label="dl", bar_width=32,
+            futures,
+            submit_times,
+            interval=5,
+            label="dl",
+            bar_width=32,
             result_checker=_scrape_future_succeeded,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
@@ -1310,7 +1340,6 @@ def download_video_threads(
             cumulative_fail=cumulative_fail,
             reporter=reporter,
         )
-
 
         # Batch-level deadline: prevents a single slow download from blocking
         # the entire batch indefinitely.  Stuck items are recorded as failures.
@@ -1345,14 +1374,18 @@ def download_video_threads(
                 frac, used_gib = mem
                 now = time.monotonic()
                 if now - last_log >= 10:
-                    logger.info(f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
-                                f"after {_mem_progress['done']}/{len(interesting_videos)} items")
+                    logger.info(
+                        f"  [mem] {used_gib:.1f} GiB ({frac:.0%} of limit) "
+                        f"after {_mem_progress['done']}/{len(interesting_videos)} items"
+                    )
                     last_log = now
                 if frac >= _memory_stop_fraction() and not mem_stop_event.is_set():
                     mem_stop_event.set()
-                    logger.warning(f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
-                                   f"({frac:.0%} of limit) — stopping new downloads; "
-                                   f"remaining items stay queued for the next batch.")
+                    logger.warning(
+                        f"  [scrape] Memory safety valve: {used_gib:.1f} GiB "
+                        f"({frac:.0%} of limit) — stopping new downloads; "
+                        f"remaining items stay queued for the next batch."
+                    )
 
         mem_watch_thread = threading.Thread(target=_mem_watch, daemon=True)
         mem_watch_thread.start()
@@ -1388,12 +1421,13 @@ def download_video_threads(
             if stuck:
                 logger.warning(
                     f"  [scrape] {len(stuck)} download(s) still stuck after the grace "
-                    f"period: {stuck[:5]}" + (" ..." if len(stuck) > 5 else ""))
+                    f"period: {stuck[:5]}" + (" ..." if len(stuck) > 5 else "")
+                )
             # Record the truly stuck items as failures (transient — they stay queued)
             for i in range(len(interesting_videos)):
                 if i not in results_by_index:
                     empty = pd.DataFrame()
-                    empty.attrs['error_type'] = 'timeout'
+                    empty.attrs["error_type"] = "timeout"
                     results_by_index[i] = empty
         finally:
             mem_watch_stop.set()
@@ -1402,9 +1436,11 @@ def download_video_threads(
         monitor_thread.join(timeout=5)
 
     if offline_gate.outages:
-        logger.info(f"  Offline: {offline_gate.outages} outage(s), "
-                    f"{int(offline_gate.offline_seconds)}s paused; {offline_state['rerun']} "
-                    f"item(s) re-run after the connection returned.")
+        logger.info(
+            f"  Offline: {offline_gate.outages} outage(s), "
+            f"{int(offline_gate.offline_seconds)}s paused; {offline_state['rerun']} "
+            f"item(s) re-run after the connection returned."
+        )
         if not dry_run and not os.environ.get("K_SERVICE"):
             # Everything below writes to the bucket (failed record, alerts,
             # rows, then the caller's queue prune). A batch that gave up on
@@ -1414,8 +1450,10 @@ def download_video_threads(
             offline_gate.hold_until_online()
 
     if throttle.total_throttle_events > 0:
-        logger.info(f"  Throttle: {throttle.total_throttle_events} rate-limit events, "
-              f"final concurrency: {throttle.current}")
+        logger.info(
+            f"  Throttle: {throttle.total_throttle_events} rate-limit events, "
+            f"final concurrency: {throttle.current}"
+        )
 
     results = []
     failed_items = []
@@ -1433,8 +1471,8 @@ def download_video_threads(
             # the row is saved (fresh metadata) AND the id stays queued so
             # media is retried next run. attrs don't survive pd.concat, so
             # this is the last place they're visible.
-            media_error = res.attrs.get('media_error_type')
-            if media_error is not None and res.attrs.get('verdict_corroborated'):
+            media_error = res.attrs.get("media_error_type")
+            if media_error is not None and res.attrs.get("verdict_corroborated"):
                 # The platform named why this item will never play here (e.g.
                 # a region whitelist or a rights claim, record intact): the
                 # metadata row stands and the id is pruned like any success.
@@ -1448,18 +1486,29 @@ def download_video_threads(
                 # stays queued, and the caller's media-retry budget
                 # (scrape_queues.charge_media_retry) bounds the retries.
                 media_retry_ids.append(interesting_videos[idx])
-                if (storm_state["tripped"]
-                        and scraper.classify_error(media_error) == storm_state["classification"]):
+                if (
+                    storm_state["tripped"]
+                    and scraper.classify_error(media_error) == storm_state["classification"]
+                ):
                     storm_media_kept += 1
         else:
             vid = interesting_videos[idx]
-            error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
-            corroborated = isinstance(res, pd.DataFrame) and bool(res.attrs.get('verdict_corroborated'))
+            error_type = (
+                res.attrs.get("error_type", "unknown")
+                if isinstance(res, pd.DataFrame)
+                else "unknown"
+            )
+            corroborated = isinstance(res, pd.DataFrame) and bool(
+                res.attrs.get("verdict_corroborated")
+            )
             # The scraper owns its platform's permanent-vs-transient taxonomy.
             classification = scraper.classify_error(error_type)
-            if classification.startswith('permanent'):
-                if (storm_state["tripped"] and classification == storm_state["classification"]
-                        and not corroborated):
+            if classification.startswith("permanent"):
+                if (
+                    storm_state["tripped"]
+                    and classification == storm_state["classification"]
+                    and not corroborated
+                ):
                     # Suspect storm verdict: keep the id queued and off the
                     # failed record — a later healthy session re-scrapes it.
                     transient_failed_ids.append(vid)
@@ -1480,10 +1529,12 @@ def download_video_threads(
         # metadata-only rows whose MEDIA leg gave the storm verdict — the
         # latter is what tripped the guard on 2026-09-18, and the old line
         # reported "0 demoted" because they are results, not failures.
-        logger.warning(f"  Permanent-storm guard: {storm_demoted} "
-                       f"'{storm_state['classification']}' failures demoted to transient "
-                       f"and {storm_media_kept} metadata-only rows whose media leg gave that "
-                       f"verdict — all kept in queue, none recorded as failed.")
+        logger.warning(
+            f"  Permanent-storm guard: {storm_demoted} "
+            f"'{storm_state['classification']}' failures demoted to transient "
+            f"and {storm_media_kept} metadata-only rows whose media leg gave that "
+            f"verdict — all kept in queue, none recorded as failed."
+        )
 
     # Durable, user-visible alert: a storm means the scraper (or its session)
     # is likely broken — e.g. the platform changed its site/API — and needs a
@@ -1553,17 +1604,23 @@ def download_video_threads(
             scraper_alerts.clear_alert(scraper.platform, reason="healthy batch")
 
     if media_unplayable:
-        logger.info(f"  Unplayable here: {media_unplayable} items scraped metadata-only "
-              f"(the platform named why — e.g. region or rights block) — removed from queue")
+        logger.info(
+            f"  Unplayable here: {media_unplayable} items scraped metadata-only "
+            f"(the platform named why — e.g. region or rights block) — removed from queue"
+        )
 
     if media_retry_ids:
-        logger.info(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
-              f"(media download failed) — kept in queue for media retry")
+        logger.info(
+            f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
+            f"(media download failed) — kept in queue for media retry"
+        )
         transient_failed_ids += media_retry_ids
 
     if permanent_failed_ids or transient_failed_ids:
-        logger.info(f"  Failures: {len(permanent_failed_ids)} permanent, "
-              f"{len(transient_failed_ids)} transient (will retry)")
+        logger.info(
+            f"  Failures: {len(permanent_failed_ids)} permanent, "
+            f"{len(transient_failed_ids)} transient (will retry)"
+        )
 
     # The failed record is written BEFORE the empty-results return below. A
     # batch where every item failed permanently used to return first and record
@@ -1571,23 +1628,28 @@ def download_video_threads(
     # enrichment planner's scrapeable mask kept them, and on 2026-09-08 one dead
     # video was re-cut into a one-item slice every 25 seconds until the
     # supervisor's no-drain guard parked every armed plan.
-    if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
+    if not dry_run and len(failed_items) > 0:
+        data_io.save_json(
+            data=failed_items,
+            storage_location="scrape",
+            filename=f"{_failed_scrapes_label()}_{fine_ts}.json",
+            verbose=verbose,
+        )
         logger.info(f"Saved {len(failed_items)} failed items")
 
-    if len(results)==0:
+    if len(results) == 0:
         logger.warning("The scrape procedure did not generate any useful results")
         empty_results = pd.DataFrame()
-        empty_results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
-        empty_results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
-        empty_results.attrs['permanent_storm_category'] = storm_state["classification"]
-        empty_results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
-        empty_results.attrs['transient_storm_category'] = t_storm_state["classification"]
-        empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
-        empty_results.attrs['session_expired'] = session_state["expired"]
-        empty_results.attrs['batch_deadline_hit'] = deadline_hit
-        empty_results.attrs['offline'] = offline_state["gave_up"]
-        empty_results.attrs['media_retry_ids'] = list(media_retry_ids)
+        empty_results.attrs["circuit_breaker_tripped"] = breaker_state["tripped"]
+        empty_results.attrs["permanent_storm_tripped"] = storm_state["tripped"]
+        empty_results.attrs["permanent_storm_category"] = storm_state["classification"]
+        empty_results.attrs["transient_storm_tripped"] = t_storm_state["tripped"]
+        empty_results.attrs["transient_storm_category"] = t_storm_state["classification"]
+        empty_results.attrs["memory_stop"] = mem_stop_event.is_set()
+        empty_results.attrs["session_expired"] = session_state["expired"]
+        empty_results.attrs["batch_deadline_hit"] = deadline_hit
+        empty_results.attrs["offline"] = offline_state["gave_up"]
+        empty_results.attrs["media_retry_ids"] = list(media_retry_ids)
         return empty_results, permanent_failed_ids, transient_failed_ids
 
     # ignore_index=True: each element is a single-row frame indexed 0, so a
@@ -1595,9 +1657,13 @@ def download_video_threads(
     # concat(axis=1) hashtag fan-out into a cartesian row explosion.
     results = pd.concat(results, ignore_index=True)
 
-    if not dry_run and len(results)>0:
+    if not dry_run and len(results) > 0:
         results = _canonicalize_recode_save(
-            results, scraper, fine_ts, verbose=verbose, reporter=reporter,
+            results,
+            scraper,
+            fine_ts,
+            verbose=verbose,
+            reporter=reporter,
             storage_link_overrides=already_have_media,
         )
 
@@ -1607,46 +1673,35 @@ def download_video_threads(
     # ``memory_stop`` is distinct from both: it does NOT stop chaining — the
     # completed rows are saved and pruned, and the deferred items are picked up
     # by the next (fresh-process) chain.
-    results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
-    results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
-    results.attrs['permanent_storm_category'] = storm_state["classification"]
-    results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
-    results.attrs['transient_storm_category'] = t_storm_state["classification"]
-    results.attrs['memory_stop'] = mem_stop_event.is_set()
-    results.attrs['session_expired'] = session_state["expired"]
-    results.attrs['batch_deadline_hit'] = deadline_hit
-    results.attrs['offline'] = offline_state["gave_up"]
+    results.attrs["circuit_breaker_tripped"] = breaker_state["tripped"]
+    results.attrs["permanent_storm_tripped"] = storm_state["tripped"]
+    results.attrs["permanent_storm_category"] = storm_state["classification"]
+    results.attrs["transient_storm_tripped"] = t_storm_state["tripped"]
+    results.attrs["transient_storm_category"] = t_storm_state["classification"]
+    results.attrs["memory_stop"] = mem_stop_event.is_set()
+    results.attrs["session_expired"] = session_state["expired"]
+    results.attrs["batch_deadline_hit"] = deadline_hit
+    results.attrs["offline"] = offline_state["gave_up"]
     # Ids saved metadata-only (media failed): callers charge the media-retry
     # budget with these — they are also in transient_failed_ids so the queue
     # keeps them, and in the frame so the row is saved.
-    results.attrs['media_retry_ids'] = list(media_retry_ids)
+    results.attrs["media_retry_ids"] = list(media_retry_ids)
 
     return results, permanent_failed_ids, transient_failed_ids
 
 
-
-
-
-
-
-
-
-
-
 def scraper_loop_from_list(
-    video_list = [],
-    study_name = None,
-    batch_size = 500,
-    max_batches = None,
-    verbose = False,
-    dry_run = False,
+    video_list=[],
+    study_name=None,
+    batch_size=500,
+    max_batches=None,
+    verbose=False,
+    dry_run=False,
     reporter=None,
     cancellation_check=None,
     platform: str | None = None,
     process_name: str | None = None,
-    ):
-
-
+):
 
     max_batches = max_batches if max_batches is not None else np.inf
     platform_resolved = platform or scrape_queues.default_platform()
@@ -1656,21 +1711,24 @@ def scraper_loop_from_list(
     # session, so the session — not the queue — sizes a drain).
     platform_cap = get_scraper(platform_resolved).max_batch_size()
     if platform_cap and batch_size > platform_cap:
-        logger.info(f"  Batch size {batch_size} capped to {platform_cap} by the "
-                    f"{platform_resolved} scraper.")
+        logger.info(
+            f"  Batch size {batch_size} capped to {platform_cap} by the "
+            f"{platform_resolved} scraper."
+        )
         batch_size = platform_cap
 
-
-
-    logger.info(f"    Downloading media objects and metadata for selected videos, batch size: {batch_size}, max batches: {max_batches}")
+    logger.info(
+        f"    Downloading media objects and metadata for selected videos, batch size: {batch_size}, max batches: {max_batches}"
+    )
     logger.info(f"    Now: {datetime.now()}")
-
 
     batch_number = 1
 
     batch_target = min(max_batches, len(video_list) // batch_size + 1)
 
-    logger.info(f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches")
+    logger.info(
+        f"  Starting loop... There are {len(video_list):,} videos to process in {batch_target:,} batches"
+    )
 
     total_items = min(len(video_list), batch_target * batch_size)
     cumulative_done = 0
@@ -1691,7 +1749,6 @@ def scraper_loop_from_list(
             reporter.emit_data({"threads": n})
 
     for batch in chunk_list(video_list, batch_size):
-
         batch_label = f"{batch_number}/{batch_target}"
         logger.info(f"  Batch {batch_label}")
 
@@ -1699,10 +1756,10 @@ def scraper_loop_from_list(
         # (it has throughput / processing count / ETA); pass the reporter and the
         # job-wide OK/fail carry-over so it renders totals, not batch-local counts.
         results_from_scraper, perm_failed, trans_failed = download_video_threads(
-            interesting_videos = batch,
+            interesting_videos=batch,
             max_workers=4,
-            verbose = verbose,
-            dry_run = dry_run,
+            verbose=verbose,
+            dry_run=dry_run,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=total_items,
@@ -1710,69 +1767,82 @@ def scraper_loop_from_list(
             cumulative_fail=len(all_permanent_failed),
             reporter=reporter,
             on_concurrency_change=_on_threads_change,
-            platform=platform_resolved)
+            platform=platform_resolved,
+        )
 
         if not results_from_scraper.empty and "item_id" in results_from_scraper.columns:
             good_scrapes += results_from_scraper["item_id"].to_list()
 
         all_permanent_failed += perm_failed
         all_transient_failed += trans_failed
-        all_media_retry += list(results_from_scraper.attrs.get('media_retry_ids') or [])
+        all_media_retry += list(results_from_scraper.attrs.get("media_retry_ids") or [])
 
-        if results_from_scraper.attrs.get('batch_deadline_hit'):
-            logger.warning("  Batch deadline hit — the completed rows are saved; the "
-                           "unfinished items stay in the queue for the next run.")
+        if results_from_scraper.attrs.get("batch_deadline_hit"):
+            logger.warning(
+                "  Batch deadline hit — the completed rows are saved; the "
+                "unfinished items stay in the queue for the next run."
+            )
 
-        if results_from_scraper.attrs.get('offline'):
-            logger.warning("  The network stayed offline past the wait — stopping the batch "
-                  "loop. Unfinished items stay in the queue, uncharged, and no scraper alert "
-                  "was raised; re-run the scraper once the machine is back online.")
+        if results_from_scraper.attrs.get("offline"):
+            logger.warning(
+                "  The network stayed offline past the wait — stopping the batch "
+                "loop. Unfinished items stay in the queue, uncharged, and no scraper alert "
+                "was raised; re-run the scraper once the machine is back online."
+            )
             aborted = True
             if reporter is not None:
                 reporter.emit_data({"offline": True})
             break
 
-        if results_from_scraper.attrs.get('session_expired'):
-            logger.warning("  The platform logged the scraper's session out — stopping the batch "
-                  "loop. Items that need the login stay in the queue, uncharged; log in "
-                  "again in Chrome, then re-run the scraper.")
+        if results_from_scraper.attrs.get("session_expired"):
+            logger.warning(
+                "  The platform logged the scraper's session out — stopping the batch "
+                "loop. Items that need the login stay in the queue, uncharged; log in "
+                "again in Chrome, then re-run the scraper."
+            )
             aborted = True
             if reporter is not None:
                 reporter.emit_data({"session_expired": True})
             break
 
-        if results_from_scraper.attrs.get('circuit_breaker_tripped'):
-            logger.warning("  Rate-limit circuit breaker tripped — stopping the batch loop. "
-                  "Unfinished items stay in the queue; re-run the scraper later.")
+        if results_from_scraper.attrs.get("circuit_breaker_tripped"):
+            logger.warning(
+                "  Rate-limit circuit breaker tripped — stopping the batch loop. "
+                "Unfinished items stay in the queue; re-run the scraper later."
+            )
             aborted = True
             if reporter is not None:
                 reporter.emit_data({"circuit_breaker_tripped": True})
             break
 
-        if results_from_scraper.attrs.get('permanent_storm_tripped'):
-            logger.warning(f"  Permanent-failure storm detected "
-                  f"({results_from_scraper.attrs.get('permanent_storm_category')}) — "
-                  f"batch outcome suspect; stopping the batch loop. Affected items "
-                  f"stay in the queue; re-run the scraper once the session is healthy.")
+        if results_from_scraper.attrs.get("permanent_storm_tripped"):
+            logger.warning(
+                f"  Permanent-failure storm detected "
+                f"({results_from_scraper.attrs.get('permanent_storm_category')}) — "
+                f"batch outcome suspect; stopping the batch loop. Affected items "
+                f"stay in the queue; re-run the scraper once the session is healthy."
+            )
             aborted = True
             if reporter is not None:
                 reporter.emit_data({"permanent_storm_tripped": True})
             break
 
-        if results_from_scraper.attrs.get('transient_storm_tripped'):
-            logger.warning(f"  Transient-failure storm detected "
-                  f"({results_from_scraper.attrs.get('transient_storm_category')}) — "
-                  f"every item is failing the same retryable way, so the platform or "
-                  f"the scraper is likely broken; stopping the batch loop. The items "
-                  f"stay in the queue for a later retry.")
+        if results_from_scraper.attrs.get("transient_storm_tripped"):
+            logger.warning(
+                f"  Transient-failure storm detected "
+                f"({results_from_scraper.attrs.get('transient_storm_category')}) — "
+                f"every item is failing the same retryable way, so the platform or "
+                f"the scraper is likely broken; stopping the batch loop. The items "
+                f"stay in the queue for a later retry."
+            )
             aborted = True
             if reporter is not None:
                 reporter.emit_data({"transient_storm_tripped": True})
             break
 
-        with open(os.path.join(_cf()['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
+        with open(os.path.join(_cf()["paths"]["temp"], "temp_failed_scrapes.json"), "w") as f:
             json.dump(all_permanent_failed + all_transient_failed, f)
-        with open(os.path.join(_cf()['paths']['temp'], "temp_good_scrapes.json"), "w") as f:
+        with open(os.path.join(_cf()["paths"]["temp"], "temp_good_scrapes.json"), "w") as f:
             json.dump(good_scrapes, f)
 
         cumulative_done += len(batch)
@@ -1784,7 +1854,7 @@ def scraper_loop_from_list(
         elif "WEB_INTERFACE" in os.environ:
             # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
             # parses subprocess stdout for the ::DATA:: marker; never convert to logging.
-            print(f"::DATA::{{\"scrape_queue_len\": {max(0, queue_remaining)}}}", flush=True)
+            print(f'::DATA::{{"scrape_queue_len": {max(0, queue_remaining)}}}', flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break
@@ -1814,10 +1884,12 @@ def scraper_loop_from_list(
     if items_to_remove:
         pruned, remaining = scrape_queues.prune_scrape_queue(platform_resolved, items_to_remove)
         if pruned:
-            logger.info(f"  Queue update: removed {pruned} "
-                  f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
-                  f"{len(all_transient_failed)} transient failures remain for retry. "
-                  f"Queue length: {remaining}")
+            logger.info(
+                f"  Queue update: removed {pruned} "
+                f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
+                f"{len(all_transient_failed)} transient failures remain for retry. "
+                f"Queue length: {remaining}"
+            )
         scrape_queues.clear_zero_progress(platform_resolved, items_to_remove)
     elif all_transient_failed and not aborted and not dry_run:
         # Zero-progress run: every item failed "transiently" and nothing was
@@ -1829,13 +1901,15 @@ def scraper_loop_from_list(
         exhausted = scrape_queues.charge_zero_progress(platform_resolved, all_transient_failed)
         if exhausted:
             record_failed_scrapes(
-                [{"item_id": v, "category": "permanent:retry_exhausted"} for v in exhausted])
+                [{"item_id": v, "category": "permanent:retry_exhausted"} for v in exhausted]
+            )
             gave_up, remaining = scrape_queues.prune_scrape_queue(platform_resolved, set(exhausted))
             logger.warning(
                 f"  Gave up on {len(exhausted)} item(s) after "
                 f"{scrape_queues.MAX_ZERO_PROGRESS_STRIKES} zero-progress runs of "
                 f"transient failures — removed from the queue and recorded as "
-                f"permanently failed. Queue length: {remaining}")
+                f"permanently failed. Queue length: {remaining}"
+            )
 
     # ----------------
     # Media-retry budget: metadata-only rows (media failed) stay queued, but not
@@ -1844,39 +1918,31 @@ def scraper_loop_from_list(
     # -----------------
     if (all_media_retry or items_to_remove) and not dry_run:
         exhausted = scrape_queues.charge_media_retry(
-            platform_resolved, [] if aborted else all_media_retry, items_to_remove)
+            platform_resolved, [] if aborted else all_media_retry, items_to_remove
+        )
         if exhausted:
             _, remaining = scrape_queues.prune_scrape_queue(platform_resolved, set(exhausted))
             logger.warning(
                 f"  Gave up on media for {len(exhausted)} item(s) after "
                 f"{scrape_queues.MAX_MEDIA_RETRY_STRIKES} healthy runs — their "
                 f"metadata-only rows stand; removed from the queue. "
-                f"Queue length: {remaining}")
-
+                f"Queue length: {remaining}"
+            )
 
     logger.info(f"  Loop ended: {datetime.now()}")
     return good_scrapes, all_permanent_failed, all_transient_failed
 
 
-
-
-
-
-
-
-
-
 def queue_scraper_loop(
-    batch_size = 500,
-    max_batches = 10,
-    verbose = False,
-    dry_run = False,
+    batch_size=500,
+    max_batches=10,
+    verbose=False,
+    dry_run=False,
     reporter=None,
     cancellation_check=None,
     platform: str | None = None,
     process_name: str | None = None,
-    ):
-
+):
 
     # Load the per-platform queue (migrates a legacy to_scrape.json first)
     platform_resolved = platform or scrape_queues.default_platform()
@@ -1899,14 +1965,6 @@ def queue_scraper_loop(
         platform=platform_resolved,
         process_name=process_name,
     )
-
-
-
-
-
-
-
-
 
 
 def _parse_scrape_filename_ts(filename: str | None) -> "pd.Timestamp":
@@ -1932,8 +1990,6 @@ def _parse_scrape_filename_ts(filename: str | None) -> "pd.Timestamp":
         return pd.to_datetime(digits[:14], format="%Y%m%d%H%M%S")
     except Exception:
         return pd.NaT
-
-
 
 
 def _coalesce_retired_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -1974,9 +2030,9 @@ def _coalesce_retired_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
-
-def _canonicalize_legacy_scrape(df: pd.DataFrame, filename: str | None = None, scraper=None) -> pd.DataFrame:
+def _canonicalize_legacy_scrape(
+    df: pd.DataFrame, filename: str | None = None, scraper=None
+) -> pd.DataFrame:
     """Migrate a legacy (pre-canonical) scrape parquet to the canonical schema.
 
     New scrape parquets are already saved with canonical column names, per-K
@@ -2019,8 +2075,6 @@ def _canonicalize_legacy_scrape(df: pd.DataFrame, filename: str | None = None, s
     return df
 
 
-
-
 def _load_enrichment_seeds(verbose: bool = False) -> dict[str, pd.DataFrame]:
     """Load all donated enrichment-seed parquets from the ``recoded`` location.
 
@@ -2042,10 +2096,6 @@ def _load_enrichment_seeds(verbose: bool = False) -> dict[str, pd.DataFrame]:
     return seeds
 
 
-
-
-
-
 def _ensure_seed_flag(scrape_df: pd.DataFrame) -> pd.DataFrame:
     """Guarantee the ``is_enrichment_seed`` provenance column (False = real row).
 
@@ -2056,13 +2106,13 @@ def _ensure_seed_flag(scrape_df: pd.DataFrame) -> pd.DataFrame:
     """
     if "is_enrichment_seed" not in scrape_df.columns:
         scrape_df["is_enrichment_seed"] = pd.Series(
-            False, index=scrape_df.index, dtype="bool[pyarrow]")
+            False, index=scrape_df.index, dtype="bool[pyarrow]"
+        )
     else:
         scrape_df["is_enrichment_seed"] = (
-            scrape_df["is_enrichment_seed"].fillna(False).astype("bool[pyarrow]"))
+            scrape_df["is_enrichment_seed"].fillna(False).astype("bool[pyarrow]")
+        )
     return scrape_df
-
-
 
 
 def _merge_enrichment_seeds(
@@ -2106,27 +2156,27 @@ def _merge_enrichment_seeds(
     seeds["is_enrichment_seed"] = pd.Series(True, index=seeds.index, dtype="bool[pyarrow]")
 
     if verbose:
-        logger.info(f"    Adding {len(seeds):,} donated seed row(s) for items without a real scrape.")
+        logger.info(
+            f"    Adding {len(seeds):,} donated seed row(s) for items without a real scrape."
+        )
     return pd.concat([scrape_df, seeds], ignore_index=True)
-
-
 
 
 # Backstage/provenance columns that change on every (re-)scrape without altering
 # any analysis variable. They are excluded from the consolidation value diff so a
 # value-preserving re-scrape (or a plain force re-consolidation) flags nothing,
 # while a real backfill — e.g. play_count -1 sentinel → a real count — is caught.
-_SCRAPE_PROVENANCE_COLS = frozenset({
-    "scrape_ts",
-    "scrape_contract_version",
-    "storage_link",
-    # Seed provenance: which store a row came from is not an analysis value,
-    # and the column's first appearance (post-deploy full rebuild) must not
-    # read as a schema change that flags every item.
-    "is_enrichment_seed",
-})
-
-
+_SCRAPE_PROVENANCE_COLS = frozenset(
+    {
+        "scrape_ts",
+        "scrape_contract_version",
+        "storage_link",
+        # Seed provenance: which store a row came from is not an analysis value,
+        # and the column's first appearance (post-deploy full rebuild) must not
+        # read as a schema change that flags every item.
+        "is_enrichment_seed",
+    }
+)
 
 
 def _scrape_value_signatures(df: pd.DataFrame, value_cols: list[str]) -> dict[str, str]:
@@ -2156,16 +2206,16 @@ def _scrape_value_signatures(df: pd.DataFrame, value_cols: list[str]) -> dict[st
 
     normalised = sub[value_cols].astype("string").fillna("\x00")
     row_hashes = pd.util.hash_pandas_object(normalised, index=False).to_numpy()
-    frame = pd.DataFrame({
-        "item_id": sub["item_id"].astype("string").to_numpy(),
-        "row_hash": [format(int(h), "x") for h in row_hashes],
-    })
+    frame = pd.DataFrame(
+        {
+            "item_id": sub["item_id"].astype("string").to_numpy(),
+            "row_hash": [format(int(h), "x") for h in row_hashes],
+        }
+    )
     combined = frame.groupby("item_id", sort=False)["row_hash"].agg(
         lambda hashes: ",".join(sorted(hashes))
     )
     return {str(item): sig for item, sig in combined.items()}
-
-
 
 
 def _compute_changed_scrape_ids(
@@ -2221,7 +2271,9 @@ def _compute_changed_scrape_ids(
         if verbose:
             added = sorted(_value_col_set(new_df) - _value_col_set(existing_df))
             removed = sorted(_value_col_set(existing_df) - _value_col_set(new_df))
-            logger.info(f"Scrape column set changed (+{added} / -{removed}) — flagging all items as changed.")
+            logger.info(
+                f"Scrape column set changed (+{added} / -{removed}) — flagging all items as changed."
+            )
         return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
 
     # Column sets match — from here on, only rows named in the candidate set
@@ -2233,17 +2285,13 @@ def _compute_changed_scrape_ids(
             return set()
 
     value_cols = [
-        c for c in new_df.columns
-        if c != "item_id"
-        and c not in _SCRAPE_PROVENANCE_COLS
-        and c in existing_df.columns
+        c
+        for c in new_df.columns
+        if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS and c in existing_df.columns
     ]
     if not value_cols:
         existing_ids = {str(i) for i in existing_df["item_id"] if pd.notna(i)}
-        return {
-            str(i) for i in new_df["item_id"]
-            if pd.notna(i) and str(i) not in existing_ids
-        }
+        return {str(i) for i in new_df["item_id"] if pd.notna(i) and str(i) not in existing_ids}
 
     old_sig = _scrape_value_signatures(existing_df, value_cols)
     new_sig = _scrape_value_signatures(new_df, value_cols)
@@ -2256,10 +2304,6 @@ def _compute_changed_scrape_ids(
             f"({new_count:,} new, {len(changed) - new_count:,} re-scraped/updated)."
         )
     return changed
-
-
-
-
 
 
 def _write_scrape_ledger(
@@ -2278,10 +2322,9 @@ def _write_scrape_ledger(
     dataset_meta[_scrapes_label()]["seed_row_counts"] = seed_row_counts
     dataset_meta[_scrapes_label()]["seed_fingerprints"] = seed_fingerprints
     dataset_meta[_scrapes_label()]["scrape_contract_version"] = current_sv
-    _ = data_io.save_json(data=dataset_meta, storage_location="recoded",
-                          filename="consolidated_enrichment_files.json")
-
-
+    _ = data_io.save_json(
+        data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json"
+    )
 
 
 def _normalize_scrape_frame(scrape_df: pd.DataFrame) -> pd.DataFrame:
@@ -2309,8 +2352,6 @@ def _normalize_scrape_frame(scrape_df: pd.DataFrame) -> pd.DataFrame:
     return scrape_df
 
 
-
-
 def _dedupe_and_resolve_conflicts(scrape_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     """Per-item dedupe + video_downloaded conflict resolution.
 
@@ -2326,40 +2367,60 @@ def _dedupe_and_resolve_conflicts(scrape_df: pd.DataFrame, verbose: bool = False
     # pin the stale row forever).
     if "scrape_ts" in scrape_df.columns:
         sort_cols = ["scrape_ts"] + (
-            ["storage_link"] if "storage_link" in scrape_df.columns else [])
+            ["storage_link"] if "storage_link" in scrape_df.columns else []
+        )
         scrape_df = scrape_df.sort_values(
             sort_cols, ascending=False, kind="mergesort", na_position="last"
         )
-    scrape_df = scrape_df.drop_duplicates(subset=["source_platform","item_id","video_downloaded"]).copy()
+    scrape_df = scrape_df.drop_duplicates(
+        subset=["source_platform", "item_id", "video_downloaded"]
+    ).copy()
     if verbose:
-        logger.info(f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}")
+        logger.info(
+            f"    Dropping duplicates based on items and whether the video is downloaded or not: {scrape_df.shape}"
+        )
 
     # identify items with inconsistent video_downloaded status
     items_w_inconsistent_video_download_status = scrape_df["item_id"].value_counts()
-    items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status>1].index.tolist()
+    items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[
+        items_w_inconsistent_video_download_status > 1
+    ].index.tolist()
 
     # use the list generated above to separate items with consistent vs inconsistent video download status
-    items_w_consistent_video_download_status = scrape_df[~scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
-    items_w_inconsistent_video_download_status = scrape_df[scrape_df['item_id'].isin(items_w_inconsistent_video_download_status)].copy()
+    items_w_consistent_video_download_status = scrape_df[
+        ~scrape_df["item_id"].isin(items_w_inconsistent_video_download_status)
+    ].copy()
+    items_w_inconsistent_video_download_status = scrape_df[
+        scrape_df["item_id"].isin(items_w_inconsistent_video_download_status)
+    ].copy()
     if verbose:
-        logger.info("    Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not")
+        logger.info(
+            "    Identifying conflicting items in the dataset listed twice - once as video_downloaded and once as not"
+        )
         logger.info(
             f"    There are {len(items_w_inconsistent_video_download_status):,} items with such inconsistencies, "
-            f"and {len(items_w_consistent_video_download_status):,} that look alright.")
+            f"and {len(items_w_consistent_video_download_status):,} that look alright."
+        )
 
-    if len(items_w_inconsistent_video_download_status)>0:
+    if len(items_w_inconsistent_video_download_status) > 0:
         # for items with inconsistent video download status, only keep the ones where video_downloaded is True
-        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[items_w_inconsistent_video_download_status['video_downloaded']].copy()
+        items_w_inconsistent_video_download_status = items_w_inconsistent_video_download_status[
+            items_w_inconsistent_video_download_status["video_downloaded"]
+        ].copy()
         if verbose:
-            logger.info("    Fixed the inconsistencies by keeping the one of the pairs with video_download=True")
-            logger.info(f"    This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}")
+            logger.info(
+                "    Fixed the inconsistencies by keeping the one of the pairs with video_download=True"
+            )
+            logger.info(
+                f"    This reduces the number of inconsistent items to {len(items_w_inconsistent_video_download_status)}"
+            )
 
         # recombine the two dataframes
-        scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
+        scrape_df = pd.concat(
+            [items_w_consistent_video_download_status, items_w_inconsistent_video_download_status]
+        )
 
     return scrape_df
-
-
 
 
 def _fold_scrape_batch(
@@ -2431,7 +2492,8 @@ def _fold_scrape_batch(
         widened = _value_col_set(batch_df) - _value_col_set(existing_df)
         if widened:
             logger.info(
-                f"[CONSOLIDATE] scrape fold declined: batch adds value columns {sorted(widened)}.")
+                f"[CONSOLIDATE] scrape fold declined: batch adds value columns {sorted(widened)}."
+            )
             return None
     _t_load = time.perf_counter() - _t_mark
 
@@ -2449,12 +2511,15 @@ def _fold_scrape_batch(
     scrape_df = _merge_enrichment_seeds(scrape_df, seed_frames, verbose=True)
     _t_seeds = time.perf_counter() - _t_mark
 
-    logger.info(f"Shape: {scrape_df.shape} | "
-                f"Memory usage: {scrape_df.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
+    logger.info(
+        f"Shape: {scrape_df.shape} | "
+        f"Memory usage: {scrape_df.memory_usage(deep=True).sum() / (1024**2):.2f} MB"
+    )
 
     _t_mark = time.perf_counter()
     new_item_ids = _compute_changed_scrape_ids(
-        existing_df, scrape_df, verbose=True, candidate_item_ids=diff_candidates)
+        existing_df, scrape_df, verbose=True, candidate_item_ids=diff_candidates
+    )
     _t_diff = time.perf_counter() - _t_mark
 
     logger.info("Saving consolidated scrape data...")
@@ -2462,8 +2527,9 @@ def _fold_scrape_batch(
     _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
     _t_save = time.perf_counter() - _t_mark
 
-    _write_scrape_ledger(dataset_meta, files_to_concatenate, seed_row_counts,
-                         seed_fingerprints, current_sv)
+    _write_scrape_ledger(
+        dataset_meta, files_to_concatenate, seed_row_counts, seed_fingerprints, current_sv
+    )
     logger.info("...done")
     logger.info(
         f"[CONSOLIDATE][TIMING] scrape FOLD prev_load={_t_prev_load:.1f}s load={_t_load:.1f}s "
@@ -2474,33 +2540,35 @@ def _fold_scrape_batch(
     return True, scrape_df, new_item_ids
 
 
-
-
 def consolidate_and_save_scrape_data(
     force_consolidation: bool = False,
     return_saved_data: bool = True,
     verbose: bool = False,
     incremental: bool = False,
     dry_run: bool = False,
-    ):
+):
     # dry_run: run the full-rebuild reference path but persist NOTHING (no
     # recoded save, no ledger update) — the shadow verifier uses it to build
     # the frame a full rebuild WOULD produce and compare it against the live
     # artifacts. It forces the full path (never the fold).
 
-
-
     top_verbose = True
 
     # There is no need to look for raw scrape files. Contrary to activity data
-    # and annotations, the scrape files are recoded and immediately after the scrape 
+    # and annotations, the scrape files are recoded and immediately after the scrape
 
     if top_verbose:
         logger.info("Checking for new scrape files for consolidation...")
 
-    # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
-        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
+    # check if there are any changes in the relevant folder compared to last time this process was run.
+    if data_io.exists(
+        storage_location="recoded", filename="consolidated_enrichment_files.json", verbose=verbose
+    ):
+        dataset_meta = data_io.load_json(
+            storage_location="recoded",
+            filename="consolidated_enrichment_files.json",
+            verbose=verbose,
+        )
         if verbose:
             logger.info("Dataset meta loaded")
     else:
@@ -2520,43 +2588,54 @@ def consolidate_and_save_scrape_data(
     seed_frames = _load_enrichment_seeds(verbose=verbose)
     seed_row_counts = {fn: len(df) for fn, df in seed_frames.items()}
     seed_fingerprints = {
-        fn: data_io.stat(storage_location="recoded", filename=fn)
-        for fn in seed_frames
+        fn: data_io.stat(storage_location="recoded", filename=fn) for fn in seed_frames
     }
 
     latest_filename_list = dataset_meta.get(_scrapes_label(), {}).get("filenames", [])
     latest_seed_row_counts = dataset_meta.get(_scrapes_label(), {}).get("seed_row_counts", {})
     latest_seed_fps = dataset_meta.get(_scrapes_label(), {}).get("seed_fingerprints")
-    seeds_unchanged = (
-        seed_row_counts == latest_seed_row_counts
-        and (latest_seed_fps is None or seed_fingerprints == latest_seed_fps)
+    seeds_unchanged = seed_row_counts == latest_seed_row_counts and (
+        latest_seed_fps is None or seed_fingerprints == latest_seed_fps
     )
     # Seed files whose content moved since the last run — their item_ids are
     # changed-id candidates alongside the new batch files' ids.
     changed_seed_files = {
-        fn for fn in seed_frames
+        fn
+        for fn in seed_frames
         if seed_row_counts.get(fn) != latest_seed_row_counts.get(fn)
-        or (latest_seed_fps is not None
-            and seed_fingerprints.get(fn) != latest_seed_fps.get(fn))
+        or (latest_seed_fps is not None and seed_fingerprints.get(fn) != latest_seed_fps.get(fn))
     }
     # A scrape-contract change (new sv_) must rebuild even with no new files:
     # the per-file self-healing migrations (retired-column coalesce, legacy
     # renames) only run inside a rebuild, so skipping would leave the
     # consolidated parquet on the previous contract's column set forever.
     from fyp.scrape import scrape_versioning
+
     current_sv = scrape_versioning.active_scrape_version()
     latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
-    if (not force_consolidation
-            and set(files_to_concatenate) <= set(latest_filename_list)
-            and seeds_unchanged
-            and latest_sv == current_sv):
+    if (
+        not force_consolidation
+        and set(files_to_concatenate) <= set(latest_filename_list)
+        and seeds_unchanged
+        and latest_sv == current_sv
+    ):
         if top_verbose:
             logger.info("No new scrape files found. No need to consolidate.")
         if return_saved_data:
-            if data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
-                if verbose: logger.info("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"), set()
-            if verbose: logger.info("No existing consolidated file — returning empty.")
+            if data_io.exists(
+                storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"
+            ):
+                if verbose:
+                    logger.info("Returning existing file.")
+                return (
+                    False,
+                    data_io.load_parquet(
+                        storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"
+                    ),
+                    set(),
+                )
+            if verbose:
+                logger.info("No existing consolidated file — returning empty.")
             return False, pd.DataFrame(), set()
         return False, None, set()
 
@@ -2570,11 +2649,16 @@ def consolidate_and_save_scrape_data(
     # path below (the unchanged reference implementation). Gated off for a
     # force run and for a contract-version bump — both can change values in
     # files already consolidated.
-    if (incremental and not force_consolidation and not dry_run
-            and latest_sv == current_sv
-            and latest_filename_list
-            and data_io.exists(storage_location="recoded",
-                               filename=f"{_scrapes_label()}_recoded.parquet")):
+    if (
+        incremental
+        and not force_consolidation
+        and not dry_run
+        and latest_sv == current_sv
+        and latest_filename_list
+        and data_io.exists(
+            storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"
+        )
+    ):
         folded = _fold_scrape_batch(
             dataset_meta=dataset_meta,
             files_to_concatenate=files_to_concatenate,
@@ -2626,17 +2710,21 @@ def consolidate_and_save_scrape_data(
     _t_load = time.perf_counter() - _t_start
 
     if top_verbose:
-        logger.info(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
+        logger.info(
+            f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)..."
+        )
     if many_scrape_dfs:
         scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
     else:
         # No real scrapes yet (e.g. a fresh platform with only donated seeds) —
         # start from an empty frame with the columns downstream steps touch.
-        scrape_df = pd.DataFrame({
-            "item_id": pd.Series([], dtype="string[pyarrow]"),
-            "source_platform": pd.Series([], dtype="string[pyarrow]"),
-            "video_downloaded": pd.Series([], dtype="bool[pyarrow]"),
-        })
+        scrape_df = pd.DataFrame(
+            {
+                "item_id": pd.Series([], dtype="string[pyarrow]"),
+                "source_platform": pd.Series([], dtype="string[pyarrow]"),
+                "video_downloaded": pd.Series([], dtype="bool[pyarrow]"),
+            }
+        )
 
     scrape_df = _normalize_scrape_frame(scrape_df)
     scrape_df = _dedupe_and_resolve_conflicts(scrape_df, verbose=verbose)
@@ -2650,13 +2738,11 @@ def consolidate_and_save_scrape_data(
     scrape_df = _merge_enrichment_seeds(scrape_df, seed_frames, verbose=top_verbose)
     _t_seeds = time.perf_counter() - _t_start - _t_load - _t_dedupe
 
-
     memory_per_column = scrape_df.memory_usage(deep=True)
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
     if top_verbose:
         logger.info(f"Shape: {scrape_df.shape} | Memory usage: {total_memory_mb:.2f} MB")
-
 
     # Count-overflow repair, per-K engagement rates, and plays_per_day are now
     # produced at scrape time (BaseScraper.canonicalize_batch) and back-filled for
@@ -2679,8 +2765,8 @@ def consolidate_and_save_scrape_data(
 
     _t_mark = time.perf_counter()
     new_item_ids = _compute_changed_scrape_ids(
-        existing_df, scrape_df, verbose=top_verbose,
-        candidate_item_ids=diff_candidates)
+        existing_df, scrape_df, verbose=top_verbose, candidate_item_ids=diff_candidates
+    )
     _t_diff = time.perf_counter() - _t_mark
 
     _t_save = 0.0
@@ -2690,12 +2776,15 @@ def consolidate_and_save_scrape_data(
         if top_verbose:
             logger.info("Saving consolidated scrape data...")
         _t_mark = time.perf_counter()
-        _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
+        _ = data_io.save_parquet(
+            df=scrape_df, storage_location="recoded", filename=existing_recoded_fn
+        )
         _t_save = time.perf_counter() - _t_mark
 
         # update the dataset meta file
-        _write_scrape_ledger(dataset_meta, files_to_concatenate, seed_row_counts,
-                             seed_fingerprints, current_sv)
+        _write_scrape_ledger(
+            dataset_meta, files_to_concatenate, seed_row_counts, seed_fingerprints, current_sv
+        )
 
     if top_verbose:
         logger.info("...done")
@@ -2708,22 +2797,10 @@ def consolidate_and_save_scrape_data(
         f"diff_scope={'full' if diff_candidates is None else 'batch'}"
     )
 
-
-
     return True, scrape_df, new_item_ids
 
 
-
-
-
-
-
-
-
-
-def _merge_failed_scrape_records(
-    records: dict[str, str | None],
-    raw: list) -> None:
+def _merge_failed_scrape_records(records: dict[str, str | None], raw: list) -> None:
     """Merge one loaded failed-scrapes file into ``records`` in place.
 
     Two on-disk shapes coexist. Records written before the category was
@@ -2744,10 +2821,6 @@ def _merge_failed_scrape_records(
             records.setdefault(str(entry), None)
 
 
-
-
-
-
 def record_failed_scrapes(failed_items: list[dict], verbose: bool = False) -> None:
     """Write one failed-scrapes ledger file recording the given items.
 
@@ -2762,16 +2835,15 @@ def record_failed_scrapes(failed_items: list[dict], verbose: bool = False) -> No
     if not failed_items:
         return
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-    data_io.save_json(data=failed_items, storage_location="scrape",
-                      filename=f"{_failed_scrapes_label()}_{fine_ts}.json",
-                      verbose=verbose)
+    data_io.save_json(
+        data=failed_items,
+        storage_location="scrape",
+        filename=f"{_failed_scrapes_label()}_{fine_ts}.json",
+        verbose=verbose,
+    )
 
 
-
-
-def _load_failed_scrape_records(
-    verbose = False,
-    super_verbose = False) -> dict[str, str | None]:
+def _load_failed_scrape_records(verbose=False, super_verbose=False) -> dict[str, str | None]:
     """Load every recorded failed scrape as ``{item_id: category}``.
 
     Consolidates multiple on-disk records into one file and archives the
@@ -2791,7 +2863,11 @@ def _load_failed_scrape_records(
 
     # Oldest first, so that when an item has several records the latest wins
     # (the file names carry the time they were written).
-    failed_scrapes_files = sorted(gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(_failed_scrapes_label()))
+    failed_scrapes_files = sorted(
+        gg
+        for gg in data_io.listdir(storage_location="scrape", verbose=verbose)
+        if gg.startswith(_failed_scrapes_label())
+    )
 
     records: dict[str, str | None] = {}
     for fn in failed_scrapes_files:
@@ -2804,14 +2880,28 @@ def _load_failed_scrape_records(
     if len(failed_scrapes_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            logger.info(f"{len(records):,} of these are unique and will be saved as a new consolidated file {_failed_scrapes_label()}_{fine_ts}.json.")
+            logger.info(
+                f"{len(records):,} of these are unique and will be saved as a new consolidated file {_failed_scrapes_label()}_{fine_ts}.json."
+            )
 
-        payload = [{"item_id": item_id, "category": category} for item_id, category in records.items()]
-        result = data_io.save_json(data=payload, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
+        payload = [
+            {"item_id": item_id, "category": category} for item_id, category in records.items()
+        ]
+        result = data_io.save_json(
+            data=payload,
+            storage_location="scrape",
+            filename=f"{_failed_scrapes_label()}_{fine_ts}.json",
+            verbose=verbose,
+        )
 
         if result == 0:
             for fn in failed_scrapes_files:
-                data_io.move(src_storage_location="scrape", dst_storage_location="archive", filename=fn, verbose=verbose)
+                data_io.move(
+                    src_storage_location="scrape",
+                    dst_storage_location="archive",
+                    filename=fn,
+                    verbose=verbose,
+                )
                 if verbose:
                     logger.info(f"Moved {fn} to archive")
 
@@ -2819,10 +2909,6 @@ def _load_failed_scrape_records(
         logger.info(f"Loaded list of all failed scrapes: {len(records):,}")
 
     return records
-
-
-
-
 
 
 def _is_final_failure(category: str | None) -> bool:
@@ -2834,12 +2920,7 @@ def _is_final_failure(category: str | None) -> bool:
     return category is None or str(category).startswith("permanent")
 
 
-
-
-
-def load_failed_scrapes(
-    verbose = False,
-    super_verbose = False):
+def load_failed_scrapes(verbose=False, super_verbose=False):
     """Item ids whose most recent recorded fetch failure is final.
 
     The record also stores failures the scraper will retry (a timeout, a batch
@@ -2862,13 +2943,7 @@ def load_failed_scrapes(
     return [item_id for item_id, category in records.items() if _is_final_failure(category)]
 
 
-
-
-
-
-def load_failed_scrapes_detail(
-    verbose = False,
-    super_verbose = False) -> dict[str, str | None]:
+def load_failed_scrapes_detail(verbose=False, super_verbose=False) -> dict[str, str | None]:
     """Load failed scrapes with the reason each one failed.
 
     Use this instead of :func:`load_failed_scrapes` to select one kind of
@@ -2884,7 +2959,3 @@ def load_failed_scrapes_detail(
         written before categories were stored, whose reason is unrecoverable.
     """
     return _load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose)
-
-
-
-

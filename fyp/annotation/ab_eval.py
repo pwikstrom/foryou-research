@@ -55,14 +55,15 @@ def _cf():
 
     return fyp_cf
 
-LOCATION = "ab_eval"                      # run artifacts (isolated)
-CANDIDATES_LOCATION = "ab_candidates"     # candidate contract TOMLs (admin config)
-EVAL_SET_LOCATION = "users"               # the curated eval-set id lists
-EVAL_SET_FILENAME = "ab_eval_set.json"    # legacy single-set file (migrated in)
+
+LOCATION = "ab_eval"  # run artifacts (isolated)
+CANDIDATES_LOCATION = "ab_candidates"  # candidate contract TOMLs (admin config)
+EVAL_SET_LOCATION = "users"  # the curated eval-set id lists
+EVAL_SET_FILENAME = "ab_eval_set.json"  # legacy single-set file (migrated in)
 EVAL_SETS_FILENAME = "ab_eval_sets.json"  # named sets + active pointer
 RUNS_INDEX_FILENAME = "runs_index.json"
 
-MAX_EVAL_ITEMS = 50                       # hard cost cap (endpoints + worker)
+MAX_EVAL_ITEMS = 50  # hard cost cap (endpoints + worker)
 MAX_WORKERS = 4
 ADJUDICATION_CAP = 3000
 
@@ -75,11 +76,21 @@ DEFAULT_EVAL_SET = "default"
 # the contract's "or '-' if none" instruction with an en dash often enough that a
 # literal-only match badly overstates a candidate's coverage.
 _NORM_SENTINELS = {
-    "unable to detect", "-", "--", "other category", "not coded", "", "<NA>".lower(),
+    "unable to detect",
+    "-",
+    "--",
+    "other category",
+    "not coded",
+    "",
+    "<NA>".lower(),
     # "no" is deliberately NOT here: for yes/no fields it is a real answer.
-    "none", "n/a", "unknown", "unclear", "other",
+    "none",
+    "n/a",
+    "unknown",
+    "unclear",
+    "other",
 }
-_DASH_FOLD = str.maketrans({"\u2013": "-", "\u2014": "-", "\u2212": "-"})   # en dash, em dash, minus
+_DASH_FOLD = str.maketrans({"\u2013": "-", "\u2014": "-", "\u2212": "-"})  # en dash, em dash, minus
 
 # Scales as declared by the four TOML contracts / the synthesized var_schema.
 # (The pre-2026-07 ten-scale vocabulary — ratio/interval/ordinal/dichotomous/
@@ -99,12 +110,8 @@ _FREE_TEXT_ELEMENT_CHARS = 25
 _MIN_CORR_N = 3
 
 
-
-
 class RunCancelled(Exception):
     """Raised inside :func:`execute_run` when the reporter requests cancel."""
-
-
 
 
 def ensure_locations() -> None:
@@ -122,8 +129,6 @@ def ensure_locations() -> None:
     )
 
 
-
-
 # ---------------------------------------------------------------------------
 # Candidate contracts (named TOMLs; byte-identical to what the upload flow
 # consumes, so "activate candidate" is literally re-posting its text).
@@ -135,13 +140,9 @@ def _candidate_files(name: str) -> tuple[str, str]:
     return f"{name}.toml", f"{name}.meta.json"
 
 
-
-
 def validate_candidate_name(name: str) -> bool:
     """Return True when ``name`` is a legal candidate name."""
     return bool(isinstance(name, str) and CANDIDATE_NAME_RE.match(name))
-
-
 
 
 def list_candidates() -> list[dict]:
@@ -163,8 +164,6 @@ def list_candidates() -> list[dict]:
             continue
     out.sort(key=lambda m: m.get("created_at") or "", reverse=True)
     return out
-
-
 
 
 def load_candidate(name: str) -> dict:
@@ -191,10 +190,12 @@ def load_candidate(name: str) -> dict:
     return {"name": name, "text": text, "contract": contract, "meta": meta}
 
 
-
-
 def save_candidate(
-    name: str, text: str, actor: str = "", note: str = "", overwrite: bool = False,
+    name: str,
+    text: str,
+    actor: str = "",
+    note: str = "",
+    overwrite: bool = False,
     candidate_version: str | None = None,
 ) -> dict:
     """Validate and store a candidate contract; return its metadata.
@@ -237,8 +238,6 @@ def save_candidate(
     return meta
 
 
-
-
 def delete_candidate(name: str) -> bool:
     """Delete a candidate's TOML + meta; return True when something was removed."""
     ensure_locations()
@@ -253,8 +252,6 @@ def delete_candidate(name: str) -> bool:
     return removed
 
 
-
-
 # ---------------------------------------------------------------------------
 # Eval sets (named curated item-id lists + platform/downloaded resolution +
 # sampling). The store is ``{"active": <name>, "sets": {<name>: {...}}}``; the
@@ -267,8 +264,6 @@ def validate_eval_set_name(name: str) -> bool:
     return bool(isinstance(name, str) and EVAL_SET_NAME_RE.match(name))
 
 
-
-
 def _blank_set(item_ids: list[str] | None = None, actor: str = "", note: str = "") -> dict:
     """Return a fresh set record."""
     return {
@@ -277,8 +272,6 @@ def _blank_set(item_ids: list[str] | None = None, actor: str = "", note: str = "
         "updated_by": actor,
         "note": note,
     }
-
-
 
 
 def _load_sets_store() -> dict:
@@ -314,15 +307,10 @@ def _load_sets_store() -> dict:
     return {"active": DEFAULT_EVAL_SET, "sets": {DEFAULT_EVAL_SET: legacy or _blank_set()}}
 
 
-
-
 def _save_sets_store(store: dict) -> dict:
     """Persist the named-set store."""
-    data_io.save_json(data=store, storage_location=EVAL_SET_LOCATION,
-                      filename=EVAL_SETS_FILENAME)
+    data_io.save_json(data=store, storage_location=EVAL_SET_LOCATION, filename=EVAL_SETS_FILENAME)
     return store
-
-
 
 
 def list_eval_sets() -> dict:
@@ -342,8 +330,6 @@ def list_eval_sets() -> dict:
     return {"active": store["active"], "sets": sets}
 
 
-
-
 def load_eval_set(name: str | None = None) -> dict:
     """Return one eval set (the active one when ``name`` is None).
 
@@ -358,10 +344,9 @@ def load_eval_set(name: str | None = None) -> dict:
     return {**record, "name": key}
 
 
-
-
-def save_eval_set(item_ids: list[str], actor: str = "", note: str = "",
-                  name: str | None = None) -> dict:
+def save_eval_set(
+    item_ids: list[str], actor: str = "", note: str = "", name: str | None = None
+) -> dict:
     """Persist one eval set's items (deduped, order-preserving, capped).
 
     Args:
@@ -380,15 +365,11 @@ def save_eval_set(item_ids: list[str], actor: str = "", note: str = "",
     store = _load_sets_store()
     key = name or store["active"]
     if not validate_eval_set_name(key):
-        raise ValueError(
-            "set name must be 1-40 chars of lowercase letters, digits, '_' or '-'"
-        )
+        raise ValueError("set name must be 1-40 chars of lowercase letters, digits, '_' or '-'")
     store["sets"][key] = _blank_set(ids, actor=actor, note=note)
     store["active"] = key
     _save_sets_store(store)
     return {**store["sets"][key], "name": key}
-
-
 
 
 def create_eval_set(name: str, copy_from: str | None = None, actor: str = "") -> dict:
@@ -399,20 +380,17 @@ def create_eval_set(name: str, copy_from: str | None = None, actor: str = "") ->
         FileExistsError: when the set already exists.
     """
     if not validate_eval_set_name(name):
-        raise ValueError(
-            "set name must be 1-40 chars of lowercase letters, digits, '_' or '-'"
-        )
+        raise ValueError("set name must be 1-40 chars of lowercase letters, digits, '_' or '-'")
     store = _load_sets_store()
     if name in store["sets"]:
         raise FileExistsError(f"evaluation set '{name}' already exists")
     source = store["sets"].get(copy_from) if copy_from else None
-    store["sets"][name] = _blank_set(list(source.get("item_ids", [])) if source else [],
-                                     actor=actor)
+    store["sets"][name] = _blank_set(
+        list(source.get("item_ids", [])) if source else [], actor=actor
+    )
     store["active"] = name
     _save_sets_store(store)
     return {**store["sets"][name], "name": name}
-
-
 
 
 def rename_eval_set(name: str, new_name: str) -> dict:
@@ -424,9 +402,7 @@ def rename_eval_set(name: str, new_name: str) -> dict:
         FileExistsError: when ``new_name`` is taken.
     """
     if not validate_eval_set_name(new_name):
-        raise ValueError(
-            "set name must be 1-40 chars of lowercase letters, digits, '_' or '-'"
-        )
+        raise ValueError("set name must be 1-40 chars of lowercase letters, digits, '_' or '-'")
     store = _load_sets_store()
     if name not in store["sets"]:
         raise FileNotFoundError(f"evaluation set '{name}' not found")
@@ -438,8 +414,6 @@ def rename_eval_set(name: str, new_name: str) -> dict:
         store["active"] = new_name
     _save_sets_store(store)
     return {**store["sets"][new_name], "name": new_name}
-
-
 
 
 def delete_eval_set(name: str) -> dict:
@@ -461,8 +435,6 @@ def delete_eval_set(name: str) -> dict:
     return {"active": store["active"]}
 
 
-
-
 def set_active_eval_set(name: str) -> dict:
     """Point the active-set marker at ``name``.
 
@@ -477,16 +449,12 @@ def set_active_eval_set(name: str) -> dict:
     return {"active": name}
 
 
-
-
 # Short-lived in-process cache for the enrichment-status columns. The eval-set
 # UI hits resolve/sample several times in a row (page load, add, sample, save);
 # on Cloud Run each uncached call re-downloads a multi-million-row parquet from
 # GCS, which is what made the buttons feel stuck.
 _STATUS_CACHE: dict = {"ts": 0.0, "frame": None}
 _STATUS_TTL_S = 60.0
-
-
 
 
 def _enrichment_status_frame() -> pd.DataFrame | None:
@@ -502,7 +470,8 @@ def _enrichment_status_frame() -> pd.DataFrame | None:
         if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
             return None
         frame = data_io.load_parquet_selective(
-            storage_location="recoded", filename="enrichment_status.parquet",
+            storage_location="recoded",
+            filename="enrichment_status.parquet",
             columns=["item_id", "source_platform", "video_downloaded", "scraped_ok"],
         )
         if frame is None or "item_id" not in frame.columns:
@@ -519,8 +488,6 @@ def _enrichment_status_frame() -> pd.DataFrame | None:
         return frame
     except Exception:
         return None
-
-
 
 
 def resolve_items(item_ids: list[str]) -> list[dict]:
@@ -545,8 +512,6 @@ def resolve_items(item_ids: list[str]) -> list[dict]:
         plat, dl = lookup.get(str(item_id), (None, None))
         out.append({"item_id": str(item_id), "platform": plat, "downloaded": dl})
     return out
-
-
 
 
 def sample_items(n: int, platforms: list[str] | None = None, seed: int | None = None) -> list[str]:
@@ -597,8 +562,6 @@ def sample_items(n: int, platforms: list[str] | None = None, seed: int | None = 
     return picked[:n]
 
 
-
-
 # ---------------------------------------------------------------------------
 # Per-arm annotation (annotate-without-persist + runner abstraction).
 # ---------------------------------------------------------------------------
@@ -630,10 +593,13 @@ def _build_contents(item_id: str, platform: str | None):
     return [gt.Part(inline_data=gt.Blob(data=video_bytes, mime_type="video/mp4")), prompt_part]
 
 
-
-
-def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_schema,
-                 gen_overrides: dict | None = None) -> dict:
+def annotate_one(
+    item_id: str,
+    platform: str | None,
+    prompt_text: str,
+    response_schema,
+    gen_overrides: dict | None = None,
+) -> dict:
     """Annotate ONE video against an explicit prompt + response schema.
 
     The A/B analogue of ``machine_annotation.call_machine``: same client, same
@@ -666,8 +632,10 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
 
     initialize_machine()
     machine = _cf()["machine"]["gemini"]
-    effective = {key: machine[key] for key in
-                 ("model", "temperature", "thinking_budget", "max_output_tokens")}
+    effective = {
+        key: machine[key]
+        for key in ("model", "temperature", "thinking_budget", "max_output_tokens")
+    }
     effective.update({k: v for k, v in (gen_overrides or {}).items() if v is not None})
     config = gt.GenerateContentConfig(
         system_instruction=prompt_text,
@@ -699,7 +667,9 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     start = _dt.datetime.now()
     try:
         resp = machine["client"].models.generate_content(
-            model=effective["model"], config=config, contents=contents,
+            model=effective["model"],
+            config=config,
+            contents=contents,
         )
     except Exception as exc:
         out["error"] = f"generate: {exc}"
@@ -730,8 +700,6 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     return out
 
 
-
-
 class SyncThreadedRunner:
     """Synchronous arm runner: ThreadPoolExecutor over :func:`annotate_one`.
 
@@ -740,19 +708,23 @@ class SyncThreadedRunner:
     :func:`run_arm` without touching the worker.
     """
 
-    def __init__(self, max_workers: int = MAX_WORKERS, cancel_cb=None,
-                 gen_overrides: dict | None = None):
+    def __init__(
+        self, max_workers: int = MAX_WORKERS, cancel_cb=None, gen_overrides: dict | None = None
+    ):
         self.max_workers = max_workers
         self.cancel_cb = cancel_cb
         # Per-arm generation overrides (model/temperature/...) threaded through
         # the constructor so run()'s signature stays stable for other runners.
         self.gen_overrides = gen_overrides
 
-
-
-
-    def run(self, prompt_text: str, response_schema, item_ids: list[str],
-            platform_map: dict[str, str], progress_cb=None) -> list[dict]:
+    def run(
+        self,
+        prompt_text: str,
+        response_schema,
+        item_ids: list[str],
+        platform_map: dict[str, str],
+        progress_cb=None,
+    ) -> list[dict]:
         """Annotate every item; returns raw rows in ``item_ids`` order.
 
         Raises:
@@ -762,8 +734,12 @@ class SyncThreadedRunner:
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures = {
                 pool.submit(
-                    annotate_one, item_id, platform_map.get(str(item_id)),
-                    prompt_text, response_schema, self.gen_overrides,
+                    annotate_one,
+                    item_id,
+                    platform_map.get(str(item_id)),
+                    prompt_text,
+                    response_schema,
+                    self.gen_overrides,
                 ): str(item_id)
                 for item_id in item_ids
             }
@@ -774,9 +750,13 @@ class SyncThreadedRunner:
                     results[item_id] = fut.result()
                 except Exception as exc:
                     results[item_id] = {
-                        "item_id": item_id, "parsed": None, "response": "",
-                        "finish_reason": "DNF - runner error", "usage": {},
-                        "inference_duration": -1.0, "error": str(exc),
+                        "item_id": item_id,
+                        "parsed": None,
+                        "response": "",
+                        "finish_reason": "DNF - runner error",
+                        "usage": {},
+                        "inference_duration": -1.0,
+                        "error": str(exc),
                         "model": _cf()["machine"]["gemini"].get("model"),
                     }
                 done += 1
@@ -787,8 +767,6 @@ class SyncThreadedRunner:
                         pending.cancel()
                     raise RunCancelled()
         return [results[str(i)] for i in item_ids if str(i) in results]
-
-
 
 
 def _validate_arm_backend(arm_name: str | None, backend_name: str) -> None:
@@ -813,11 +791,9 @@ def _validate_arm_backend(arm_name: str | None, backend_name: str) -> None:
         return  # gemini readiness is checked once by the worker's config gate
     result = backend.availability(deep=False)
     if not result.ok:
-        raise ValueError(f"arm '{arm_name}': backend '{backend_name}' unavailable — {result.reason}")
-
-
-
-
+        raise ValueError(
+            f"arm '{arm_name}': backend '{backend_name}' unavailable — {result.reason}"
+        )
 
 
 def _runner_for_arm(arm: dict, cancel_cb=None):
@@ -843,13 +819,12 @@ def _runner_for_arm(arm: dict, cancel_cb=None):
 
     # Non-Gemini backends constrain decoding with the PORTABLE JSON schema
     # (run_arm passes the google-genai form, which only Gemini understands).
-    schema_json = sch.get_annotation_json_schema(arm.get("contract")) if arm.get("contract") else None
-    return BackendSequentialRunner(backend, cancel_cb=cancel_cb,
-                                   gen_overrides=gen_overrides, schema_json=schema_json)
-
-
-
-
+    schema_json = (
+        sch.get_annotation_json_schema(arm.get("contract")) if arm.get("contract") else None
+    )
+    return BackendSequentialRunner(
+        backend, cancel_cb=cancel_cb, gen_overrides=gen_overrides, schema_json=schema_json
+    )
 
 
 class BackendSequentialRunner:
@@ -863,8 +838,13 @@ class BackendSequentialRunner:
     (``parsed`` extracted here).
     """
 
-    def __init__(self, backend, cancel_cb=None, gen_overrides: dict | None = None,
-                 schema_json: dict | None = None):
+    def __init__(
+        self,
+        backend,
+        cancel_cb=None,
+        gen_overrides: dict | None = None,
+        schema_json: dict | None = None,
+    ):
         self.backend = backend
         self.cancel_cb = cancel_cb
         self.gen_overrides = gen_overrides
@@ -872,11 +852,14 @@ class BackendSequentialRunner:
         # genai-typed schema run() receives (backends can't consume that).
         self.schema_json = schema_json
 
-
-
-
-    def run(self, prompt_text: str, response_schema, item_ids: list[str],
-            platform_map: dict[str, str], progress_cb=None) -> list[dict]:
+    def run(
+        self,
+        prompt_text: str,
+        response_schema,
+        item_ids: list[str],
+        platform_map: dict[str, str],
+        progress_cb=None,
+    ) -> list[dict]:
         """Annotate every item sequentially; returns rows in input order.
 
         Raises:
@@ -888,10 +871,13 @@ class BackendSequentialRunner:
                 raise RunCancelled()
             try:
                 raw = self.backend.annotate_one(
-                    str(item_id), platform=platform_map.get(str(item_id)),
+                    str(item_id),
+                    platform=platform_map.get(str(item_id)),
                     gen_overrides=self.gen_overrides,
                     prompt_text=prompt_text,
-                    response_schema=self.schema_json if self.schema_json is not None else response_schema,
+                    response_schema=self.schema_json
+                    if self.schema_json is not None
+                    else response_schema,
                 )
                 row = {
                     "item_id": str(item_id),
@@ -909,21 +895,30 @@ class BackendSequentialRunner:
                     except Exception as exc:
                         row["error"] = f"parse: {exc}"
             except Exception as exc:
-                row = {"item_id": str(item_id), "model": getattr(self.backend, "name", "?"),
-                       "parsed": None, "response": "", "finish_reason": "DNF - runner error",
-                       "usage": {}, "inference_duration": -1.0, "error": str(exc)}
+                row = {
+                    "item_id": str(item_id),
+                    "model": getattr(self.backend, "name", "?"),
+                    "parsed": None,
+                    "response": "",
+                    "finish_reason": "DNF - runner error",
+                    "usage": {},
+                    "inference_duration": -1.0,
+                    "error": str(exc),
+                }
             rows.append(row)
             if progress_cb:
                 progress_cb(done, len(item_ids))
         return rows
 
 
-
-
-
-
-def run_arm(arm_name: str, contract: dict, item_ids: list[str],
-            platform_map: dict[str, str], runner=None, progress_cb=None) -> tuple[list[dict], list[dict]]:
+def run_arm(
+    arm_name: str,
+    contract: dict,
+    item_ids: list[str],
+    platform_map: dict[str, str],
+    runner=None,
+    progress_cb=None,
+) -> tuple[list[dict], list[dict]]:
     """Run one contract arm over the eval set.
 
     Renders the arm's prompt + response schema ONCE from ``contract`` (the
@@ -958,8 +953,6 @@ def run_arm(arm_name: str, contract: dict, item_ids: list[str],
     return flat_rows, raw_rows
 
 
-
-
 # ---------------------------------------------------------------------------
 # In-memory refine + comparison (ported from the original A/B spike).
 # ---------------------------------------------------------------------------
@@ -986,8 +979,6 @@ def _normalize_cell(value) -> str:
     if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
         return str(int(value))
     return str(value)
-
-
 
 
 def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFrame:
@@ -1018,10 +1009,9 @@ def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFr
     return df
 
 
-
-
-def _reattach_contract_columns(refined: pd.DataFrame, flat_rows: list[dict],
-                               contract: dict) -> pd.DataFrame:
+def _reattach_contract_columns(
+    refined: pd.DataFrame, flat_rows: list[dict], contract: dict
+) -> pd.DataFrame:
     """Re-attach contract output columns the production recode dropped.
 
     ``recode_events_df`` keeps only columns known to the LIVE var_schema, so a
@@ -1042,7 +1032,7 @@ def _reattach_contract_columns(refined: pd.DataFrame, flat_rows: list[dict],
         if not name:
             continue
         if field.get("type") == "object":
-            for key in (field.get("keys") or {}):
+            for key in field.get("keys") or {}:
                 final_by_flat[f"{name}_{key}"] = ac.contract_output_column(name, key)
         else:
             final_by_flat[name] = ac.contract_output_column(name)
@@ -1063,17 +1053,10 @@ def _reattach_contract_columns(refined: pd.DataFrame, flat_rows: list[dict],
     return convert_dtypes_to_pyarrow(out)
 
 
-
-
 def _scale_map() -> dict[str, str]:
     """Return ``{variable_name: scale}`` from the live var_schema."""
     vs = _cf()["var_schema"]
-    return {
-        str(n): str(s)
-        for n, s in zip(vs["variable_name"], vs["scale"], strict=False)
-    }
-
-
+    return {str(n): str(s) for n, s in zip(vs["variable_name"], vs["scale"], strict=False)}
 
 
 def contract_scale_map(contract: dict) -> dict[str, str]:
@@ -1101,8 +1084,6 @@ def contract_scale_map(contract: dict) -> dict[str, str]:
     return out
 
 
-
-
 def _is_sentinel(value: str) -> bool:
     """True when a normalized cell means "no real value" for this column.
 
@@ -1111,13 +1092,9 @@ def _is_sentinel(value: str) -> bool:
     return str(value).strip().translate(_DASH_FOLD).lower() in _NORM_SENTINELS
 
 
-
-
 def _canon(value: str) -> str:
     """Canonical comparison key for an enum/list value ("" when it is a sentinel)."""
     return "" if _is_sentinel(value) else str(value).strip().translate(_DASH_FOLD).lower()
-
-
 
 
 def _classify(col: str, sa: pd.Series, sb: pd.Series, scales: dict[str, str]) -> str:
@@ -1140,9 +1117,10 @@ def _classify(col: str, sa: pd.Series, sb: pd.Series, scales: dict[str, str]) ->
 
     if pd.api.types.is_numeric_dtype(sa) and pd.api.types.is_numeric_dtype(sb):
         return "numeric"
-    has_list = sa.map(lambda x: isinstance(x, (list, np.ndarray))).any() or sb.map(
-        lambda x: isinstance(x, (list, np.ndarray))
-    ).any()
+    has_list = (
+        sa.map(lambda x: isinstance(x, (list, np.ndarray))).any()
+        or sb.map(lambda x: isinstance(x, (list, np.ndarray))).any()
+    )
     if has_list:
         return "list"
     lengths = pd.concat([sa.dropna(), sb.dropna()]).astype(str).str.len()
@@ -1150,15 +1128,11 @@ def _classify(col: str, sa: pd.Series, sb: pd.Series, scales: dict[str, str]) ->
     return "enum" if (avg_len is not None and pd.notna(avg_len) and avg_len < 25) else "freetext"
 
 
-
-
 def _coverage(norm_series: pd.Series) -> float:
     """Share of normalized cells carrying a real (non-sentinel) value."""
     if not len(norm_series):
         return 0.0
     return float((~norm_series.map(_is_sentinel)).mean())
-
-
 
 
 def _to_set(value) -> set[str]:
@@ -1177,18 +1151,15 @@ def _to_set(value) -> set[str]:
     return {c for c in (_canon(p) for p in parts) if c}
 
 
-
-
 def _mean_element_chars(sets: pd.Series) -> float:
     """Mean character length of the individual elements across a column of sets."""
     lengths = [len(element) for value_set in sets for element in value_set]
     return float(np.mean(lengths)) if lengths else 0.0
 
 
-
-
-def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
-                 scales: dict[str, str] | None = None) -> dict:
+def compare_arms(
+    df_a: pd.DataFrame, df_b: pd.DataFrame, scales: dict[str, str] | None = None
+) -> dict:
     """Field-type-aware comparison of two recoded arms aligned on ``item_id``.
 
     Per column, keyed on the field's DECLARED scale (never on how long its
@@ -1235,8 +1206,9 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
     # disagreement). Excluded count is reported so the drop stays visible.
     n_common_raw = len(common)
     if "annotated_ok" in a.columns and "annotated_ok" in b.columns:
-        ok = (a["annotated_ok"].fillna(False).astype(bool)
-              & b["annotated_ok"].fillna(False).astype(bool))
+        ok = a["annotated_ok"].fillna(False).astype(bool) & b["annotated_ok"].fillna(False).astype(
+            bool
+        )
         a = a.loc[ok]
         b = b.loc[ok]
 
@@ -1244,8 +1216,7 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
     skip = {"annotated_ok", "annotated_fail"}
     cols = sorted((set(a.columns) & set(b.columns)) - skip)
     n_items = len(a)
-    report: dict = {"n_items": n_items, "columns": {},
-                    "n_items_excluded": n_common_raw - n_items}
+    report: dict = {"n_items": n_items, "columns": {}, "n_items_excluded": n_common_raw - n_items}
 
     enum_agree, enum_agree_filled = [], []
     list_jaccard, list_jaccard_filled = [], []
@@ -1269,7 +1240,8 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             # any comparison against it would propagate NA into the flag.
             std_a, std_b = xa[both].std(), xb[both].std()
             constant = n_compared > 1 and any(
-                (not pd.isna(s)) and float(s) == 0 for s in (std_a, std_b))
+                (not pd.isna(s)) and float(s) == 0 for s in (std_a, std_b)
+            )
             corr = (
                 float(xa[both].corr(xb[both]))
                 if n_compared >= _MIN_CORR_N and not constant
@@ -1284,8 +1256,7 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             low_variance = False
             if corr is not None:
                 level = max(float(pd.concat([xa[both], xb[both]]).abs().mean()), 1e-12)
-                low_variance = (float(std_a) / level < 0.15
-                                or float(std_b) / level < 0.15)
+                low_variance = float(std_a) / level < 0.15 or float(std_b) / level < 0.15
             caveat = None
             if corr is None:
                 # Distinguish "both arms answered identically every time" (r is
@@ -1294,7 +1265,9 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             elif low_variance:
                 caveat = "low_variance"
             report["columns"][c] = {
-                "kind": "numeric", "correlation": corr, "mean_abs_diff": mad,
+                "kind": "numeric",
+                "correlation": corr,
+                "mean_abs_diff": mad,
                 "exact_agreement": exact,
                 "n_compared": n_compared,
                 "coverage_a": float(xa.notna().mean()) if n_items else 0.0,
@@ -1319,10 +1292,13 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
                     jac_filled.append(score)
             mean_jac = float(np.mean(jac)) if jac else None
             mean_jac_filled = float(np.mean(jac_filled)) if jac_filled else None
-            free_text = max(_mean_element_chars(sets_a),
-                            _mean_element_chars(sets_b)) > _FREE_TEXT_ELEMENT_CHARS
+            free_text = (
+                max(_mean_element_chars(sets_a), _mean_element_chars(sets_b))
+                > _FREE_TEXT_ELEMENT_CHARS
+            )
             report["columns"][c] = {
-                "kind": "list", "mean_jaccard": mean_jac,
+                "kind": "list",
+                "mean_jaccard": mean_jac,
                 "mean_jaccard_filled": mean_jac_filled,
                 "exact_set_agreement": float(np.mean(exact)) if exact else None,
                 "n_both_empty": int(len(jac) - len(jac_filled)),
@@ -1346,14 +1322,14 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             filled_both = (ca != "").values & (cb != "").values
             n_filled_both = int(filled_both.sum())
             agreement = float(match.mean()) if n_items else None
-            agreement_filled = (
-                float(match[filled_both].mean()) if n_filled_both else None
-            )
+            agreement_filled = float(match[filled_both].mean()) if n_filled_both else None
             both_empty = int(((ca == "").values & (cb == "").values).sum())
             report["columns"][c] = {
-                "kind": "enum", "agreement": agreement,
+                "kind": "enum",
+                "agreement": agreement,
                 "agreement_filled": agreement_filled,
-                "n_filled_both": n_filled_both, "n_both_empty": both_empty,
+                "n_filled_both": n_filled_both,
+                "n_both_empty": both_empty,
                 "coverage_a": float((ca != "").mean()) if n_items else 0.0,
                 "coverage_b": float((cb != "").mean()) if n_items else 0.0,
                 "caveat": "both_arms_empty" if both_empty == n_items and n_items else None,
@@ -1368,7 +1344,9 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             nb = sb.map(_normalize_cell)
             cov_a, cov_b = _coverage(na), _coverage(nb)
             report["columns"][c] = {
-                "kind": "freetext", "coverage_a": cov_a, "coverage_b": cov_b,
+                "kind": "freetext",
+                "coverage_a": cov_a,
+                "coverage_b": cov_b,
                 "caveat": None,
             }
             ft_cov_delta.append(cov_b - cov_a)
@@ -1398,16 +1376,16 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
         ),
         "annotated_ok_rate_a": (
             float(df_a["annotated_ok"].fillna(False).mean())
-            if "annotated_ok" in df_a.columns else None
+            if "annotated_ok" in df_a.columns
+            else None
         ),
         "annotated_ok_rate_b": (
             float(df_b["annotated_ok"].fillna(False).mean())
-            if "annotated_ok" in df_b.columns else None
+            if "annotated_ok" in df_b.columns
+            else None
         ),
     }
     return report
-
-
 
 
 def distribution_tables(frames: dict[str, pd.DataFrame], column: str, top: int = 8) -> dict:
@@ -1421,8 +1399,6 @@ def distribution_tables(frames: dict[str, pd.DataFrame], column: str, top: int =
         counts = series.map(_normalize_cell).value_counts().head(top)
         out["arms"][arm] = {str(k): int(v) for k, v in counts.items()}
     return out
-
-
 
 
 def build_adjudication(frames: dict[str, pd.DataFrame], columns: list[str]) -> list[dict]:
@@ -1460,8 +1436,6 @@ def build_adjudication(frames: dict[str, pd.DataFrame], columns: list[str]) -> l
     return rows
 
 
-
-
 # ---------------------------------------------------------------------------
 # Runs (execution + artifact storage + index).
 # ---------------------------------------------------------------------------
@@ -1472,13 +1446,9 @@ def new_run_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:6]
 
 
-
-
 def _run_file(run_id: str, name: str) -> str:
     """Return the storage filename for one run artifact."""
     return f"runs/{run_id}/{name}"
-
-
 
 
 def load_runs_index() -> list[dict]:
@@ -1494,8 +1464,6 @@ def load_runs_index() -> list[dict]:
     return []
 
 
-
-
 def _update_runs_index(entry: dict) -> None:
     """Insert/replace one run's entry in the index (keyed by run_id)."""
     index = [r for r in load_runs_index() if r.get("run_id") != entry.get("run_id")]
@@ -1503,12 +1471,12 @@ def _update_runs_index(entry: dict) -> None:
     data_io.save_json(data=index, storage_location=LOCATION, filename=RUNS_INDEX_FILENAME)
 
 
-
-
 def load_run(run_id: str) -> dict:
     """Load one run's manifest + report (report may be None while running)."""
     ensure_locations()
-    manifest = data_io.load_json(storage_location=LOCATION, filename=_run_file(run_id, "manifest.json"))
+    manifest = data_io.load_json(
+        storage_location=LOCATION, filename=_run_file(run_id, "manifest.json")
+    )
     report = None
     report_fn = _run_file(run_id, "report.json")
     if data_io.exists(storage_location=LOCATION, filename=report_fn):
@@ -1516,18 +1484,16 @@ def load_run(run_id: str) -> dict:
     return {"manifest": manifest, "report": report}
 
 
-
-
 def load_run_rows(run_id: str, arm: str) -> list[dict]:
     """Return one arm's refined rows as JSON-safe records (normalized cells)."""
     ensure_locations()
-    df = data_io.load_parquet(storage_location=LOCATION, filename=_run_file(run_id, f"arm_{arm}.parquet"))
+    df = data_io.load_parquet(
+        storage_location=LOCATION, filename=_run_file(run_id, f"arm_{arm}.parquet")
+    )
     records = []
     for _, row in df.iterrows():
         records.append({col: _normalize_cell(row[col]) for col in df.columns})
     return records
-
-
 
 
 def delete_run(run_id: str) -> bool:
@@ -1535,7 +1501,9 @@ def delete_run(run_id: str) -> bool:
     ensure_locations()
     manifest = None
     try:
-        manifest = data_io.load_json(storage_location=LOCATION, filename=_run_file(run_id, "manifest.json"))
+        manifest = data_io.load_json(
+            storage_location=LOCATION, filename=_run_file(run_id, "manifest.json")
+        )
     except Exception:
         pass
     arm_names = [a.get("name") for a in (manifest or {}).get("arms", []) if a.get("name")]
@@ -1553,8 +1521,6 @@ def delete_run(run_id: str) -> bool:
     index = [r for r in load_runs_index() if r.get("run_id") != run_id]
     data_io.save_json(data=index, storage_location=LOCATION, filename=RUNS_INDEX_FILENAME)
     return removed
-
-
 
 
 def _arm_price(arm: dict) -> dict | None:
@@ -1588,8 +1554,6 @@ def _arm_price(arm: dict) -> dict | None:
         return None
 
 
-
-
 def _arm_cost(raw_rows: list[dict], price: dict | None = None) -> dict:
     """Aggregate token/error/latency/cost stats for one arm's raw rows."""
     totals = {"prompt_tokens": 0, "candidates_tokens": 0, "thoughts_tokens": 0, "total_tokens": 0}
@@ -1611,8 +1575,10 @@ def _arm_cost(raw_rows: list[dict], price: dict | None = None) -> dict:
     cost_usd = None
     if price is not None:
         out_tokens = totals["candidates_tokens"] + totals["thoughts_tokens"]
-        cost_usd = (totals["prompt_tokens"] * float(price.get("input", 0))
-                    + out_tokens * float(price.get("output", 0))) / 1e6
+        cost_usd = (
+            totals["prompt_tokens"] * float(price.get("input", 0))
+            + out_tokens * float(price.get("output", 0))
+        ) / 1e6
     return {
         **totals,
         "n_errors": errors,
@@ -1622,11 +1588,17 @@ def _arm_cost(raw_rows: list[dict], price: dict | None = None) -> dict:
     }
 
 
-
-
-def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
-                started_by: str = "", runner=None, progress_cb=None, cancel_cb=None,
-                eval_set: str = "", name: str = "") -> dict:
+def execute_run(
+    run_id: str,
+    arms: list[dict],
+    item_ids: list[str],
+    started_by: str = "",
+    runner=None,
+    progress_cb=None,
+    cancel_cb=None,
+    eval_set: str = "",
+    name: str = "",
+) -> dict:
     """Execute a full A/B run and persist its artifacts.
 
     Args:
@@ -1673,21 +1645,25 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         if contract is None or errors:
             raise ValueError(f"arm '{arm.get('name')}' contract invalid: {'; '.join(errors)}")
         backend_name = arm.get("backend") or "gemini"
-        gen_overrides = {k: arm[k] for k in ("model", "temperature") if arm.get(k) not in (None, "")}
+        gen_overrides = {
+            k: arm[k] for k in ("model", "temperature") if arm.get(k) not in (None, "")
+        }
         gen_overrides.update(arm.get("gen_params") or {})
         _validate_arm_backend(arm.get("name"), backend_name)
-        parsed_arms.append({
-            "name": arm["name"],
-            "source": arm.get("source", "candidate"),
-            # The underlying candidate name — distinct from the arm name/label
-            # when one candidate runs as several arms (e.g. once per backend).
-            "candidate": arm.get("candidate") or "",
-            "etag": ac._etag(arm["text"], arm.get("source", "candidate")),
-            "contract": contract,
-            "text": arm["text"],
-            "backend": backend_name,
-            "gen_overrides": gen_overrides,
-        })
+        parsed_arms.append(
+            {
+                "name": arm["name"],
+                "source": arm.get("source", "candidate"),
+                # The underlying candidate name — distinct from the arm name/label
+                # when one candidate runs as several arms (e.g. once per backend).
+                "candidate": arm.get("candidate") or "",
+                "etag": ac._etag(arm["text"], arm.get("source", "candidate")),
+                "contract": contract,
+                "text": arm["text"],
+                "backend": backend_name,
+                "gen_overrides": gen_overrides,
+            }
+        )
 
     item_ids = [str(i) for i in item_ids]
     platform_map = platform_map_for(item_ids)
@@ -1702,40 +1678,70 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         "item_ids": item_ids,
         "n_items": len(item_ids),
         "arms": [
-            {"name": a["name"], "source": a["source"], "candidate": a["candidate"],
-             "etag": a["etag"], "backend": a["backend"],
-             "gen_overrides": a["gen_overrides"]}
+            {
+                "name": a["name"],
+                "source": a["source"],
+                "candidate": a["candidate"],
+                "etag": a["etag"],
+                "backend": a["backend"],
+                "gen_overrides": a["gen_overrides"],
+            }
             for a in parsed_arms
         ],
     }
-    data_io.save_json(data=manifest, storage_location=LOCATION,
-                      filename=_run_file(run_id, "manifest.json"))
-    _update_runs_index({**{k: manifest[k] for k in
-                           ("run_id", "name", "started_at", "started_by", "status",
-                            "n_items", "eval_set")},
-                        "arms": [a["name"] for a in parsed_arms]})
+    data_io.save_json(
+        data=manifest, storage_location=LOCATION, filename=_run_file(run_id, "manifest.json")
+    )
+    _update_runs_index(
+        {
+            **{
+                k: manifest[k]
+                for k in (
+                    "run_id",
+                    "name",
+                    "started_at",
+                    "started_by",
+                    "status",
+                    "n_items",
+                    "eval_set",
+                )
+            },
+            "arms": [a["name"] for a in parsed_arms],
+        }
+    )
 
     frames: dict[str, pd.DataFrame] = {}
     costs: dict[str, dict] = {}
     try:
         for arm in parsed_arms:
+
             def _cb(done, total, _name=arm["name"]):
                 if progress_cb:
                     progress_cb(_name, done, total)
 
             arm_runner = runner or _runner_for_arm(arm, cancel_cb)
             flat_rows, raw_rows = run_arm(
-                arm["name"], arm["contract"], item_ids, platform_map,
-                runner=arm_runner, progress_cb=_cb,
+                arm["name"],
+                arm["contract"],
+                item_ids,
+                platform_map,
+                runner=arm_runner,
+                progress_cb=_cb,
             )
-            data_io.save_json(data=raw_rows, storage_location=LOCATION,
-                              filename=_run_file(run_id, f"raw_{arm['name']}.json"))
+            data_io.save_json(
+                data=raw_rows,
+                storage_location=LOCATION,
+                filename=_run_file(run_id, f"raw_{arm['name']}.json"),
+            )
             refined = refine_from_flat_dicts(flat_rows)
             # The recode keeps only live-var_schema columns — bring the arm's
             # own (e.g. candidate-only) fields back so they show in results.
             refined = _reattach_contract_columns(refined, flat_rows, arm["contract"])
-            data_io.save_parquet(df=refined, storage_location=LOCATION,
-                                 filename=_run_file(run_id, f"arm_{arm['name']}.parquet"))
+            data_io.save_parquet(
+                df=refined,
+                storage_location=LOCATION,
+                filename=_run_file(run_id, f"arm_{arm['name']}.parquet"),
+            )
             frames[arm["name"]] = refined
             costs[arm["name"]] = _arm_cost(raw_rows, _arm_price(arm))
 
@@ -1753,14 +1759,19 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
             for j in range(i + 1, len(arm_names)):
                 key = f"{arm_names[i]}|{arm_names[j]}"
                 comparisons[key] = compare_arms(
-                    frames[arm_names[i]], frames[arm_names[j]], scales=scales,
+                    frames[arm_names[i]],
+                    frames[arm_names[j]],
+                    scales=scales,
                 )
                 compared_cols |= set(comparisons[key]["columns"].keys())
 
         dist_cols = sorted(
-            c for c in compared_cols
-            if any(comp["columns"].get(c, {}).get("kind") in ("enum", "list")
-                   for comp in comparisons.values())
+            c
+            for c in compared_cols
+            if any(
+                comp["columns"].get(c, {}).get("kind") in ("enum", "list")
+                for comp in comparisons.values()
+            )
         )
         distributions = {c: distribution_tables(frames, c) for c in dist_cols}
         adjudication = build_adjudication(frames, sorted(compared_cols))
@@ -1773,8 +1784,9 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
             "adjudication": adjudication,
             "costs": costs,
         }
-        data_io.save_json(data=report, storage_location=LOCATION,
-                          filename=_run_file(run_id, "report.json"))
+        data_io.save_json(
+            data=report, storage_location=LOCATION, filename=_run_file(run_id, "report.json")
+        )
 
         manifest["status"] = "complete"
         manifest["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
@@ -1788,13 +1800,27 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         manifest["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
         raise
     finally:
-        data_io.save_json(data=manifest, storage_location=LOCATION,
-                          filename=_run_file(run_id, "manifest.json"))
-        _update_runs_index({**{k: manifest[k] for k in
-                               ("run_id", "name", "started_at", "started_by", "status",
-                                "n_items", "eval_set")},
-                            "arms": [a["name"] for a in parsed_arms],
-                            "error": manifest.get("error")})
+        data_io.save_json(
+            data=manifest, storage_location=LOCATION, filename=_run_file(run_id, "manifest.json")
+        )
+        _update_runs_index(
+            {
+                **{
+                    k: manifest[k]
+                    for k in (
+                        "run_id",
+                        "name",
+                        "started_at",
+                        "started_by",
+                        "status",
+                        "n_items",
+                        "eval_set",
+                    )
+                },
+                "arms": [a["name"] for a in parsed_arms],
+                "error": manifest.get("error"),
+            }
+        )
 
     return {
         "run_id": run_id,

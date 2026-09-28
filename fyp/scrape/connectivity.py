@@ -49,23 +49,20 @@ _DEFAULT_MAX_WAIT_LOCAL = 1800
 _DEFAULT_MAX_WAIT_CLOUD_RUN = 120
 
 # Gate verdicts.
-ONLINE = "online"          # the machine is online: the failure stands
-RECOVERED = "recovered"    # it was offline and is back: re-run the item
-GAVE_UP = "gave_up"        # offline past the wait (or the batch was stopped)
-
-
+ONLINE = "online"  # the machine is online: the failure stands
+RECOVERED = "recovered"  # it was offline and is back: re-run the item
+GAVE_UP = "gave_up"  # offline past the wait (or the batch was stopped)
 
 
 def probe_hosts(platform_host: str | None = None) -> tuple[str, ...]:
     """Return the hosts the probe tries, platform host first."""
     try:
         from fyp.core.fyp_config import fyp_cf
+
         configured = fyp_cf["misc"].get("connectivity_probe_host") or _DEFAULT_PROBE_HOST
     except Exception:
         configured = _DEFAULT_PROBE_HOST
     return tuple(h for h in (platform_host, configured) if h)
-
-
 
 
 def probe_online(hosts: Iterable[str], timeout: float = _PROBE_TIMEOUT) -> bool:
@@ -79,18 +76,17 @@ def probe_online(hosts: Iterable[str], timeout: float = _PROBE_TIMEOUT) -> bool:
     return False
 
 
-
-
 def offline_max_wait() -> int:
     """Seconds a batch waits out an outage (``[misc] scraper_offline_max_wait_seconds``)."""
-    default = _DEFAULT_MAX_WAIT_CLOUD_RUN if os.environ.get("K_SERVICE") else _DEFAULT_MAX_WAIT_LOCAL
+    default = (
+        _DEFAULT_MAX_WAIT_CLOUD_RUN if os.environ.get("K_SERVICE") else _DEFAULT_MAX_WAIT_LOCAL
+    )
     try:
         from fyp.core.fyp_config import fyp_cf
+
         return int(fyp_cf["misc"].get("scraper_offline_max_wait_seconds", default))
     except Exception:
         return default
-
-
 
 
 class ConnectivityGate:
@@ -107,9 +103,13 @@ class ConnectivityGate:
         probe: Injectable probe, ``probe(hosts) -> bool`` (tests).
     """
 
-    def __init__(self, hosts: Iterable[str], max_wait: float,
-                 poll: float | None = None,
-                 probe: Callable[[tuple[str, ...]], bool] | None = None):
+    def __init__(
+        self,
+        hosts: Iterable[str],
+        max_wait: float,
+        poll: float | None = None,
+        probe: Callable[[tuple[str, ...]], bool] | None = None,
+    ):
         self.hosts = tuple(hosts)
         self.max_wait = max_wait
         self.poll = _POLL_SECONDS if poll is None else poll
@@ -130,8 +130,9 @@ class ConnectivityGate:
     def _online(self) -> bool:
         return self._probe(self.hosts)
 
-    def check(self, stop_event: threading.Event | None = None,
-              started_at: float | None = None) -> str:
+    def check(
+        self, stop_event: threading.Event | None = None, started_at: float | None = None
+    ) -> str:
         """Classify a failure as ordinary (online) or an outage; wait one out.
 
         Args:
@@ -149,8 +150,7 @@ class ConnectivityGate:
             return GAVE_UP
         if self._online():
             end = self._last_outage_end
-            if self._waiting or (started_at is not None and end is not None
-                                 and end >= started_at):
+            if self._waiting or (started_at is not None and end is not None and end >= started_at):
                 return RECOVERED
             return ONLINE
         with self._lock:
@@ -168,7 +168,8 @@ class ConnectivityGate:
             logger.warning(
                 f"  [scrape] Network offline (no connection to {', '.join(self.hosts)}) — "
                 f"pausing the batch until it returns (up to {int(self.max_wait)}s). Items "
-                f"that failed meanwhile are re-run; nothing counts against the scraper.")
+                f"that failed meanwhile are re-run; nothing counts against the scraper."
+            )
             try:
                 while True:
                     elapsed = time.monotonic() - started
@@ -177,7 +178,8 @@ class ConnectivityGate:
                         logger.warning(
                             f"  [scrape] Still offline after {int(elapsed)}s — giving up on "
                             f"this run. Unfinished items stay queued, uncharged; no scraper "
-                            f"alert is raised.")
+                            f"alert is raised."
+                        )
                         return GAVE_UP
                     if stop_event is not None:
                         if stop_event.wait(min(self.poll, self.max_wait - elapsed)):
@@ -188,7 +190,8 @@ class ConnectivityGate:
                         self._last_outage_end = time.monotonic()
                         logger.info(
                             f"  [scrape] Network back after {int(time.monotonic() - started)}s "
-                            f"— resuming; re-running the items that failed while offline.")
+                            f"— resuming; re-running the items that failed while offline."
+                        )
                         return RECOVERED
             finally:
                 self._waiting = False
@@ -205,14 +208,19 @@ class ConnectivityGate:
         if self._online():
             return
         started = last_log = time.monotonic()
-        logger.warning("  [scrape] Offline with this batch's results unsaved — holding them "
-                       "until the connection returns.")
+        logger.warning(
+            "  [scrape] Offline with this batch's results unsaved — holding them "
+            "until the connection returns."
+        )
         while not self._online():
             time.sleep(self.poll)
             now = time.monotonic()
             if now - last_log >= log_every:
-                logger.info(f"  [scrape] Still offline ({int(now - started)}s) — holding the "
-                            f"batch's results.")
+                logger.info(
+                    f"  [scrape] Still offline ({int(now - started)}s) — holding the "
+                    f"batch's results."
+                )
                 last_log = now
-        logger.info(f"  [scrape] Network back after {int(time.monotonic() - started)}s — "
-                    f"saving the batch.")
+        logger.info(
+            f"  [scrape] Network back after {int(time.monotonic() - started)}s — saving the batch."
+        )

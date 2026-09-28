@@ -66,6 +66,7 @@ def _install_auth_stub():
 
 def _build_app():
     from web_interface.fyp_data_hub import app
+
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
     return app
@@ -84,7 +85,9 @@ def _snapshot_runtime():
     if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
         text = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
     if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME):
-        meta = data_io.load_json(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME)
+        meta = data_io.load_json(
+            storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME
+        )
     return text, meta
 
 
@@ -107,42 +110,47 @@ def _restore_runtime(snap):
     if text is not None:
         data_io.save_text(text, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
     if meta is not None:
-        data_io.save_json(data=meta, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME)
+        data_io.save_json(
+            data=meta, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME
+        )
     ac.refresh_runtime_contract()
     load_var_schema(fyp_cf, verbose=False)
 
 
 # ------- tests -------
 
+
 def test_get_status(client):
     _login(client, _TEST_ADMIN)
     res = client.get("/api/manage/annotation-contract")
     body = res.get_json() or {}
-    ok = (res.status_code == 200
-          and body.get("source") in ("baked", "runtime")
-          and isinstance(body.get("active_version"), str)
-          and body["active_version"].startswith("av_"))
+    ok = (
+        res.status_code == 200
+        and body.get("source") in ("baked", "runtime")
+        and isinstance(body.get("active_version"), str)
+        and body["active_version"].startswith("av_")
+    )
     _check("test_get_status", ok, f"status={res.status_code} body={body}")
 
 
 def test_permission_gate(client):
     _login(client, _TEST_VIEWER)
-    res = client.post("/api/manage/annotation-contract",
-                      data={"text": ac._read_baked_text()})
+    res = client.post("/api/manage/annotation-contract", data={"text": ac._read_baked_text()})
     _check("test_permission_gate", res.status_code in (401, 403), f"status={res.status_code}")
 
 
 def test_dry_run_metadata_only(client):
     _login(client, _TEST_ADMIN)
     # Identical contract text → same av_ → metadata_only True.
-    res = client.post("/api/manage/annotation-contract",
-                      data={"text": ac._read_baked_text()})
+    res = client.post("/api/manage/annotation-contract", data={"text": ac._read_baked_text()})
     body = res.get_json() or {}
-    ok = (res.status_code == 200
-          and body.get("valid") is True
-          and body.get("confirm_required") is True
-          and body.get("impact", {}).get("metadata_only") is True
-          and body["impact"].get("version_changed") is False)
+    ok = (
+        res.status_code == 200
+        and body.get("valid") is True
+        and body.get("confirm_required") is True
+        and body.get("impact", {}).get("metadata_only") is True
+        and body["impact"].get("version_changed") is False
+    )
     _check("test_dry_run_metadata_only", ok, f"status={res.status_code} body={body}")
 
 
@@ -154,6 +162,7 @@ def test_dry_run_prompt_change(client):
     f = edited["fields"][0]
     f["desc"] = (f.get("desc") or "") + " EXTRA PROMPT WORDS FOR TEST"
     from web_interface.routes.management_routes import _annotation_contract_impact
+
     impact = _annotation_contract_impact(edited)
     ok = impact["version_changed"] is True and impact["metadata_only"] is False
     _check("test_dry_run_prompt_change", ok, f"impact={impact}")
@@ -161,8 +170,9 @@ def test_dry_run_prompt_change(client):
 
 def test_invalid_toml_rejected(client):
     _login(client, _TEST_ADMIN)
-    res = client.post("/api/manage/annotation-contract",
-                      data={"text": "this is = = not valid toml [[["})
+    res = client.post(
+        "/api/manage/annotation-contract", data={"text": "this is = = not valid toml [[["}
+    )
     body = res.get_json() or {}
     ok = res.status_code == 400 and bool(body.get("errors"))
     _check("test_invalid_toml_rejected", ok, f"status={res.status_code} body={body}")
@@ -173,8 +183,7 @@ def test_confirm_and_revert(client):
     # Confirm a metadata-only change (baked text + a trailing newline) so the
     # source flips to runtime without minting a new version.
     upload_text = ac._read_baked_text() + "\n# runtime upload test\n"
-    res = client.post("/api/manage/annotation-contract",
-                      data={"text": upload_text, "confirm": "1"})
+    res = client.post("/api/manage/annotation-contract", data={"text": upload_text, "confirm": "1"})
     body = res.get_json() or {}
     if not (res.status_code == 200 and body.get("ok") and body.get("source") == "runtime"):
         _check("test_confirm_and_revert", False, f"upload status={res.status_code} body={body}")
@@ -189,8 +198,11 @@ def test_confirm_and_revert(client):
     revert_ok = rres.status_code == 200 and rbody.get("source") == "baked"
     fres = client.get("/api/manage/annotation-contract")
     baked_again = (fres.get_json() or {}).get("source") == "baked"
-    _check("test_confirm_and_revert", runtime_ok and revert_ok and baked_again,
-           f"runtime_ok={runtime_ok} revert_ok={revert_ok} baked_again={baked_again}")
+    _check(
+        "test_confirm_and_revert",
+        runtime_ok and revert_ok and baked_again,
+        f"runtime_ok={runtime_ok} revert_ok={revert_ok} baked_again={baked_again}",
+    )
 
 
 def main():
@@ -216,6 +228,7 @@ def main():
                     FAIL += 1
                     print(f"  ERROR {t.__name__}  ({e})")
                     import traceback
+
                     traceback.print_exc()
     finally:
         _restore_runtime(snap)

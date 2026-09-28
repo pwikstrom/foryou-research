@@ -30,8 +30,6 @@ _SINKS: list[logging.Handler] = []
 _REGISTRY_LOCK = threading.Lock()
 
 
-
-
 def _resolve_level() -> int:
     """Resolve the log level from the FYP_LOG_LEVEL environment variable.
 
@@ -45,8 +43,6 @@ def _resolve_level() -> int:
     if not isinstance(level, int):
         level = logging.INFO
     return level
-
-
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -80,8 +76,6 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
-
-
 def add_sink(handler: logging.Handler) -> None:
     """Attach an extra handler to every fyp logger, now and in future.
 
@@ -99,8 +93,6 @@ def add_sink(handler: logging.Handler) -> None:
         for logger in _LOGGERS:
             if handler not in logger.handlers:
                 logger.addHandler(handler)
-
-
 
 
 def remove_sink(handler: logging.Handler) -> None:

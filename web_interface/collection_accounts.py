@@ -67,6 +67,7 @@ def _um(um=None):
     # Function-level import: the security module builds the Flask login
     # manager, which the ingest worker must not pull in at import time.
     from .security import user_manager
+
     return user_manager
 
 
@@ -87,7 +88,9 @@ def _load_tags_fresh() -> dict:
 
 
 def _save_tags(tags: dict) -> None:
-    data_io.save_json(data=tags, storage_location="recoded", filename=_tags_filename(), verbose=False)
+    data_io.save_json(
+        data=tags, storage_location="recoded", filename=_tags_filename(), verbose=False
+    )
     invalidate_collection_tags_cache()
 
 
@@ -117,12 +120,16 @@ def next_placeholder_username(um=None, tags: dict | None = None) -> str:
 # Link reads
 # ---------------------------------------------------------------------------
 
+
 def load_owner_map(fresh: bool = False) -> dict:
     """Return ``{collection_id: user_id}`` for every collection with a decided
     link (``user_id`` may be None for explicitly unassigned collections)."""
     tags = _load_tags_fresh() if fresh else get_collection_tags()
-    return {cid: entry.get("user_id") for cid, entry in tags.items()
-            if isinstance(entry, dict) and "user_id" in entry}
+    return {
+        cid: entry.get("user_id")
+        for cid, entry in tags.items()
+        if isinstance(entry, dict) and "user_id" in entry
+    }
 
 
 def collections_for_user(user_id: str, fresh: bool = False) -> list[str]:
@@ -142,8 +149,14 @@ def collection_counts_by_user(fresh: bool = False) -> dict:
 # Link writes
 # ---------------------------------------------------------------------------
 
-def set_collection_owner(collection_id: str, user_id, *, tags: dict | None = None,
-                         display_collection_id: str | None = None) -> dict:
+
+def set_collection_owner(
+    collection_id: str,
+    user_id,
+    *,
+    tags: dict | None = None,
+    display_collection_id: str | None = None,
+) -> dict:
     """Link ``collection_id`` to ``user_id`` (None = explicitly unassigned).
 
     Preserves every other key of the sidecar entry. Pass ``tags`` to batch
@@ -207,13 +220,17 @@ def orphan_placeholder_accounts(um=None) -> list[str]:
     """
     um = _um(um)
     counts = collection_counts_by_user(fresh=True)
-    return sorted(u.username for u in um.get_all_users().values()
-                  if u.placeholder and counts.get(u.username, 0) == 0)
+    return sorted(
+        u.username
+        for u in um.get_all_users().values()
+        if u.placeholder and counts.get(u.username, 0) == 0
+    )
 
 
 # ---------------------------------------------------------------------------
 # AIO donor data → accounts
 # ---------------------------------------------------------------------------
+
 
 def _clean_scalar(value):
     """Normalise a DynamoDB-deserialised (or parquet-round-tripped) value:
@@ -280,8 +297,15 @@ def participants_from_metadata_frame(df) -> dict:
     return out
 
 
-def resolve_or_create_account(participant: dict, *, origin_source: str, collection_id: str,
-                              dry_run: bool = False, um=None, tags: dict | None = None) -> tuple[str | None, str, dict]:
+def resolve_or_create_account(
+    participant: dict,
+    *,
+    origin_source: str,
+    collection_id: str,
+    dry_run: bool = False,
+    um=None,
+    tags: dict | None = None,
+) -> tuple[str | None, str, dict]:
     """Find or create the account for one participant record.
 
     Returns ``(user_id, outcome, details)`` where outcome is one of
@@ -308,9 +332,17 @@ def resolve_or_create_account(participant: dict, *, origin_source: str, collecti
             return email, "created", {"profile": profile}
         from .admin_settings import get_default_new_user_role
         from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
-        ok, msg = um.add_user(email, None, get_default_new_user_role(), approved=True,
-                              account_kind=ACCOUNT_KIND_PARTICIPANT, profile=profile, origin=origin,
-                              email_verified_via=EMAIL_VERIFIED_INGEST)
+
+        ok, msg = um.add_user(
+            email,
+            None,
+            get_default_new_user_role(),
+            approved=True,
+            account_kind=ACCOUNT_KIND_PARTICIPANT,
+            profile=profile,
+            origin=origin,
+            email_verified_via=EMAIL_VERIFIED_INGEST,
+        )
         if not ok:
             return None, "skipped", {"error": msg}
         return email, "created", {"profile": profile}
@@ -323,17 +355,32 @@ def resolve_or_create_account(participant: dict, *, origin_source: str, collecti
         return username, "placeholder", {"profile": profile}
     from .admin_settings import get_default_new_user_role
     from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
-    ok, msg = um.add_user(username, None, get_default_new_user_role(), approved=True,
-                          account_kind=ACCOUNT_KIND_PARTICIPANT, profile=profile, origin=origin,
-                          placeholder=True, email_verified_via=EMAIL_VERIFIED_INGEST)
+
+    ok, msg = um.add_user(
+        username,
+        None,
+        get_default_new_user_role(),
+        approved=True,
+        account_kind=ACCOUNT_KIND_PARTICIPANT,
+        profile=profile,
+        origin=origin,
+        placeholder=True,
+        email_verified_via=EMAIL_VERIFIED_INGEST,
+    )
     if not ok:
         return None, "skipped", {"error": msg}
     return username, "placeholder", {"profile": profile}
 
 
-def link_aio_collections(participant_metadata: dict, *, origin_source: str = ORIGIN_AIO_INGEST,
-                         dry_run: bool = False, only_undecided: bool = True,
-                         restrict_to: set | None = None, um=None) -> dict:
+def link_aio_collections(
+    participant_metadata: dict,
+    *,
+    origin_source: str = ORIGIN_AIO_INGEST,
+    dry_run: bool = False,
+    only_undecided: bool = True,
+    restrict_to: set | None = None,
+    um=None,
+) -> dict:
     """Link collections to accounts from AIO donor data.
 
     ``participant_metadata`` is ``{collection_id: raw_aio_item}`` (as from
@@ -353,12 +400,12 @@ def link_aio_collections(participant_metadata: dict, *, origin_source: str = ORI
 
     report: dict = {
         "dry_run": dry_run,
-        "linked": {},            # cid -> user_id
-        "outcomes": {},          # cid -> existing|created|placeholder|skipped|already_decided
+        "linked": {},  # cid -> user_id
+        "outcomes": {},  # cid -> existing|created|placeholder|skipped|already_decided
         "created_accounts": [],  # usernames created under a real email
-        "placeholders": [],      # placeholder usernames created
-        "conflicts": {},         # user_id -> {field: {kept, offered}}
-        "skipped": {},           # cid -> reason
+        "placeholders": [],  # placeholder usernames created
+        "conflicts": {},  # user_id -> {field: {kept, offered}}
+        "skipped": {},  # cid -> reason
     }
 
     changed = False
@@ -377,7 +424,13 @@ def link_aio_collections(participant_metadata: dict, *, origin_source: str = ORI
             report["skipped"][cid] = "no demographic data"
             continue
         user_id, outcome, details = resolve_or_create_account(
-            participant, origin_source=origin_source, collection_id=cid, dry_run=dry_run, um=um, tags=tags)
+            participant,
+            origin_source=origin_source,
+            collection_id=cid,
+            dry_run=dry_run,
+            um=um,
+            tags=tags,
+        )
         if dry_run and outcome == "created":
             # Same email on a later collection: the real run would find the
             # account it just created, so report it as existing.
@@ -414,6 +467,7 @@ def link_aio_collections(participant_metadata: dict, *, origin_source: str = ORI
 # One-off migration of existing collections
 # ---------------------------------------------------------------------------
 
+
 def migrate_existing_collections(*, dry_run: bool = True, um=None, log=print) -> dict:
     """Move demographic data off every existing collection onto user accounts.
 
@@ -437,25 +491,48 @@ def migrate_existing_collections(*, dry_run: bool = True, um=None, log=print) ->
         df = df.set_index("collection_id")
     demographic_cols = demographic_metadata_columns(df.columns)
     participants = participants_from_metadata_frame(df) if demographic_cols else {}
-    log(f"Loaded {len(df):,} collections; {len(demographic_cols)} demographic column(s); "
-        f"{len(participants)} collection(s) carry demographic data.")
+    log(
+        f"Loaded {len(df):,} collections; {len(demographic_cols)} demographic column(s); "
+        f"{len(participants)} collection(s) carry demographic data."
+    )
 
     if not demographic_cols:
         log("No demographic columns in the parquet — already migrated; nothing to do.")
-        return {"dry_run": dry_run, "linked": {}, "columns_stripped": [], "outcomes": {},
-                "created_accounts": [], "placeholders": [], "conflicts": {}, "skipped": {}}
+        return {
+            "dry_run": dry_run,
+            "linked": {},
+            "columns_stripped": [],
+            "outcomes": {},
+            "created_accounts": [],
+            "placeholders": [],
+            "conflicts": {},
+            "skipped": {},
+        }
 
     if not dry_run:
         # Snapshot both artefacts before touching anything. A copy (not a
         # move): the live files stay in place for the rest of the run.
-        data_io.save_parquet(df=df, storage_location="archive",
-                             filename=f"{COLLECTIONS_LABEL}_metadata_pre_accounts_{ts}.parquet", verbose=False)
-        data_io.save_json(data=_load_tags_fresh(), storage_location="archive",
-                          filename=f"{COLLECTIONS_LABEL}_tags_pre_accounts_{ts}.json", verbose=False)
+        data_io.save_parquet(
+            df=df,
+            storage_location="archive",
+            filename=f"{COLLECTIONS_LABEL}_metadata_pre_accounts_{ts}.parquet",
+            verbose=False,
+        )
+        data_io.save_json(
+            data=_load_tags_fresh(),
+            storage_location="archive",
+            filename=f"{COLLECTIONS_LABEL}_tags_pre_accounts_{ts}.json",
+            verbose=False,
+        )
         log(f"Snapshots written to 'archive' (suffix {ts}).")
 
-    report = link_aio_collections(participants, origin_source=ORIGIN_AIO_MIGRATION,
-                                  dry_run=dry_run, only_undecided=True, um=um)
+    report = link_aio_collections(
+        participants,
+        origin_source=ORIGIN_AIO_MIGRATION,
+        dry_run=dry_run,
+        only_undecided=True,
+        um=um,
+    )
     report["columns_stripped"] = [list(c) if isinstance(c, tuple) else c for c in demographic_cols]
     report["timestamp"] = ts
     log(summarize_report(report))
@@ -464,12 +541,18 @@ def migrate_existing_collections(*, dry_run: bool = True, um=None, log=print) ->
         log(f"Would strip {len(demographic_cols)} column(s): {report['columns_stripped']}")
     else:
         stripped = df.drop(columns=demographic_cols)
-        data_io.save_parquet(df=stripped, storage_location="recoded", filename=meta_fn, verbose=False)
+        data_io.save_parquet(
+            df=stripped, storage_location="recoded", filename=meta_fn, verbose=False
+        )
         log(f"Stripped {len(demographic_cols)} demographic column(s) from {meta_fn}.")
 
     if not dry_run:
-        data_io.save_json(data=report, storage_location="recoded",
-                          filename=f"collection_accounts_migration_{ts}.json", verbose=False)
+        data_io.save_json(
+            data=report,
+            storage_location="recoded",
+            filename=f"collection_accounts_migration_{ts}.json",
+            verbose=False,
+        )
         log(f"Report saved: recoded/collection_accounts_migration_{ts}.json")
     return report
 
@@ -483,6 +566,8 @@ def summarize_report(report: dict) -> str:
     n_skip = len(report.get("skipped", {}))
     n_conf = sum(len(v) for v in report.get("conflicts", {}).values())
     mode = "DRY RUN — " if report.get("dry_run") else ""
-    return (f"{mode}{n_link} collection(s) linked: {n_existing} to existing accounts, "
-            f"{n_created} new participant accounts, {n_ph} placeholders; "
-            f"{n_decided} already decided, {n_skip} skipped, {n_conf} profile conflict(s) kept existing values.")
+    return (
+        f"{mode}{n_link} collection(s) linked: {n_existing} to existing accounts, "
+        f"{n_created} new participant accounts, {n_ph} placeholders; "
+        f"{n_decided} already decided, {n_skip} skipped, {n_conf} profile conflict(s) kept existing values."
+    )

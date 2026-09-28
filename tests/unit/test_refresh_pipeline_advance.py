@@ -68,9 +68,13 @@ def runner(monkeypatch):
             """Pretend the worker ran: write its stats entry as the runner does."""
             fake_load()
             end = datetime.now(UTC).isoformat()
-            live[step] = {**(live.get(step) or {}), **(data or {}),
-                          "last_run_end_time": end, "last_run_duration": 5.0,
-                          "last_run_outcome": outcome}
+            live[step] = {
+                **(live.get(step) or {}),
+                **(data or {}),
+                "last_run_end_time": end,
+                "last_run_duration": 5.0,
+                "last_run_outcome": outcome,
+            }
             fake_save()
             statuses[step] = {
                 "state": "completed" if outcome == "Success" else "failed",
@@ -104,9 +108,11 @@ def test_a_card_run_dispatches_its_dependents(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 3120})
 
-    pr._advance_refresh_run("video_map_refresh",
-                            {"pipeline_run_id": record["run_id"],
-                             "started_by": "patrik"}, "Success")
+    pr._advance_refresh_run(
+        "video_map_refresh",
+        {"pipeline_run_id": record["run_id"], "started_by": "patrik"},
+        "Success",
+    )
 
     assert runner.names() == ["recode_refresh_studies"]
     args = runner.args_for("recode_refresh_studies")
@@ -121,16 +127,16 @@ def test_a_run_that_changed_nothing_dispatches_nothing(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 0, "map_cold_start": False})
 
-    pr._advance_refresh_run("video_map_refresh",
-                            {"pipeline_run_id": record["run_id"]}, "Success")
+    pr._advance_refresh_run("video_map_refresh", {"pipeline_run_id": record["run_id"]}, "Success")
 
     assert runner.names() == []
     run = rp.load_run()
     assert run["in_flight"] is False
     assert "Nothing downstream needed refreshing" in run["summary"]
     # Every skipped step says why, so the chart reads as a decision, not a gap.
-    assert all(step.get("reason") for name, step in run["steps"].items()
-               if step["state"] == "pruned")
+    assert all(
+        step.get("reason") for name, step in run["steps"].items() if step["state"] == "pruned"
+    )
 
 
 def test_the_fork_dispatches_every_remaining_leaf_at_once(runner):
@@ -140,8 +146,9 @@ def test_the_fork_dispatches_every_remaining_leaf_at_once(runner):
     runner.finish("video_map_refresh", {"map_niche_changed": 12})
     runner.finish("recode_refresh_studies", {"studies_changed": ["s1"]})
 
-    pr._advance_refresh_run("recode_refresh_studies",
-                            {"pipeline_run_id": record["run_id"]}, "Success")
+    pr._advance_refresh_run(
+        "recode_refresh_studies", {"pipeline_run_id": record["run_id"]}, "Success"
+    )
 
     assert set(runner.names()) == set(rp.LEAVES)
     run = rp.load_run()
@@ -157,8 +164,7 @@ def test_a_failed_step_stops_the_run(runner):
     record = runner.seed("embeddings_refresh", kind="card", started_by="patrik")
     runner.finish("embeddings_refresh", {}, outcome="Fail")
 
-    pr._advance_refresh_run("embeddings_refresh",
-                            {"pipeline_run_id": record["run_id"]}, "Fail")
+    pr._advance_refresh_run("embeddings_refresh", {"pipeline_run_id": record["run_id"]}, "Fail")
 
     run = rp.load_run()
     assert runner.names() == []
@@ -174,9 +180,9 @@ def test_a_cancelled_step_stops_the_run(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 500})
 
-    pr._advance_refresh_run("video_map_refresh",
-                            {"pipeline_run_id": record["run_id"]},
-                            "Success", cancelled=True)
+    pr._advance_refresh_run(
+        "video_map_refresh", {"pipeline_run_id": record["run_id"]}, "Success", cancelled=True
+    )
 
     run = rp.load_run()
     assert runner.names() == []
@@ -190,8 +196,7 @@ def test_a_stale_run_id_never_advances_a_newer_run(runner):
     new = runner.seed("consolidate_enrichment", kind="consolidate")
     runner.finish("video_map_refresh", {"map_niche_changed": 999})
 
-    pr._advance_refresh_run("video_map_refresh",
-                            {"pipeline_run_id": old["run_id"]}, "Success")
+    pr._advance_refresh_run("video_map_refresh", {"pipeline_run_id": old["run_id"]}, "Success")
 
     assert runner.names() == []
     assert rp.load_run()["run_id"] == new["run_id"]
@@ -201,9 +206,18 @@ def test_a_chain_without_a_run_record_still_advances(runner):
     """The study save's own sessions chain predates the run record and stays."""
     record = runner.seed("consolidate_enrichment", kind="consolidate")
 
-    pr._advance_refresh_run("study_refresh", {"pipeline_remaining": [
-        {"task": "sessions_refresh",
-         "task_args": {"stale_only": True, "skip_if_busy": True}}]}, "Success")
+    pr._advance_refresh_run(
+        "study_refresh",
+        {
+            "pipeline_remaining": [
+                {
+                    "task": "sessions_refresh",
+                    "task_args": {"stale_only": True, "skip_if_busy": True},
+                }
+            ]
+        },
+        "Success",
+    )
 
     assert runner.names() == ["sessions_refresh"]
     args = runner.args_for("sessions_refresh")
@@ -219,11 +233,15 @@ def test_a_leaf_completion_runs_the_barrier_not_the_planner(runner):
     leaves = ["meta_refresh_groups", "pca_refresh"]
     runner.finish("meta_refresh_groups", {})
     # pca has not finished, so the barrier must wait and dispatch nothing.
-    pr._advance_refresh_run("meta_refresh_groups", {
-        "pipeline_run_id": record["run_id"],
-        "pipeline_leaves": leaves,
-        "pipeline_fork_ts": fork_ts,
-    }, "Success")
+    pr._advance_refresh_run(
+        "meta_refresh_groups",
+        {
+            "pipeline_run_id": record["run_id"],
+            "pipeline_leaves": leaves,
+            "pipeline_fork_ts": fork_ts,
+        },
+        "Success",
+    )
 
     assert runner.names() == []
     assert rp.load_run()["in_flight"] is True
@@ -234,8 +252,7 @@ def test_the_shadow_verification_never_touches_a_run(runner):
     record = runner.seed("consolidate_enrichment", kind="consolidate")
     runner.finish("consolidate_enrichment", {})
 
-    pr._advance_refresh_run("consolidate_enrichment",
-                            {"verify_consolidation": True}, "Success")
+    pr._advance_refresh_run("consolidate_enrichment", {"verify_consolidation": True}, "Success")
 
     assert runner.names() == []
     assert rp.load_run()["run_id"] == record["run_id"]
@@ -254,20 +271,29 @@ def test_a_consolidation_started_without_auto_refresh_plans_no_cascade(runner):
     impact as deferred debt (as it always has) instead of quietly rebuilding
     every cache behind the operator's back.
     """
-    record = runner.seed("consolidate_enrichment", kind="card",
-                         mode="consolidate_only")
+    record = runner.seed("consolidate_enrichment", kind="card", mode="consolidate_only")
     # The consolidation still writes its impact — the run just does not act on it.
-    runner.finish("consolidate_enrichment", {"consolidation_impact": {
-        "new_annotation_item_count": 900, "affected_study_names": ["s1"],
-        "affected_collection_ids": ["c1"]}})
+    runner.finish(
+        "consolidate_enrichment",
+        {
+            "consolidation_impact": {
+                "new_annotation_item_count": 900,
+                "affected_study_names": ["s1"],
+                "affected_collection_ids": ["c1"],
+            }
+        },
+    )
 
-    pr._advance_refresh_run("consolidate_enrichment",
-                            {"pipeline_run_id": record["run_id"]}, "Success")
+    pr._advance_refresh_run(
+        "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
+    )
 
     assert runner.names() == []
-    assert all(state == "not_planned"
-               for step, state in runner.states().items()
-               if step != "consolidate_enrichment")
+    assert all(
+        state == "not_planned"
+        for step, state in runner.states().items()
+        if step != "consolidate_enrichment"
+    )
     assert rp.load_run()["in_flight"] is False
 
 
@@ -282,22 +308,24 @@ def test_a_consolidate_only_run_keeps_the_impact_it_never_refreshed(runner):
     with no impact panel, no "Refresh All Affected", and a summary claiming
     nothing needed refreshing.
     """
-    record = runner.seed("consolidate_enrichment", kind="consolidate",
-                         mode="consolidate_only")
-    impact = {"new_annotation_item_count": 50,
-              "affected_study_names": ["standard_study", "scraped_ones"],
-              "affected_collection_ids": ["c1", "c2"]}
+    record = runner.seed("consolidate_enrichment", kind="consolidate", mode="consolidate_only")
+    impact = {
+        "new_annotation_item_count": 50,
+        "affected_study_names": ["standard_study", "scraped_ones"],
+        "affected_collection_ids": ["c1", "c2"],
+    }
     runner.finish("consolidate_enrichment", {"consolidation_impact": impact})
 
-    pr._advance_refresh_run("consolidate_enrichment",
-                            {"pipeline_run_id": record["run_id"]}, "Success")
+    pr._advance_refresh_run(
+        "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
+    )
 
     entry = pm.process_stats["consolidate_enrichment"]
     assert entry.get("consolidation_impact") == impact, (
-        "a run that refreshed nothing has consumed nothing")
+        "a run that refreshed nothing has consumed nothing"
+    )
     # And it must not tell the operator the opposite of what the ledger says.
-    assert "Nothing downstream needed refreshing" not in (
-        rp.load_run().get("summary") or "")
+    assert "Nothing downstream needed refreshing" not in (rp.load_run().get("summary") or "")
 
 
 def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
@@ -307,9 +335,11 @@ def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
     so the impact is spent and "Refresh All Affected" must stop being offered.
     """
     runner.seed("consolidate_enrichment", kind="consolidate")
-    impact = {"new_annotation_item_count": 50,
-              "affected_study_names": ["standard_study"],
-              "affected_collection_ids": ["c1"]}
+    impact = {
+        "new_annotation_item_count": 50,
+        "affected_study_names": ["standard_study"],
+        "affected_collection_ids": ["c1"],
+    }
     pm.load_process_stats()
     pm.process_stats["consolidate_enrichment"] = {"consolidation_impact": impact}
     pm.save_process_stats()
@@ -335,16 +365,19 @@ def _status_files(monkeypatch, files: dict):
     """Stand in for the workers' GCS status files — the single-writer record
     the sweep must trust, not the hub's lazily-loaded process_stats."""
     import web_interface.task_status as ts
+
     monkeypatch.setattr(ts, "read_task_status", lambda name: files.get(name))
 
 
 _RUN = {
     "run_id": "r1",
     "started_ts": "2026-09-04T03:33:28.937522+00:00",
-    "updated_ts": "2026-09-04T03:35:36.988890+00:00",   # embeddings dispatch
-    "steps": {"consolidate_enrichment": {"state": "origin"},
-              "embeddings_refresh": {"state": "dispatched"},
-              "video_map_refresh": {"state": "planned"}},
+    "updated_ts": "2026-09-04T03:35:36.988890+00:00",  # embeddings dispatch
+    "steps": {
+        "consolidate_enrichment": {"state": "origin"},
+        "embeddings_refresh": {"state": "dispatched"},
+        "video_map_refresh": {"state": "planned"},
+    },
 }
 
 
@@ -360,8 +393,15 @@ def test_a_step_working_longer_than_the_window_is_not_abandonment(runner, monkey
     The worker's status file is written the moment it completes and is what
     the sweep must read.
     """
-    _status_files(monkeypatch, {"embeddings_refresh": {
-        "state": "completed", "updated_at": "2026-09-04T03:36:38.430245+00:00"}})
+    _status_files(
+        monkeypatch,
+        {
+            "embeddings_refresh": {
+                "state": "completed",
+                "updated_at": "2026-09-04T03:36:38.430245+00:00",
+            }
+        },
+    )
     assert rp.last_activity_ts(_RUN) == "2026-09-04T03:36:38.430245+00:00"
 
 
@@ -375,12 +415,21 @@ def test_the_hub_must_not_trust_its_stale_process_stats(runner, monkeypatch):
     """
     pm.load_process_stats()
     pm.process_stats["embeddings_refresh"] = {
-        "last_run_end_time": "2026-09-04T02:57:58.778672+00:00"}   # last run
+        "last_run_end_time": "2026-09-04T02:57:58.778672+00:00"
+    }  # last run
     pm.save_process_stats()
-    _status_files(monkeypatch, {"embeddings_refresh": {
-        "state": "completed", "updated_at": "2026-09-04T03:36:38.430245+00:00"}})
+    _status_files(
+        monkeypatch,
+        {
+            "embeddings_refresh": {
+                "state": "completed",
+                "updated_at": "2026-09-04T03:36:38.430245+00:00",
+            }
+        },
+    )
     assert rp.last_activity_ts(_RUN) == "2026-09-04T03:36:38.430245+00:00", (
-        "a stale hub-side process_stats must not hide a step that just completed")
+        "a stale hub-side process_stats must not hide a step that just completed"
+    )
 
 
 def test_a_queued_undelivered_step_keeps_the_run_alive(runner, monkeypatch):
@@ -391,9 +440,15 @@ def test_a_queued_undelivered_step_keeps_the_run_alive(runner, monkeypatch):
     maxRetryDuration is 3600 s: a fresh "queued" stamp means a delivery is
     still owed, and the run is alive."""
     from datetime import UTC, datetime, timedelta
-    record = {"run_id": "r3", "started_ts": "2026-09-04T04:28:40+00:00",
-              "steps": {"consolidate_enrichment": {"state": "origin"},
-                        "video_map_refresh": {"state": "dispatched"}}}
+
+    record = {
+        "run_id": "r3",
+        "started_ts": "2026-09-04T04:28:40+00:00",
+        "steps": {
+            "consolidate_enrichment": {"state": "origin"},
+            "video_map_refresh": {"state": "dispatched"},
+        },
+    }
     recent = (datetime.now(UTC) - timedelta(minutes=23)).isoformat()
     _status_files(monkeypatch, {"video_map_refresh": {"state": "queued", "updated_at": recent}})
     assert rp.awaiting_delivery(record) == "video_map_refresh"
@@ -402,9 +457,15 @@ def test_a_queued_undelivered_step_keeps_the_run_alive(runner, monkeypatch):
 def test_a_queued_stamp_older_than_the_queue_can_redeliver_is_lost(runner, monkeypatch):
     """Past maxRetryDuration the queue has given up; the sweep may proceed."""
     from datetime import UTC, datetime, timedelta
-    record = {"run_id": "r4", "started_ts": "2026-09-04T00:00:00+00:00",
-              "steps": {"video_map_refresh": {"state": "dispatched"}}}
-    stale = (datetime.now(UTC) - timedelta(seconds=rp.QUEUED_DELIVERY_GRACE_SECONDS + 60)).isoformat()
+
+    record = {
+        "run_id": "r4",
+        "started_ts": "2026-09-04T00:00:00+00:00",
+        "steps": {"video_map_refresh": {"state": "dispatched"}},
+    }
+    stale = (
+        datetime.now(UTC) - timedelta(seconds=rp.QUEUED_DELIVERY_GRACE_SECONDS + 60)
+    ).isoformat()
     _status_files(monkeypatch, {"video_map_refresh": {"state": "queued", "updated_at": stale}})
     assert rp.awaiting_delivery(record) is None
 
@@ -415,16 +476,25 @@ def test_a_spine_dispatch_is_stamped_queued(runner, monkeypatch):
     stamped = []
     monkeypatch.setattr(pr, "stamp_task_status", lambda n, st, *a, **k: stamped.append((n, st)))
     record = runner.seed("consolidate_enrichment", kind="armed")
-    runner.finish("consolidate_enrichment", {"consolidation_impact": {
-        "new_annotation_item_count": 50, "affected_study_names": ["s1"],
-        "affected_collection_ids": ["c1"]}, "pipeline_impact": {
-        "new_annotation_item_count": 50, "affected_study_names": ["s1"],
-        "affected_collection_ids": ["c1"]}})
-    pr._advance_refresh_run("consolidate_enrichment",
-                            {"pipeline_run_id": record["run_id"]}, "Success")
+    runner.finish(
+        "consolidate_enrichment",
+        {
+            "consolidation_impact": {
+                "new_annotation_item_count": 50,
+                "affected_study_names": ["s1"],
+                "affected_collection_ids": ["c1"],
+            },
+            "pipeline_impact": {
+                "new_annotation_item_count": 50,
+                "affected_study_names": ["s1"],
+                "affected_collection_ids": ["c1"],
+            },
+        },
+    )
+    pr._advance_refresh_run(
+        "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
+    )
     assert ("embeddings_refresh", "queued") in stamped, stamped
-
-
 
     """The flip side: the fix must not make a genuinely dead run immortal."""
     record = {
@@ -434,11 +504,17 @@ def test_a_spine_dispatch_is_stamped_queued(runner, monkeypatch):
         "steps": {"consolidate_enrichment": {"state": "origin"}},
     }
     # Only an OLDER run's timestamps exist anywhere — none may count.
-    _status_files(monkeypatch, {"consolidate_enrichment": {
-        "state": "completed", "updated_at": "2026-09-04T01:00:00+00:00"}})
+    _status_files(
+        monkeypatch,
+        {
+            "consolidate_enrichment": {
+                "state": "completed",
+                "updated_at": "2026-09-04T01:00:00+00:00",
+            }
+        },
+    )
     pm.load_process_stats()
-    pm.process_stats["consolidate_enrichment"] = {
-        "last_run_end_time": "2026-09-04T01:00:00+00:00"}
+    pm.process_stats["consolidate_enrichment"] = {"last_run_end_time": "2026-09-04T01:00:00+00:00"}
     pm.save_process_stats()
     assert rp.last_activity_ts(record) == "2026-09-04T02:00:00+00:00"
 
@@ -458,6 +534,7 @@ def test_an_outstanding_fan_out_is_not_declared_abandoned(runner, monkeypatch):
 
     src = inspect.getsource(en.get_enrichment_stats)
     i = src.index("flag_in_flight and not any_step_running")
-    line = src[i:src.index("\n", i)]
+    line = src[i : src.index("\n", i)]
     assert 'refresh_run.get("fork")' in line, (
-        "the abandoned-run sweep must stand down while a fan-out is outstanding")
+        "the abandoned-run sweep must stand down while a fan-out is outstanding"
+    )

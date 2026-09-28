@@ -32,16 +32,23 @@ def _structured_response(type_of_story: str) -> dict:
         "symbols_and_brands": ["nike"],
         "text_overlays": ["hi there"],
         "faces": [{"gender": "Female", "age_estimate": "20-30", "ethnicity": "Caucasian"}],
-        "audio_summary": {"speech_vs_music": "60% speech, 40% music",
-                          "background_music": "upbeat", "notable_sounds": ["clap"]},
+        "audio_summary": {
+            "speech_vs_music": "60% speech, 40% music",
+            "background_music": "upbeat",
+            "notable_sounds": ["clap"],
+        },
         "main_activity": "dancing in a studio",
         "video_story": "A person dances in a studio.",
         "type_of_story": type_of_story,
         "content_category": ["Performance", "Daily Life"],
-        "primary_country": "Australia", "tiktok_native": "Yes",
-        "trend_technical": "No", "trend_cultural": "No",
-        "advertising": "No", "aigc": "No",
-        "main_gender": "Female", "main_ethnicity": "Caucasian",
+        "primary_country": "Australia",
+        "tiktok_native": "Yes",
+        "trend_technical": "No",
+        "trend_cultural": "No",
+        "advertising": "No",
+        "aigc": "No",
+        "main_gender": "Female",
+        "main_ethnicity": "Caucasian",
         "political_score": 0,
         "sensitivity_score": 10,
         "call_to_action": "follow for more",
@@ -95,6 +102,7 @@ def _main() -> int:
         except Exception:
             failures += 1
             import traceback
+
             traceback.print_exc()
             print(f"ERROR {t.__name__}")
     print(f"\n{len(tests) - failures}/{len(tests)} passed")

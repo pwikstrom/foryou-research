@@ -70,8 +70,10 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         # a participant's pair, or an admin delete). Retrying cannot bring the
         # definition back, so this is a clean no-op rather than a failure that
         # would exhaust the queue's retries and land in the dead-letter ledger.
-        reporter.log(f"Study '{study_name}' no longer exists — nothing to refresh "
-                     "(deleted while this refresh was queued).")
+        reporter.log(
+            f"Study '{study_name}' no longer exists — nothing to refresh "
+            "(deleted while this refresh was queued)."
+        )
         return None
 
     study_config = studies[study_name]
@@ -83,6 +85,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     # waste a default-study-sized rebuild per participant and shadow the
     # live composition with a stale copy.
     from fyp.analysis.studies import is_composed_study
+
     if is_composed_study(study_config):
         reporter.log(f"'{study_name}' is a composed study — nothing to build. Skipping.")
         return
@@ -107,20 +110,24 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         df_raw_window = _load_study_raw_window(study_config.get("SELECTED_COLLECTIONS") or [])
         if df_raw_window is not None and isinstance(stats, dict):
             stats["universe"] = _compute_universe_enrichment(
-                df_raw_window, df_status,
-                study_config.get("START_DATE"), study_config.get("END_DATE"),
+                df_raw_window,
+                df_status,
+                study_config.get("START_DATE"),
+                study_config.get("END_DATE"),
             )
     except Exception as exc:
         reporter.log(f"universe computation skipped: {exc}")
 
     # A short-circuited rebuild means the recoded parquet is unchanged on disk.
     # Tagged by create_study_recoded_dataset on the returned DataFrame's attrs.
-    refresh_action = (df_recoded.attrs.get("refresh_action") if df_recoded is not None else None)
+    refresh_action = df_recoded.attrs.get("refresh_action") if df_recoded is not None else None
     is_short_circuit = refresh_action == "short_circuit"
     if is_short_circuit:
         reporter.log("Short-circuit: inputs unchanged since last refresh.")
     elif refresh_action == "enrichment_patch":
-        reporter.log("Enrichment patch: re-merged enrichment onto cached activity rows (skipped collections load + sampling).")
+        reporter.log(
+            "Enrichment patch: re-merged enrichment onto cached activity rows (skipped collections load + sampling)."
+        )
 
     # Persist stats to study definition
     studies[study_name]["stats"] = stats
@@ -135,15 +142,18 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     # without triggering a rebuild, and the note must track it.
     from web_interface.services.methods_note import write_methods_note
 
-    if write_methods_note(
-        study_name=study_name,
-        study_config=studies[study_name],
-        df_study=df_recoded,
-        df_status=df_status,
-        stats=stats,
-        refresh_action=refresh_action or "full_rebuild",
-        refresh_trigger="study_save",
-    ) is not None:
+    if (
+        write_methods_note(
+            study_name=study_name,
+            study_config=studies[study_name],
+            df_study=df_recoded,
+            df_status=df_status,
+            stats=stats,
+            refresh_action=refresh_action or "full_rebuild",
+            refresh_trigger="study_save",
+        )
+        is not None
+    ):
         reporter.log("Methods note written.")
 
     if reporter.check_cancelled():
@@ -203,7 +213,12 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         except Exception:
             pass
 
-    if (not (is_short_circuit and metadata_exists)) and refresh_metadata and stats["unique_videos"] > 0 and df_recoded is not None:
+    if (
+        (not (is_short_circuit and metadata_exists))
+        and refresh_metadata
+        and stats["unique_videos"] > 0
+        and df_recoded is not None
+    ):
         reporter.update_progress(50, "Generating metadata...")
         reporter.log("Classifying columns for metadata generation...")
         _t_phase = time.perf_counter()
@@ -228,8 +243,8 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
         df_filtered = df_recoded[
             enrichment_mask
-            & df_recoded['activity_type'].isin(['play', 'observe'])
-            & df_recoded['item_id'].notna()
+            & df_recoded["activity_type"].isin(["play", "observe"])
+            & df_recoded["item_id"].notna()
         ].copy()
 
         reporter.update_progress(60, "Generating explorer metadata...")
@@ -293,8 +308,6 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     reporter.log(f"Study refresh for '{study_name}' complete.")
 
 
-
-
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
@@ -313,12 +326,15 @@ if __name__ == "__main__":
         "study_refresh",
         arg_specs=[
             (("study_name",), {"help": "Name of the study to refresh"}),
-            (("--no-pca",), {"action": "store_true",
-                             "help": "Skip the PCA / correlations phase"}),
-            (("--no-metadata",), {"action": "store_true",
-                                  "help": "Skip the metadata phase"}),
-            (("--force",), {"action": "store_true",
-                            "help": "Force a full rebuild, ignoring sidecar fingerprints"}),
+            (("--no-pca",), {"action": "store_true", "help": "Skip the PCA / correlations phase"}),
+            (("--no-metadata",), {"action": "store_true", "help": "Skip the metadata phase"}),
+            (
+                ("--force",),
+                {
+                    "action": "store_true",
+                    "help": "Force a full rebuild, ignoring sidecar fingerprints",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Refresh stats, PCA, and metadata for a single study",

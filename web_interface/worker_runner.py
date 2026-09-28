@@ -21,10 +21,6 @@ from web_interface.task_status import LocalStatusReporter, TaskStatusReporter
 ArgSpec = tuple[tuple, dict]
 
 
-
-
-
-
 def run_worker(
     run_fn: Callable[..., object],
     name: str,

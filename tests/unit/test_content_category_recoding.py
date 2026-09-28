@@ -108,15 +108,15 @@ def main() -> None:
 
     # 2. Every type_of_story value should either match an accepted label or
     #    stay NA. It should never become 'other category'.
-    ts_non_na = [v for v in ts_values if not (isinstance(v, float) and np.isnan(v)) and not pd.isna(v)]
+    ts_non_na = [
+        v for v in ts_values if not (isinstance(v, float) and np.isnan(v)) and not pd.isna(v)
+    ]
     _assert_no_other(ts_non_na, "type_of_story")
 
     # 3. The NA in type_of_story must survive so annotated_ok / annotated_fail
     #    detection still works.
     if not pd.isna(ts_values[4]):
-        raise AssertionError(
-            f"type_of_story[4] should be NA after cleanup, got: {ts_values[4]!r}"
-        )
+        raise AssertionError(f"type_of_story[4] should be NA after cleanup, got: {ts_values[4]!r}")
 
     # 4. Every canonical category from the prompt should round-trip.
     expected_canonical = {

@@ -54,8 +54,14 @@ def _fake_data_io(tmp: str):
             os.remove(FakeIO._p(filename))
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             path = FakeIO._p(filename)
             current = json.loads(json.dumps(default)) if default is not None else None
             if os.path.exists(path):
@@ -75,6 +81,7 @@ def _fake_data_io(tmp: str):
 # Sidecar helpers
 # --------------------------------------------------------------------------- #
 
+
 def test_charge_zero_progress_accumulates_then_exhausts():
     """Strike 1 keeps items queued; strike MAX returns them as exhausted."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -92,8 +99,6 @@ def test_charge_zero_progress_accumulates_then_exhausts():
     print("PASS: strikes accumulate and exhaust at the budget")
 
 
-
-
 def test_clear_zero_progress_drops_only_resolved_ids():
     """Progress clears the strikes of the items that left the queue — only those."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -105,16 +110,16 @@ def test_clear_zero_progress_drops_only_resolved_ids():
             scrape_queues.clear_zero_progress("tiktok", ["a"])
             sidecar = io.load_json(filename=scrape_queues.strikes_filename("tiktok"))
             assert sidecar == {"b": 1}, f"b did not succeed, so it keeps its strike: {sidecar}"
-            assert scrape_queues.charge_zero_progress("tiktok", ["a", "b"]) == ["b"], \
+            assert scrape_queues.charge_zero_progress("tiktok", ["a", "b"]) == ["b"], (
                 "a restarts from zero; b exhausts on its second zero-progress run"
+            )
     print("PASS: clear_zero_progress drops only the resolved ids")
-
-
 
 
 # --------------------------------------------------------------------------- #
 # Cloud batch path (what the enrichment supervisor drives)
 # --------------------------------------------------------------------------- #
+
 
 class _Reporter:
     def __init__(self):
@@ -151,8 +156,12 @@ class _HealthyScraper:
 def _all_transient_threads(**kwargs):
     """Every item fails transiently; no storm, no breaker, no memory stop."""
     empty = pd.DataFrame()
-    for k in ("circuit_breaker_tripped", "permanent_storm_tripped",
-              "transient_storm_tripped", "memory_stop"):
+    for k in (
+        "circuit_breaker_tripped",
+        "permanent_storm_tripped",
+        "transient_storm_tripped",
+        "memory_stop",
+    ):
         empty.attrs[k] = False
     return empty, [], list(kwargs["interesting_videos"])
 
@@ -163,13 +172,15 @@ def _run_cloud_batch(io, threads_fn, recorded):
     from web_interface.run_queue_scraper import run_queue_scraper
 
     reporter = _Reporter()
-    with patch.object(scrape_queues, "_data_io", return_value=io), \
-         patch.object(scrape_queues, "migrate_legacy_queue", lambda platform: None), \
-         patch.object(fyp_scrape, "download_video_threads", threads_fn), \
-         patch.object(fyp_scrape, "record_failed_scrapes",
-                      lambda items, **kw: recorded.append(items)), \
-         patch("fyp.scrape.platform_scraper.get_scraper",
-               lambda platform: _HealthyScraper()):
+    with (
+        patch.object(scrape_queues, "_data_io", return_value=io),
+        patch.object(scrape_queues, "migrate_legacy_queue", lambda platform: None),
+        patch.object(fyp_scrape, "download_video_threads", threads_fn),
+        patch.object(
+            fyp_scrape, "record_failed_scrapes", lambda items, **kw: recorded.append(items)
+        ),
+        patch("fyp.scrape.platform_scraper.get_scraper", lambda platform: _HealthyScraper()),
+    ):
         result = run_queue_scraper(reporter, {"platform": "tiktok"})
     return result, reporter
 
@@ -192,21 +203,25 @@ def test_cloud_zero_progress_runs_burn_the_stuck_tail():
         assert len(recorded) == 1, "the second run gives up on the stuck tail"
         assert {r["item_id"] for r in recorded[0]} == set(stuck)
         assert all(r["category"] == "permanent:retry_exhausted" for r in recorded[0])
-        assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == [], \
+        assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == [], (
             "the queue must drain so the supervisor's no-drain guard never parks"
-        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {}, \
+        )
+        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {}, (
             "exhausted ids leave the sidecar"
+        )
         assert any("Gave up on 3 item(s)" in ln for ln in reporter.lines), reporter.lines
     print("PASS: cloud path burns the stuck tail on the second run")
-
-
 
 
 def _mixed_batch(**kwargs):
     """'good' scrapes, 'flaky' fails transiently; no storm, breaker or memory stop."""
     frame = pd.DataFrame({"item_id": ["good"]})
-    for k in ("circuit_breaker_tripped", "permanent_storm_tripped",
-              "transient_storm_tripped", "memory_stop"):
+    for k in (
+        "circuit_breaker_tripped",
+        "permanent_storm_tripped",
+        "transient_storm_tripped",
+        "memory_stop",
+    ):
         frame.attrs[k] = False
     return frame, [], ["flaky"]
 
@@ -216,18 +231,18 @@ def test_cloud_progressing_batch_clears_only_the_pruned_strikes():
     with tempfile.TemporaryDirectory() as tmp:
         io = _fake_data_io(tmp)
         io.save_json(data=["good", "flaky"], filename=scrape_queues.queue_filename("tiktok"))
-        io.save_json(data={"good": 1, "flaky": 1},
-                     filename=scrape_queues.strikes_filename("tiktok"))
+        io.save_json(
+            data={"good": 1, "flaky": 1}, filename=scrape_queues.strikes_filename("tiktok")
+        )
         recorded = []
 
         _run_cloud_batch(io, _mixed_batch, recorded)
-        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {"flaky": 1}, \
+        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {"flaky": 1}, (
             "another item's success must not reset flaky's strike"
+        )
         assert recorded == []
         assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == ["flaky"]
     print("PASS: a progressing batch clears only the pruned ids' strikes")
-
-
 
 
 def test_cloud_trickling_queue_still_sheds_its_stuck_tail():
@@ -238,17 +253,15 @@ def test_cloud_trickling_queue_still_sheds_its_stuck_tail():
         io.save_json(data=["flaky"], filename=scrape_queues.queue_filename("tiktok"))
         recorded = []
 
-        _run_cloud_batch(io, _all_transient_threads, recorded)   # stall: strike 1
+        _run_cloud_batch(io, _all_transient_threads, recorded)  # stall: strike 1
         io.save_json(data=["good", "flaky"], filename=scrape_queues.queue_filename("tiktok"))
-        _run_cloud_batch(io, _mixed_batch, recorded)             # progress elsewhere
+        _run_cloud_batch(io, _mixed_batch, recorded)  # progress elsewhere
         assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {"flaky": 1}
-        _run_cloud_batch(io, _all_transient_threads, recorded)   # stall: strike 2
+        _run_cloud_batch(io, _all_transient_threads, recorded)  # stall: strike 2
 
         assert len(recorded) == 1 and [r["item_id"] for r in recorded[0]] == ["flaky"]
         assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == []
     print("PASS: a trickling queue still sheds its stuck tail")
-
-
 
 
 def test_cloud_storm_abort_does_not_charge():
@@ -268,31 +281,32 @@ def test_cloud_storm_abort_does_not_charge():
 
         for _ in range(3):
             _run_cloud_batch(io, storm, recorded)
-        assert not io.exists(filename=scrape_queues.strikes_filename("tiktok")), \
+        assert not io.exists(filename=scrape_queues.strikes_filename("tiktok")), (
             "storm-aborted runs must not burn retry budget"
+        )
         assert recorded == []
         assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == ["v1", "v2"]
     print("PASS: storm aborts never charge strikes")
-
-
 
 
 # --------------------------------------------------------------------------- #
 # Classifier fix
 # --------------------------------------------------------------------------- #
 
+
 def test_no_video_formats_found_is_permanent():
     """yt-dlp's 'No video formats found!' must classify as a permanent failure."""
     from fyp.scrape.tiktok_dl import _PERMANENT, _classify_error
 
-    category, _ = _classify_error(Exception(
-        "ERROR: [TikTok] 7649168662586346774: No video formats found!; "
-        "please report this issue on https://github.com/yt-dlp/yt-dlp/issues"))
+    category, _ = _classify_error(
+        Exception(
+            "ERROR: [TikTok] 7649168662586346774: No video formats found!; "
+            "please report this issue on https://github.com/yt-dlp/yt-dlp/issues"
+        )
+    )
     assert category == "extraction", category
     assert category in _PERMANENT, "the category must sit in the permanent bucket"
     print("PASS: 'No video formats found' classifies as permanent")
-
-
 
 
 if __name__ == "__main__":

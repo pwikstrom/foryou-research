@@ -45,8 +45,14 @@ def _fake_data_io(tmp: str):
             os.remove(FakeIO._p(filename))
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             path = FakeIO._p(filename)
             current = json.loads(json.dumps(default)) if default is not None else None
             if os.path.exists(path):
@@ -60,10 +66,6 @@ def _fake_data_io(tmp: str):
             return new_value
 
     return FakeIO
-
-
-
-
 
 
 def main() -> int:

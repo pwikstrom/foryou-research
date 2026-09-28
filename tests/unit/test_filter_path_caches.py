@@ -29,14 +29,11 @@ def frame():
         {
             "item_id": pd.array(["a", "b", "c", "d", "e"], dtype="string[pyarrow]"),
             "score": pd.array([1.0, 2.0, 3.0, None, 5.0], dtype="float64[pyarrow]"),
-            "niche": pd.array(
-                ["cats", "dogs", "cats", "dogs", None], dtype="string[pyarrow]"
-            ),
+            "niche": pd.array(["cats", "dogs", "cats", "dogs", None], dtype="string[pyarrow]"),
             "tags": pd.Series([["x"], ["y"], ["x", "y"], [], None], dtype=object),
         }
     )
-    col_types = {"item_id": "identifier", "score": "number",
-                 "niche": "category", "tags": "list"}
+    col_types = {"item_id": "identifier", "score": "number", "niche": "category", "tags": "list"}
     return df, col_types
 
 
@@ -45,9 +42,9 @@ def test_combined_filters_match_sequential_semantics(frame):
     the rows that pass every criterion — NA never matches."""
     df, col_types = frame
     filters = {
-        "score": {"value": {"min": 1.5, "max": 4.0}},   # b, c (NaN row d out)
-        "niche": {"value": ["cats"]},                    # a, c
-        "tags": {"value": ["y"]},                        # b, c (None row out)
+        "score": {"value": {"min": 1.5, "max": 4.0}},  # b, c (NaN row d out)
+        "niche": {"value": ["cats"]},  # a, c
+        "tags": {"value": ["y"]},  # b, c (None row out)
     }
     out = explorer_backend.filter_dataframe(df, col_types, filters)
     assert list(out["item_id"]) == ["c"]
@@ -55,8 +52,7 @@ def test_combined_filters_match_sequential_semantics(frame):
 
 def test_single_category_filter_keeps_row_order(frame):
     df, col_types = frame
-    out = explorer_backend.filter_dataframe(
-        df, col_types, {"niche": {"value": ["cats", "dogs"]}})
+    out = explorer_backend.filter_dataframe(df, col_types, {"niche": {"value": ["cats", "dogs"]}})
     assert list(out["item_id"]) == ["a", "b", "c", "d"]
 
 
@@ -71,8 +67,7 @@ def test_numeric_range_with_na_rows(frame):
     """An NA in the filtered column drops the row rather than raising —
     Arrow comparisons yield NA, which must be treated as no-match."""
     df, col_types = frame
-    out = explorer_backend.filter_dataframe(
-        df, col_types, {"score": {"value": {"min": 0.0}}})
+    out = explorer_backend.filter_dataframe(df, col_types, {"score": {"value": {"min": 0.0}}})
     assert list(out["item_id"]) == ["a", "b", "c", "e"]
 
 
@@ -124,7 +119,10 @@ def test_enrichment_columns_are_cached_per_study_mtime(monkeypatch, _clear_annot
     assert calls == {"user": 1, "machine": 1}
     assert list(out2["Has Annotation"]) == [True, False, False]
     assert list(out2["Machine Annotations"]) == [
-        "Machine Annotated", "Cannot Machine Annotate", "Not Attempted"]
+        "Machine Annotated",
+        "Cannot Machine Annotate",
+        "Not Attempted",
+    ]
     assert ct2["Has Annotation"] == "category"
     # A different user computes their own columns but reuses the machine ones.
     study_data.enrich_with_user_tags(df, {}, "user2", study="s")

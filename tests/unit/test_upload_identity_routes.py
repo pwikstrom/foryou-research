@@ -16,8 +16,6 @@ _VIEWER = "__upload_identity_viewer__"
 _ADMIN = "__upload_identity_admin__"
 
 
-
-
 @pytest.fixture
 def local_store(tmp_path, monkeypatch):
     """Every storage location the routes touch, as local temp dirs."""
@@ -25,8 +23,18 @@ def local_store(tmp_path, monkeypatch):
     from fyp.ingest import raw_names
 
     dirs = {}
-    for loc in ("temp", "recoded", "archive", "ddp_raw", "zeeschuimer_raw",
-                "aio_raw", "instagram_raw", "youtube_raw", "users", "cache"):
+    for loc in (
+        "temp",
+        "recoded",
+        "archive",
+        "ddp_raw",
+        "zeeschuimer_raw",
+        "aio_raw",
+        "instagram_raw",
+        "youtube_raw",
+        "users",
+        "cache",
+    ):
         d = tmp_path / loc
         d.mkdir()
         monkeypatch.setitem(fyp_cf["paths"], loc, str(d))
@@ -36,13 +44,13 @@ def local_store(tmp_path, monkeypatch):
     monkeypatch.setattr(raw_names, "registered_raw_paths", lambda: ["ddp_raw"])
 
     from web_interface import activity_log
+
     monkeypatch.setattr(activity_log, "record", lambda **kw: None)
     from web_interface.services import study_data
+
     study_data.invalidate_collection_tags_cache()
     yield dirs
     study_data.invalidate_collection_tags_cache()
-
-
 
 
 @pytest.fixture
@@ -67,49 +75,39 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
 
 
-
-
 def _grant(monkeypatch, perms):
     from web_interface import auth
+
     monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
-
-
 
 
 def _tags(dirs):
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+
     p = dirs["recoded"] / f"{COLLECTIONS_LABEL}_tags.json"
     return json.loads(p.read_text()) if p.exists() else {}
-
-
 
 
 def _manifest(dirs):
     return json.loads((dirs["ddp_raw"] / "ingestion_manifest.json").read_text())
 
 
-
-
 def _post_participant(client, name, tz="Australia/Melbourne", review=False):
-    data = {"raw_path": "ddp_raw", "tz": tz,
-            "files": (io.BytesIO(b'{"Your Activity": {}}'), name)}
+    data = {"raw_path": "ddp_raw", "tz": tz, "files": (io.BytesIO(b'{"Your Activity": {}}'), name)}
     if review:
         data["client_review"] = "1"
-    return client.post("/api/my/collections/upload", data=data,
-                       content_type="multipart/form-data")
+    return client.post("/api/my/collections/upload", data=data, content_type="multipart/form-data")
 
 
-
-
-def test_participant_uploads_of_the_same_filename_get_distinct_identities(client, monkeypatch, local_store):
+def test_participant_uploads_of_the_same_filename_get_distinct_identities(
+    client, monkeypatch, local_store
+):
     _grant(monkeypatch, ["tab.my_stuff.my_collections"])
     _login(client, _VIEWER)
 
@@ -150,9 +148,9 @@ def test_participant_uploads_of_the_same_filename_get_distinct_identities(client
     assert tags[c2["collection_id"]]["display_collection_id"] == "user_data_tiktok (2)"
 
 
-
-
-def test_participant_upload_survives_a_name_already_used_by_an_old_collection(client, monkeypatch, local_store):
+def test_participant_upload_survives_a_name_already_used_by_an_old_collection(
+    client, monkeypatch, local_store
+):
     """The 2026-09-06 case: an old collection's raw file is called
     user_data_tiktok_2.json. A participant uploading a file of that name must
     neither overwrite it nor be skipped later — the stored name is fresh."""
@@ -163,18 +161,18 @@ def test_participant_upload_survives_a_name_already_used_by_an_old_collection(cl
     assert r.status_code == 200, r.get_json()
     stored = r.get_json()["collections"][0]["filename"]
     assert stored != "user_data_tiktok_2.json"
-    assert json.loads((local_store["ddp_raw"] / "user_data_tiktok_2.json").read_text()) == {"old": True}
+    assert json.loads((local_store["ddp_raw"] / "user_data_tiktok_2.json").read_text()) == {
+        "old": True
+    }
     assert (local_store["ddp_raw"] / stored).exists()
-
-
 
 
 def _post_admin(client, name, **fields):
     data = {"raw_path": "ddp_raw", "files": (io.BytesIO(b'{"Your Activity": {}}'), name)}
     data.update(fields)
-    return client.post("/api/manage/ingestion/upload", data=data, content_type="multipart/form-data")
-
-
+    return client.post(
+        "/api/manage/ingestion/upload", data=data, content_type="multipart/form-data"
+    )
 
 
 def test_admin_per_file_upload_generates_ids_and_labels(client, monkeypatch, local_store):
@@ -193,27 +191,36 @@ def test_admin_per_file_upload_generates_ids_and_labels(client, monkeypatch, loc
     assert tags["annotation_tags"] == ["q1"]
 
 
-
-
-def test_admin_explicit_id_cannot_append_to_someone_elses_collection(client, monkeypatch, local_store):
+def test_admin_explicit_id_cannot_append_to_someone_elses_collection(
+    client, monkeypatch, local_store
+):
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
-    (local_store["recoded"] / f"{COLLECTIONS_LABEL}_tags.json").write_text(json.dumps(
-        {"theirs": {"user_id": _VIEWER, "annotation_tags": [], "hidden": False}}))
+
+    (local_store["recoded"] / f"{COLLECTIONS_LABEL}_tags.json").write_text(
+        json.dumps({"theirs": {"user_id": _VIEWER, "annotation_tags": [], "hidden": False}})
+    )
     from web_interface.services import study_data
+
     study_data.invalidate_collection_tags_cache()
     _grant(monkeypatch, ["tab.data_management.ingestion"])
     _login(client, _ADMIN)
 
-    r = _post_admin(client, "user_data_tiktok.json", collection_id="theirs",
-                    collection_id_mode="single")
+    r = _post_admin(
+        client, "user_data_tiktok.json", collection_id="theirs", collection_id_mode="single"
+    )
     assert r.status_code == 409
     assert _VIEWER in r.get_json()["error"]
     assert not (local_store["ddp_raw"] / "ingestion_manifest.json").exists()
 
     # Same owner named explicitly: appending is the deliberate use of an
     # explicit id, so it goes through.
-    r = _post_admin(client, "user_data_tiktok.json", collection_id="theirs",
-                    collection_id_mode="single", user_id=_VIEWER)
+    r = _post_admin(
+        client,
+        "user_data_tiktok.json",
+        collection_id="theirs",
+        collection_id_mode="single",
+        user_id=_VIEWER,
+    )
     assert r.status_code == 200, r.get_json()
     entry = list(_manifest(local_store).values())[0]
     assert entry["collection_id"] == "theirs" and entry["display_collection_id"] is None

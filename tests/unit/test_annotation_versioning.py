@@ -43,6 +43,7 @@ def _desc(model="m", prompt=PROMPT_A, schema=SCHEMA_A, params=None, label=None) 
 # version identity
 # ---------------------------------------------------------------------------
 
+
 def test_version_deterministic() -> None:
     assert _desc()["annotation_version"] == _desc()["annotation_version"]
 
@@ -52,7 +53,9 @@ def test_version_has_prefix() -> None:
 
 
 def test_version_changes_on_prompt() -> None:
-    assert _desc(prompt=PROMPT_A)["annotation_version"] != _desc(prompt=PROMPT_B)["annotation_version"]
+    assert (
+        _desc(prompt=PROMPT_A)["annotation_version"] != _desc(prompt=PROMPT_B)["annotation_version"]
+    )
 
 
 def test_version_changes_on_model() -> None:
@@ -60,7 +63,9 @@ def test_version_changes_on_model() -> None:
 
 
 def test_version_changes_on_schema() -> None:
-    assert _desc(schema=SCHEMA_A)["annotation_version"] != _desc(schema=SCHEMA_B)["annotation_version"]
+    assert (
+        _desc(schema=SCHEMA_A)["annotation_version"] != _desc(schema=SCHEMA_B)["annotation_version"]
+    )
 
 
 def test_version_changes_on_gen_params() -> None:
@@ -94,10 +99,11 @@ def test_active_version_from_real_config_is_safe() -> None:
 # registry transforms (pure)
 # ---------------------------------------------------------------------------
 
+
 def test_register_does_not_auto_activate() -> None:
     d = _desc()
     reg = av._register_into(av.empty_registry(), d, PROMPT_A, SCHEMA_A, "t0")
-    assert reg["preferred"] is None    # stay-pinned-until-promote
+    assert reg["preferred"] is None  # stay-pinned-until-promote
     assert d["annotation_version"] in reg["versions"]
 
 
@@ -105,7 +111,7 @@ def test_register_never_activates() -> None:
     d1, d2 = _desc(prompt=PROMPT_A), _desc(prompt=PROMPT_B)
     reg = av._register_into(av.empty_registry(), d1, PROMPT_A, SCHEMA_A, "t0")
     reg = av._register_into(reg, d2, PROMPT_B, SCHEMA_A, "t1")
-    assert reg["preferred"] is None                       # nothing auto-promotes
+    assert reg["preferred"] is None  # nothing auto-promotes
     assert d1["annotation_version"] in reg["versions"]
     assert d2["annotation_version"] in reg["versions"]
 
@@ -148,6 +154,7 @@ def test_promote_unknown_raises() -> None:
 # ---------------------------------------------------------------------------
 # active / pinned view selection (pure, synthetic frames)
 # ---------------------------------------------------------------------------
+
 
 def _view_df() -> "pd.DataFrame":
     return pd.DataFrame(

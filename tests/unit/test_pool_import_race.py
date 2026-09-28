@@ -99,10 +99,12 @@ def _pool_targets(tree: ast.AST) -> set[str]:
     """Names passed as the callable to ``.submit(fn, ...)`` / ``.map(fn, ...)``."""
     out = set()
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in ("submit", "map")
-                and node.args):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("submit", "map")
+            and node.args
+        ):
             first = node.args[0]
             if isinstance(first, ast.Name):
                 out.add(first.id)
@@ -138,8 +140,11 @@ def test_shim_scan_is_not_vacuous():
     assert {"timeline_analysis", "machine_annotation", "data_io"} <= SHIMS
 
 
-@pytest.mark.parametrize("relpath,fname", DISPATCHED_POOL_BODIES,
-                         ids=[p.split("/")[-1] for p, _ in DISPATCHED_POOL_BODIES])
+@pytest.mark.parametrize(
+    "relpath,fname",
+    DISPATCHED_POOL_BODIES,
+    ids=[p.split("/")[-1] for p, _ in DISPATCHED_POOL_BODIES],
+)
 def test_dispatched_pool_body_imports_no_alias_shim(relpath, fname):
     """Each backend's annotate_one runs in call_machine_threads' pool."""
     path = REPO / relpath
@@ -184,14 +189,14 @@ def test_no_pool_worker_in_the_tree_imports_an_alias_shim():
             for reachable in _reachable(funcs, target):
                 for line, mod in _shim_imports(funcs[reachable]):
                     offenders.append(
-                        f"{rel}:{line} {reachable}() imports {mod} "
-                        f"(pool body: {target}())"
+                        f"{rel}:{line} {reachable}() imports {mod} (pool body: {target}())"
                     )
 
     assert not offenders, (
         "thread-pool worker bodies must not lazily import a flat fyp.<name> "
         "alias shim - a cold shim resolved from two pool threads can yield a "
-        "partially-initialized module:\n  " + "\n  ".join(sorted(offenders))
+        "partially-initialized module:\n  "
+        + "\n  ".join(sorted(offenders))
         + "\nUse the canonical fyp.<subpackage>.<module> path."
     )
 
@@ -216,6 +221,7 @@ def test_backend_annotate_one_import_shapes_survive_a_barrier(_run):
         )
         from fyp.annotation.machine_annotation import initialize_machine  # noqa: F401
         from fyp.core import media_paths  # noqa: F401
+
         return True
 
     with ThreadPoolExecutor(max_workers=12) as pool:

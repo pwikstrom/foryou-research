@@ -15,10 +15,6 @@ from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 from fyp.core.fyp_config import get_config
 
 
-
-
-
-
 class GeminiBackend(AnnotationBackend):
     """The production Gemini (Vertex AI or API-key) backend."""
 
@@ -26,7 +22,6 @@ class GeminiBackend(AnnotationBackend):
     max_workers = 50
     supports_batch_mode = True
     cloud_run_capable = True
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Config (and optionally live) readiness of Gemini annotation.
@@ -46,10 +41,16 @@ class GeminiBackend(AnnotationBackend):
         checks: list[dict] = []
 
         mode, reason = gemini_client.gemini_mode()
-        checks.append({"name": "credentials", "ok": mode is not None,
-                       "detail": reason if mode is None else f"mode: {mode}",
-                       "fix": "" if mode is not None else
-                       "See docs/installation.md#enabling-gemini-later."})
+        checks.append(
+            {
+                "name": "credentials",
+                "ok": mode is not None,
+                "detail": reason if mode is None else f"mode: {mode}",
+                "fix": ""
+                if mode is not None
+                else "See docs/installation.md#enabling-gemini-later.",
+            }
+        )
         if mode is None:
             return BackendAvailability(ok=False, reason=reason, checks=checks)
 
@@ -63,8 +64,14 @@ class GeminiBackend(AnnotationBackend):
                 "use_gcs_for_media = false to store media locally. "
                 "See docs/installation.md#enabling-gemini-later."
             )
-            checks.append({"name": "media access", "ok": False, "detail": reason,
-                           "fix": "Configure Vertex AI or store media locally."})
+            checks.append(
+                {
+                    "name": "media access",
+                    "ok": False,
+                    "detail": reason,
+                    "fix": "Configure Vertex AI or store media locally.",
+                }
+            )
             return BackendAvailability(ok=False, reason=reason, checks=checks)
 
         checks.append({"name": "media access", "ok": True, "detail": "", "fix": ""})
@@ -77,7 +84,6 @@ class GeminiBackend(AnnotationBackend):
 
         return BackendAvailability(ok=True, reason="", checks=checks)
 
-
     def _ping(self) -> dict:
         """Issue a ~1-token generation call; return a check row."""
         import google.genai
@@ -87,27 +93,39 @@ class GeminiBackend(AnnotationBackend):
         machine_annotation.initialize_machine()
         client = get_config()["machine"]["gemini"].get("client")
         if client is None:
-            return {"name": "api ping", "ok": False,
-                    "detail": "Gemini client failed to initialize (offline or bad credentials)",
-                    "fix": "Check credentials / network."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": "Gemini client failed to initialize (offline or bad credentials)",
+                "fix": "Check credentials / network.",
+            }
         model = get_config()["machine"]["gemini"]["model"]
         try:
             client.models.generate_content(
-                model=model, contents="ping",
+                model=model,
+                contents="ping",
                 config=google.genai.types.GenerateContentConfig(
                     max_output_tokens=1,
-                    thinking_config=google.genai.types.ThinkingConfig(thinking_budget=0)))
+                    thinking_config=google.genai.types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
             return {"name": "api ping", "ok": True, "detail": f"{model} responded", "fix": ""}
         except Exception as e:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"{model} generation call failed: {e!r}",
-                    "fix": "Check model name, credentials and quota."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"{model} generation call failed: {e!r}",
+                "fix": "Check model name, credentials and quota.",
+            }
 
-
-    def annotate_one(self, item_id: str, platform: str | None = None,
-                     gen_overrides: dict | None = None,
-                     prompt_text: str | None = None,
-                     response_schema=None) -> dict:
+    def annotate_one(
+        self,
+        item_id: str,
+        platform: str | None = None,
+        gen_overrides: dict | None = None,
+        prompt_text: str | None = None,
+        response_schema=None,
+    ) -> dict:
         """Annotate one item via the existing ``call_machine`` path.
 
         Args:
@@ -129,5 +147,6 @@ class GeminiBackend(AnnotationBackend):
         from fyp.annotation import machine_annotation
 
         merged = {**self.overrides, **(gen_overrides or {})}
-        return machine_annotation.call_machine(item_id, platform=platform,
-                                               gen_overrides=merged or None)
+        return machine_annotation.call_machine(
+            item_id, platform=platform, gen_overrides=merged or None
+        )

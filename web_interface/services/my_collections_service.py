@@ -38,6 +38,7 @@ class PendingPreviewError(Exception):
     would use, so this doubles as the QA gate for self-serve donations.
     """
 
+
 _VIEW_TYPES = ["play", "observe"]
 # Counted from the standalone engagement rows (not the folded play tokens):
 # a like-list reaches years past the watch history, and a follow has no play
@@ -45,21 +46,38 @@ _VIEW_TYPES = ["play", "observe"]
 _LIKE_TYPES = ["fave"]
 
 _ACTIVITY_COLUMNS = [
-    "collection_id", "activity_type", "item_id", "play_duration", "session_id",
-    "local_timestamp", "local_date", "local_weekday", "local_week",
-    "local_day_segment", "extra_data", "source_platform", "data_source",
+    "collection_id",
+    "activity_type",
+    "item_id",
+    "play_duration",
+    "session_id",
+    "local_timestamp",
+    "local_date",
+    "local_weekday",
+    "local_week",
+    "local_day_segment",
+    "extra_data",
+    "source_platform",
+    "data_source",
 ]
 
 # ('personas', …) columns used for the picker list and corpus percentiles.
 _PERSONA_FIELDS = [
-    "total_events", "active_days", "first_event_ts", "last_event_ts",
-    "total_watch_time_s", "daily_watch_time_s", "videos_per_day",
-    "num_watches", "num_comments", "num_likes", "likes_per_video",
+    "total_events",
+    "active_days",
+    "first_event_ts",
+    "last_event_ts",
+    "total_watch_time_s",
+    "daily_watch_time_s",
+    "videos_per_day",
+    "num_watches",
+    "num_comments",
+    "num_likes",
+    "likes_per_video",
     "median_watch_time_s",
 ]
 
-_WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday",
-                  "saturday", "sunday"]
+_WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 # local_day_segment value -> persona archetype (segments from
 # fyp.ingest.base._day_segment_from_hour: night 0-5, morning 6-11,
@@ -74,19 +92,56 @@ _ARCHETYPES = {
 # Eight-word ladders per axis, indexed by floor(score / 12.5). Second person,
 # kind at both extremes — nobody gets shamed for how they scroll.
 _LADDERS = {
-    "patience": ["Lightning-Scrolling", "Quick-Flicking", "Speed-Sampling",
-                 "Curiously Skimming", "Steady-Viewing", "Attentive",
-                 "Deep-Diving", "Deep-Soaking"],
-    "enthusiasm": ["Cool-Handed", "Reserved", "Selective", "Warm-Hearted",
-                   "Cheerful", "Generous", "Wholehearted", "Double-Tap-Devoted"],
-    "consistency": ["Free-Range", "Spontaneous", "Wandering", "Flexible",
-                    "Rhythmic", "Habitual", "Clockwork", "Metronomic"],
-    "binge": ["Snack-Size", "Quick-Dipping", "Casual", "Session-Sipping",
-              "Steady-Streaming", "Marathon-Curious", "Binge-Artist",
-              "Full-Season"],
-    "chattiness": ["Silently Observing", "Quietly Lurking", "Occasionally Commenting",
-                   "Measured", "Conversational", "Chatty", "Talkative",
-                   "Comment-Section-Regular"],
+    "patience": [
+        "Lightning-Scrolling",
+        "Quick-Flicking",
+        "Speed-Sampling",
+        "Curiously Skimming",
+        "Steady-Viewing",
+        "Attentive",
+        "Deep-Diving",
+        "Deep-Soaking",
+    ],
+    "enthusiasm": [
+        "Cool-Handed",
+        "Reserved",
+        "Selective",
+        "Warm-Hearted",
+        "Cheerful",
+        "Generous",
+        "Wholehearted",
+        "Double-Tap-Devoted",
+    ],
+    "consistency": [
+        "Free-Range",
+        "Spontaneous",
+        "Wandering",
+        "Flexible",
+        "Rhythmic",
+        "Habitual",
+        "Clockwork",
+        "Metronomic",
+    ],
+    "binge": [
+        "Snack-Size",
+        "Quick-Dipping",
+        "Casual",
+        "Session-Sipping",
+        "Steady-Streaming",
+        "Marathon-Curious",
+        "Binge-Artist",
+        "Full-Season",
+    ],
+    "chattiness": [
+        "Silently Observing",
+        "Quietly Lurking",
+        "Occasionally Commenting",
+        "Measured",
+        "Conversational",
+        "Chatty",
+        "Talkative",
+        "Comment-Section-Regular",
+    ],
 }
 
 # Preferred axis per statement slot, with fallbacks so the sentence never has
@@ -102,11 +157,11 @@ _STATEMENT_SLOTS = [
 # "3" many people's favourite emoji).
 _EMOJI_RE = re.compile(
     "["
-    "\U0001F300-\U0001FAFF"   # pictographs, emoticons, transport, supplemental
-    "\U00002600-\U000027BF"   # misc symbols + dingbats
-    "\U0001F1E6-\U0001F1FF"   # regional indicators (flags)
-    "\U00002B00-\U00002BFF"   # arrows/stars block (⭐ etc.)
-    "\U00002700-\U000027BF"
+    "\U0001f300-\U0001faff"  # pictographs, emoticons, transport, supplemental
+    "\U00002600-\U000027bf"  # misc symbols + dingbats
+    "\U0001f1e6-\U0001f1ff"  # regional indicators (flags)
+    "\U00002b00-\U00002bff"  # arrows/stars block (⭐ etc.)
+    "\U00002700-\U000027bf"
     "]"
 )
 
@@ -137,6 +192,7 @@ def _evict_bundle_cache(now: float) -> None:
 # ---------------------------------------------------------------------------
 # Loading helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_metadata_personas(collection_ids: list[str] | None = None) -> pd.DataFrame | None:
     """Load the ('personas', …) columns of collections_metadata.parquet.
@@ -247,6 +303,7 @@ def _load_donated_seed_row(platform: str, data_source: str, item_id: str) -> dic
 # Corpus percentiles
 # ---------------------------------------------------------------------------
 
+
 def corpus_percentile_frame(force: bool = False) -> pd.DataFrame | None:
     """The full corpus personas frame, cached for ``_CACHE_TTL_S`` seconds."""
     now = time.time()
@@ -272,6 +329,7 @@ def _percentile(series: pd.Series | None, value: float | None) -> float | None:
 # Self-serve donation uploads
 # ---------------------------------------------------------------------------
 
+
 def donation_upload_sources() -> list[dict]:
     """One entry per participant-uploadable donation ingester.
 
@@ -281,21 +339,24 @@ def donation_upload_sources() -> list[dict]:
     exports only.
     """
     from fyp.ingest import get_main_collection
+
     out = []
     for col in get_main_collection(verbose=False).collections:
         if getattr(col, "ingestion_mode", "upload") != "upload":
             continue
         if col.data_source != "ddp":
             continue
-        out.append({
-            "source_platform": col.source_platform,
-            "data_source": col.data_source,
-            "raw_path": col.raw_path,
-            "class_name": col.__class__.__name__,
-            "accepted_upload_suffixes": col.accepted_upload_suffixes(),
-            "zip_member_suffixes": col.zip_member_suffixes(),
-            "review": col.review_manifest(),
-        })
+        out.append(
+            {
+                "source_platform": col.source_platform,
+                "data_source": col.data_source,
+                "raw_path": col.raw_path,
+                "class_name": col.__class__.__name__,
+                "accepted_upload_suffixes": col.accepted_upload_suffixes(),
+                "zip_member_suffixes": col.zip_member_suffixes(),
+                "review": col.review_manifest(),
+            }
+        )
     return out
 
 
@@ -307,8 +368,10 @@ def _pending_uploads_for_user(username: str) -> dict[str, dict]:
         raw_path = src["raw_path"]
         if not data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
             continue
-        manifest = data_io.load_json(
-            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False)
+            or {}
+        )
         for fn, entry in manifest.items():
             if not isinstance(entry, dict) or entry.get("user_id") != username:
                 continue
@@ -330,6 +393,7 @@ def _fresh_ingester(raw_path: str):
     ``data``/``state`` mutations can never leak into other requests.
     """
     from fyp.ingest.base import ForYouBaseCollection
+
     for cls in ForYouBaseCollection._registry:
         if getattr(cls, "raw_path", None) == raw_path:
             inst = cls()
@@ -363,8 +427,10 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
 
     manifest = {}
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
-        manifest = data_io.load_json(
-            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False)
+            or {}
+        )
     entry = manifest.get(filename) or {}
     cid = entry.get("collection_id") or os.path.splitext(filename)[0]
 
@@ -430,11 +496,14 @@ def discard_pending_upload(raw_path: str, filename: str) -> None:
 
     manifest = {}
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
-        manifest = data_io.load_json(
-            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False)
+            or {}
+        )
     entry = manifest.pop(filename, None) or {}
-    data_io.save_json(data=manifest, storage_location=raw_path,
-                      filename=MANIFEST_FILENAME, verbose=False)
+    data_io.save_json(
+        data=manifest, storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False
+    )
     if data_io.exists(storage_location=raw_path, filename=filename):
         data_io.remove(storage_location=raw_path, filename=filename)
 
@@ -456,14 +525,19 @@ WITHDRAWAL_RETENTION_DAYS = 30
 
 def _load_withdrawals_raw() -> dict:
     if data_io.exists(storage_location="recoded", filename=WITHDRAWALS_FILENAME):
-        return data_io.load_json(
-            storage_location="recoded", filename=WITHDRAWALS_FILENAME, verbose=False) or {}
+        return (
+            data_io.load_json(
+                storage_location="recoded", filename=WITHDRAWALS_FILENAME, verbose=False
+            )
+            or {}
+        )
     return {}
 
 
 def _save_withdrawals(w: dict) -> None:
-    data_io.save_json(data=w, storage_location="recoded",
-                      filename=WITHDRAWALS_FILENAME, verbose=False)
+    data_io.save_json(
+        data=w, storage_location="recoded", filename=WITHDRAWALS_FILENAME, verbose=False
+    )
 
 
 def _utc_now() -> pd.Timestamp:
@@ -524,29 +598,40 @@ def ledger_manifest_entries(cid: str, files: list[str]) -> dict[str, dict]:
     uploader), so a restore hands the ingester exactly what the upload did.
     Files the ledger does not know get a minimal entry."""
     from fyp.ingest.raw_names import manifest_entry
+
     ledger: dict = {}
     if data_io.exists(storage_location="recoded", filename="ingestion_ledger.json"):
-        ledger = (data_io.load_json(storage_location="recoded",
-                                    filename="ingestion_ledger.json", verbose=False)
-                  or {}).get("files") or {}
+        ledger = (
+            data_io.load_json(
+                storage_location="recoded", filename="ingestion_ledger.json", verbose=False
+            )
+            or {}
+        ).get("files") or {}
     out: dict[str, dict] = {}
     for fn in files:
         rec = ledger.get(fn) or {}
         out[fn] = manifest_entry(
-            str(cid), rec.get("original_filename") or fn,
+            str(cid),
+            rec.get("original_filename") or fn,
             display_collection_id=rec.get("display_collection_id"),
-            user_id=rec.get("user_id"), tz=rec.get("tz"),
+            user_id=rec.get("user_id"),
+            tz=rec.get("tz"),
             client_reviewed=bool(rec.get("client_reviewed")),
-            uploaded_by=rec.get("uploaded_by"), uploaded_at=rec.get("uploaded_at"))
+            uploaded_by=rec.get("uploaded_by"),
+            uploaded_at=rec.get("uploaded_at"),
+        )
     return out
 
 
-
-
-def record_withdrawal(cid: str, username: str, files: list[str],
-                      raw_path: str | None, display_id: str | None,
-                      source_platform: str | None,
-                      manifest_entries: dict[str, dict] | None = None) -> dict:
+def record_withdrawal(
+    cid: str,
+    username: str,
+    files: list[str],
+    raw_path: str | None,
+    display_id: str | None,
+    source_platform: str | None,
+    manifest_entries: dict[str, dict] | None = None,
+) -> dict:
     """Write the ledger entry for a just-requested withdrawal.
     ``manifest_entries`` ({stored filename: manifest entry}) is what a restore
     writes back into the raw location's manifest."""
@@ -554,7 +639,9 @@ def record_withdrawal(cid: str, username: str, files: list[str],
     entry = {
         "user_id": username,
         "deleted_at": now.isoformat(timespec="seconds"),
-        "restorable_until": (now + pd.Timedelta(days=WITHDRAWAL_RETENTION_DAYS)).isoformat(timespec="seconds"),
+        "restorable_until": (now + pd.Timedelta(days=WITHDRAWAL_RETENTION_DAYS)).isoformat(
+            timespec="seconds"
+        ),
         "display_id": display_id,
         "source_platform": source_platform,
         "raw_path": raw_path,
@@ -599,21 +686,27 @@ def restore_withdrawal(cid: str) -> dict:
     if not raw_path or not files:
         raise RestoreError("This withdrawal has no restorable file on record.")
 
-    missing = [fn for fn in files
-               if not data_io.exists(storage_location="archive", filename=fn)]
+    missing = [fn for fn in files if not data_io.exists(storage_location="archive", filename=fn)]
     if missing:
         raise RestoreError(
             "The archived file isn't available yet — the removal may still be "
-            "processing. Try again in a few minutes.")
+            "processing. Try again in a few minutes."
+        )
 
     manifest = {}
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
-        manifest = data_io.load_json(
-            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False)
+            or {}
+        )
     stored_entries = entry.get("manifest_entries") or {}
     for fn in files:
-        data_io.move(src_storage_location="archive", dst_storage_location=raw_path,
-                     filename=fn, verbose=False)
+        data_io.move(
+            src_storage_location="archive",
+            dst_storage_location=raw_path,
+            filename=fn,
+            verbose=False,
+        )
         if not data_io.exists(storage_location=raw_path, filename=fn):
             raise RestoreError("Restoring the file did not persist. Try again.")
         # The entry the upload wrote (original name, timezone, review flag)
@@ -624,8 +717,9 @@ def restore_withdrawal(cid: str) -> dict:
         restored.update({"collection_id": str(cid), "user_id": entry.get("user_id")})
         restored.setdefault("tags", [])
         manifest[fn] = restored
-    data_io.save_json(data=manifest, storage_location=raw_path,
-                      filename=MANIFEST_FILENAME, verbose=False)
+    data_io.save_json(
+        data=manifest, storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False
+    )
     set_collection_owner(str(cid), entry.get("user_id"))
     drop_withdrawal(str(cid))
     invalidate_cache()
@@ -635,6 +729,7 @@ def restore_withdrawal(cid: str) -> dict:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def _platforms_and_coverage(username: str, cids: list[str]) -> tuple[dict, dict]:
     """Per-collection platform/source plus scraped/annotated coverage, TTL-cached.
@@ -656,8 +751,7 @@ def _platforms_and_coverage(username: str, cids: list[str]) -> tuple[dict, dict]
         df = data_io.load_parquet_selective(
             storage_location="recoded",
             filename=RECODED_FILENAME,
-            columns=["collection_id", "source_platform", "data_source",
-                     "item_id", "activity_type"],
+            columns=["collection_id", "source_platform", "data_source", "item_id", "activity_type"],
             filters=[("collection_id", "in", cids)],
         )
         if df is not None and not df.empty:
@@ -684,8 +778,11 @@ def list_owned_collections(username: str) -> list[dict]:
     the account link is written at upload time, so pending collections are
     already owned; they just have no corpus metadata yet.
     """
-    withdrawals = {cid: e for cid, e in load_withdrawals().items()
-                   if isinstance(e, dict) and e.get("user_id") == username}
+    withdrawals = {
+        cid: e
+        for cid, e in load_withdrawals().items()
+        if isinstance(e, dict) and e.get("user_id") == username
+    }
     cids = collections_for_user(username)
     if not cids and not withdrawals:
         return []
@@ -742,25 +839,27 @@ def list_owned_collections(username: str) -> list[dict]:
     # Withdrawn collections: deleted from the dataset, restorable from the
     # archive until their date.
     for cid, e in withdrawals.items():
-        out.append({
-            "collection_id": cid,
-            "display_id": e.get("display_id") or cid,
-            "source_platform": e.get("source_platform"),
-            "data_source": None,
-            "status": "withdrawn",
-            "raw_path": None,
-            "filename": None,
-            "deleted_at": e.get("deleted_at"),
-            "restorable_until": e.get("restorable_until"),
-            "total_events": None,
-            "active_days": None,
-            "first_event_ts": None,
-            "last_event_ts": None,
-            "ts_added_to_dataset": None,
-            "total_watch_time_s": None,
-            "pct_scraped": None,
-            "pct_annotated": None,
-        })
+        out.append(
+            {
+                "collection_id": cid,
+                "display_id": e.get("display_id") or cid,
+                "source_platform": e.get("source_platform"),
+                "data_source": None,
+                "status": "withdrawn",
+                "raw_path": None,
+                "filename": None,
+                "deleted_at": e.get("deleted_at"),
+                "restorable_until": e.get("restorable_until"),
+                "total_events": None,
+                "active_days": None,
+                "first_event_ts": None,
+                "last_event_ts": None,
+                "ts_added_to_dataset": None,
+                "total_watch_time_s": None,
+                "pct_scraped": None,
+                "pct_annotated": None,
+            }
+        )
     return out
 
 
@@ -794,6 +893,7 @@ def invalidate_cache() -> None:
 # ---------------------------------------------------------------------------
 # Bundle computation
 # ---------------------------------------------------------------------------
+
 
 def _trim_to_watch_window(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """Drop each collection's rows that predate its first viewing event.
@@ -832,8 +932,11 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
     shares = df[df["activity_type"] == "share"]
     follows = df[df["activity_type"] == "follow"]
 
-    durations = pd.to_numeric(plays["play_duration"], errors="coerce").dropna() \
-        if "play_duration" in plays.columns else pd.Series(dtype=float)
+    durations = (
+        pd.to_numeric(plays["play_duration"], errors="coerce").dropna()
+        if "play_duration" in plays.columns
+        else pd.Series(dtype=float)
+    )
     has_durations = len(plays) > 0 and (len(durations) / len(plays)) >= 0.05
 
     capabilities = {
@@ -874,10 +977,22 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
         "rewatch": _rewatch(plays),
         "searches": _search_terms(searches) if capabilities["has_searches"] else None,
         "emoji": _favourite_emoji(comments) if capabilities["has_comments"] else None,
-        "stats": _stat_strip(df, plays, likes, comments, posts, durations,
-                             sessions, has_durations, corpus,
-                             extra_counts={"n_saves": len(saves), "n_shares": len(shares),
-                                           "n_follows": len(follows)}),
+        "stats": _stat_strip(
+            df,
+            plays,
+            likes,
+            comments,
+            posts,
+            durations,
+            sessions,
+            has_durations,
+            corpus,
+            extra_counts={
+                "n_saves": len(saves),
+                "n_shares": len(shares),
+                "n_follows": len(follows),
+            },
+        ),
     }
     return bundle
 
@@ -906,15 +1021,16 @@ def _persona_axes(plays, likes, comments, durations, sessions, corpus) -> dict:
 
     # Patience — share of watches held for 30s or more (fraction, no norm).
     if len(durations) > 0:
-        axes["patience"] = {"score": round(float((durations >= 30).mean()) * 100, 1),
-                            "percentile": None}
+        axes["patience"] = {
+            "score": round(float((durations >= 30).mean()) * 100, 1),
+            "percentile": None,
+        }
     else:
         axes["patience"] = {"score": None, "percentile": None}
 
     # Binge — share of sessions longer than 20 minutes (fraction).
     if sessions and sessions["n_sessions"] > 0 and sessions["binge_share"] is not None:
-        axes["binge"] = {"score": round(sessions["binge_share"] * 100, 1),
-                         "percentile": None}
+        axes["binge"] = {"score": round(sessions["binge_share"] * 100, 1), "percentile": None}
     else:
         axes["binge"] = {"score": None, "percentile": None}
 
@@ -934,20 +1050,30 @@ def _persona_axes(plays, likes, comments, durations, sessions, corpus) -> dict:
         corpus_series = None
         if corpus is not None and {"num_comments", "num_watches"} <= set(corpus.columns):
             watches = pd.to_numeric(corpus["num_watches"], errors="coerce")
-            corpus_series = pd.to_numeric(corpus["num_comments"], errors="coerce") / watches.clip(lower=1)
+            corpus_series = pd.to_numeric(corpus["num_comments"], errors="coerce") / watches.clip(
+                lower=1
+            )
         pct = _percentile(corpus_series, own)
-        axes["chattiness"] = {"score": pct if pct is not None else min(100.0, round(own * 100, 1)),
-                              "percentile": pct}
+        axes["chattiness"] = {
+            "score": pct if pct is not None else min(100.0, round(own * 100, 1)),
+            "percentile": pct,
+        }
     else:
         axes["chattiness"] = {"score": None, "percentile": None}
 
     # Enthusiasm — likes per play, ranked against the corpus likes_per_video.
     if len(likes) > 0:
         own = len(likes) / n_plays
-        corpus_series = corpus["likes_per_video"] if corpus is not None and "likes_per_video" in corpus.columns else None
+        corpus_series = (
+            corpus["likes_per_video"]
+            if corpus is not None and "likes_per_video" in corpus.columns
+            else None
+        )
         pct = _percentile(corpus_series, own)
-        axes["enthusiasm"] = {"score": pct if pct is not None else min(100.0, round(own * 100, 1)),
-                              "percentile": pct}
+        axes["enthusiasm"] = {
+            "score": pct if pct is not None else min(100.0, round(own * 100, 1)),
+            "percentile": pct,
+        }
     else:
         axes["enthusiasm"] = {"score": None, "percentile": None}
 
@@ -1029,7 +1155,9 @@ def _cohort_comparisons(plays, likes, comments, durations, corpus) -> list[dict]
             "key": "watch_time_per_day",
             "label": "minutes watched per active day",
             "own": (float(durations.sum()) / active_days / 60) if len(durations) else None,
-            "series": (_corpus_num("daily_watch_time_s") / 60) if _corpus_num("daily_watch_time_s") is not None else None,
+            "series": (_corpus_num("daily_watch_time_s") / 60)
+            if _corpus_num("daily_watch_time_s") is not None
+            else None,
         },
         {
             "key": "median_watch_time",
@@ -1042,14 +1170,16 @@ def _cohort_comparisons(plays, likes, comments, durations, corpus) -> list[dict]
             "label": "likes per 1,000 videos",
             "own": (len(likes) / n_plays * 1000) if len(likes) else None,
             "series": (_corpus_num("num_likes") / watches.clip(lower=1) * 1000)
-                      if watches is not None and _corpus_num("num_likes") is not None else None,
+            if watches is not None and _corpus_num("num_likes") is not None
+            else None,
         },
         {
             "key": "comments_per_1k",
             "label": "comments per 1,000 videos",
             "own": (len(comments) / n_plays * 1000) if len(comments) else None,
             "series": (_corpus_num("num_comments") / watches.clip(lower=1) * 1000)
-                      if watches is not None and _corpus_num("num_comments") is not None else None,
+            if watches is not None and _corpus_num("num_comments") is not None
+            else None,
         },
     ]
 
@@ -1064,14 +1194,16 @@ def _cohort_comparisons(plays, likes, comments, durations, corpus) -> list[dict]
             continue
         median = float(series.median())
         pct = _percentile(series, own)
-        rows.append({
-            "key": spec["key"],
-            "label": spec["label"],
-            "own": round(float(own), 1),
-            "cohort_median": round(median, 1),
-            "ratio": round(float(own) / median, 2) if median > 0 else None,
-            "percentile": pct,
-        })
+        rows.append(
+            {
+                "key": spec["key"],
+                "label": spec["label"],
+                "own": round(float(own), 1),
+                "cohort_median": round(median, 1),
+                "ratio": round(float(own) / median, 2) if median > 0 else None,
+                "percentile": pct,
+            }
+        )
     return rows or None
 
 
@@ -1087,14 +1219,16 @@ def _platform_habits(plays: pd.DataFrame) -> list[dict] | None:
         shares = grp["local_day_segment"].value_counts(normalize=True)
         top = str(shares.idxmax())
         peak_hour = int(grp["local_hour"].value_counts().idxmax())
-        out.append({
-            "platform": str(plat),
-            "top_segment": top,
-            "top_segment_share": round(float(shares.max()), 3),
-            "peak_hour": peak_hour,
-            "peak_label": _friendly_hour(peak_hour),
-            "n_plays": int(len(grp)),
-        })
+        out.append(
+            {
+                "platform": str(plat),
+                "top_segment": top,
+                "top_segment_share": round(float(shares.max()), 3),
+                "peak_hour": peak_hour,
+                "peak_label": _friendly_hour(peak_hour),
+                "n_plays": int(len(grp)),
+            }
+        )
     out.sort(key=lambda d: -d["n_plays"])
     return out if len(out) > 1 else None
 
@@ -1257,8 +1391,18 @@ def _favourite_emoji(comments: pd.DataFrame) -> dict | None:
     return {"top": str(counts.index[0]), "count": int(counts.iloc[0])}
 
 
-def _stat_strip(df, plays, likes, comments, posts, durations, sessions,
-                has_durations, corpus, extra_counts: dict | None = None) -> dict:
+def _stat_strip(
+    df,
+    plays,
+    likes,
+    comments,
+    posts,
+    durations,
+    sessions,
+    has_durations,
+    corpus,
+    extra_counts: dict | None = None,
+) -> dict:
     """The headline numbers. ``extra_counts`` carries the standalone-row
     engagement counts (saves / shares / follows) that have no percentile
     comparison of their own."""

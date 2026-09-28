@@ -36,9 +36,11 @@ def counted_storage(monkeypatch):
     """Stand in for the two recoded blobs; count how often each is read."""
     frames = {
         f"{od._scrapes_label()}_recoded.parquet": pd.DataFrame(
-            {"item_id": ["a", "b", "c"], "views": [1, 2, 3]}),
+            {"item_id": ["a", "b", "c"], "views": [1, 2, 3]}
+        ),
         f"{od._machine_annotations_label()}_recoded.parquet": pd.DataFrame(
-            {"item_id": ["a", "c", "d"], "topic": ["x", "y", "z"]}),
+            {"item_id": ["a", "c", "d"], "topic": ["x", "y", "z"]}
+        ),
     }
     loads: list[str] = []
 

@@ -31,10 +31,6 @@ _EMBED_RETRIES = 4
 _client: genai.Client | None = None
 
 
-
-
-
-
 def _gemini_cf() -> dict:
     """The ``[embedding.gemini]`` config block with the historical defaults.
 
@@ -51,10 +47,6 @@ def _gemini_cf() -> dict:
         "task_type": "CLUSTERING",
     }
     return {**defaults, **stored}
-
-
-
-
 
 
 def _get_client() -> genai.Client:
@@ -77,22 +69,18 @@ def _get_client() -> genai.Client:
     return _client
 
 
-
-
-
-
 def _embed_batch(client: genai.Client, chunk: list[str]) -> list[list[float]] | None:
     """Embed one batch of texts with retry, returning vectors or None on failure."""
     cf = _gemini_cf()
     # gemini-embedding-2 rejects task_type (task instructions ride in the
     # prompt instead) — an empty task_type omits it, so switching models
     # stays a pure config edit.
-    config = EmbedContentConfig(task_type=cf["task_type"] or None,
-                                output_dimensionality=int(cf["dim"]))
+    config = EmbedContentConfig(
+        task_type=cf["task_type"] or None, output_dimensionality=int(cf["dim"])
+    )
     for attempt in range(_EMBED_RETRIES):
         try:
-            resp = client.models.embed_content(model=cf["model_id"], contents=chunk,
-                                               config=config)
+            resp = client.models.embed_content(model=cf["model_id"], contents=chunk, config=config)
             return [e.values for e in resp.embeddings]
         except Exception:
             if attempt == _EMBED_RETRIES - 1:
@@ -101,26 +89,19 @@ def _embed_batch(client: genai.Client, chunk: list[str]) -> list[list[float]] | 
     return None
 
 
-
-
-
-
 class GeminiEmbeddingBackend(EmbeddingBackend):
     """The production Gemini embedding backend."""
 
     name = "gemini"
     cloud_run_capable = True
 
-
     def model_id(self) -> str:
         """The configured Gemini embedding model id."""
         return _gemini_cf()["model_id"]
 
-
     def dim(self) -> int:
         """The configured (Matryoshka-truncated) output dimensionality."""
         return int(_gemini_cf()["dim"])
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Config readiness of Gemini embedding (credentials resolve).
@@ -136,14 +117,19 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
             The availability result.
         """
         mode, reason = gemini_client.gemini_mode()
-        checks = [{"name": "credentials", "ok": mode is not None,
-                   "detail": reason if mode is None else f"mode: {mode}",
-                   "fix": "" if mode is not None else
-                   "See docs/installation.md#enabling-gemini-later."}]
+        checks = [
+            {
+                "name": "credentials",
+                "ok": mode is not None,
+                "detail": reason if mode is None else f"mode: {mode}",
+                "fix": ""
+                if mode is not None
+                else "See docs/installation.md#enabling-gemini-later.",
+            }
+        ]
         if mode is None:
             return BackendAvailability(ok=False, reason=reason, checks=checks)
         return BackendAvailability(ok=True, reason="", checks=checks)
-
 
     def embed_texts(self, texts: list[str], reporter=None) -> np.ndarray:
         """Embed a list of texts into an ``(n, dim)`` float32 matrix.
@@ -162,7 +148,7 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
         client = _get_client()
         dim = self.dim()
         safe = [t if t else " " for t in texts]
-        batches = [(i, safe[i:i + _EMBED_BATCH]) for i in range(0, len(safe), _EMBED_BATCH)]
+        batches = [(i, safe[i : i + _EMBED_BATCH]) for i in range(0, len(safe), _EMBED_BATCH)]
         out: dict[int, list[list[float]]] = {}
         done = 0
 
@@ -172,7 +158,7 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
                 i = futures[fut]
                 vecs = fut.result()
                 if vecs is None:
-                    vecs = [[0.0] * dim] * len(safe[i:i + _EMBED_BATCH])
+                    vecs = [[0.0] * dim] * len(safe[i : i + _EMBED_BATCH])
                 out[i] = vecs
                 done += 1
                 if reporter is not None and done % 50 == 0:

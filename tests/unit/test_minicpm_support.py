@@ -5,16 +5,8 @@ from fyp.annotation.backends import minicpm_support
 _MODEL = "mlx-community/MiniCPM-o-4_5-4bit"
 
 
-
-
-
-
 def _by_name(checks: list[dict]) -> dict:
     return {c["name"]: c for c in checks}
-
-
-
-
 
 
 def test_check_rows_have_contract_shape():
@@ -26,19 +18,11 @@ def test_check_rows_have_contract_shape():
             assert check["fix"], f"failing check '{check['name']}' must carry a fix"
 
 
-
-
-
-
 def test_platform_check_fails_on_non_mac(monkeypatch):
     monkeypatch.setattr(minicpm_support.sys, "platform", "linux")
     checks = _by_name(minicpm_support.check_all(_MODEL))
     assert checks["Apple Silicon Mac"]["ok"] is False
     assert "Apple Silicon" in checks["Apple Silicon Mac"]["fix"]
-
-
-
-
 
 
 def test_low_ram_threshold_is_minicpm_sized(monkeypatch):
@@ -53,10 +37,6 @@ def test_low_ram_threshold_is_minicpm_sized(monkeypatch):
     assert "16" in checks["Memory"]["fix"]
 
 
-
-
-
-
 def test_missing_model_has_download_fix(tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
     checks = _by_name(minicpm_support.check_all(_MODEL))
@@ -64,19 +44,11 @@ def test_missing_model_has_download_fix(tmp_path, monkeypatch):
     assert _MODEL in checks["Model downloaded"]["fix"]
 
 
-
-
-
-
 def test_mlx_fix_names_minicpm_extra(monkeypatch):
     monkeypatch.setattr(minicpm_support.importlib.util, "find_spec", lambda name: None)
     checks = _by_name(minicpm_support.check_all(_MODEL))
     assert checks["mlx-vlm installed"]["ok"] is False
     assert "local_minicpm" in checks["mlx-vlm installed"]["fix"]
-
-
-
-
 
 
 def test_availability_reports_first_failure(monkeypatch):

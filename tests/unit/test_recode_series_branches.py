@@ -58,7 +58,13 @@ SAMPLE_SERIES = {
         dtype="string[pyarrow]",
     ),
     "main_activity_realistic": pd.Series(
-        ["person walking dog | person carrying groceries", "swimming in pool", None, "-", "someone crying softly"],
+        [
+            "person walking dog | person carrying groceries",
+            "swimming in pool",
+            None,
+            "-",
+            "someone crying softly",
+        ],
         dtype="string[pyarrow]",
     ),
 }
@@ -174,10 +180,14 @@ def main() -> int:
                 continue
 
             if not isinstance(series_out, pd.Series):
-                failures.append(f"{sample_name}: returned {type(series_out).__name__}, expected Series")
+                failures.append(
+                    f"{sample_name}: returned {type(series_out).__name__}, expected Series"
+                )
                 continue
             if len(series_out) != len(series):
-                failures.append(f"{sample_name}: length mismatch ({len(series_out)} vs {len(series)})")
+                failures.append(
+                    f"{sample_name}: length mismatch ({len(series_out)} vs {len(series)})"
+                )
                 continue
 
             # Structural check passed; now parity check vs scalar branch.
@@ -200,7 +210,9 @@ def main() -> int:
         if passed_on is not None:
             results.append((variable, func_name, "PASS", f"on sample '{passed_on}'"))
         else:
-            results.append((variable, func_name, "FAIL", " | ".join(failures) or "no samples tried"))
+            results.append(
+                (variable, func_name, "FAIL", " | ".join(failures) or "no samples tried")
+            )
 
     # Print results
     print(f"\n{'=' * 110}")
@@ -216,7 +228,9 @@ def main() -> int:
         else:
             n_eval_fail += 1
     print("=" * 110)
-    print(f"PASS: {n_pass}   FAIL: {n_fail}   EVAL_FAIL: {n_eval_fail}   TOTAL: {len(results)} unique recode_funcs")
+    print(
+        f"PASS: {n_pass}   FAIL: {n_fail}   EVAL_FAIL: {n_eval_fail}   TOTAL: {len(results)} unique recode_funcs"
+    )
 
     if n_fail > 0 or n_eval_fail > 0:
         return 1

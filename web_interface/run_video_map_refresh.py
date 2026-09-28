@@ -18,7 +18,9 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 
-def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_video_map_refresh(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Build the niche map from the embedding store.
 
     Emits how far the partition actually moved (``map_niche_changed``,
@@ -54,19 +56,24 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
         f"reset_labels={reset_labels})..."
     )
     result = build_niche_map(
-        n_niches=n_niches, map_sample=map_sample, pca_dim=pca_dim,
-        reset_labels=reset_labels, reporter=reporter,
+        n_niches=n_niches,
+        map_sample=map_sample,
+        pca_dim=pca_dim,
+        reset_labels=reset_labels,
+        reporter=reporter,
     )
-    reporter.emit_data({
-        "map_videos": result["videos"],
-        "map_niches": result["niches"],
-        "map_mapped": result["mapped"],
-        # The pipeline's change signals. A missing key reads as "unknown" and
-        # refreshes everything downstream, so always emit them.
-        "map_niche_changed": int(result.get("niche_changed") or 0),
-        "map_new_videos": int(result.get("new_videos") or 0),
-        "map_cold_start": bool(result.get("cold_start")),
-    })
+    reporter.emit_data(
+        {
+            "map_videos": result["videos"],
+            "map_niches": result["niches"],
+            "map_mapped": result["mapped"],
+            # The pipeline's change signals. A missing key reads as "unknown" and
+            # refreshes everything downstream, so always emit them.
+            "map_niche_changed": int(result.get("niche_changed") or 0),
+            "map_new_videos": int(result.get("new_videos") or 0),
+            "map_cold_start": bool(result.get("cold_start")),
+        }
+    )
     reporter.update_progress(100, "Done")
     reporter.log(
         f"Video map refresh complete: {result['videos']:,} videos, "
@@ -78,8 +85,6 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
         f"niche, {result.get('new_videos', 0):,} newly mapped."
     )
     return None
-
-
 
 
 if __name__ == "__main__":
@@ -106,11 +111,21 @@ if __name__ == "__main__":
             (("--n-niches",), {"type": int, "default": None, "help": "Number of niches"}),
             (("--map-sample",), {"type": int, "default": None, "help": "Videos projected to 2D"}),
             (("--pca-dim",), {"type": int, "default": None, "help": "PCA dimensionality"}),
-            (("--auto-refresh",), {"action": "store_true",
-                                   "help": "Accepted for compatibility and ignored — the dependent "
-                                           "refreshes are planned by the refresh pipeline."}),
-            (("--reset-labels",), {"action": "store_true",
-                                   "help": "Regenerate every niche name from scratch (no carry-over from the previous build)."}),
+            (
+                ("--auto-refresh",),
+                {
+                    "action": "store_true",
+                    "help": "Accepted for compatibility and ignored — the dependent "
+                    "refreshes are planned by the refresh pipeline.",
+                },
+            ),
+            (
+                ("--reset-labels",),
+                {
+                    "action": "store_true",
+                    "help": "Regenerate every niche name from scratch (no carry-over from the previous build).",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Cluster embeddings into niches + 2D map",

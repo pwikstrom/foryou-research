@@ -49,5 +49,8 @@ def test_release_date_and_changelog_link_match():
     assert str(cff["date-released"]) == date, (
         f"CITATION.cff date-released {cff['date-released']} != CHANGELOG {date}"
     )
-    assert re.search(rf"^\[{re.escape(version)}\]: \S+/releases/tag/v{re.escape(version)}$",
-                     _read("CHANGELOG.md"), re.M), f"CHANGELOG.md lacks the [{version}] link"
+    assert re.search(
+        rf"^\[{re.escape(version)}\]: \S+/releases/tag/v{re.escape(version)}$",
+        _read("CHANGELOG.md"),
+        re.M,
+    ), f"CHANGELOG.md lacks the [{version}] link"

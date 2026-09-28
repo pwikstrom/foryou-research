@@ -52,14 +52,13 @@ def _probe(cwd: Path, env: dict) -> dict[str, str]:
     """Run the probe in a child interpreter and return its reported paths."""
     out = subprocess.run(
         [sys.executable, "-c", _PROBE],
-        capture_output=True, text=True, cwd=cwd, env=env,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env=env,
     )
     assert out.returncode == 0, out.stderr[-2000:]
-    return dict(
-        line.split("=", 1) for line in out.stdout.splitlines() if "=" in line
-    )
-
-
+    return dict(line.split("=", 1) for line in out.stdout.splitlines() if "=" in line)
 
 
 def test_worker_env_pins_the_parents_config_file(monkeypatch):
@@ -78,8 +77,6 @@ def test_worker_env_pins_the_parents_config_file(monkeypatch):
     assert env["WEB_INTERFACE"] == "true"
 
 
-
-
 def test_worker_env_puts_the_project_root_first_on_pythonpath():
     """``import fyp`` in the child resolves to this process's checkout."""
     entries = process_manager.worker_env()["PYTHONPATH"].split(os.pathsep)
@@ -87,20 +84,15 @@ def test_worker_env_puts_the_project_root_first_on_pythonpath():
     assert entries[0] == str(ROOT)
 
 
-
-
 def test_worker_env_keeps_an_inherited_pythonpath_after_the_pins(monkeypatch):
     """Pinning prepends; it never drops what the operator put on the path."""
-    monkeypatch.setenv(
-        "PYTHONPATH", os.pathsep.join(["/somewhere/else", str(ROOT)]))
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["/somewhere/else", str(ROOT)]))
 
     entries = process_manager.worker_env()["PYTHONPATH"].split(os.pathsep)
 
     assert entries[0] == str(ROOT)
     assert entries.count(str(ROOT)) == 1
     assert "/somewhere/else" in entries
-
-
 
 
 @pytest.fixture
@@ -117,10 +109,7 @@ def restore_process_slot():
         process_manager.processes[name] = state
 
 
-
-
-def test_start_process_spawns_the_worker_with_the_pinned_env(
-        monkeypatch, restore_process_slot):
+def test_start_process_spawns_the_worker_with_the_pinned_env(monkeypatch, restore_process_slot):
     """The env actually handed to Popen carries the config and import pins."""
     name = restore_process_slot("queue_scraper_tiktok")
     captured: dict = {}
@@ -140,27 +129,23 @@ def test_start_process_spawns_the_worker_with_the_pinned_env(
     monkeypatch.delenv("FYP_CONFIG_PATH", raising=False)
     monkeypatch.setattr(process_manager, "is_cloud_run", lambda: False)
     monkeypatch.setattr(process_manager, "_drain_lease_conflict", lambda n: None)
-    monkeypatch.setattr(process_manager.run_logs, "open_run",
-                        lambda *a, **k: None)
+    monkeypatch.setattr(process_manager.run_logs, "open_run", lambda *a, **k: None)
     # The two worker threads are looked up as module globals at spawn time, so
     # replacing them here keeps the fake process from reaching the completion
     # path (which closes run logs and can chain further work).
     monkeypatch.setattr(process_manager, "enqueue_output", lambda *a, **k: None)
-    monkeypatch.setattr(process_manager, "monitor_process_completion",
-                        lambda *a, **k: None)
+    monkeypatch.setattr(process_manager, "monitor_process_completion", lambda *a, **k: None)
     monkeypatch.setattr(process_manager.subprocess, "Popen", _fake_popen)
 
     ok, msg = process_manager.start_process(
-        name, ROOT / "web_interface" / "run_queue_scraper.py",
-        args=["--platform", "tiktok"])
+        name, ROOT / "web_interface" / "run_queue_scraper.py", args=["--platform", "tiktok"]
+    )
 
     assert ok, msg
     env = captured["kwargs"]["env"]
     assert env["FYP_CONFIG_PATH"] == active_config_path()
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(ROOT)
     assert captured["kwargs"]["cwd"] == str(PROJECT_ROOT)
-
-
 
 
 def test_a_sentinel_in_the_working_directory_hijacks_an_unpinned_child():
@@ -173,12 +158,9 @@ def test_a_sentinel_in_the_working_directory_hijacks_an_unpinned_child():
         decoy = Path(tmp).resolve()
         (decoy / "__proj__.py").touch()
 
-        reported = _probe(decoy, {"PATH": "/usr/bin:/bin",
-                                  "PYTHONPATH": str(ROOT)})
+        reported = _probe(decoy, {"PATH": "/usr/bin:/bin", "PYTHONPATH": str(ROOT)})
 
     assert reported["ROOT"] == str(decoy)
-
-
 
 
 def test_worker_env_beats_a_sentinel_in_the_working_directory(monkeypatch):

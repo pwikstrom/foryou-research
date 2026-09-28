@@ -8,17 +8,30 @@ platform / derived accessors, and the var_schema overlay payload.
 from fyp.core import activity_contract as ac
 
 _EXPECTED_REQUIRED_COLUMNS = {
-    "item_id", "activity_type", "utc_timestamp", "collection_id", "data_source",
-    "extra_data", "link_method", "tz_offset", "raw_file", "source_platform",
-    "ts_added_to_dataset", "play_duration",
+    "item_id",
+    "activity_type",
+    "utc_timestamp",
+    "collection_id",
+    "data_source",
+    "extra_data",
+    "link_method",
+    "tz_offset",
+    "raw_file",
+    "source_platform",
+    "ts_added_to_dataset",
+    "play_duration",
 }
 _EXPECTED_CORE = {"activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset"}
 _EXPECTED_DERIVED = {
-    "session_id", "local_date", "local_day_segment", "local_hour", "local_timestamp",
-    "local_week", "local_weekday", "activity_contract_version",
+    "session_id",
+    "local_date",
+    "local_day_segment",
+    "local_hour",
+    "local_timestamp",
+    "local_week",
+    "local_weekday",
+    "activity_contract_version",
 }
-
-
 
 
 def test_contract_loads_and_validates() -> None:
@@ -26,8 +39,6 @@ def test_contract_loads_and_validates() -> None:
     contract = ac.load_contract()
     assert ac.validate_contract(contract) == []
     print("test_contract_loads_and_validates PASSED")
-
-
 
 
 def test_required_columns() -> None:
@@ -44,8 +55,6 @@ def test_required_columns() -> None:
     print("test_required_columns PASSED")
 
 
-
-
 def test_required_core_fields() -> None:
     """The hard-drop gate uses exactly the 5 structural fields."""
     contract = ac.load_contract()
@@ -54,8 +63,6 @@ def test_required_core_fields() -> None:
     assert "item_id" not in ac.required_core_fields(contract)
     assert "extra_data" not in ac.required_core_fields(contract)
     print("test_required_core_fields PASSED")
-
-
 
 
 def test_platform_columns() -> None:
@@ -67,8 +74,6 @@ def test_platform_columns() -> None:
     print("test_platform_columns PASSED")
 
 
-
-
 def test_derived_fields() -> None:
     """Derived fields are session_id, the local_* features, and the provenance stamp."""
     contract = ac.load_contract()
@@ -76,13 +81,11 @@ def test_derived_fields() -> None:
     print("test_derived_fields PASSED")
 
 
-
-
 def test_contract_column_metadata() -> None:
     """The overlay payload owns item_id and carries the expected roles/scales."""
     contract = ac.load_contract()
     meta = ac.contract_column_metadata(contract)
-    assert "item_id" in meta                                  # activity contract owns item_id
+    assert "item_id" in meta  # activity contract owns item_id
     assert meta["collection_id"]["role"] == "grouping"
     # local_hour and local_day_segment are deliberately role-free: hour-of-day
     # is circular, and day segment varies within a collection-day group.
@@ -94,8 +97,6 @@ def test_contract_column_metadata() -> None:
     print("test_contract_column_metadata PASSED")
 
 
-
-
 def test_field_digest_stable() -> None:
     """The field digest is a plain dict keyed by field name."""
     contract = ac.load_contract()
@@ -103,8 +104,6 @@ def test_field_digest_stable() -> None:
     assert "item_id" in digest["fields"]
     assert digest["fields"]["play_duration"]["scope"] == "base"
     print("test_field_digest_stable PASSED")
-
-
 
 
 if __name__ == "__main__":

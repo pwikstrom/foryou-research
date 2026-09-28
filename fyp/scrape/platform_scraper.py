@@ -40,8 +40,9 @@ logger = logging.getLogger(__name__)
 SESSION_EXPIRED = "session_expired"
 
 
-def empty_fail(error_type: str = "unknown", error_detail: str = "", *,
-               corroborated: bool = False) -> pd.DataFrame:
+def empty_fail(
+    error_type: str = "unknown", error_detail: str = "", *, corroborated: bool = False
+) -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata.
 
     Shared by every platform scraper (hoisted from the per-platform copies in
@@ -61,10 +62,10 @@ def empty_fail(error_type: str = "unknown", error_detail: str = "", *,
         ``verdict_corroborated`` when set) in ``attrs``.
     """
     df = pd.DataFrame()
-    df.attrs['error_type'] = error_type
-    df.attrs['error_detail'] = error_detail
+    df.attrs["error_type"] = error_type
+    df.attrs["error_detail"] = error_detail
     if corroborated:
-        df.attrs['verdict_corroborated'] = True
+        df.attrs["verdict_corroborated"] = True
     return df
 
 
@@ -82,7 +83,6 @@ def cleanup_temp_files(temp_dir: str, item_id: str) -> None:
             pass
 
 
-
 # Platform-scraper subclasses live in their own ``fyp/scrape/<platform>_dl.py``
 # modules. They must be imported for ``__init_subclass__`` to register them;
 # ``get_scraper`` imports them lazily so this module never imports a subclass at
@@ -96,8 +96,6 @@ _SCRAPER_MODULES = ("fyp.scrape.tiktok_dl", "fyp.scrape.instagram_dl", "fyp.scra
 # mp4 assembly (fyp.scrape.download_single_video) and the raw duration override
 # in prepare_raw_batch implementations. Int keeps duration columns integral.
 SLIDESHOW_SECONDS_PER_IMAGE: int = 2
-
-
 
 
 class BaseScraper(ABC):
@@ -148,7 +146,6 @@ class BaseScraper(ABC):
         if cls.__name__ != "BaseScraper":
             BaseScraper._registry.append(cls)
 
-
     def __init__(self, verbose: bool = False) -> None:
         self.verbose = verbose
         self._contract = sc.load_contract()
@@ -160,7 +157,6 @@ class BaseScraper(ABC):
         }
         self._per_k: dict[str, str] = sc.per_k_sources(self._contract)
 
-
     # -----------------------------------------------------------------
     # Abstract — a new platform implements these five.
     # -----------------------------------------------------------------
@@ -168,7 +164,6 @@ class BaseScraper(ABC):
     @abstractmethod
     def item_url(self, item_id: str) -> str:
         """Return the canonical web URL for a platform item id."""
-
 
     @abstractmethod
     def fetch(
@@ -215,7 +210,6 @@ class BaseScraper(ABC):
         the message alone.
         """
 
-
     @abstractmethod
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         """Rename a raw frame's platform-native columns to the canonical names.
@@ -223,7 +217,6 @@ class BaseScraper(ABC):
         Pure column algebra (rename only). Derived columns (per-K rates,
         plays_per_day, scrape_status) are added by the base, not here.
         """
-
 
     @abstractmethod
     def classify_error(self, error_type: str | None) -> str:
@@ -234,14 +227,12 @@ class BaseScraper(ABC):
         whether the orchestrator prunes the item from the retry queue.
         """
 
-
     @abstractmethod
     def repair_counts(self, df: pd.DataFrame) -> pd.DataFrame:
         """Repair platform count quirks (e.g. 32-bit overflow) before rates.
 
         Platforms with clean counts return ``df`` unchanged.
         """
-
 
     # -----------------------------------------------------------------
     # Overridable — sensible defaults, platform-specific when needed.
@@ -255,7 +246,6 @@ class BaseScraper(ABC):
         """
         return (max_workers, 2, max(max_workers, 12))
 
-
     def inter_request_delay(self) -> float:
         """Seconds each worker sleeps after finishing one item (default 0).
 
@@ -264,7 +254,6 @@ class BaseScraper(ABC):
         requests instead of relying on the throttle controller alone.
         """
         return 0.0
-
 
     def max_batch_size(self) -> int | None:
         """Largest batch one drain should cut for this platform (``None`` = no cap).
@@ -275,7 +264,6 @@ class BaseScraper(ABC):
         """
         return None
 
-
     def health_check(self) -> dict | None:
         """Optional pre-batch health probe (auth/cookies/API quota).
 
@@ -284,7 +272,6 @@ class BaseScraper(ABC):
             or ``None`` when the platform has nothing to report.
         """
         return None
-
 
     def unavailable_here(self) -> str | None:
         """Why this scraper must not run in the current environment, or ``None``.
@@ -295,10 +282,11 @@ class BaseScraper(ABC):
         then hold off the local install that can actually drain it.
         """
         if self.residential_ip_only and os.environ.get("K_SERVICE"):
-            return (f"the {self.platform} scraper needs a residential IP and does not "
-                    f"work from Cloud Run — drain this queue from a local install")
+            return (
+                f"the {self.platform} scraper needs a residential IP and does not "
+                f"work from Cloud Run — drain this queue from a local install"
+            )
         return None
-
 
     def media_probe_url(self, item_id: str) -> dict | None:
         """Resolve an item's direct media URL for a lightweight reachability probe.
@@ -314,7 +302,6 @@ class BaseScraper(ABC):
             or ``None`` when the platform/item has no probeable media URL.
         """
         return None
-
 
     @staticmethod
     def _pick_probe_format(info: dict) -> dict | None:
@@ -346,7 +333,6 @@ class BaseScraper(ABC):
                 return _target(fmt)
         return None
 
-
     @classmethod
     def _probe_target(cls, ydl, info: dict | None) -> dict | None:
         """Build the probe target from an extraction's info dict and session.
@@ -361,7 +347,6 @@ class BaseScraper(ABC):
             if cookie_header:
                 target["headers"]["Cookie"] = cookie_header
         return target
-
 
     def image_count(self, raw_row: pd.Series) -> int:
         """Number of carousel images in one RAW fetch row (0 = ordinary video).
@@ -378,7 +363,6 @@ class BaseScraper(ABC):
             return 0
         return len(val.split("|"))
 
-
     def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
         """Platform fix-ups on the RAW batch frame before :meth:`canonicalize_batch`.
 
@@ -386,7 +370,6 @@ class BaseScraper(ABC):
         overriding the raw duration for image posts. Default: no-op.
         """
         return df
-
 
     def fetch_slideshow_audio(self, item_id: str, temp_dir: str) -> str | None:
         """Download an image post's audio track to a local temp file.
@@ -398,7 +381,6 @@ class BaseScraper(ABC):
         """
         return None
 
-
     def media_duration_cap(self) -> int:
         """Maximum item duration (seconds) for which media is downloaded.
 
@@ -407,10 +389,13 @@ class BaseScraper(ABC):
         always scraped regardless — the cap only gates the media phase.
         """
         from fyp.core.fyp_config import fyp_cf
-        misc = fyp_cf["misc"]
-        return int(misc.get(f"max_duration_for_download_{self.platform}",
-                            misc["max_duration_for_download"]))
 
+        misc = fyp_cf["misc"]
+        return int(
+            misc.get(
+                f"max_duration_for_download_{self.platform}", misc["max_duration_for_download"]
+            )
+        )
 
     def should_download_media(self, duration) -> bool:
         """Whether an item's media should be downloaded given its duration.
@@ -437,7 +422,6 @@ class BaseScraper(ABC):
             return True
         return seconds <= self.media_duration_cap()
 
-
     # -----------------------------------------------------------------
     # Concrete — shared by every platform.
     # -----------------------------------------------------------------
@@ -463,7 +447,6 @@ class BaseScraper(ABC):
             df[rate_field] = ((num / denom) * 1000).astype("double[pyarrow]")
         return df
 
-
     def derive_plays_per_day(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add ``plays_per_day = play_count / days-since-upload`` at scrape time.
 
@@ -485,7 +468,6 @@ class BaseScraper(ABC):
         df["plays_per_day"] = (plays / denom).astype("double[pyarrow]")
         return df
 
-
     def ensure_base_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add any missing base column as an all-NA column of its contract dtype.
 
@@ -496,7 +478,6 @@ class BaseScraper(ABC):
             if name not in df.columns:
                 df[name] = pd.Series(pd.NA, index=df.index, dtype=dtype)
         return df
-
 
     def canonicalize_batch(self, df: pd.DataFrame, status: str = "ok") -> pd.DataFrame:
         """Turn a raw batch frame into canonical columns plus derived fields.
@@ -521,11 +502,10 @@ class BaseScraper(ABC):
         df["scrape_status"] = pd.Series(status, index=df.index, dtype="string[pyarrow]")
         df["source_platform"] = pd.Series(self.platform, index=df.index, dtype="string[pyarrow]")
         from fyp.scrape import scrape_versioning
+
         df = scrape_versioning.stamp_version(df)
         df = self.ensure_base_columns(df)
         return df
-
-
 
 
 # Error categories that signal platform-side throttling and shrink concurrency:
@@ -636,8 +616,6 @@ class ThrottleController:
             self._on_change(self._current)
 
 
-
-
 def _ensure_scrapers_imported() -> None:
     """Import platform-scraper modules so their subclasses self-register.
 
@@ -650,8 +628,6 @@ def _ensure_scrapers_imported() -> None:
             __import__(module_name)
         except Exception:
             pass
-
-
 
 
 def get_scraper(platform: str | None = None, verbose: bool = False) -> BaseScraper:

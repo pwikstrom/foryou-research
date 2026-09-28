@@ -71,7 +71,10 @@ def test_sessions_falls_back_to_annotations_when_no_collection_moved(stats):
 def test_corpus_steps_do_not_gate_impact_resolution(stats):
     """The four study/collection steps have run; the corpus ones have not."""
     _seed(
-        stats, studies=["s1"], collections=["c1"], new_annotations=99,
+        stats,
+        studies=["s1"],
+        collections=["c1"],
+        new_annotations=99,
         last_success={
             "recode_refresh_studies": AFTER,
             "meta_refresh_groups": AFTER,
@@ -89,8 +92,13 @@ def test_corpus_steps_do_not_gate_impact_resolution(stats):
 
 
 def test_no_new_annotations_means_no_corpus_badges(stats):
-    _seed(stats, studies=["s1"], collections=[], new_annotations=0,
-          last_success={"recode_refresh_studies": BEFORE})
+    _seed(
+        stats,
+        studies=["s1"],
+        collections=[],
+        new_annotations=0,
+        last_success={"recode_refresh_studies": BEFORE},
+    )
 
     procs = ss._evaluate_consolidation_staleness()["processes"]
 
@@ -103,8 +111,13 @@ def test_no_new_annotations_means_no_corpus_badges(stats):
 
 
 def test_a_step_that_ran_after_the_impact_is_fresh(stats):
-    _seed(stats, studies=[], collections=[], new_annotations=10,
-          last_success={"embeddings_refresh": AFTER, "video_map_refresh": BEFORE})
+    _seed(
+        stats,
+        studies=[],
+        collections=[],
+        new_annotations=10,
+        last_success={"embeddings_refresh": AFTER, "video_map_refresh": BEFORE},
+    )
 
     procs = ss._evaluate_consolidation_staleness()["processes"]
 

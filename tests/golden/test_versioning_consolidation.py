@@ -26,8 +26,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))        # tests/golden
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/golden
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 
 import pandas as pd
 
@@ -79,9 +79,7 @@ def _save_refined(filename: str, item_ids, version: str) -> None:
             "annotated_ok": [True] * len(item_ids),
         }
     )
-    data_io.save_parquet(
-        df=df, storage_location="machine_annotations_refined", filename=filename
-    )
+    data_io.save_parquet(df=df, storage_location="machine_annotations_refined", filename=filename)
 
 
 def test_refine_stamps_annotation_version() -> None:
@@ -121,20 +119,26 @@ def test_consolidation_archives_all_versions_and_active_is_latest() -> None:
         archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
 
     pairs = set(zip(archive["item_id"].astype(str), archive["annotation_version"]))
-    assert ("i1", "v1") in pairs and ("i1", "v2") in pairs   # both kept; no overwrite
+    assert ("i1", "v1") in pairs and ("i1", "v2") in pairs  # both kept; no overwrite
     assert len(archive) == 4
     assert set(active_df["item_id"].astype(str)) == {"i1", "i2", "i3"}
-    assert len(active_df) == 3                                # one row per item
+    assert len(active_df) == 3  # one row per item
 
 
 def test_promotion_rebuilds_active_view_without_deleting_history() -> None:
     with _isolated():
         _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1")
         _save_refined("machine_annotations_b.parquet", ["i1", "i3"], "v2")
-        av.register_version(descriptor={"annotation_version": "v1", "label": "v1"},
-                            prompt_text="p1", schema_json=None)
-        av.register_version(descriptor={"annotation_version": "v2", "label": "v2"},
-                            prompt_text="p2", schema_json=None)
+        av.register_version(
+            descriptor={"annotation_version": "v1", "label": "v1"},
+            prompt_text="p1",
+            schema_json=None,
+        )
+        av.register_version(
+            descriptor={"annotation_version": "v2", "label": "v2"},
+            prompt_text="p2",
+            schema_json=None,
+        )
         av.promote_version("v1")
         _changed, active_df, _ids = ma.consolidate_and_save_refined_annotations(
             force_consolidation=True, verbose=False
@@ -142,11 +146,11 @@ def test_promotion_rebuilds_active_view_without_deleting_history() -> None:
         archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
 
     by_item = dict(zip(active_df["item_id"].astype(str), active_df["annotation_version"]))
-    assert by_item["i1"] == "v1"      # active version preferred where available
+    assert by_item["i1"] == "v1"  # active version preferred where available
     assert by_item["i2"] == "v1"
-    assert by_item["i3"] == "v2"      # coverage fallback to the other version
+    assert by_item["i3"] == "v2"  # coverage fallback to the other version
     pairs = set(zip(archive["item_id"].astype(str), archive["annotation_version"]))
-    assert ("i1", "v2") in pairs      # promotion did NOT delete i1's v2 annotation
+    assert ("i1", "v2") in pairs  # promotion did NOT delete i1's v2 annotation
 
 
 def test_rebuild_active_from_archive_reflects_promotion() -> None:
@@ -159,10 +163,16 @@ def test_rebuild_active_from_archive_reflects_promotion() -> None:
             }
         )
         data_io.save_parquet(df=archive, storage_location="recoded", filename=_ARCHIVE_FN)
-        av.register_version(descriptor={"annotation_version": "v1", "label": "v1"},
-                            prompt_text="p", schema_json=None)
-        av.register_version(descriptor={"annotation_version": "v2", "label": "v2"},
-                            prompt_text="p", schema_json=None)
+        av.register_version(
+            descriptor={"annotation_version": "v1", "label": "v1"},
+            prompt_text="p",
+            schema_json=None,
+        )
+        av.register_version(
+            descriptor={"annotation_version": "v2", "label": "v2"},
+            prompt_text="p",
+            schema_json=None,
+        )
         av.promote_version("v2")
         n = ma.rebuild_preferred_annotations_from_archive(verbose=False)
         recoded = data_io.load_parquet(
@@ -177,7 +187,11 @@ def test_study_pin_resolver_uses_pinned_version() -> None:
     import fyp.analysis.organize_datasets as od
 
     active_df = pd.DataFrame(
-        {"item_id": ["i1", "i2", "i3"], "annotation_version": ["v1", "v1", "v2"], "val": ["x", "y", "z"]}
+        {
+            "item_id": ["i1", "i2", "i3"],
+            "annotation_version": ["v1", "v1", "v2"],
+            "val": ["x", "y", "z"],
+        }
     )
     with _isolated():
         archive = pd.DataFrame(
@@ -196,8 +210,8 @@ def test_study_pin_resolver_uses_pinned_version() -> None:
         finally:
             fyp_cf["study_defs"] = orig_defs
     by_item = dict(zip(pinned["item_id"].astype(str), pinned["annotation_version"]))
-    assert by_item == {"i1": "v2", "i3": "v2"}            # only v2 rows from archive
-    assert len(plain) == 3                                # unpinned study unchanged
+    assert by_item == {"i1": "v2", "i3": "v2"}  # only v2 rows from archive
+    assert len(plain) == 3  # unpinned study unchanged
 
 
 def _main() -> int:

@@ -43,13 +43,13 @@ def _make_events(collection_id, base_ts, dwells, categories, gaps=None, activity
     )
 
 
-
-
 def test_sequence_index_and_session_split():
     """feed_position is monotonic per participant; a >SESSION_GAP_S gap splits sessions."""
     # Two events close together, then a 5-minute gap, then two more.
     df = _make_events(
-        "A", 1000, [5, 5, 5, 5],
+        "A",
+        1000,
+        [5, 5, 5, 5],
         [["comedy"]] * 4,
         gaps=[10, sa.SESSION_GAP_S + 60, 10],
     )
@@ -58,8 +58,6 @@ def test_sequence_index_and_session_split():
     # The big gap starts a new session.
     assert list(indexed["session_id"]) == [0, 0, 1, 1]
     assert list(indexed["session_position"]) == [0, 1, 0, 1]
-
-
 
 
 def test_windows_drop_partial_and_aggregate():
@@ -79,8 +77,6 @@ def test_windows_drop_partial_and_aggregate():
     assert sa._share_col("content_category", "comedy") not in windows.columns
 
 
-
-
 def test_multilabel_category_share():
     """A video tagged with two categories contributes to both shares."""
     df = _make_events("A", 0, [5, 5], [["comedy", "news"], ["comedy"]])
@@ -89,9 +85,7 @@ def test_multilabel_category_share():
     windows, _ = sa.build_windows(indexed, specs, window_n=2)
     row = windows.iloc[0]
     assert row[sa._share_col("content_category", "comedy")] == 1.0  # both videos comedy
-    assert row[sa._share_col("content_category", "news")] == 0.5     # one of two videos news
-
-
+    assert row[sa._share_col("content_category", "news")] == 0.5  # one of two videos news
 
 
 def test_dichotomous_target_proportion():
@@ -107,8 +101,6 @@ def test_dichotomous_target_proportion():
     assert sorted(windows[yes_col].tolist()) == [0.5, 1.0]
 
 
-
-
 def test_scalar_target_window_mean():
     """A numeric target reduces to the window mean, and is classified scalar."""
     df = _make_events("A", 0, [5, 5, 5, 5], [["news"]] * 4)
@@ -121,18 +113,16 @@ def test_scalar_target_window_mean():
     assert sorted(windows[mcol].tolist()) == [25.0, 50.0]  # mean(20,30), mean(40,60)
 
 
-
-
 def test_dwell_predictor_columns_barred_as_targets():
     """play_duration / completion_rate can never be selected as targets."""
     df = _make_events("A", 0, [5, 5], [["news"], ["news"]])
-    specs = sa.classify_targets(df, requested=["play_duration", "completion_rate", "content_category"])
+    specs = sa.classify_targets(
+        df, requested=["play_duration", "completion_rate", "content_category"]
+    )
     names = {s["name"] for s in specs}
     assert "play_duration" not in names
     assert "completion_rate" not in names
     assert "content_category" in names
-
-
 
 
 def test_transition_lift_discriminates():
@@ -145,16 +135,22 @@ def test_transition_lift_discriminates():
     identical participants the min-participants gate is met, so lift is reported.
     """
     cats = [
-        ["daily life"], ["daily life"],  # w0 (Short)  → followed by w1=news
-        ["news"], ["news"],              # w1 (Long)   → followed by w2=comedy
-        ["comedy"], ["comedy"],          # w2 (Medium) → followed by w3=news
-        ["news"], ["news"],              # w3 (Long)
+        ["daily life"],
+        ["daily life"],  # w0 (Short)  → followed by w1=news
+        ["news"],
+        ["news"],  # w1 (Long)   → followed by w2=comedy
+        ["comedy"],
+        ["comedy"],  # w2 (Medium) → followed by w3=news
+        ["news"],
+        ["news"],  # w3 (Long)
     ]
     dwells = [5, 5, 100, 100, 5, 5, 100, 100]
     frames = [_make_events(cid, 0, dwells, cats) for cid in ("A", "B", "C")]
     df = pd.concat(frames, ignore_index=True)
 
-    windows, tidx, elig = sa.prepare_window_table(df, window_n=2, requested_targets=["content_category"])
+    windows, tidx, elig = sa.prepare_window_table(
+        df, window_n=2, requested_targets=["content_category"]
+    )
     assert (elig["n_windows"] == 4).all()
     assert bool(elig["eligible"].all())
 
@@ -169,8 +165,6 @@ def test_transition_lift_discriminates():
     assert result["prob"]["Short"]["news"] == 1.0
 
 
-
-
 def test_eligibility_gate_on_dwell_coverage():
     """A participant with mostly-null dwell is marked ineligible."""
     df = _make_events("A", 0, [5, 5, 5, 5, 5, 5, 5, 5], [["news"]] * 8)
@@ -183,12 +177,11 @@ def test_eligibility_gate_on_dwell_coverage():
     assert not bool(elig.loc[elig["collection_id"] == "A", "eligible"].iloc[0])
 
 
-
-
 def test_real_study_smoke():
     """Run the full pipeline on a cached study if available; else skip."""
     try:
         from fyp.core import data_io, fyp_config
+
         fyp_config.initialize()
     except Exception as exc:  # noqa: BLE001
         print(f"  [skip] config init failed: {exc}")
@@ -204,8 +197,10 @@ def test_real_study_smoke():
     summary = sa.compute_summary(windows, tidx, elig)
 
     meta = summary["metadata"]
-    print(f"  participants total={meta['n_participants_total']} "
-          f"eligible={meta['n_participants_eligible']}")
+    print(
+        f"  participants total={meta['n_participants_total']} "
+        f"eligible={meta['n_participants_eligible']}"
+    )
     print(f"  windows={meta['n_windows']} targets={len(tidx)}")
 
     # Invariants.
@@ -221,8 +216,10 @@ def test_real_study_smoke():
         cc = summary["horizons"]["1"].get("content_category")
         if cc and cc["values"]:
             top = cc["values"][0]
-            print(f"  h=1 content_category lift[bin][{top!r}]: "
-                  + ", ".join(f"{b}={cc['lift'].get(b, {}).get(top)}" for b in cc["bins"]))
+            print(
+                f"  h=1 content_category lift[bin][{top!r}]: "
+                + ", ".join(f"{b}={cc['lift'].get(b, {}).get(top)}" for b in cc["bins"])
+            )
 
 
 def _run_all():

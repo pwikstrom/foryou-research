@@ -28,10 +28,11 @@ def _run(code: str, cwd: Path, extra_env: dict) -> subprocess.CompletedProcess:
     env = {"PYTHONPATH": str(ROOT), "PATH": "/usr/bin:/bin", **extra_env}
     return subprocess.run(
         [sys.executable, "-c", code],
-        capture_output=True, text=True, cwd=cwd, env=env,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env=env,
     )
-
-
 
 
 def test_import_outside_project_root_with_env():
@@ -44,13 +45,12 @@ def test_import_outside_project_root_with_env():
     )
     with tempfile.TemporaryDirectory() as tmp:
         out = _run(
-            code, cwd=Path(tmp),
+            code,
+            cwd=Path(tmp),
             extra_env={"FYP_CONFIG_PATH": str(ROOT / "config" / "config.toml")},
         )
     assert out.returncode == 0, out.stderr[-2000:]
     assert "IMPORT_OK" in out.stdout
-
-
 
 
 def test_import_outside_project_root_without_env_still_fails():

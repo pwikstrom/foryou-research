@@ -25,8 +25,11 @@ def env(monkeypatch):
 
     calls = []
     monkeypatch.setattr(ca, "collections_for_user", lambda u, **kw: ["c1", "c2", "c3"])
-    monkeypatch.setattr(svc, "build_personality",
-                        lambda cids: calls.append(list(cids)) or {"ok": True, "cids": list(cids)})
+    monkeypatch.setattr(
+        svc,
+        "build_personality",
+        lambda cids: calls.append(list(cids)) or {"ok": True, "cids": list(cids)},
+    )
 
     um = auth.UserManager(storage_location="users", bootstrap=False)
     with patch.object(auth, "data_io") as fake_io:

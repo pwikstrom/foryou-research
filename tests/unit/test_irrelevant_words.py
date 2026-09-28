@@ -18,8 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from fyp.annotation import irrelevant_words as iw
 
 
-
-
 class _StubDataIO:
     """In-memory JSON store; never touches real storage."""
 
@@ -38,8 +36,6 @@ class _StubDataIO:
         self.saves += 1
 
 
-
-
 def _with_stub(stub, fn):
     """Run ``fn`` with ``iw._data_io`` replaced by ``stub``."""
     original = iw._data_io
@@ -48,8 +44,6 @@ def _with_stub(stub, fn):
         return fn()
     finally:
         iw._data_io = original
-
-
 
 
 def test_squeeze():
@@ -66,8 +60,6 @@ def test_squeeze():
     print("PASS: squeeze")
 
 
-
-
 def test_normalize_entry():
     """Lowercase/strip; empty, bare-*, and too-short wildcards normalize away."""
     assert iw.normalize_entry("  FYP ") == "fyp"
@@ -80,8 +72,6 @@ def test_normalize_entry():
     assert iw.normalize_entry("ff*") == ""
     assert iw.normalize_entry("fy*") == "fy*"
     print("PASS: normalize_entry")
-
-
 
 
 def test_matcher_exact_and_wildcard():
@@ -107,8 +97,6 @@ def test_matcher_exact_and_wildcard():
     print("PASS: matcher")
 
 
-
-
 def test_matcher_no_wildcards():
     """An all-exact list must not prefix-match anything (empty-tuple guard)."""
     match = iw.build_matcher(["fyp"])
@@ -117,15 +105,13 @@ def test_matcher_no_wildcards():
     print("PASS: matcher without wildcards")
 
 
-
-
 def test_dedupe_words():
     """Entries that squeeze identically collapse to the first one, sorted output."""
-    out = iw.dedupe_words(["fyp", "fypp", "fyppp", "FYP", " viral ", "viral", "fyp*", "", "*", "f*"])
+    out = iw.dedupe_words(
+        ["fyp", "fypp", "fyppp", "FYP", " viral ", "viral", "fyp*", "", "*", "f*"]
+    )
     assert out == ["fyp", "fyp*", "viral"]
     print("PASS: dedupe_words")
-
-
 
 
 def test_save_and_load_roundtrip():
@@ -144,8 +130,6 @@ def test_save_and_load_roundtrip():
     print("PASS: save/load roundtrip")
 
 
-
-
 def test_save_rejects_invalid_entries():
     """Malformed payloads raise ValueError before anything is written."""
     stub = _StubDataIO()
@@ -161,8 +145,6 @@ def test_save_rejects_invalid_entries():
 
     _with_stub(stub, run)
     print("PASS: save validation")
-
-
 
 
 def test_etag_conflict():
@@ -184,14 +166,13 @@ def test_etag_conflict():
     print("PASS: etag conflict")
 
 
-
-
 def test_load_words_seeds_from_config():
     """A missing store is seeded (deduped) from the config list, once."""
     stub = _StubDataIO()
     original_cf = iw._cf
     iw._cf = lambda: {"labels": {"IRRELEVANT_WORDS": ["fyp", "fypp", "viral"]}}
     try:
+
         def run():
             words = iw.load_words()
             assert words == ["fyp", "viral"]
@@ -207,8 +188,6 @@ def test_load_words_seeds_from_config():
     print("PASS: config seeding")
 
 
-
-
 def test_recode_tokenise_uses_store():
     """Hashtag extraction drops squeeze/wildcard matches, keeps the rest + emoji."""
     from fyp.annotation import recode_variables as rv
@@ -222,8 +201,6 @@ def test_recode_tokenise_uses_store():
     # fyyyyp → fyp (squeeze), foryoupage → foryou* (wildcard), al ~ all (squeeze).
     assert out == {"hashtags": ["alps", "dance", "❤️"]}
     print("PASS: recode_tokenise integration")
-
-
 
 
 def test_hash_unaffected_by_stoplist():
@@ -243,8 +220,6 @@ def test_hash_unaffected_by_stoplist():
         iw.load_words = original
     assert h1 == h2
     print("PASS: schema hash unaffected")
-
-
 
 
 if __name__ == "__main__":

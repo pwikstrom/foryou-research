@@ -53,16 +53,21 @@ def test_every_registered_platform_declares_known_types():
     for cls in classes:
         declared = set(cls.emitted_activity_types)
         assert declared, f"{cls.__name__} declares no emitted_activity_types"
-        assert declared <= KNOWN_ACTIVITY_TYPES, \
+        assert declared <= KNOWN_ACTIVITY_TYPES, (
             f"{cls.__name__} emits {declared - KNOWN_ACTIVITY_TYPES} — add it to fyp.core.utils first"
+        )
 
 
 def test_section_maps_are_within_each_platforms_declaration():
     tiktok_values = set(TikTokDDPCollection._ACTIVITY_TYPE_MAP.values()) | {"login"}
     assert tiktok_values <= TikTokDDPCollection.emitted_activity_types
-    assert {a for _, a in InstagramDDPCollection._STREAMS} <= InstagramDDPCollection.emitted_activity_types
-    assert {a for _, a, _ in YouTubeDDPCollection._ENGAGEMENT_MEMBERS} | {"play", "ad_play"} \
-        <= YouTubeDDPCollection.emitted_activity_types
+    assert {
+        a for _, a in InstagramDDPCollection._STREAMS
+    } <= InstagramDDPCollection.emitted_activity_types
+    assert {a for _, a, _ in YouTubeDDPCollection._ENGAGEMENT_MEMBERS} | {
+        "play",
+        "ad_play",
+    } <= YouTubeDDPCollection.emitted_activity_types
 
 
 def test_every_whitelisted_section_has_a_review_title():

@@ -41,9 +41,16 @@ EXISTING = {
 
 
 def test_a_real_consolidation_refreshes_the_last_run_fields():
-    out = pr._merge_run_stats(EXISTING, {"impact": {"n": 28}}, name="consolidate_enrichment",
-                              task_args={"auto_refresh": True}, outcome="Success",
-                              end_time=T1, duration=41.8, study_name=None)
+    out = pr._merge_run_stats(
+        EXISTING,
+        {"impact": {"n": 28}},
+        name="consolidate_enrichment",
+        task_args={"auto_refresh": True},
+        outcome="Success",
+        end_time=T1,
+        duration=41.8,
+        study_name=None,
+    )
     assert out["last_run_end_time"] == T1.isoformat()
     assert out["last_run_duration"] == 41.8
     assert out["last_success"] == T1.isoformat()
@@ -52,10 +59,16 @@ def test_a_real_consolidation_refreshes_the_last_run_fields():
 
 
 def test_a_shadow_verification_leaves_the_last_run_alone():
-    out = pr._merge_run_stats(EXISTING, {"shadow_check": {"ok": True}},
-                              name="consolidate_enrichment",
-                              task_args={"verify_consolidation": True}, outcome="Success",
-                              end_time=T1, duration=811.0, study_name=None)
+    out = pr._merge_run_stats(
+        EXISTING,
+        {"shadow_check": {"ok": True}},
+        name="consolidate_enrichment",
+        task_args={"verify_consolidation": True},
+        outcome="Success",
+        end_time=T1,
+        duration=811.0,
+        study_name=None,
+    )
     for k in ("last_success", "last_run_end_time", "last_run_duration", "last_run_outcome"):
         assert out[k] == EXISTING[k], f"{k} was overwritten by the shadow verification"
     assert out["last_verify_end_time"] == T1.isoformat()
@@ -65,18 +78,32 @@ def test_a_shadow_verification_leaves_the_last_run_alone():
 
 
 def test_a_failed_verification_does_not_dent_last_success_either_way():
-    out = pr._merge_run_stats(EXISTING, {}, name="consolidate_enrichment",
-                              task_args={"verify_consolidation": True}, outcome="Fail",
-                              end_time=T1, duration=100.0, study_name=None)
+    out = pr._merge_run_stats(
+        EXISTING,
+        {},
+        name="consolidate_enrichment",
+        task_args={"verify_consolidation": True},
+        outcome="Fail",
+        end_time=T1,
+        duration=100.0,
+        study_name=None,
+    )
     assert out["last_success"] == EXISTING["last_success"]
     assert out["last_run_outcome"] == "Success"
     assert out["last_verify_outcome"] == "Fail"
 
 
 def test_a_failed_consolidation_keeps_the_previous_last_success():
-    out = pr._merge_run_stats(EXISTING, {}, name="consolidate_enrichment",
-                              task_args={}, outcome="Fail", end_time=T1, duration=5.0,
-                              study_name=None)
+    out = pr._merge_run_stats(
+        EXISTING,
+        {},
+        name="consolidate_enrichment",
+        task_args={},
+        outcome="Fail",
+        end_time=T1,
+        duration=5.0,
+        study_name=None,
+    )
     assert out["last_success"] == EXISTING["last_success"]
     assert out["last_run_outcome"] == "Fail"
     assert out["last_run_end_time"] == T1.isoformat()
@@ -84,8 +111,16 @@ def test_a_failed_consolidation_keeps_the_previous_last_success():
 
 def test_other_tasks_ignore_the_flag():
     """Only the consolidate key carries a verify mode."""
-    out = pr._merge_run_stats({}, {}, name="pca_refresh", task_args={"verify_consolidation": True},
-                              outcome="Success", end_time=T1, duration=9.0, study_name="s")
+    out = pr._merge_run_stats(
+        {},
+        {},
+        name="pca_refresh",
+        task_args={"verify_consolidation": True},
+        outcome="Success",
+        end_time=T1,
+        duration=9.0,
+        study_name="s",
+    )
     assert out["last_run_outcome"] == "Success" and out["last_run_study"] == "s"
     assert "last_verify_outcome" not in out
 

@@ -27,10 +27,14 @@ _BIG_SIZE = 34711467  # 33.1 MiB
 
 # --------------------------------------------------------------- unit tests
 
+
 def test_explicit_end_is_capped_to_the_chunk():
     """The incident's request: a client naming the whole file as its range."""
     from web_interface.routes.api_viewer_routes import (
-        MAX_RANGE_CHUNK, RESPONSE_SIZE_CAP, _parse_byte_range)
+        MAX_RANGE_CHUNK,
+        RESPONSE_SIZE_CAP,
+        _parse_byte_range,
+    )
 
     start, end = _parse_byte_range(f"bytes=0-{_BIG_SIZE - 1}", _BIG_SIZE)
     assert (start, end) == (0, MAX_RANGE_CHUNK - 1)
@@ -43,8 +47,10 @@ def test_open_ended_and_mid_file_ranges():
     assert _parse_byte_range("bytes=0-", _BIG_SIZE) == (0, MAX_RANGE_CHUNK - 1)
     assert _parse_byte_range("bytes=100-199", _BIG_SIZE) == (100, 199)
     # A range running past the end is clamped to the last byte, not rejected.
-    assert _parse_byte_range(f"bytes={_BIG_SIZE - 10}-{_BIG_SIZE + 500}",
-                             _BIG_SIZE) == (_BIG_SIZE - 10, _BIG_SIZE - 1)
+    assert _parse_byte_range(f"bytes={_BIG_SIZE - 10}-{_BIG_SIZE + 500}", _BIG_SIZE) == (
+        _BIG_SIZE - 10,
+        _BIG_SIZE - 1,
+    )
 
 
 def test_suffix_range_is_served_not_crashed():
@@ -63,15 +69,18 @@ def test_multi_range_takes_the_first_span():
     assert _parse_byte_range("bytes=0-99, 200-299", _BIG_SIZE) == (0, 99)
 
 
-@pytest.mark.parametrize("header", [
-    "bytes=abc-def",      # not numbers
-    "bytes=-",            # no offsets at all
-    "bytes=-0",           # zero-length suffix
-    "items=0-100",        # unsupported unit
-    "0-100",              # no unit
-    "bytes=200-100",      # end before start
-    f"bytes={_BIG_SIZE}-",  # first byte past the end
-])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "bytes=abc-def",  # not numbers
+        "bytes=-",  # no offsets at all
+        "bytes=-0",  # zero-length suffix
+        "items=0-100",  # unsupported unit
+        "0-100",  # no unit
+        "bytes=200-100",  # end before start
+        f"bytes={_BIG_SIZE}-",  # first byte past the end
+    ],
+)
 def test_unusable_headers_are_ignored_not_raised(header):
     """Previously these reached ``int('')`` and returned an unhandled 500."""
     from web_interface.routes.api_viewer_routes import _parse_byte_range
@@ -80,6 +89,7 @@ def test_unusable_headers_are_ignored_not_raised(header):
 
 
 # -------------------------------------------------------- route integration
+
 
 class _FakeBlob:
     def __init__(self, size):
@@ -112,8 +122,7 @@ def client(monkeypatch):
 
     def _fake_get(uid):
         if uid == _TEST_VIEWER:
-            return User(username=_TEST_VIEWER, role=ROLE_VIEWER,
-                        password_hash="", approved=True)
+            return User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
@@ -128,15 +137,21 @@ def _serve(monkeypatch, client, size):
     from web_interface import auth
     from web_interface.routes import api_viewer_routes as viewer
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions",
-                        lambda role: ["tab.admin.ab_eval"])
-    monkeypatch.setattr(viewer.media_paths, "resolve_media",
-                        lambda item_id, platform=None: {
-                            "kind": "gcs", "blob_name": f"media/{item_id}.mp4",
-                            "size": size})
-    monkeypatch.setattr(viewer, "fyp_cf",
-                        {"data_io": {"use_gcs_for_media": True,
-                                     "bucket": _FakeBucket(size)}})
+    monkeypatch.setattr(
+        auth.role_manager, "get_role_permissions", lambda role: ["tab.admin.ab_eval"]
+    )
+    monkeypatch.setattr(
+        viewer.media_paths,
+        "resolve_media",
+        lambda item_id, platform=None: {
+            "kind": "gcs",
+            "blob_name": f"media/{item_id}.mp4",
+            "size": size,
+        },
+    )
+    monkeypatch.setattr(
+        viewer, "fyp_cf", {"data_io": {"use_gcs_for_media": True, "bucket": _FakeBucket(size)}}
+    )
     viewer._EVAL_ACCESS_CACHE.clear()
     with client.session_transaction() as sess:
         sess["_user_id"] = _TEST_VIEWER
@@ -147,8 +162,7 @@ def test_oversized_range_request_returns_a_capped_206(client, monkeypatch):
     from web_interface.routes.api_viewer_routes import MAX_RANGE_CHUNK, RESPONSE_SIZE_CAP
 
     _serve(monkeypatch, client, _BIG_SIZE)
-    res = client.get(f"/api/video/eval/{_BIG_ITEM}",
-                     headers={"Range": f"bytes=0-{_BIG_SIZE - 1}"})
+    res = client.get(f"/api/video/eval/{_BIG_ITEM}", headers={"Range": f"bytes=0-{_BIG_SIZE - 1}"})
 
     assert res.status_code == 206
     assert int(res.headers["Content-Length"]) == MAX_RANGE_CHUNK

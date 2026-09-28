@@ -27,11 +27,9 @@ from ...permissions import permission_required
 from ...security import user_manager
 
 
-
 from ...services.worker_status import (
     _actor,
 )
-
 
 
 from ._blueprint import management_bp
@@ -46,13 +44,14 @@ def _aws_credentials_available() -> bool:
     """
     try:
         import boto3
+
         return boto3.session.Session().get_credentials() is not None
     except Exception:
         return False
 
 
-@management_bp.route('/api/manage/ingestion/sources', methods=['GET'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/sources", methods=["GET"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def get_ingestion_sources():
     try:
@@ -66,57 +65,67 @@ def get_ingestion_sources():
             files: list[dict] = []
             manifest_fn = "ingestion_manifest.json"
             if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
-                manifest = data_io.load_json(
-                    storage_location=col.raw_path, filename=manifest_fn, verbose=False
-                ) or {}
+                manifest = (
+                    data_io.load_json(
+                        storage_location=col.raw_path, filename=manifest_fn, verbose=False
+                    )
+                    or {}
+                )
                 for fn, meta in manifest.items():
-                    files.append({
-                        "filename": fn,
-                        "original_filename": (meta or {}).get("original_filename"),
-                        "display_collection_id": (meta or {}).get("display_collection_id"),
-                        "collection_id": (meta or {}).get("collection_id"),
-                        "tags": (meta or {}).get("tags") or [],
-                        "tz": (meta or {}).get("tz"),
-                        "user_id": (meta or {}).get("user_id"),
-                        "uploaded_at": (meta or {}).get("uploaded_at"),
-                        "uploaded_by": (meta or {}).get("uploaded_by"),
-                    })
+                    files.append(
+                        {
+                            "filename": fn,
+                            "original_filename": (meta or {}).get("original_filename"),
+                            "display_collection_id": (meta or {}).get("display_collection_id"),
+                            "collection_id": (meta or {}).get("collection_id"),
+                            "tags": (meta or {}).get("tags") or [],
+                            "tz": (meta or {}).get("tz"),
+                            "user_id": (meta or {}).get("user_id"),
+                            "uploaded_at": (meta or {}).get("uploaded_at"),
+                            "uploaded_by": (meta or {}).get("uploaded_by"),
+                        }
+                    )
             files.sort(key=lambda f: f["filename"])
             pending = len(files)
             total_pending += pending
-            sources.append({
-                "source_platform": col.source_platform,
-                "data_source": col.data_source,
-                "raw_path": col.raw_path,
-                "class_name": col.__class__.__name__,
-                "pending_files": pending,
-                "files": files,
-                "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
-                "zip_member_suffixes": col.zip_member_suffixes(),
-                "accepted_upload_suffixes": col.accepted_upload_suffixes(),
-            })
+            sources.append(
+                {
+                    "source_platform": col.source_platform,
+                    "data_source": col.data_source,
+                    "raw_path": col.raw_path,
+                    "class_name": col.__class__.__name__,
+                    "pending_files": pending,
+                    "files": files,
+                    "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
+                    "zip_member_suffixes": col.zip_member_suffixes(),
+                    "accepted_upload_suffixes": col.accepted_upload_suffixes(),
+                }
+            )
         return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
     except Exception as e:
         print(f"Error getting ingestion sources: {e}")
         return jsonify({"error": str(e)}), 500
 
-@management_bp.route('/api/manage/ingestion/fetch_aio', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+
+@management_bp.route("/api/manage/ingestion/fetch_aio", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
     from fyp.core.fyp_config import AIO_FETCH_SCRIPT
 
     if not _aws_credentials_available():
-        return jsonify({
-            "status": "error",
-            "message": "No AWS credentials available - the AIO fetch needs the "
-                       "standard boto3 credential chain (see docs/installation.md).",
-        }), 409
+        return jsonify(
+            {
+                "status": "error",
+                "message": "No AWS credentials available - the AIO fetch needs the "
+                "standard boto3 credential chain (see docs/installation.md).",
+            }
+        ), 409
 
     hours_back = 24
     if request.is_json and request.json:
-        hours_back = int(request.json.get('hours_back', 24))
+        hours_back = int(request.json.get("hours_back", 24))
 
     success, msg = start_process(
         "aio_fetch",
@@ -128,8 +137,9 @@ def fetch_aio_data():
         return jsonify({"status": "started", "message": msg})
     return jsonify({"status": "error", "message": msg}), 409
 
-@management_bp.route('/api/manage/ingestion/upload', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+
+@management_bp.route("/api/manage/ingestion/upload", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def upload_ingestion_file():
     """Upload one or more raw files with optional collection_id and tags metadata.
@@ -147,13 +157,13 @@ def upload_ingestion_file():
             written to the collections sidecar straight away.
     """
     # Accept both multi-file ('files') and legacy single-file ('file') keys
-    files = request.files.getlist('files')
-    if not files or all(f.filename == '' for f in files):
-        files = request.files.getlist('file')
-    if not files or all(f.filename == '' for f in files):
+    files = request.files.getlist("files")
+    if not files or all(f.filename == "" for f in files):
+        files = request.files.getlist("file")
+    if not files or all(f.filename == "" for f in files):
         return jsonify({"error": "No files selected"}), 400
 
-    raw_path_key = request.form.get('raw_path')
+    raw_path_key = request.form.get("raw_path")
     if not raw_path_key:
         return jsonify({"error": "raw_path missing"}), 400
 
@@ -172,8 +182,10 @@ def upload_ingestion_file():
                 continue
             if not any(file.filename.lower().endswith(s) for s in accepted_suffixes):
                 label = f"{target_col.source_platform} {target_col.data_source}"
-                msg = (f"'{file.filename}' is not a supported file type for "
-                       f"{label} ingestion — expected {' or '.join(accepted_suffixes)}.")
+                msg = (
+                    f"'{file.filename}' is not a supported file type for "
+                    f"{label} ingestion — expected {' or '.join(accepted_suffixes)}."
+                )
                 if file.filename.lower().endswith(".zip") and ".json" in accepted_suffixes:
                     msg += " Unzip the export and upload the extracted .json file."
                 return jsonify({"error": msg}), 400
@@ -183,12 +195,12 @@ def upload_ingestion_file():
     # (dev). Writing directly to the resolved local path skipped GCS
     # entirely on Cloud Run, so manifests pointed at files that only ever
     # lived on the request-handling container's ephemeral filesystem.
-    temp_dir = fyp_cf['paths']['temp']
+    temp_dir = fyp_cf["paths"]["temp"]
     os.makedirs(temp_dir, exist_ok=True)
 
-    collection_id = request.form.get('collection_id', '').strip()
-    collection_id_mode = request.form.get('collection_id_mode', 'per_file')
-    tags_json = request.form.get('tags', '[]')
+    collection_id = request.form.get("collection_id", "").strip()
+    collection_id_mode = request.form.get("collection_id_mode", "per_file")
+    tags_json = request.form.get("tags", "[]")
     try:
         tags = json.loads(tags_json) if tags_json else []
     except json.JSONDecodeError:
@@ -196,17 +208,19 @@ def upload_ingestion_file():
 
     # Optional donor timezone (IANA name or fixed offset). Validated here so a
     # typo is rejected at upload rather than silently ignored at ingest time.
-    donor_tz = request.form.get('tz', '').strip()
+    donor_tz = request.form.get("tz", "").strip()
     if donor_tz and parse_donor_timezone(donor_tz) is None:
-        return jsonify({
-            "error": f"Unrecognised timezone '{donor_tz}'. Use an IANA name "
-                     f"(e.g. 'Asia/Kolkata') or a fixed offset (e.g. '+05:30').",
-        }), 400
+        return jsonify(
+            {
+                "error": f"Unrecognised timezone '{donor_tz}'. Use an IANA name "
+                f"(e.g. 'Asia/Kolkata') or a fixed offset (e.g. '+05:30').",
+            }
+        ), 400
 
     # Optional user account the uploaded collection(s) belong to. Validated
     # here; the link itself is written to the collections sidecar below so it
     # is in place before the ingest runs (and survives the manifest pruning).
-    owner_user_id = request.form.get('user_id', '').strip() or None
+    owner_user_id = request.form.get("user_id", "").strip() or None
     if owner_user_id and user_manager.get_user(owner_user_id) is None:
         return jsonify({"error": f"Unknown user account: {owner_user_id!r}"}), 400
 
@@ -222,6 +236,7 @@ def upload_ingestion_file():
         manifest_entry,
     )
     from ...services.study_data import get_collection_tags
+
     known_ids = known_collection_ids()
     # Display labels are allocated against the same batch-wide set, so two
     # exports with the same filename in one request get two distinct names.
@@ -230,11 +245,13 @@ def upload_ingestion_file():
         current = (get_collection_tags() or {}).get(collection_id)
         current_owner = current.get("user_id") if isinstance(current, dict) else None
         if current_owner != owner_user_id:
-            return jsonify({
-                "error": f"Collection id '{collection_id}' already exists"
-                         + (f" and is linked to {current_owner}" if current_owner else "")
-                         + ". Choose another id, or set the same account to append to it.",
-            }), 409
+            return jsonify(
+                {
+                    "error": f"Collection id '{collection_id}' already exists"
+                    + (f" and is linked to {current_owner}" if current_owner else "")
+                    + ". Choose another id, or set the same account to append to it.",
+                }
+            ), 409
     target_platform = getattr(target_col, "source_platform", None)
     target_source = getattr(target_col, "data_source", None)
 
@@ -242,20 +259,26 @@ def upload_ingestion_file():
     manifest_fn = "ingestion_manifest.json"
     manifest: dict = {}
     if data_io.exists(storage_location=raw_path_key, filename=manifest_fn):
-        manifest = data_io.load_json(
-            storage_location=raw_path_key, filename=manifest_fn, verbose=False
-        ) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path_key, filename=manifest_fn, verbose=False)
+            or {}
+        )
 
     try:
         uploaded = []
         uploaded_detail = []
         for file in files:
-            if file.filename == '':
+            if file.filename == "":
                 continue
             original_name = os.path.basename(file.filename)
             filename, generated_cid, display_id = allocate_upload_identity(
-                target_platform, target_source, original_name, raw_path_key,
-                known_ids=known_ids, known_displays=known_displays)
+                target_platform,
+                target_source,
+                original_name,
+                raw_path_key,
+                known_ids=known_ids,
+                known_displays=known_displays,
+            )
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)
 
@@ -268,9 +291,11 @@ def upload_ingestion_file():
             # data_io.move() swallows GCS upload failures silently, so confirm
             # the file actually landed before we record it in the manifest.
             if not data_io.exists(storage_location=raw_path_key, filename=filename):
-                return jsonify({
-                    "error": f"Upload of '{original_name}' to '{raw_path_key}' did not persist.",
-                }), 500
+                return jsonify(
+                    {
+                        "error": f"Upload of '{original_name}' to '{raw_path_key}' did not persist.",
+                    }
+                ), 500
 
             if collection_id_mode == "single" and collection_id:
                 file_collection_id = collection_id
@@ -280,27 +305,32 @@ def upload_ingestion_file():
                 file_display = display_id
 
             manifest[filename] = manifest_entry(
-                file_collection_id, original_name,
-                display_collection_id=file_display, user_id=owner_user_id,
-                tags=tags, tz=donor_tz or None, uploaded_by=_actor())
+                file_collection_id,
+                original_name,
+                display_collection_id=file_display,
+                user_id=owner_user_id,
+                tags=tags,
+                tz=donor_tz or None,
+                uploaded_by=_actor(),
+            )
             uploaded.append(filename)
-            uploaded_detail.append({
-                "filename": filename, "original_filename": original_name,
-                "collection_id": file_collection_id, "display_id": file_display,
-            })
+            uploaded_detail.append(
+                {
+                    "filename": filename,
+                    "original_filename": original_name,
+                    "collection_id": file_collection_id,
+                    "display_id": file_display,
+                }
+            )
 
         # Save updated manifest
         data_io.save_json(
-            data=manifest,
-            storage_location=raw_path_key,
-            filename=manifest_fn,
-            verbose=False
+            data=manifest, storage_location=raw_path_key, filename=manifest_fn, verbose=False
         )
 
         # Pre-populate the collections sidecar (display label, tags, account
         # link) for each collection id uploaded in this batch.
-        _prepopulate_annotations(
-            {fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
+        _prepopulate_annotations({fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
 
         activity_log.record(
             actor=_actor(),
@@ -317,18 +347,21 @@ def upload_ingestion_file():
                 "user_id": owner_user_id,
             },
         )
-        return jsonify({
-            "status": "success",
-            "message": f"{len(uploaded)} file(s) uploaded.",
-            "files": uploaded,
-            "uploaded": uploaded_detail,
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"{len(uploaded)} file(s) uploaded.",
+                "files": uploaded,
+                "uploaded": uploaded_detail,
+            }
+        )
     except Exception as e:
         print(f"Error uploading file: {e}")
         return jsonify({"error": str(e)}), 500
 
-@management_bp.route('/api/manage/refresh-collection-metadata', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+
+@management_bp.route("/api/manage/refresh-collection-metadata", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def refresh_collection_metadata():
     """Regenerate _metadata.parquet from scratch using all events."""
@@ -344,15 +377,13 @@ def refresh_collection_metadata():
     return jsonify({"status": "error", "message": msg}), 409
 
 
-
-@management_bp.route('/api/manage/ingestion/refresh', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/refresh", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def refresh_ingestion_collection():
     from fyp.core.fyp_config import INGEST_REFRESH_SCRIPT
 
-    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT,
-                                 started_by=_actor())
+    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT, started_by=_actor())
     if success:
         activity_log.record(
             actor=_actor(),
@@ -363,10 +394,8 @@ def refresh_ingestion_collection():
     return jsonify({"status": "error", "message": msg}), 409
 
 
-
-
-@management_bp.route('/api/manage/ingestion/ledger', methods=['GET'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/ledger", methods=["GET"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def get_ingestion_ledger():
     """The persistent per-file ingestion ledger (newest first).
@@ -394,10 +423,8 @@ def get_ingestion_ledger():
     return jsonify({"files": entries, "count": len(entries)})
 
 
-
-
-@management_bp.route('/api/manage/ingestion/ledger/unskip', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/ledger/unskip", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def unskip_ingestion_ledger_entry():
     """Drop a single filename from the ingestion ledger so it will be
@@ -412,10 +439,12 @@ def unskip_ingestion_ledger_entry():
     main_collection = get_main_collection(verbose=False)
     removed = main_collection.remove_from_ledger(filename)
     if not removed:
-        return jsonify({
-            "status": "noop",
-            "message": f"'{filename}' was not in the ledger.",
-        })
+        return jsonify(
+            {
+                "status": "noop",
+                "message": f"'{filename}' was not in the ledger.",
+            }
+        )
 
     main_collection.save_ledger()
     activity_log.record(
@@ -424,16 +453,16 @@ def unskip_ingestion_ledger_entry():
         action="ingestion.ledger_unskip",
         target=filename,
     )
-    return jsonify({
-        "status": "success",
-        "message": f"'{filename}' removed from the ledger. It will be rescanned on the next ingestion run.",
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"'{filename}' removed from the ledger. It will be rescanned on the next ingestion run.",
+        }
+    )
 
 
-
-
-@management_bp.route('/api/manage/ingestion/structure/warnings', methods=['GET'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/structure/warnings", methods=["GET"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def structure_warnings():
     """List structure-drift verdicts awaiting review (quarantined + warned files)."""
@@ -452,10 +481,8 @@ def structure_warnings():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@management_bp.route('/api/manage/ingestion/structure/approve', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/structure/approve", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def structure_approve():
     """Approve a quarantined file: fold its structure into the learned baseline
@@ -492,16 +519,16 @@ def structure_approve():
         target=filename,
         details={"platform": entry.get("platform"), "source": entry.get("source")},
     )
-    return jsonify({
-        "status": "success",
-        "message": f"'{filename}' approved — its structure is now part of the baseline and it will be ingested on the next refresh.",
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"'{filename}' approved — its structure is now part of the baseline and it will be ingested on the next refresh.",
+        }
+    )
 
 
-
-
-@management_bp.route('/api/manage/ingestion/structure/reject', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/structure/reject", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def structure_reject():
     """Reject a quarantined file: mark it manually excluded so it never ingests."""
@@ -523,17 +550,21 @@ def structure_reject():
     ):
         # No ledger entry yet (e.g. the refresh that quarantined it failed
         # before saving) — stamp one directly so the file is still excluded.
-        main_collection.update_ledger([{
-            "filename": filename,
-            "outcome": "manually_excluded",
-            "raw_rows": (entry.get("raw_stats") or {}).get("raw_rows") or 0,
-            "final_rows": 0,
-            "canonical_collection_id": None,
-            "merged_with_siblings": [],
-            "platform": entry.get("platform"),
-            "source": entry.get("source"),
-            "notes": "rejected via structure review",
-        }])
+        main_collection.update_ledger(
+            [
+                {
+                    "filename": filename,
+                    "outcome": "manually_excluded",
+                    "raw_rows": (entry.get("raw_stats") or {}).get("raw_rows") or 0,
+                    "final_rows": 0,
+                    "canonical_collection_id": None,
+                    "merged_with_siblings": [],
+                    "platform": entry.get("platform"),
+                    "source": entry.get("source"),
+                    "notes": "rejected via structure review",
+                }
+            ]
+        )
     main_collection.save_ledger()
 
     activity_log.record(
@@ -543,14 +574,16 @@ def structure_reject():
         target=filename,
         details={"platform": entry.get("platform"), "source": entry.get("source")},
     )
-    return jsonify({
-        "status": "success",
-        "message": f"'{filename}' rejected — it is excluded from future ingestion runs.",
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"'{filename}' rejected — it is excluded from future ingestion runs.",
+        }
+    )
 
 
-@management_bp.route('/api/manage/ingestion/clear_pending', methods=['POST'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/clear_pending", methods=["POST"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def clear_pending_uploads():
     """Drop every pending upload across every registered ingester: delete each
@@ -569,9 +602,10 @@ def clear_pending_uploads():
             continue
         if not data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
             continue
-        manifest = data_io.load_json(
-            storage_location=col.raw_path, filename=manifest_fn, verbose=False
-        ) or {}
+        manifest = (
+            data_io.load_json(storage_location=col.raw_path, filename=manifest_fn, verbose=False)
+            or {}
+        )
         if not manifest:
             continue
 
@@ -596,11 +630,13 @@ def clear_pending_uploads():
             failures.append({"raw_path": col.raw_path, "filename": manifest_fn, "error": str(e)})
             print(f"[clear_pending_uploads] failed to reset manifest for {col.raw_path}: {e}")
 
-        cleared.append({
-            "raw_path": col.raw_path,
-            "class_name": col.__class__.__name__,
-            "removed_files": removed_here,
-        })
+        cleared.append(
+            {
+                "raw_path": col.raw_path,
+                "class_name": col.__class__.__name__,
+                "removed_files": removed_here,
+            }
+        )
         total_removed += len(removed_here)
 
     activity_log.record(
@@ -609,15 +645,14 @@ def clear_pending_uploads():
         action="ingestion.clear_pending",
         details={"total_removed": total_removed, "failures": len(failures)},
     )
-    return jsonify({
-        "status": "success",
-        "total_removed": total_removed,
-        "cleared": cleared,
-        "failures": failures,
-    })
-
-
-
+    return jsonify(
+        {
+            "status": "success",
+            "total_removed": total_removed,
+            "cleared": cleared,
+            "failures": failures,
+        }
+    )
 
 
 def _pending_original_names() -> dict[str, str]:
@@ -628,11 +663,16 @@ def _pending_original_names() -> dict[str, str]:
         for col in get_main_collection(verbose=False).collections:
             if not col.raw_path:
                 continue
-            if not data_io.exists(storage_location=col.raw_path, filename="ingestion_manifest.json"):
+            if not data_io.exists(
+                storage_location=col.raw_path, filename="ingestion_manifest.json"
+            ):
                 continue
-            manifest = data_io.load_json(
-                storage_location=col.raw_path, filename="ingestion_manifest.json",
-                verbose=False) or {}
+            manifest = (
+                data_io.load_json(
+                    storage_location=col.raw_path, filename="ingestion_manifest.json", verbose=False
+                )
+                or {}
+            )
             for fn, meta in manifest.items():
                 if isinstance(meta, dict) and meta.get("original_filename"):
                     out[fn] = str(meta["original_filename"])
@@ -641,19 +681,18 @@ def _pending_original_names() -> dict[str, str]:
     return out
 
 
-
-
 def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | None = None) -> None:
     """Merge tags (and set the account link, if given) in the collections
     sidecar for each unique collection_id in ``manifest``. Other keys of an
     existing entry are preserved."""
     annotations: dict = {}
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
-        annotations = data_io.load_json(
-            storage_location="recoded",
-            filename=f"{COLLECTIONS_LABEL}_tags.json",
-            verbose=False
-        ) or {}
+        annotations = (
+            data_io.load_json(
+                storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json", verbose=False
+            )
+            or {}
+        )
 
     seen_ids: set = set()
     for _filename, meta in manifest.items():
@@ -678,16 +717,13 @@ def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | Non
         data=annotations,
         storage_location="recoded",
         filename=f"{COLLECTIONS_LABEL}_tags.json",
-        verbose=False
+        verbose=False,
     )
     invalidate_collection_tags_cache()
 
 
-
-
-
-@management_bp.route('/api/manage/ingestion/metadata', methods=['GET'])
-@permission_required('tab.data_management.ingestion')
+@management_bp.route("/api/manage/ingestion/metadata", methods=["GET"])
+@permission_required("tab.data_management.ingestion")
 @login_required
 def get_ingestion_metadata():
     """Return existing collection IDs and all unique tags for the upload modal."""
@@ -715,20 +751,25 @@ def get_ingestion_metadata():
 
     # Get tags from annotations
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
-        annotations = data_io.load_json(
-            storage_location="recoded",
-            filename=f"{COLLECTIONS_LABEL}_tags.json",
-            verbose=False,
-        ) or {}
+        annotations = (
+            data_io.load_json(
+                storage_location="recoded",
+                filename=f"{COLLECTIONS_LABEL}_tags.json",
+                verbose=False,
+            )
+            or {}
+        )
         for ann in annotations.values():
             for tag in ann.get("annotation_tags", []):
                 all_tags.add(tag)
 
     display_ids = load_display_id_map()
 
-    return jsonify({
-        "status": "success",
-        "collection_ids": collection_ids,
-        "display_ids": display_ids,
-        "tags": sorted(list(all_tags)),
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "collection_ids": collection_ids,
+            "display_ids": display_ids,
+            "tags": sorted(list(all_tags)),
+        }
+    )

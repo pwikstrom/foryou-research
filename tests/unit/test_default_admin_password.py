@@ -10,11 +10,9 @@ from __future__ import annotations
 import web_interface.auth as auth
 
 
-
-
-
-
-def _manager_with_files(monkeypatch, files: list[str], contents: dict | None = None) -> auth.UserManager:
+def _manager_with_files(
+    monkeypatch, files: list[str], contents: dict | None = None
+) -> auth.UserManager:
     """Build a lazy UserManager and stub the user-store listing + reads.
 
     ``contents`` maps filename → parsed JSON for the content-aware default-admin
@@ -24,14 +22,11 @@ def _manager_with_files(monkeypatch, files: list[str], contents: dict | None = N
     manager = auth.UserManager(bootstrap=False)
     monkeypatch.setattr(auth.data_io, "listdir", lambda **kwargs: files)
     monkeypatch.setattr(
-        auth.data_io, "load_json",
+        auth.data_io,
+        "load_json",
         lambda storage_location, filename, **kwargs: contents.get(filename, {}),
     )
     return manager
-
-
-
-
 
 
 def test_empty_store_creates_admin_with_random_password(monkeypatch, capsys):
@@ -55,10 +50,6 @@ def test_empty_store_creates_admin_with_random_password(monkeypatch, capsys):
     assert "admin@admin.net" in out
 
 
-
-
-
-
 def test_populated_store_creates_nothing(monkeypatch):
     """A real user file (has a ``username``) suppresses the default admin."""
     manager = _manager_with_files(
@@ -67,14 +58,11 @@ def test_populated_store_creates_nothing(monkeypatch):
         contents={"alice@example.org.json": {"username": "alice@example.org"}},
     )
     monkeypatch.setattr(
-        manager, "add_user",
+        manager,
+        "add_user",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("add_user must not be called")),
     )
     manager._ensure_default_admin()
-
-
-
-
 
 
 def test_reset_store_with_only_sidecar_files_creates_admin(monkeypatch, capsys):
@@ -103,19 +91,17 @@ def test_reset_store_with_only_sidecar_files_creates_admin(monkeypatch, capsys):
     )
     created = {}
     monkeypatch.setattr(
-        manager, "add_user",
+        manager,
+        "add_user",
         lambda username, password, role, approved=False, **k: created.update(
-            username=username, role=role, approved=approved),
+            username=username, role=role, approved=approved
+        ),
     )
     manager._ensure_default_admin()
 
     assert created.get("username") == "admin@admin.net"
     assert created.get("role") == auth.ROLE_ADMIN
     assert "admin@admin.net" in capsys.readouterr().out
-
-
-
-
 
 
 def test_listing_failure_creates_nothing(monkeypatch):
@@ -127,7 +113,8 @@ def test_listing_failure_creates_nothing(monkeypatch):
 
     monkeypatch.setattr(auth.data_io, "listdir", boom)
     monkeypatch.setattr(
-        manager, "add_user",
+        manager,
+        "add_user",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("add_user must not be called")),
     )
     manager._ensure_default_admin()

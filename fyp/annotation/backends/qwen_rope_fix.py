@@ -36,10 +36,6 @@ _APPLIED = False
 _PATCHED_VERSION_PREFIXES = ("0.6.",)
 
 
-
-
-
-
 def _version_needs_patch() -> bool:
     """Whether the installed mlx-vlm is one this patch set is validated for."""
     try:
@@ -49,10 +45,6 @@ def _version_needs_patch() -> bool:
     except ImportError:
         return False
     return any(version.startswith(prefix) for prefix in _PATCHED_VERSION_PREFIXES)
-
-
-
-
 
 
 def apply_patches() -> bool:
@@ -70,9 +62,11 @@ def apply_patches() -> bool:
         try:
             import mlx_vlm
 
-            logger.info(f"qwen_rope_fix: skipping patches for mlx-vlm "
-                        f"{getattr(mlx_vlm, '__version__', '?')} (outside validated 0.6.x; "
-                        f"verify upstream #1619/#1620 are fixed)")
+            logger.info(
+                f"qwen_rope_fix: skipping patches for mlx-vlm "
+                f"{getattr(mlx_vlm, '__version__', '?')} (outside validated 0.6.x; "
+                f"verify upstream #1619/#1620 are fixed)"
+            )
         except ImportError:
             pass
         return False
@@ -82,10 +76,6 @@ def apply_patches() -> bool:
     _APPLIED = True
     logger.info("qwen_rope_fix: mlx-vlm 0.6.x Qwen3-Omni patches applied (#1619, #1620)")
     return True
-
-
-
-
 
 
 def _patch_language_model() -> None:
@@ -112,7 +102,11 @@ def _patch_language_model() -> None:
                     offset = int(offset) if not isinstance(offset, int) else offset
                 kwargs["position_ids"] = pos[..., offset : offset + seq_len]
             rope_deltas = kwargs.get("rope_deltas", None)
-            if rope_deltas is None and kwargs.get("image_grid_thw") is None and kwargs.get("video_grid_thw") is None:
+            if (
+                rope_deltas is None
+                and kwargs.get("image_grid_thw") is None
+                and kwargs.get("video_grid_thw") is None
+            ):
                 pass  # text-only: default handling is fine
             else:
                 if rope_deltas is None:
@@ -125,7 +119,9 @@ def _patch_language_model() -> None:
                 # Reset-proof stash: the original __call__ clears _rope_deltas
                 # when pixel values are present, so keep our own copy.
                 self._omni_fix_rope_deltas = rope_deltas
-            out = _orig_lm_call(self, inputs, inputs_embeds=inputs_embeds, mask=mask, cache=cache, **kwargs)
+            out = _orig_lm_call(
+                self, inputs, inputs_embeds=inputs_embeds, mask=mask, cache=cache, **kwargs
+            )
             if getattr(self, "_omni_fix_rope_deltas", None) is not None:
                 self._rope_deltas = self._omni_fix_rope_deltas
             return out
@@ -140,14 +136,12 @@ def _patch_language_model() -> None:
             kwargs.pop("position_ids", None)
             kwargs["rope_deltas"] = stashed
             self._rope_deltas = stashed
-        return _orig_lm_call(self, inputs, inputs_embeds=inputs_embeds, mask=mask, cache=cache, **kwargs)
+        return _orig_lm_call(
+            self, inputs, inputs_embeds=inputs_embeds, mask=mask, cache=cache, **kwargs
+        )
 
     _language.LanguageModel.__call__ = _patched_lm_call
     _language.LanguageModel._fyp_rope_fix = True
-
-
-
-
 
 
 def _rescale_sample_mask(out):
@@ -168,10 +162,6 @@ def _rescale_sample_mask(out):
         fixed[i, : min(int(length), n_frames)] = 1
     out["attention_mask"] = fixed
     return out
-
-
-
-
 
 
 def _patch_audio_mask() -> None:

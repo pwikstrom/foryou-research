@@ -121,12 +121,12 @@ _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, str]] = [
 # dependency: ingest imports this module for its fingerprint hooks).
 _HTML_OUTER_CELL_MARKER = '<div class="outer-cell'
 _HTML_CAPTION_RE = re.compile(r'mdl-typography--caption">(.*?)</div>', re.S)
-_HTML_VIDEO_RE = re.compile(r'watch\?v=([\w-]{11})')
+_HTML_VIDEO_RE = re.compile(r"watch\?v=([\w-]{11})")
 _HTML_TS_RE = re.compile(
-    r'(\d{1,2} [A-Za-z]{3,9} \d{4}|[A-Za-z]{3,9} \d{1,2}, \d{4}), '
-    r'(\d{1,2}:\d{2}:\d{2})'
-    r'(?:[\s\u202f\u00a0]*([APap][Mm]))?'
-    r'[\s\u202f\u00a0]+([A-Z]{2,5}(?:[+-]\d{1,2}:?\d{2})?)'
+    r"(\d{1,2} [A-Za-z]{3,9} \d{4}|[A-Za-z]{3,9} \d{1,2}, \d{4}), "
+    r"(\d{1,2}:\d{2}:\d{2})"
+    r"(?:[\s\u202f\u00a0]*([APap][Mm]))?"
+    r"[\s\u202f\u00a0]+([A-Z]{2,5}(?:[+-]\d{1,2}:?\d{2})?)"
 )
 
 
@@ -135,18 +135,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-
-
-
 def _normalize_key(key: str) -> str:
     """Collapse per-donor dynamic dict keys to a stable wildcard form."""
     for pattern, replacement in _DYNAMIC_KEY_PATTERNS:
         if pattern.match(key):
             return replacement
     return key
-
-
-
 
 
 def _leaf_type(value: object) -> str:
@@ -168,15 +162,9 @@ def _leaf_type(value: object) -> str:
     return type(value).__name__
 
 
-
-
-
 def base_path_of(typed_path: str) -> str:
     """Strip the ``|type`` suffix from a typed key path."""
     return typed_path.rsplit(TYPE_SEP, 1)[0]
-
-
-
 
 
 # Leaf types a container takes when it is empty or absent-but-present:
@@ -192,9 +180,6 @@ def container_of(base_path: str) -> str | None:
     if "." in base_path:
         return base_path.rsplit(".", 1)[0]
     return None
-
-
-
 
 
 def _ancestors_present(fp_bases: set[str]) -> set[str]:
@@ -213,9 +198,6 @@ def _ancestors_present(fp_bases: set[str]) -> set[str]:
     return present
 
 
-
-
-
 def withheld_root(base_path: str, present: set[str]) -> str | None:
     """The outermost absent ancestor of a missing path, or None if its
     immediate container is present (then the path is missing from a section
@@ -229,9 +211,6 @@ def withheld_root(base_path: str, present: set[str]) -> str | None:
         if parent is None or parent in present:
             return root
         root = node = parent
-
-
-
 
 
 def key_paths_of(obj: object, prefix: str = "", depth: int = 0) -> set[str]:
@@ -275,9 +254,6 @@ def key_paths_of(obj: object, prefix: str = "", depth: int = 0) -> set[str]:
     return paths
 
 
-
-
-
 def fingerprint_json_payload(payload: object) -> dict:
     """Fingerprint a single parsed JSON document.
 
@@ -293,9 +269,6 @@ def fingerprint_json_payload(payload: object) -> dict:
         "key_paths": sorted(key_paths_of(payload)),
         "stats": {},
     }
-
-
-
 
 
 def fingerprint_ndjson_lines(records: list) -> dict:
@@ -319,9 +292,6 @@ def fingerprint_ndjson_lines(records: list) -> dict:
         "key_paths": sorted(paths),
         "stats": {},
     }
-
-
-
 
 
 def fingerprint_html_watch_history(raw: bytes) -> dict:
@@ -370,9 +340,6 @@ def fingerprint_html_watch_history(raw: bytes) -> dict:
             "html_ts_match_frac": (n_ts / n_caption) if n_caption else 0.0,
         },
     }
-
-
-
 
 
 def fingerprint_zip(local_path: str, member_suffixes: list[str]) -> dict:
@@ -429,9 +396,6 @@ def fingerprint_zip(local_path: str, member_suffixes: list[str]) -> dict:
     }
 
 
-
-
-
 def compute_raw_stats(df: pd.DataFrame, size_bytes: int | None) -> dict:
     """Per-file sanity stats available right after ``load_single_raw``.
 
@@ -455,10 +419,9 @@ def compute_raw_stats(df: pd.DataFrame, size_bytes: int | None) -> dict:
     return stats
 
 
-
-
-
-def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame, outside_whitelist: int = 0) -> dict:
+def compute_processed_stats(
+    raw_rows: int, df_file: pd.DataFrame, outside_whitelist: int = 0
+) -> dict:
     """Per-file sanity stats on the processed (post ``process()``) rows.
 
     Args:
@@ -496,15 +459,9 @@ def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame, outside_whitel
     return stats
 
 
-
-
-
 def _new_stat_moments() -> dict:
     """Fresh running-moments record for one metric."""
     return {"count": 0, "mean": 0.0, "m2": 0.0, "min": None, "max": None}
-
-
-
 
 
 def _update_moments(moments: dict, x: float) -> None:
@@ -517,9 +474,6 @@ def _update_moments(moments: dict, x: float) -> None:
     moments["max"] = x if moments["max"] is None else max(moments["max"], x)
 
 
-
-
-
 def _std_of(moments: dict) -> float:
     """Sample standard deviation from running moments (0.0 when undefined)."""
     if moments["count"] < 2:
@@ -527,15 +481,9 @@ def _std_of(moments: dict) -> float:
     return math.sqrt(max(moments["m2"] / (moments["count"] - 1), 0.0))
 
 
-
-
-
 def _is_fraction_metric(metric: str) -> bool:
     """Whether a metric is a [0, 1] fraction (gets an absolute tolerance)."""
     return metric.startswith(FRACTION_METRICS_PREFIXES)
-
-
-
 
 
 def _empty_baseline() -> dict:
@@ -553,9 +501,6 @@ def _empty_baseline() -> dict:
     }
 
 
-
-
-
 def baseline_key(platform: str | None, source: str | None, variant: str | None = None) -> str:
     """Baseline dictionary key for one (platform, data_source) pair.
 
@@ -567,9 +512,6 @@ def baseline_key(platform: str | None, source: str | None, variant: str | None =
     """
     key = f"{platform}_{source}"
     return f"{key}__{variant}" if variant else key
-
-
-
 
 
 def load_baselines() -> dict:
@@ -585,9 +527,6 @@ def load_baselines() -> dict:
     return {"schema_version": 1, "baselines": {}}
 
 
-
-
-
 def save_baselines(state: dict) -> None:
     """Persist the baselines state."""
     data_io.save_json(
@@ -596,9 +535,6 @@ def save_baselines(state: dict) -> None:
         filename=STRUCTURE_BASELINES_FILENAME,
         verbose=False,
     )
-
-
-
 
 
 def load_verdicts() -> dict:
@@ -614,9 +550,6 @@ def load_verdicts() -> dict:
     return {"schema_version": 1, "files": {}}
 
 
-
-
-
 def save_verdicts(state: dict) -> None:
     """Persist the verdicts state."""
     data_io.save_json(
@@ -625,9 +558,6 @@ def save_verdicts(state: dict) -> None:
         filename=STRUCTURE_VERDICTS_FILENAME,
         verbose=False,
     )
-
-
-
 
 
 def learn_file(
@@ -691,17 +621,16 @@ def learn_file(
             )
 
     if new_paths and baseline["n_accepted"] > 1:
-        baseline["accepted_structures"].append({
-            "ts": _now_iso(),
-            "filename": filename,
-            "new_key_paths": new_paths[:100],
-            "approved_by": approved_by,
-        })
+        baseline["accepted_structures"].append(
+            {
+                "ts": _now_iso(),
+                "filename": filename,
+                "new_key_paths": new_paths[:100],
+                "approved_by": approved_by,
+            }
+        )
         baseline["accepted_structures"] = baseline["accepted_structures"][-MAX_ACCEPTED_STRUCTURES:]
     baseline["updated_at"] = _now_iso()
-
-
-
 
 
 def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
@@ -734,13 +663,15 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
     withheld: set[str] = set(missing_members)
     new_members = sorted(fp_members - set(baseline["member_paths"]))
     if new_members:
-        findings.append({
-            "layer": "structure",
-            "severity": additive_severity,
-            "code": "new_member",
-            "detail": f"{len(new_members)} previously unseen zip member(s)",
-            "items": new_members,
-        })
+        findings.append(
+            {
+                "layer": "structure",
+                "severity": additive_severity,
+                "code": "new_member",
+                "detail": f"{len(new_members)} previously unseen zip member(s)",
+                "items": new_members,
+            }
+        )
 
     core_typed = {p for p, c in baseline["key_paths"].items() if c / n >= CORE_PATH_SUPPORT}
     missing_core: list[str] = []
@@ -774,48 +705,53 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
             continue
         missing_core.append(typed_path)
     if type_changed:
-        findings.append({
-            "layer": "structure",
-            "severity": "quarantine",
-            "code": "type_changed",
-            "detail": f"{len(type_changed)} known key path(s) reappear with a different type",
-            "items": type_changed,
-        })
+        findings.append(
+            {
+                "layer": "structure",
+                "severity": "quarantine",
+                "code": "type_changed",
+                "detail": f"{len(type_changed)} known key path(s) reappear with a different type",
+                "items": type_changed,
+            }
+        )
     if missing_core:
-        findings.append({
-            "layer": "structure",
-            "severity": "quarantine",
-            "code": "missing_core_paths",
-            "detail": f"{len(missing_core)} known field(s) missing from section(s) the file contains",
-            "items": missing_core,
-        })
+        findings.append(
+            {
+                "layer": "structure",
+                "severity": "quarantine",
+                "code": "missing_core_paths",
+                "detail": f"{len(missing_core)} known field(s) missing from section(s) the file contains",
+                "items": missing_core,
+            }
+        )
 
     known_bases = {base_path_of(p) for p in baseline["key_paths"]}
     new_paths = sorted(p for p in fp_typed if base_path_of(p) not in known_bases)
     if new_paths:
-        findings.append({
-            "layer": "structure",
-            "severity": additive_severity,
-            "code": "new_key_paths",
-            "detail": f"{len(new_paths)} previously unseen key path(s)",
-            "items": new_paths[:100],
-        })
+        findings.append(
+            {
+                "layer": "structure",
+                "severity": additive_severity,
+                "code": "new_key_paths",
+                "detail": f"{len(new_paths)} previously unseen key path(s)",
+                "items": new_paths[:100],
+            }
+        )
 
     if withheld:
         # Not a finding: the donor's choice, recorded for the ledger and the
         # verdict so an admin can see what this donation does not contain.
-        findings.append({
-            "layer": "structure",
-            "severity": "note",
-            "code": "withheld_sections",
-            "detail": f"{len(withheld)} section(s) the baseline expects are not in this donation",
-            "items": sorted(withheld),
-        })
+        findings.append(
+            {
+                "layer": "structure",
+                "severity": "note",
+                "code": "withheld_sections",
+                "detail": f"{len(withheld)} section(s) the baseline expects are not in this donation",
+                "items": sorted(withheld),
+            }
+        )
 
     return findings
-
-
-
 
 
 def evaluate_stats(metrics: dict, activity_types: dict | None, baseline: dict) -> list[dict]:
@@ -833,25 +769,36 @@ def evaluate_stats(metrics: dict, activity_types: dict | None, baseline: dict) -
     findings: list[dict] = []
     n = baseline["n_accepted"]
 
-    if activity_types is not None and n >= MIN_ACCEPTED_FOR_STRUCTURE_CHECKS and baseline["activity_types"]:
+    if (
+        activity_types is not None
+        and n >= MIN_ACCEPTED_FOR_STRUCTURE_CHECKS
+        and baseline["activity_types"]
+    ):
         dominant = max(baseline["activity_types"], key=baseline["activity_types"].get)
-        if baseline["activity_types"][dominant] / n >= CORE_PATH_SUPPORT and dominant not in activity_types:
-            findings.append({
-                "layer": "stats",
-                "severity": "quarantine",
-                "code": "dominant_type_missing",
-                "detail": f"dominant activity type '{dominant}' absent from this file",
-                "items": [dominant],
-            })
+        if (
+            baseline["activity_types"][dominant] / n >= CORE_PATH_SUPPORT
+            and dominant not in activity_types
+        ):
+            findings.append(
+                {
+                    "layer": "stats",
+                    "severity": "quarantine",
+                    "code": "dominant_type_missing",
+                    "detail": f"dominant activity type '{dominant}' absent from this file",
+                    "items": [dominant],
+                }
+            )
         new_types = sorted(set(activity_types) - set(baseline["activity_types"]))
         if new_types:
-            findings.append({
-                "layer": "stats",
-                "severity": "quarantine" if ADDITIVE_QUARANTINES else "warn",
-                "code": "new_activity_type",
-                "detail": f"{len(new_types)} previously unseen activity type(s)",
-                "items": new_types,
-            })
+            findings.append(
+                {
+                    "layer": "stats",
+                    "severity": "quarantine" if ADDITIVE_QUARANTINES else "warn",
+                    "code": "new_activity_type",
+                    "detail": f"{len(new_types)} previously unseen activity type(s)",
+                    "items": new_types,
+                }
+            )
 
     if n < MIN_ACCEPTED_FOR_STAT_CHECKS:
         return findings
@@ -881,24 +828,25 @@ def evaluate_stats(metrics: dict, activity_types: dict | None, baseline: dict) -
             "z": round(z, 2),
         }
         if metric in HARD_STAT_METRICS and (abs(z) > STAT_Z_QUARANTINE or hard_range_breach):
-            finding.update({
-                "severity": "quarantine",
-                "code": "stat_outlier_hard",
-                "detail": f"'{metric}' = {x:.4g} vs accepted {mn:.4g}..{mx:.4g} (z = {z:.1f})",
-            })
+            finding.update(
+                {
+                    "severity": "quarantine",
+                    "code": "stat_outlier_hard",
+                    "detail": f"'{metric}' = {x:.4g} vs accepted {mn:.4g}..{mx:.4g} (z = {z:.1f})",
+                }
+            )
             findings.append(finding)
         elif abs(z) > STAT_Z_WARN or soft_range_breach:
-            finding.update({
-                "severity": "warn",
-                "code": "stat_outlier_soft",
-                "detail": f"'{metric}' = {x:.4g} vs accepted {mn:.4g}..{mx:.4g} (z = {z:.1f})",
-            })
+            finding.update(
+                {
+                    "severity": "warn",
+                    "code": "stat_outlier_soft",
+                    "detail": f"'{metric}' = {x:.4g} vs accepted {mn:.4g}..{mx:.4g} (z = {z:.1f})",
+                }
+            )
             findings.append(finding)
 
     return findings
-
-
-
 
 
 def evaluate_parse_floor(processed_stats: dict | None) -> list[dict]:
@@ -918,18 +866,17 @@ def evaluate_parse_floor(processed_stats: dict | None) -> list[dict]:
         return []
     kept = int(processed_stats.get("kept_rows") or 0)
     ingestible = int(processed_stats.get("ingestible_rows") or 0)
-    return [{
-        "layer": "stats",
-        "metric": "parse_rate",
-        "value": round(rate, 4),
-        "severity": "quarantine",
-        "code": "parse_rate_floor",
-        "detail": f"parser kept {kept:,} of {ingestible:,} ingestible rows ({rate:.1%}); "
-                  f"the floor is {PARSE_RATE_FLOOR:.0%} regardless of baseline",
-    }]
-
-
-
+    return [
+        {
+            "layer": "stats",
+            "metric": "parse_rate",
+            "value": round(rate, 4),
+            "severity": "quarantine",
+            "code": "parse_rate_floor",
+            "detail": f"parser kept {kept:,} of {ingestible:,} ingestible rows ({rate:.1%}); "
+            f"the floor is {PARSE_RATE_FLOOR:.0%} regardless of baseline",
+        }
+    ]
 
 
 def status_from_findings(findings: list[dict], n_accepted: int) -> str:
@@ -949,9 +896,6 @@ def status_from_findings(findings: list[dict], n_accepted: int) -> str:
     return "ok"
 
 
-
-
-
 def withheld_sections(findings: list[dict]) -> list[str]:
     """The sections a donation leaves out, from its structure findings."""
     for f in findings or []:
@@ -960,19 +904,11 @@ def withheld_sections(findings: list[dict]) -> list[str]:
     return []
 
 
-
-
-
 def _quarantine_codes(findings: list[dict]) -> set[tuple]:
     """The ``(layer, code)`` pairs of every quarantine-severity finding."""
     return {
-        (f.get("layer"), f.get("code"))
-        for f in findings or []
-        if f.get("severity") == "quarantine"
+        (f.get("layer"), f.get("code")) for f in findings or [] if f.get("severity") == "quarantine"
     }
-
-
-
 
 
 def apply_review(verdict: dict, prior: dict | None) -> dict:
@@ -1010,9 +946,6 @@ def apply_review(verdict: dict, prior: dict | None) -> dict:
     return verdict
 
 
-
-
-
 def review_is_newer(stored: dict | None, ts_evaluated: str | None) -> bool:
     """True when ``stored`` carries a review decided after ``ts_evaluated``.
 
@@ -1027,17 +960,11 @@ def review_is_newer(stored: dict | None, ts_evaluated: str | None) -> bool:
     return bool(reviewed_at) and reviewed_at > (ts_evaluated or "")
 
 
-
-
-
 def findings_digest(findings: list[dict]) -> str:
     """One-line human-readable digest of a findings list (for ledger notes)."""
     if not findings:
         return ""
     return "; ".join(f.get("detail", f.get("code", "?")) for f in findings[:6])
-
-
-
 
 
 class StructureSentinel:
@@ -1054,10 +981,6 @@ class StructureSentinel:
         observations: Per-filename records accumulated this run.
     """
 
-
-
-
-
     def __init__(self):
         self.baselines = load_baselines()
         self.observations: dict[str, dict] = {}
@@ -1069,20 +992,13 @@ class StructureSentinel:
             logger.warning(f"WARNING: could not read stored structure verdicts: {exc}")
             self.prior_verdicts = {}
 
-
-
-
-
     def _baseline_for(self, collection, variant: str | None = None) -> dict:
         key = baseline_key(collection.source_platform, collection.data_source, variant)
         return self.baselines["baselines"].setdefault(key, _empty_baseline())
 
-
-
-
-
-    def check_raw(self, collection, filename: str, df: pd.DataFrame,
-                  variant: str | None = None) -> dict:
+    def check_raw(
+        self, collection, filename: str, df: pd.DataFrame, variant: str | None = None
+    ) -> dict:
         """Phase A: fingerprint a freshly loaded raw file and run structure checks.
 
         Args:
@@ -1102,7 +1018,9 @@ class StructureSentinel:
         try:
             fingerprint = collection.fingerprint_raw(filename)
         except Exception as exc:
-            logger.warning(f"WARNING: fingerprinting failed for '{filename}': {exc}. Structure layer skipped.")
+            logger.warning(
+                f"WARNING: fingerprinting failed for '{filename}': {exc}. Structure layer skipped."
+            )
 
         try:
             size_bytes = data_io.getsize(storage_location=collection.raw_path, filename=filename)
@@ -1133,10 +1051,6 @@ class StructureSentinel:
         self.observations[filename] = verdict
         return verdict
 
-
-
-
-
     def check_processed(self, collection, filename: str, df_file: pd.DataFrame) -> dict:
         """Phase B: run parse-output sanity + drift checks on a file's processed rows.
 
@@ -1157,35 +1071,38 @@ class StructureSentinel:
         # The load loop's count includes records a parser dropped while
         # loading (record_load_count), which the outside-whitelist count
         # below also includes; the frame-based raw_stats count does not.
-        raw_rows = int(file_stats.get("raw_rows") or verdict["raw_stats"].get("raw_rows") or len(df_file))
+        raw_rows = int(
+            file_stats.get("raw_rows") or verdict["raw_stats"].get("raw_rows") or len(df_file)
+        )
         # Both are by-design, not parse failures: records in sections the
         # parser never reads, and identical share records merged into one
         # row per send (TikTok's multi-recipient shares).
         dropped = file_stats.get("dropped") or {}
-        outside = (int(dropped.get("outside_whitelist") or 0)
-                   + int(dropped.get("share_copies_merged") or 0))
+        outside = int(dropped.get("outside_whitelist") or 0) + int(
+            dropped.get("share_copies_merged") or 0
+        )
         processed_stats = compute_processed_stats(raw_rows, df_file, outside_whitelist=outside)
         verdict["processed_stats"] = processed_stats
 
         # parse_rate and ingestible_rows serve the floor, not the drift
         # comparison; kept_ratio remains the learned metric.
         metrics = {
-            k: v for stats in (verdict["raw_stats"], processed_stats)
+            k: v
+            for stats in (verdict["raw_stats"], processed_stats)
             for k, v in stats.items()
-            if isinstance(v, (int, float)) and not isinstance(v, bool)
+            if isinstance(v, (int, float))
+            and not isinstance(v, bool)
             and k not in ("raw_rows", "kept_rows", "file_size_mb", "parse_rate", "ingestible_rows")
         }
-        verdict["findings"] = verdict["findings"] + evaluate_parse_floor(processed_stats) + evaluate_stats(
-            metrics, processed_stats.get("activity_types"), baseline
+        verdict["findings"] = (
+            verdict["findings"]
+            + evaluate_parse_floor(processed_stats)
+            + evaluate_stats(metrics, processed_stats.get("activity_types"), baseline)
         )
         verdict["status"] = status_from_findings(verdict["findings"], baseline["n_accepted"])
         apply_review(verdict, self.prior_verdicts.get(filename))
         verdict["ts_evaluated"] = _now_iso()
         return verdict
-
-
-
-
 
     def commit(self, ingested_filenames: set[str]) -> None:
         """Learn ingested files into the baselines and persist all verdicts.
@@ -1200,7 +1117,10 @@ class StructureSentinel:
                 collection this run.
         """
         for filename, verdict in self.observations.items():
-            if verdict["status"] in ("ok", "warn", "learning", "approved") and filename in ingested_filenames:
+            if (
+                verdict["status"] in ("ok", "warn", "learning", "approved")
+                and filename in ingested_filenames
+            ):
                 key = baseline_key(verdict["platform"], verdict["source"], verdict.get("variant"))
                 baseline = self.baselines["baselines"].setdefault(key, _empty_baseline())
                 learn_file(
@@ -1226,9 +1146,6 @@ class StructureSentinel:
                 entry["fingerprint"] = verdict.get("fingerprint")
             stored["files"][filename] = entry
         save_verdicts(stored)
-
-
-
 
 
 def approve_file(filename: str, reviewed_by: str | None) -> dict:
@@ -1278,9 +1195,6 @@ def approve_file(filename: str, reviewed_by: str | None) -> dict:
     return entry
 
 
-
-
-
 def reject_file(filename: str, reviewed_by: str | None) -> dict:
     """Reject a quarantined file: mark the verdict; caller excludes it in the ledger.
 
@@ -1304,9 +1218,6 @@ def reject_file(filename: str, reviewed_by: str | None) -> dict:
     entry["review_action"] = "reject"
     save_verdicts(verdicts)
     return entry
-
-
-
 
 
 def review_queue() -> dict:

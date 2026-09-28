@@ -29,8 +29,6 @@ from fyp.scrape import scrape
 LABEL = "scrape_failed_items"
 
 
-
-
 def _fake_store(files: dict[str, list]):
     """Patch data_io so the scrape location serves ``files`` from memory.
 
@@ -49,8 +47,9 @@ def _fake_store(files: dict[str, list]):
         saved[filename] = data
         return 0
 
-    def fake_move(src_storage_location=None, dst_storage_location=None,
-                  filename=None, verbose=False):
+    def fake_move(
+        src_storage_location=None, dst_storage_location=None, filename=None, verbose=False
+    ):
         files.pop(filename, None)
 
     ctx = [
@@ -61,8 +60,6 @@ def _fake_store(files: dict[str, list]):
         patch.object(scrape, "_failed_scrapes_label", return_value=LABEL),
     ]
     return saved, ctx
-
-
 
 
 def _load(files: dict[str, list], detail: bool = False):
@@ -78,8 +75,6 @@ def _load(files: dict[str, list], detail: bool = False):
             c.stop()
 
 
-
-
 def test_legacy_bare_ids_still_load():
     """A pre-category record of bare id strings loads with no reason."""
     files = {f"{LABEL}_1.json": ["111", "222", 333]}
@@ -92,20 +87,18 @@ def test_legacy_bare_ids_still_load():
     print("PASS: legacy bare ids still load")
 
 
-
-
 def test_category_is_preserved():
     """A record written with categories round-trips them."""
-    files = {f"{LABEL}_1.json": [
-        {"item_id": "111", "category": "permanent:ip_blocked"},
-        {"item_id": "222", "category": "permanent:removed"},
-    ]}
+    files = {
+        f"{LABEL}_1.json": [
+            {"item_id": "111", "category": "permanent:ip_blocked"},
+            {"item_id": "222", "category": "permanent:removed"},
+        ]
+    }
 
     detail, _ = _load(dict(files), detail=True)
     assert detail == {"111": "permanent:ip_blocked", "222": "permanent:removed"}, detail
     print("PASS: category is preserved")
-
-
 
 
 def test_known_category_wins_over_legacy_id():
@@ -125,22 +118,20 @@ def test_known_category_wins_over_legacy_id():
     print("PASS: known category wins over legacy id")
 
 
-
-
 def test_load_failed_scrapes_contract_unchanged():
     """Callers still get a flat list of id strings, mixed shapes included."""
-    files = {f"{LABEL}_1.json": [
-        "111",
-        {"item_id": "222", "category": "permanent:ip_blocked"},
-    ]}
+    files = {
+        f"{LABEL}_1.json": [
+            "111",
+            {"item_id": "222", "category": "permanent:ip_blocked"},
+        ]
+    }
 
     ids, _ = _load(dict(files))
     assert isinstance(ids, list)
     assert all(isinstance(one_id, str) for one_id in ids), ids
     assert set(ids) == {"111", "222"}, ids
     print("PASS: load_failed_scrapes contract unchanged")
-
-
 
 
 def test_consolidation_preserves_legacy_ids_and_categories():
@@ -162,8 +153,6 @@ def test_consolidation_preserves_legacy_ids_and_categories():
     print("PASS: consolidation preserves legacy ids and categories")
 
 
-
-
 def test_consolidated_output_reloads_identically():
     """The consolidated file is itself loadable — no one-way shape change."""
     files = {
@@ -178,8 +167,6 @@ def test_consolidated_output_reloads_identically():
     print("PASS: consolidated output reloads identically")
 
 
-
-
 def _failure(category: str) -> pd.DataFrame:
     """An empty fetch result carrying a failure category, like a real miss."""
     empty = pd.DataFrame()
@@ -187,18 +174,26 @@ def _failure(category: str) -> pd.DataFrame:
     return empty
 
 
-
-
 def _metadata_row(item_id: str) -> pd.DataFrame:
     """A >10-column single-row frame like a real fetch result."""
-    return pd.DataFrame([{
-        "item_id": item_id, "desc": "x", "create_time_raw": pd.Timestamp("2026-01-01"),
-        "duration_raw": 30, "author_id": "a", "author_handle": "@a",
-        "author_name_raw": "A", "play_count_raw": 1, "fave_count_raw": 0,
-        "comment_count_raw": 0, "share_count_raw": 0, "video_downloaded": True,
-    }])
-
-
+    return pd.DataFrame(
+        [
+            {
+                "item_id": item_id,
+                "desc": "x",
+                "create_time_raw": pd.Timestamp("2026-01-01"),
+                "duration_raw": 30,
+                "author_id": "a",
+                "author_handle": "@a",
+                "author_name_raw": "A",
+                "play_count_raw": 1,
+                "fave_count_raw": 0,
+                "comment_count_raw": 0,
+                "share_count_raw": 0,
+                "video_downloaded": True,
+            }
+        ]
+    )
 
 
 def _run_and_capture(ids, fake_dl, **patches):
@@ -216,29 +211,35 @@ def _run_and_capture(ids, fake_dl, **patches):
 
     with ExitStack() as stack:
         stack.enter_context(patch.object(scrape, "download_single_video", side_effect=fake_dl))
-        stack.enter_context(patch.object(scrape, "_canonicalize_recode_save",
-                                         side_effect=lambda results, *a, **kw: results))
+        stack.enter_context(
+            patch.object(
+                scrape, "_canonicalize_recode_save", side_effect=lambda results, *a, **kw: results
+            )
+        )
         stack.enter_context(patch.object(scrape.data_io, "save_json", fake_save_json))
-        stack.enter_context(patch.object(scrape.scrape_versioning,
-                                         "ensure_active_version_registered", lambda: None))
+        stack.enter_context(
+            patch.object(scrape.scrape_versioning, "ensure_active_version_registered", lambda: None)
+        )
         for name, value in patches.items():
             stack.enter_context(patch.object(scrape, name, return_value=value))
         _, perm, trans = scrape.download_video_threads(
-            interesting_videos=ids, max_workers=1,
-            dry_run=False, platform="tiktok")
+            interesting_videos=ids, max_workers=1, dry_run=False, platform="tiktok"
+        )
 
     return captured, perm, trans
 
 
-
-
-@pytest.mark.parametrize("category,expected", [
-    ("ip_blocked", "permanent:ip_blocked"),
-    ("removed", "permanent:removed"),
-    ("network", "transient:network"),
-])
+@pytest.mark.parametrize(
+    "category,expected",
+    [
+        ("ip_blocked", "permanent:ip_blocked"),
+        ("removed", "permanent:removed"),
+        ("network", "transient:network"),
+    ],
+)
 def test_writer_records_the_category(category, expected):
     """Each recorded failure carries the scraper's own classification."""
+
     def fake_dl(video_id=None, **kwargs):
         return _metadata_row(video_id) if video_id == "ok1" else _failure(category)
 
@@ -246,8 +247,6 @@ def test_writer_records_the_category(category, expected):
 
     assert captured["payload"] == [{"item_id": "v1", "category": expected}], captured
     print(f"PASS: writer records the category ({category})")
-
-
 
 
 def test_storm_verdict_never_reaches_the_record():
@@ -262,8 +261,7 @@ def test_storm_verdict_never_reaches_the_record():
     def fake_dl(video_id=None, **kwargs):
         return _metadata_row(video_id) if video_id == "ok1" else _failure("removed")
 
-    captured, perm, trans = _run_and_capture(
-        ids, fake_dl, _permanent_storm_threshold=3)
+    captured, perm, trans = _run_and_capture(ids, fake_dl, _permanent_storm_threshold=3)
 
     assert perm == [], f"storm ids must not be marked permanent: {perm}"
     assert set(trans) == set(ids) - {"ok1"}, "storm ids must stay queued"
@@ -273,7 +271,6 @@ def test_storm_verdict_never_reaches_the_record():
     print("PASS: storm verdict never reaches the record")
 
 
-
 def test_all_failed_batch_still_writes_the_record():
     """A batch where every item failed permanently records every failure.
 
@@ -281,6 +278,7 @@ def test_all_failed_batch_still_writes_the_record():
     nothing: consolidation never marked the videos scrape_fail and the
     enrichment planner re-cut the same dead video every cycle (2026-09-08).
     """
+
     def fake_dl(video_id=None, **kwargs):
         return _failure("removed")
 
@@ -302,26 +300,27 @@ if __name__ == "__main__":
     test_load_failed_scrapes_contract_unchanged()
     test_consolidation_preserves_legacy_ids_and_categories()
     test_consolidated_output_reloads_identically()
-    for _cat, _exp in [("ip_blocked", "permanent:ip_blocked"),
-                       ("removed", "permanent:removed"),
-                       ("network", "transient:network")]:
+    for _cat, _exp in [
+        ("ip_blocked", "permanent:ip_blocked"),
+        ("removed", "permanent:removed"),
+        ("network", "transient:network"),
+    ]:
         test_writer_records_the_category(_cat, _exp)
     test_storm_verdict_never_reaches_the_record()
     test_all_failed_batch_still_writes_the_record()
     print("All failed-scrape record tests passed.")
 
 
-
-
-
 def test_retryable_failures_do_not_read_as_failed():
     """Only final failures (and legacy bare ids) feed scrape_fail."""
-    files = {f"{LABEL}_1.json": [
-        "111",
-        {"item_id": "222", "category": "permanent:removed"},
-        {"item_id": "333", "category": "transient:timeout"},
-        {"item_id": "444", "category": "transient:batch_aborted"},
-    ]}
+    files = {
+        f"{LABEL}_1.json": [
+            "111",
+            {"item_id": "222", "category": "permanent:removed"},
+            {"item_id": "333", "category": "transient:timeout"},
+            {"item_id": "444", "category": "transient:batch_aborted"},
+        ]
+    }
 
     ids, _ = _load(dict(files))
     assert set(ids) == {"111", "222"}, ids
@@ -329,8 +328,6 @@ def test_retryable_failures_do_not_read_as_failed():
     detail, _ = _load(dict(files), detail=True)
     assert detail["333"] == "transient:timeout", detail
     print("PASS: retryable failures do not read as failed")
-
-
 
 
 def test_latest_record_wins_whatever_the_listing_order():
@@ -353,4 +350,3 @@ def test_latest_record_wins_whatever_the_listing_order():
     ids, _ = _load(dict(gave_up))
     assert ids == ["111"], ids
     print("PASS: latest record wins whatever the listing order")
-

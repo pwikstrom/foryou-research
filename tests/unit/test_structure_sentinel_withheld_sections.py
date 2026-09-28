@@ -49,7 +49,11 @@ def test_watch_history_only_donation_is_ok_with_the_rest_noted():
     assert _codes(findings) == {("note", "withheld_sections")}
     assert ss.status_from_findings(findings, 20) == "ok"
     assert ss.withheld_sections(findings) == [
-        "Income+ Wallet", "Likes and Favorites", "Profile And Settings", "Your Activity.Searches"]
+        "Income+ Wallet",
+        "Likes and Favorites",
+        "Profile And Settings",
+        "Your Activity.Searches",
+    ]
 
 
 def test_renamed_field_inside_a_present_section_quarantines():
@@ -79,16 +83,25 @@ def test_empty_container_forms_are_not_drift():
     # Baseline: nobody bought coins (null). This donor did (populated list),
     # another donor has an empty list. Neither is a type change.
     populated = [p for p in FULL if "CoinPurchase" not in p] + [
-        "Income+ Wallet.Coin Purchase History.CoinPurchaseHistoryList[].Date|str"]
-    assert ss.status_from_findings(ss.evaluate_structure(_fp(populated), _baseline()), 20) == "warn"  # new paths only
-    assert ("quarantine", "type_changed") not in _codes(ss.evaluate_structure(_fp(populated), _baseline()))
-    empty = [p.replace("CoinPurchaseHistoryList|null", "CoinPurchaseHistoryList|list") for p in FULL]
+        "Income+ Wallet.Coin Purchase History.CoinPurchaseHistoryList[].Date|str"
+    ]
+    assert (
+        ss.status_from_findings(ss.evaluate_structure(_fp(populated), _baseline()), 20) == "warn"
+    )  # new paths only
+    assert ("quarantine", "type_changed") not in _codes(
+        ss.evaluate_structure(_fp(populated), _baseline())
+    )
+    empty = [
+        p.replace("CoinPurchaseHistoryList|null", "CoinPurchaseHistoryList|list") for p in FULL
+    ]
     assert ss.status_from_findings(ss.evaluate_structure(_fp(empty), _baseline()), 20) == "ok"
 
 
 def test_empty_list_in_the_file_is_a_withheld_section_not_missing_fields():
     # The donor has no searches: the list is [] so its record fields are absent.
-    paths = [p for p in FULL if "SearchList[]" not in p] + ["Your Activity.Searches.SearchList|list"]
+    paths = [p for p in FULL if "SearchList[]" not in p] + [
+        "Your Activity.Searches.SearchList|list"
+    ]
     findings = ss.evaluate_structure(_fp(paths), _baseline())
     assert ("quarantine", "missing_core_paths") not in _codes(findings)
     assert ss.withheld_sections(findings) == ["Your Activity.Searches.SearchList[]"]
@@ -110,9 +123,19 @@ def test_container_and_withheld_root_helpers():
     assert ss.container_of("a.b") == "a"
     assert ss.container_of("a") is None
     present = ss._ancestors_present({"Your Activity.Watch History.VideoList[].Date"})
-    assert {"Your Activity", "Your Activity.Watch History", "Your Activity.Watch History.VideoList[]"} <= present
-    assert ss.withheld_root("Profile And Settings.Follower.FansList[].Date", present) == "Profile And Settings"
-    assert ss.withheld_root("Your Activity.Searches.SearchList[].Date", present) == "Your Activity.Searches"
+    assert {
+        "Your Activity",
+        "Your Activity.Watch History",
+        "Your Activity.Watch History.VideoList[]",
+    } <= present
+    assert (
+        ss.withheld_root("Profile And Settings.Follower.FansList[].Date", present)
+        == "Profile And Settings"
+    )
+    assert (
+        ss.withheld_root("Your Activity.Searches.SearchList[].Date", present)
+        == "Your Activity.Searches"
+    )
     assert ss.withheld_root("Your Activity.Watch History.VideoList[].Link", present) is None
 
 
@@ -133,7 +156,11 @@ def test_verdict_and_ledger_note_carry_withheld_sections(monkeypatch):
     assert verdict["withheld_sections"][0] == "Income+ Wallet"
 
     from web_interface.run_ingest_refresh import _withheld_note
-    assert _withheld_note({"withheld_sections": ["Post", "TikTok Live"]}) == "Uploader withheld: Post, TikTok Live"
+
+    assert (
+        _withheld_note({"withheld_sections": ["Post", "TikTok Live"]})
+        == "Uploader withheld: Post, TikTok Live"
+    )
     assert _withheld_note({}) is None
 
 

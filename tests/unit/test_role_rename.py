@@ -29,10 +29,6 @@ import pandas as pd
 import fyp.annotation.recode_variables as rv
 
 
-
-
-
-
 def test_alias_map_total_and_disjoint() -> None:
     """Every old value maps to a current one; no alias collides with a role."""
     assert set(rv.LEGACY_ROLE_ALIASES) == {"group_factor", "factor", "feature"}
@@ -46,24 +42,14 @@ def test_alias_map_total_and_disjoint() -> None:
     assert rv.normalize_role("skip") == "skip"
 
 
-
-
-
-
 def test_live_var_schema_has_only_new_roles() -> None:
     """Post-load normalization leaves no legacy role string in the live schema."""
     from fyp.core.fyp_config import fyp_cf
 
     roles = set(str(r) for r in fyp_cf["var_schema"]["role"].dropna().unique())
     legacy_seen = roles & set(rv.LEGACY_ROLE_ALIASES)
-    assert not legacy_seen, (
-        f"load_var_schema left legacy role value(s) {legacy_seen} un-normalized"
-    )
+    assert not legacy_seen, f"load_var_schema left legacy role value(s) {legacy_seen} un-normalized"
     assert roles <= set(rv.VAR_SCHEMA_ROLES) | {""}
-
-
-
-
 
 
 def test_validators_accept_legacy_roles() -> None:
@@ -83,10 +69,6 @@ def test_validators_accept_legacy_roles() -> None:
     assert not role_errors, role_errors
 
 
-
-
-
-
 def test_get_vars_by_role_filters_and_normalizes(monkeypatch) -> None:
     schema = pd.DataFrame(
         {
@@ -103,10 +85,6 @@ def test_get_vars_by_role_filters_and_normalizes(monkeypatch) -> None:
     assert rv.get_vars_by_role(("measure",)) == ["score"]
     df = pd.DataFrame(columns=["cid", "score"])
     assert rv.get_vars_by_role(("grouping", "measure"), some_events_df=df) == ["cid", "score"]
-
-
-
-
 
 
 def test_legacy_getters_reproduce_pre_rename_selections(monkeypatch) -> None:

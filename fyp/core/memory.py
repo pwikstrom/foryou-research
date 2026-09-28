@@ -35,34 +35,19 @@ _MEM_PROCESS = psutil.Process()
 _RU_MAXRSS_DIVISOR_TO_MB = 1024 * 1024 if sys.platform == "darwin" else 1024
 
 
-
-
-
-
 def rss_mb() -> float:
     """Current process resident-set size in MB."""
     return _MEM_PROCESS.memory_info().rss / (1024 * 1024)
 
 
-
-
-
-
 def peak_rss_mb() -> float:
     """High-water-mark RSS of this process since startup, in MB."""
     if _resource is not None:
-        return (
-            _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
-            / _RU_MAXRSS_DIVISOR_TO_MB
-        )
+        return _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / _RU_MAXRSS_DIVISOR_TO_MB
     # Windows: `resource` is unavailable; psutil exposes the peak working set.
     mem = _MEM_PROCESS.memory_info()
     peak_bytes = getattr(mem, "peak_wset", None) or mem.rss
     return peak_bytes / (1024 * 1024)
-
-
-
-
 
 
 def df_size_mb(df) -> float:
@@ -70,13 +55,8 @@ def df_size_mb(df) -> float:
     return df.memory_usage(deep=True).sum() / (1024**2)
 
 
-
-
-
-
 @contextmanager
-def mem_probe(tag: str, phase: str, log: Callable[[str], None] | None = None,
-              **extra):
+def mem_probe(tag: str, phase: str, log: Callable[[str], None] | None = None, **extra):
     """Measure one phase's memory footprint and log a ``[<TAG>][MEM]`` line.
 
     Args:

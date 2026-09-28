@@ -24,22 +24,58 @@ def _stored_frame() -> pd.DataFrame:
     """Two TikTok files and one Instagram file, as the parquet held them."""
     rows = [
         # raw_file, platform, source, cid, activity, item, ts, extra
-        ("a.json", "tiktok", "ddp", "c1", "play",      "1001", _ts(0),    None),
-        ("a.json", "tiktok", "ddp", "c1", "fave",      "1001", _ts(30),   None),   # a real like
-        ("a.json", "tiktok", "ddp", "c1", "play",      "1002", _ts(60),   None),
-        ("a.json", "tiktok", "ddp", "c1", "fave",      "1002", _ts(90),   None),   # a bookmark stored as fave
-        ("a.json", "tiktok", "ddp", "c1", "play",      "1003", _ts(120),  None),
-        ("a.json", "tiktok", "ddp", "c1", "following", None,   _ts(150),  "creator"),
-        ("a.json", "tiktok", "ddp", "c1", "comment",   "1003", _ts(160),  "nice"),
-        ("b.json", "tiktok", "aio", "c2", "play",      "2001", _ts(0),    None),
-        ("b.json", "tiktok", "aio", "c2", "fave",      "2001", _ts(20),   None),   # raw missing → left alone
-        ("ig.zip", "instagram", "ddp", "c3", "play",   "S1",   _ts(0),    None),
-        ("ig.zip", "instagram", "ddp", "c3", "fave",   "S1",   _ts(40),   None),
+        ("a.json", "tiktok", "ddp", "c1", "play", "1001", _ts(0), None),
+        ("a.json", "tiktok", "ddp", "c1", "fave", "1001", _ts(30), None),  # a real like
+        ("a.json", "tiktok", "ddp", "c1", "play", "1002", _ts(60), None),
+        (
+            "a.json",
+            "tiktok",
+            "ddp",
+            "c1",
+            "fave",
+            "1002",
+            _ts(90),
+            None,
+        ),  # a bookmark stored as fave
+        ("a.json", "tiktok", "ddp", "c1", "play", "1003", _ts(120), None),
+        ("a.json", "tiktok", "ddp", "c1", "following", None, _ts(150), "creator"),
+        ("a.json", "tiktok", "ddp", "c1", "comment", "1003", _ts(160), "nice"),
+        ("b.json", "tiktok", "aio", "c2", "play", "2001", _ts(0), None),
+        (
+            "b.json",
+            "tiktok",
+            "aio",
+            "c2",
+            "fave",
+            "2001",
+            _ts(20),
+            None,
+        ),  # raw missing → left alone
+        ("ig.zip", "instagram", "ddp", "c3", "play", "S1", _ts(0), None),
+        ("ig.zip", "instagram", "ddp", "c3", "fave", "S1", _ts(40), None),
     ]
-    df = pd.DataFrame(rows, columns=[
-        "raw_file", "source_platform", "data_source", "collection_id",
-        "activity_type", "item_id", "utc_timestamp", "extra_data"])
-    for col in ("raw_file", "source_platform", "data_source", "collection_id", "activity_type", "item_id", "extra_data"):
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "raw_file",
+            "source_platform",
+            "data_source",
+            "collection_id",
+            "activity_type",
+            "item_id",
+            "utc_timestamp",
+            "extra_data",
+        ],
+    )
+    for col in (
+        "raw_file",
+        "source_platform",
+        "data_source",
+        "collection_id",
+        "activity_type",
+        "item_id",
+        "extra_data",
+    ):
         df[col] = df[col].astype("string[pyarrow]")
     df["utc_timestamp"] = df["utc_timestamp"].astype("timestamp[ns, tz=UTC][pyarrow]")
     df["tz_offset"] = pd.Series([10] * len(df), dtype="int64[pyarrow]")
@@ -48,7 +84,9 @@ def _stored_frame() -> pd.DataFrame:
     df.loc[[0, 2], "extra_data"] = pd.array(["fave", "fave"], dtype="string[pyarrow]")
     df.loc[[0, 2], "link_method"] = pd.array(["adjacent", "adjacent"], dtype="string[pyarrow]")
     df.loc[6, "link_method"] = "ffill_180s"
-    df["play_duration"] = pd.Series([60, pd.NA, 60, pd.NA, 40, pd.NA, pd.NA, 20, pd.NA, 40, pd.NA], dtype="int64[pyarrow]")
+    df["play_duration"] = pd.Series(
+        [60, pd.NA, 60, pd.NA, 40, pd.NA, pd.NA, 20, pd.NA, 40, pd.NA], dtype="int64[pyarrow]"
+    )
     return df
 
 
@@ -57,22 +95,36 @@ def _raw_a() -> dict:
     link = "https://www.tiktokv.com/share/video/{}/"
     return {
         "Your Activity": {
-            "Watch History": {"VideoList": [
-                {"Date": "2026-05-01 10:00:00", "Link": link.format(1001)},
-                {"Date": "2026-05-01 10:01:00", "Link": link.format(1002)},
-                {"Date": "2026-05-01 10:02:00", "Link": link.format(1003)},
-            ]},
-            "Share History": {"ShareHistoryList": [
-                {"Date": "2026-05-01 10:00:45", "SharedContent": "share_video",
-                 "Link": link.format(1001), "Method": "copy_link"},
-            ]},
-            "Reposts": {"RepostList": [
-                {"Date": "2026-05-01 10:02:10", "Link": link.format(1003)},
-            ]},
+            "Watch History": {
+                "VideoList": [
+                    {"Date": "2026-05-01 10:00:00", "Link": link.format(1001)},
+                    {"Date": "2026-05-01 10:01:00", "Link": link.format(1002)},
+                    {"Date": "2026-05-01 10:02:00", "Link": link.format(1003)},
+                ]
+            },
+            "Share History": {
+                "ShareHistoryList": [
+                    {
+                        "Date": "2026-05-01 10:00:45",
+                        "SharedContent": "share_video",
+                        "Link": link.format(1001),
+                        "Method": "copy_link",
+                    },
+                ]
+            },
+            "Reposts": {
+                "RepostList": [
+                    {"Date": "2026-05-01 10:02:10", "Link": link.format(1003)},
+                ]
+            },
         },
         "Likes and Favorites": {
-            "Like List": {"ItemFavoriteList": [{"date": "2026-05-01 10:00:30", "link": link.format(1001)}]},
-            "Favorite Videos": {"FavoriteVideoList": [{"Date": "2026-05-01 10:01:30", "Link": link.format(1002)}]},
+            "Like List": {
+                "ItemFavoriteList": [{"date": "2026-05-01 10:00:30", "link": link.format(1001)}]
+            },
+            "Favorite Videos": {
+                "FavoriteVideoList": [{"Date": "2026-05-01 10:01:30", "Link": link.format(1002)}]
+            },
         },
     }
 
@@ -82,6 +134,7 @@ def _loader(calls=None):
         if calls is not None:
             calls.append((data_source, raw_file))
         return _raw_a() if raw_file == "a.json" else None
+
     return load
 
 
@@ -90,7 +143,9 @@ def test_bookmarks_become_saves_and_the_fold_follows():
 
     a = out[out["raw_file"] == "a.json"].sort_values("utc_timestamp").reset_index(drop=True)
     assert a.loc[a["item_id"] == "1002", "activity_type"].tolist() == ["play", "save"]
-    assert a.loc[a["item_id"] == "1001", "activity_type"].tolist() == ["play", "fave"], "a real like stays a like"
+    assert a.loc[a["item_id"] == "1001", "activity_type"].tolist() == ["play", "fave"], (
+        "a real like stays a like"
+    )
     plays = a[a["activity_type"] == "play"].set_index("item_id")
     assert plays.loc["1002", "extra_data"] == "save"
     assert plays.loc["1001", "extra_data"] == "fave"
@@ -106,7 +161,9 @@ def test_parser_written_link_method_survives_the_refold():
     comment = out[(out["activity_type"] == "comment")].iloc[0]
     assert comment["link_method"] == "ffill_180s"
     play = out[(out["activity_type"] == "play") & (out["item_id"] == "1003")].iloc[0]
-    assert play["link_method"] == "nearest_play", "the follow row sits between the play and its comment"
+    assert play["link_method"] == "nearest_play", (
+        "the follow row sits between the play and its comment"
+    )
 
 
 def test_missing_raw_and_other_platforms_are_left_alone():
@@ -134,7 +191,9 @@ def test_version_stamp_and_idempotency():
 
 
 def test_append_new_sections_adds_shares_once():
-    out, report = mig.migrate(_stored_frame(), _loader(), append_new_sections=True, log=lambda *_: None)
+    out, report = mig.migrate(
+        _stored_frame(), _loader(), append_new_sections=True, log=lambda *_: None
+    )
     shares = out[out["activity_type"] == "share"].sort_values("utc_timestamp")
     assert len(shares) == 2 and report["append"]["appended"] == 2
     assert shares["extra_data"].tolist() == ["copy_link", "repost"]
@@ -142,9 +201,13 @@ def test_append_new_sections_adds_shares_once():
     assert shares["tz_offset"].tolist() == [10, 10]
     assert shares["local_date"].notna().all(), "local-time features derived for the new rows"
     assert out["session_id"].notna().all(), "session ids reassigned across the enlarged frame"
-    plays = out[(out["raw_file"] == "a.json") & (out["activity_type"] == "play")].set_index("item_id")
+    plays = out[(out["raw_file"] == "a.json") & (out["activity_type"] == "play")].set_index(
+        "item_id"
+    )
     assert plays.loc["1001", "extra_data"] == "fave,share:copy_link"
-    assert plays.loc["1003", "extra_data"] == "share:repost,comment:nice", "the repost is adjacent, the comment folds after"
+    assert plays.loc["1003", "extra_data"] == "share:repost,comment:nice", (
+        "the repost is adjacent, the comment folds after"
+    )
 
     again, r2 = mig.migrate(out, _loader(), append_new_sections=True, log=lambda *_: None)
     assert r2["append"]["appended"] == 0
@@ -161,10 +224,18 @@ def test_default_loader_falls_back_to_every_tiktok_raw_location(monkeypatch):
     import fyp.core.data_io as data_io
 
     seen = []
-    monkeypatch.setattr(data_io, "exists",
-                        lambda storage_location=None, filename=None, **kw: seen.append(storage_location) or storage_location == "aio_raw")
-    monkeypatch.setattr(data_io, "load_json",
-                        lambda storage_location=None, filename=None, **kw: {"from": storage_location})
+    monkeypatch.setattr(
+        data_io,
+        "exists",
+        lambda storage_location=None, filename=None, **kw: (
+            seen.append(storage_location) or storage_location == "aio_raw"
+        ),
+    )
+    monkeypatch.setattr(
+        data_io,
+        "load_json",
+        lambda storage_location=None, filename=None, **kw: {"from": storage_location},
+    )
     assert mig.default_raw_loader("ddp", "uuid-file") == {"from": "aio_raw"}
     assert seen == ["ddp_raw", "aio_raw"], "the named source is tried first, then the rest"
     seen.clear()
@@ -174,10 +245,18 @@ def test_default_loader_falls_back_to_every_tiktok_raw_location(monkeypatch):
 
 def _raw_a_with_multi_recipient_send() -> dict:
     raw = _raw_a()
-    send = {"Date": "2026-05-01 10:01:40", "SharedContent": "video",
-            "Link": "https://www.tiktokv.com/share/video/1002/", "Method": "chat_head"}
-    raw["Your Activity"]["Share History"]["ShareHistoryList"] += [dict(send), dict(send), dict(send),
-                                                                  {**send, "Method": "copy"}]
+    send = {
+        "Date": "2026-05-01 10:01:40",
+        "SharedContent": "video",
+        "Link": "https://www.tiktokv.com/share/video/1002/",
+        "Method": "chat_head",
+    }
+    raw["Your Activity"]["Share History"]["ShareHistoryList"] += [
+        dict(send),
+        dict(send),
+        dict(send),
+        {**send, "Method": "copy"},
+    ]
     return raw
 
 
@@ -189,9 +268,13 @@ def test_recount_rebuilds_stored_shares_one_row_per_send_with_its_count():
     load = lambda ds, rf: _raw_a_with_multi_recipient_send() if rf == "a.json" else None
     appended, _ = mig.migrate(_stored_frame(), load, append_new_sections=True, log=lambda *_: None)
     # What the ingest dedupe then left behind: one bare row per (video, second).
-    collapsed = appended.drop_duplicates(subset=["collection_id", "item_id", "utc_timestamp", "activity_type"])
+    collapsed = appended.drop_duplicates(
+        subset=["collection_id", "item_id", "utc_timestamp", "activity_type"]
+    )
     assert sorted(collapsed.loc[collapsed["activity_type"] == "share", "extra_data"]) in (
-        ["chat_head ×3", "copy_link", "repost"], ["copy", "copy_link", "repost"])
+        ["chat_head ×3", "copy_link", "repost"],
+        ["copy", "copy_link", "repost"],
+    )
 
     out, report = mig.migrate(collapsed, load, recount_shares=True, log=lambda *_: None)
     shares = out[out["activity_type"] == "share"]
@@ -201,5 +284,7 @@ def test_recount_rebuilds_stored_shares_one_row_per_send_with_its_count():
     assert "share:chat_head ×3" in play["extra_data"].split(",")
 
     again, r2 = mig.migrate(out, load, recount_shares=True, log=lambda *_: None)
-    assert sorted(again.loc[again["activity_type"] == "share", "extra_data"]) == sorted(shares["extra_data"])
+    assert sorted(again.loc[again["activity_type"] == "share", "extra_data"]) == sorted(
+        shares["extra_data"]
+    )
     assert len(again) == len(out)

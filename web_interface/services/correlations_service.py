@@ -72,17 +72,9 @@ SCATTER_SAMPLE_SEED = 0
 _VALID_CORRELATION_METHODS = ("pearson", "spearman")
 
 
-
-
-
-
 def corr_setting(key):
     """Return a ``[correlations]`` config value, falling back to the default."""
     return fyp_cf.get("correlations", {}).get(key, _CORR_DEFAULTS[key])
-
-
-
-
 
 
 def correlation_method() -> str:
@@ -94,28 +86,20 @@ def correlation_method() -> str:
     return method
 
 
-
-
-
-
 def format_week_value(value) -> str:
     """Normalise a week label to zero-padded ``YYYY-WW``; pass other values through.
 
     Accepts both ``2025-3`` and ``2025-W3`` style labels.
     """
     v_str = str(value)
-    parts = v_str.split('-')
+    parts = v_str.split("-")
     if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4:
         week = parts[1]
-        if week.lower().startswith('w'):
+        if week.lower().startswith("w"):
             week = week[1:]
         if week.isdigit():
             return f"{parts[0]}-{int(week):02d}"
     return v_str
-
-
-
-
 
 
 def total_videos(df: pd.DataFrame) -> int | None:
@@ -132,15 +116,12 @@ def total_videos(df: pd.DataFrame) -> int | None:
     return None if pd.isna(total) else int(total)
 
 
-
-
-
-
 def load_interpretations(study: str) -> dict:
     """Load ``{study}_comp_interpretations.json`` from cache, or {} if absent.
 
     Composed (Everyone & Me) studies serve the base study's artifact."""
     from .study_data import resolve_artifact_study
+
     study = resolve_artifact_study(study)
     try:
         inter_path = f"{study}_comp_interpretations.json"
@@ -151,10 +132,6 @@ def load_interpretations(study: str) -> dict:
     except Exception as e:
         logger.warning(f"Error loading interpretations for {study}: {e}")
     return {}
-
-
-
-
 
 
 def filter_components_by_variance(numeric_cols, interpretations):
@@ -187,7 +164,7 @@ def filter_components_by_variance(numeric_cols, interpretations):
     max_per_variable = max(1, int(corr_setting("max_components_per_variable")))
 
     # Match PCA components (e.g., ends with _C and a number like _C1)
-    pca_pattern = re.compile(r'_C\d+$')
+    pca_pattern = re.compile(r"_C\d+$")
 
     by_variable: dict[str, list[tuple[str, float]]] = {}
     non_pca_cols = []
@@ -198,12 +175,12 @@ def filter_components_by_variance(numeric_cols, interpretations):
             non_pca_cols.append(col)
             continue
         var_val = 0.0
-        if col in interpretations and 'explained_variance_pct' in interpretations[col]:
+        if col in interpretations and "explained_variance_pct" in interpretations[col]:
             try:
-                var_val = float(interpretations[col]['explained_variance_pct'])
+                var_val = float(interpretations[col]["explained_variance_pct"])
             except (ValueError, TypeError):
                 pass
-        base = col[:match.start()]
+        base = col[: match.start()]
         by_variable.setdefault(base, []).append((col, var_val))
 
     if not by_variable:
@@ -219,10 +196,6 @@ def filter_components_by_variance(numeric_cols, interpretations):
     return sorted(non_pca_cols + filtered_cols)
 
 
-
-
-
-
 def apply_within_collection_centering(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:
     """Subtract each collection's mean from ``cols`` (a fixed-effects move).
 
@@ -234,18 +207,14 @@ def apply_within_collection_centering(df: pd.DataFrame, cols) -> tuple[pd.DataFr
     return center_within_collection(df, cols)
 
 
-
-
-
-
 def compute_regression_stats(x, y) -> dict | None:
     """OLS regression readout for the scatter: slope, 95% CI, r, R², p, n.
 
     Computed on the full filtered set (never the display sample). Returns
     None when fewer than 3 paired observations or a degenerate x.
     """
-    x = pd.to_numeric(pd.Series(list(x)), errors='coerce').astype('float64')
-    y = pd.to_numeric(pd.Series(list(y)), errors='coerce').astype('float64')
+    x = pd.to_numeric(pd.Series(list(x)), errors="coerce").astype("float64")
+    y = pd.to_numeric(pd.Series(list(y)), errors="coerce").astype("float64")
     mask = x.notna() & y.notna()
     x, y = x[mask].to_numpy(), y[mask].to_numpy()
     n = len(x)
@@ -265,18 +234,15 @@ def compute_regression_stats(x, y) -> dict | None:
         "ci_low": float(res.slope - t_crit * res.stderr),
         "ci_high": float(res.slope + t_crit * res.stderr),
         "r": float(res.rvalue),
-        "r2": float(res.rvalue ** 2),
+        "r2": float(res.rvalue**2),
         "p": float(res.pvalue),
         "n": int(n),
     }
 
 
-
-
-
-
-def compute_group_ellipses(df: pd.DataFrame, x_col: str, y_col: str,
-                           color_col: str | None) -> list[dict]:
+def compute_group_ellipses(
+    df: pd.DataFrame, x_col: str, y_col: str, color_col: str | None
+) -> list[dict]:
     """Per-colour-group mean + covariance for true confidence ellipses.
 
     Computed on the full filtered set. The frontend eigendecomposes the 2×2
@@ -290,8 +256,8 @@ def compute_group_ellipses(df: pd.DataFrame, x_col: str, y_col: str,
 
     out = []
     for group, sub in df.groupby(group_keys.values):
-        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
-        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+        x = pd.to_numeric(sub[x_col], errors="coerce").astype("float64")
+        y = pd.to_numeric(sub[y_col], errors="coerce").astype("float64")
         mask = x.notna() & y.notna()
         x, y = x[mask].to_numpy(), y[mask].to_numpy()
         if len(x) < 3:
@@ -299,19 +265,16 @@ def compute_group_ellipses(df: pd.DataFrame, x_col: str, y_col: str,
         cov = np.cov(x, y)
         if not np.all(np.isfinite(cov)):
             continue
-        out.append({
-            "group": str(group),
-            "n": int(len(x)),
-            "mean_x": float(np.mean(x)),
-            "mean_y": float(np.mean(y)),
-            "cov": [[float(cov[0, 0]), float(cov[0, 1])],
-                    [float(cov[1, 0]), float(cov[1, 1])]],
-        })
+        out.append(
+            {
+                "group": str(group),
+                "n": int(len(x)),
+                "mean_x": float(np.mean(x)),
+                "mean_y": float(np.mean(y)),
+                "cov": [[float(cov[0, 0]), float(cov[0, 1])], [float(cov[1, 0]), float(cov[1, 1])]],
+            }
+        )
     return out
-
-
-
-
 
 
 def compute_per_collection_slopes(df: pd.DataFrame, x_col: str, y_col: str) -> list[dict]:
@@ -333,30 +296,29 @@ def compute_per_collection_slopes(df: pd.DataFrame, x_col: str, y_col: str) -> l
         regression (>= 3 points, non-degenerate x); [] when there is no
         ``collection_id`` column.
     """
-    if 'collection_id' not in df.columns:
+    if "collection_id" not in df.columns:
         return []
     out = []
-    for coll, sub in df.groupby(df['collection_id'].astype(str).values):
-        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
-        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+    for coll, sub in df.groupby(df["collection_id"].astype(str).values):
+        x = pd.to_numeric(sub[x_col], errors="coerce").astype("float64")
+        y = pd.to_numeric(sub[y_col], errors="coerce").astype("float64")
         mask = x.notna() & y.notna()
         stats = compute_regression_stats(x[mask].to_numpy(), y[mask].to_numpy())
         if stats is None:
             continue
-        out.append({
-            "collection_id": str(coll),
-            "slope": stats["slope"],
-            "n": stats["n"],
-        })
+        out.append(
+            {
+                "collection_id": str(coll),
+                "slope": stats["slope"],
+                "n": stats["n"],
+            }
+        )
     return sorted(out, key=lambda r: r["collection_id"])
 
 
-
-
-
-
-def compute_per_group_regressions(df: pd.DataFrame, x_col: str, y_col: str,
-                                  color_col: str | None) -> list[dict]:
+def compute_per_group_regressions(
+    df: pd.DataFrame, x_col: str, y_col: str, color_col: str | None
+) -> list[dict]:
     """Per-colour-group regression lines for the scatter's Regression toggle.
 
     One entry per colour group, fitted on the FULL filtered frame (never the
@@ -385,23 +347,21 @@ def compute_per_group_regressions(df: pd.DataFrame, x_col: str, y_col: str,
         return []
     out = []
     for group, sub in df.groupby(groups.values):
-        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
-        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+        x = pd.to_numeric(sub[x_col], errors="coerce").astype("float64")
+        y = pd.to_numeric(sub[y_col], errors="coerce").astype("float64")
         mask = x.notna() & y.notna()
         stats = compute_regression_stats(x[mask].to_numpy(), y[mask].to_numpy())
         if stats is None:
             continue
-        out.append({
-            "group": str(group),
-            "slope": stats["slope"],
-            "intercept": stats["intercept"],
-            "n": stats["n"],
-        })
+        out.append(
+            {
+                "group": str(group),
+                "slope": stats["slope"],
+                "intercept": stats["intercept"],
+                "n": stats["n"],
+            }
+        )
     return sorted(out, key=lambda r: r["group"])
-
-
-
-
 
 
 def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
@@ -413,7 +373,7 @@ def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
     """
     cols = list(numeric_df.columns)
     k = len(cols)
-    arr = numeric_df.astype('float64').to_numpy()
+    arr = numeric_df.astype("float64").to_numpy()
 
     r = np.full((k, k), np.nan)
     p = np.full((k, k), np.nan)
@@ -459,17 +419,9 @@ def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
     return r, p, q, n
 
 
-
-
-
-
 def _matrix_to_json(mat) -> list:
     """k×k float array -> nested lists with None for non-finite cells."""
     return [[None if not np.isfinite(v) else float(v) for v in row] for row in mat]
-
-
-
-
 
 
 def load_group_stats(study: str) -> dict | None:
@@ -477,6 +429,7 @@ def load_group_stats(study: str) -> dict | None:
 
     Composed (Everyone & Me) studies serve the base study's artifact."""
     from .study_data import resolve_artifact_study
+
     study = resolve_artifact_study(study)
     try:
         filename = f"{study}_corr_stats.json"
@@ -489,10 +442,6 @@ def load_group_stats(study: str) -> dict | None:
     return None
 
 
-
-
-
-
 def build_status_payload(study: str) -> dict:
     """Freshness signal for the tab: is the PCA artifact behind the study data?
 
@@ -502,6 +451,7 @@ def build_status_payload(study: str) -> dict:
     compare the base study's pair, since that is what they serve.
     """
     from .study_data import resolve_artifact_study
+
     study = resolve_artifact_study(study)
 
     def _mtime(filename):
@@ -514,18 +464,15 @@ def build_status_payload(study: str) -> dict:
 
     pca_mtime = _mtime(f"{study}_PCA.parquet")
     recoded_mtime = _mtime(f"{study}_recoded.parquet")
-    stale = bool(pca_mtime is not None and recoded_mtime is not None
-                 and recoded_mtime > pca_mtime + 1)
+    stale = bool(
+        pca_mtime is not None and recoded_mtime is not None and recoded_mtime > pca_mtime + 1
+    )
     return {
         "has_pca": pca_mtime is not None,
         "pca_built_at": pca_mtime,
         "recoded_updated_at": recoded_mtime,
         "stale": stale,
     }
-
-
-
-
 
 
 def _build_schema_map(numeric_cols) -> tuple[dict, dict]:
@@ -538,15 +485,15 @@ def _build_schema_map(numeric_cols) -> tuple[dict, dict]:
     on those base names.
     """
     schema_map = {}
-    if 'var_schema' in fyp_cf and isinstance(fyp_cf['var_schema'], pd.DataFrame):
-        vs = fyp_cf['var_schema']
+    if "var_schema" in fyp_cf and isinstance(fyp_cf["var_schema"], pd.DataFrame):
+        vs = fyp_cf["var_schema"]
         for _, row in vs.iterrows():
-            var_name = str(row.get('variable_name', ''))
+            var_name = str(row.get("variable_name", ""))
             entry = {}
-            if 'display_name' in row:
-                dname = str(row['display_name'])
-                if dname and dname.lower() != 'nan' and dname.strip():
-                    entry['display_name'] = dname.strip()
+            if "display_name" in row:
+                dname = str(row["display_name"])
+                if dname and dname.lower() != "nan" and dname.strip():
+                    entry["display_name"] = dname.strip()
             if entry:
                 schema_map[var_name] = entry
 
@@ -560,26 +507,22 @@ def _build_schema_map(numeric_cols) -> tuple[dict, dict]:
             continue
 
         for base_name in sorted_base_names:
-            if col.startswith(base_name + '_'):
-                raw_suffix = col[len(base_name) + 1:]
+            if col.startswith(base_name + "_"):
+                raw_suffix = col[len(base_name) + 1 :]
 
                 # Format suffix: replace underscores with spaces
-                formatted_suffix = raw_suffix.replace('_', ' ')
+                formatted_suffix = raw_suffix.replace("_", " ")
 
-                if 'display_name' in schema_map[base_name]:
+                if "display_name" in schema_map[base_name]:
                     display_name = f"{schema_map[base_name]['display_name']} ({formatted_suffix})"
                 else:
                     display_name = f"{base_name} ({formatted_suffix})"
 
-                schema_map[col] = {'display_name': display_name}
+                schema_map[col] = {"display_name": display_name}
                 numeric_col_bases[col] = base_name
                 break
 
     return schema_map, numeric_col_bases
-
-
-
-
 
 
 def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
@@ -589,33 +532,36 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
     """
     # Get numeric columns and exclude any that have 1 or fewer unique non-null values
     # Also explicitly exclude the unscaled '_raw' tooltip columns from appearing in the UI dropdowns
-    all_numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    numeric_cols = [col for col in all_numeric_cols
-                    if df[col].nunique(dropna=True) > 1
-                    and not str(col).endswith('_raw')
-                    and str(col) != GROUP_SIZE_COL]
+    all_numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    numeric_cols = [
+        col
+        for col in all_numeric_cols
+        if df[col].nunique(dropna=True) > 1
+        and not str(col).endswith("_raw")
+        and str(col) != GROUP_SIZE_COL
+    ]
 
     # Colour-by candidates: Collection ID plus the comparison-role variables.
     # Grouping keys other than collection_id (local_date: near-unique values,
     # colouring by half the group key is noise) and descriptors (local_week:
     # kept in the frame for hover context) are deliberately not colourable.
     factors = get_vars_by_role(("comparison",), some_events_df=df)
-    if 'collection_id' in df.columns:
-        factors = sorted(set(factors) | {'collection_id'})
+    if "collection_id" in df.columns:
+        factors = sorted(set(factors) | {"collection_id"})
 
     if not factors:
         return None
 
     # Exclude session_id from factors — not useful for filtering
-    factors = [f for f in factors if f.lower() != 'session_id']
+    factors = [f for f in factors if f.lower() != "session_id"]
 
     schema_map, numeric_col_bases = _build_schema_map(numeric_cols)
 
     # Anonymised display names for the scatter legend's collection values.
     display_ids = {}
-    if 'collection_id' in factors and 'collection_id' in df.columns:
+    if "collection_id" in factors and "collection_id" in df.columns:
         display_map = load_display_id_map()
-        for v in df['collection_id'].dropna().astype(str).unique():
+        for v in df["collection_id"].dropna().astype(str).unique():
             if v in display_map:
                 display_ids[v] = display_map[v]
 
@@ -636,9 +582,7 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
     # Unit-of-analysis banner inputs: each row of the PCA frame is one
     # grouping-factor group (e.g. a collection-day), not a video.
     grouping = get_grouping_factors_from_var_schema(verbose=False)
-    grouping_display = [
-        schema_map.get(g, {}).get("display_name", g) for g in grouping
-    ]
+    grouping_display = [schema_map.get(g, {}).get("display_name", g) for g in grouping]
     unit = {
         "grouping_factors": grouping,
         "grouping_display": grouping_display,
@@ -647,15 +591,17 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         "min_group_size": int(corr_setting("minimum_group_size")),
         # Non-independence caveat inputs: below the threshold, the scatter and
         # heatmap captions warn that days within a collection are dependent.
-        "n_collections": (int(df['collection_id'].nunique(dropna=True))
-                          if 'collection_id' in df.columns else None),
-        "independence_warning_collections":
-            int(corr_setting("independence_warning_collections")),
+        "n_collections": (
+            int(df["collection_id"].nunique(dropna=True)) if "collection_id" in df.columns else None
+        ),
+        "independence_warning_collections": int(corr_setting("independence_warning_collections")),
     }
 
     return {
         "numeric_cols": filtered_numeric_cols,
-        "numeric_col_bases": {c: b for c, b in numeric_col_bases.items() if c in filtered_numeric_cols},
+        "numeric_col_bases": {
+            c: b for c, b in numeric_col_bases.items() if c in filtered_numeric_cols
+        },
         "factor_cols": sorted(factors),
         "interpretations": interpretations,
         "schema_map": schema_map,
@@ -670,12 +616,9 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
     }
 
 
-
-
-
-
-def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
-                          color_col: str | None, center: bool = False) -> dict:
+def build_scatter_payload(
+    df: pd.DataFrame, x_col: str, y_col: str, color_col: str | None, center: bool = False
+) -> dict:
     """Build the /api/correlations/data response over the whole study.
 
     There is no row filtering: the study is the sample (exclusions and event
@@ -690,7 +633,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     centered = False
     if center:
         filtered_df, centered = apply_within_collection_centering(
-            filtered_df, [x_col, y_col] if x_col != y_col else [x_col])
+            filtered_df, [x_col, y_col] if x_col != y_col else [x_col]
+        )
 
     total_count = len(filtered_df)
 
@@ -701,7 +645,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     group_ellipses = compute_group_ellipses(filtered_df, x_col, y_col, color_for_groups)
     per_collection_slopes = compute_per_collection_slopes(filtered_df, x_col, y_col)
     per_group_regressions = compute_per_group_regressions(
-        filtered_df, x_col, y_col, color_for_groups)
+        filtered_df, x_col, y_col, color_for_groups
+    )
 
     # Deterministic sample so the same request always shows the same points
     max_points = int(corr_setting("max_scatter_points"))
@@ -715,12 +660,12 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
 
     # Flat display-name map for tooltips
     schema_map = {}
-    if 'var_schema' in fyp_cf and isinstance(fyp_cf['var_schema'], pd.DataFrame):
-        vs = fyp_cf['var_schema']
+    if "var_schema" in fyp_cf and isinstance(fyp_cf["var_schema"], pd.DataFrame):
+        vs = fyp_cf["var_schema"]
         for _, row in vs.iterrows():
-            var_name = str(row.get('variable_name', ''))
-            dname = str(row.get('display_name', ''))
-            if dname and dname.lower() != 'nan' and dname.strip():
+            var_name = str(row.get("variable_name", ""))
+            dname = str(row.get("display_name", ""))
+            if dname and dname.lower() != "nan" and dname.strip():
                 schema_map[var_name] = dname.strip()
 
     # Build richer hover text with grouping factors
@@ -728,7 +673,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
 
     # Get display IDs for collection_id
     display_map = {}
-    if 'collection_id' in factor_cols_in_df or color_col == 'collection_id':
+    if "collection_id" in factor_cols_in_df or color_col == "collection_id":
         display_map = load_display_id_map()
 
     # Helper function to format specific values
@@ -741,7 +686,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         if "week" in col_name.lower():
             return format_week_value(val)
         # Resolve display IDs
-        if col_name == 'collection_id' and str(val) in display_map:
+        if col_name == "collection_id" and str(val) in display_map:
             return display_map[str(val)]
         # Format numeric values (comma for thousands, up to 4 precision/significant digits)
         if isinstance(val, (int, float, np.integer, np.floating)):
@@ -755,8 +700,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
                     formatted = f"{rounded_val:,}"
                 else:
                     formatted = f"{round(val, decimals):,}"
-                    if '.' in formatted:
-                        formatted = formatted.rstrip('0').rstrip('.')
+                    if "." in formatted:
+                        formatted = formatted.rstrip("0").rstrip(".")
                 return formatted if formatted else "0"
             except Exception:
                 return str(val)
@@ -764,7 +709,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         return str(val)
 
     # Identify unscaled absolute numeric features
-    raw_numeric_cols = [c for c in filtered_df.columns if str(c).endswith('_raw')]
+    raw_numeric_cols = [c for c in filtered_df.columns if str(c).endswith("_raw")]
 
     # Prepare sorted bases for suffix extraction on PCA components
     sorted_base_names = sorted(schema_map.keys(), key=len, reverse=True)
@@ -781,8 +726,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         if not r_display:
             r_display = base_col_name
             for b_name in sorted_base_names:
-                if base_col_name.startswith(b_name + '_'):
-                    formatted_suf = base_col_name[len(b_name) + 1:].replace('_', ' ')
+                if base_col_name.startswith(b_name + "_"):
+                    formatted_suf = base_col_name[len(b_name) + 1 :].replace("_", " ")
                     r_display = f"{schema_map[b_name]} ({formatted_suf})"
                     break
         return f"{r_display} (Abs)"
@@ -801,13 +746,11 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     # Grouping factors: formatted for hover, raw strings for drill-down.
     factors_block = {}
     if has_color:
-        factors_block[color_col] = [
-            None if pd.isna(v) else str(v) for v in color_values]
+        factors_block[color_col] = [None if pd.isna(v) else str(v) for v in color_values]
     for fc in factor_cols_in_df:
         vals = filtered_df[fc].tolist()
         hover_labels.append(schema_map.get(fc, fc))
-        hover_columns.append(
-            ["" if v is None or pd.isna(v) else format_value(fc, v) for v in vals])
+        hover_columns.append(["" if v is None or pd.isna(v) else format_value(fc, v) for v in vals])
         factors_block[fc] = [None if v is None or pd.isna(v) else str(v) for v in vals]
 
     # Absolute unscaled values (hover only).
@@ -816,8 +759,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         vals = filtered_df[r_col].tolist()
         hover_labels.append(_display_for_raw(r_col))
         hover_columns.append(
-            ["" if v is None or pd.isna(v) else format_value(base_col_name, v)
-             for v in vals])
+            ["" if v is None or pd.isna(v) else format_value(base_col_name, v) for v in vals]
+        )
 
     return {
         "points": {
@@ -837,13 +780,9 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     }
 
 
-
-
-
-
-def build_matrix_payload(df: pd.DataFrame, study: str,
-                         method: str | None = None,
-                         center: bool = False) -> tuple[dict | None, str | None]:
+def build_matrix_payload(
+    df: pd.DataFrame, study: str, method: str | None = None, center: bool = False
+) -> tuple[dict | None, str | None]:
     """Build the /api/correlations/correlation_matrix response (whole study).
 
     Pairwise-complete correlations with per-pair n, p and Benjamini–Hochberg
@@ -860,15 +799,21 @@ def build_matrix_payload(df: pd.DataFrame, study: str,
 
     centered = False
     if center:
-        centerable = [c for c in filtered_df.select_dtypes(include=['number']).columns
-                      if not str(c).endswith('_raw') and str(c) != GROUP_SIZE_COL]
+        centerable = [
+            c
+            for c in filtered_df.select_dtypes(include=["number"]).columns
+            if not str(c).endswith("_raw") and str(c) != GROUP_SIZE_COL
+        ]
         filtered_df, centered = apply_within_collection_centering(filtered_df, centerable)
 
     # Select only numeric columns for correlation (exclude the unscaled '_raw'
     # columns and the group_size provenance column)
-    numeric_df = filtered_df.select_dtypes(include=['number'])
-    numeric_cols_to_keep = [col for col in numeric_df.columns
-                            if not str(col).endswith('_raw') and str(col) != GROUP_SIZE_COL]
+    numeric_df = filtered_df.select_dtypes(include=["number"])
+    numeric_cols_to_keep = [
+        col
+        for col in numeric_df.columns
+        if not str(col).endswith("_raw") and str(col) != GROUP_SIZE_COL
+    ]
     numeric_df = numeric_df[numeric_cols_to_keep]
 
     # Filter out any columns that are constant within this filtered subset
@@ -907,9 +852,6 @@ def build_matrix_payload(df: pd.DataFrame, study: str,
     }, None
 
 
-
-
-
 # Cached GenAI client for the Group-differences AI interpretation. A text-only
 # generation call, so it uses the configured generation endpoint (same pattern
 # as niche naming in fyp/analysis/video_map.py).
@@ -921,13 +863,11 @@ def _interp_client():
     global _interp_client_cache
     if _interp_client_cache is None:
         from fyp.core import gemini_client
+
         _interp_client_cache = gemini_client.make_client(
-            location=fyp_cf["machine"]["gemini"]["location"])
+            location=fyp_cf["machine"]["gemini"]["location"]
+        )
     return _interp_client_cache
-
-
-
-
 
 
 def interpretation_available() -> bool:
@@ -936,10 +876,6 @@ def interpretation_available() -> bool:
 
     mode, _ = gemini_client.gemini_mode()
     return mode is not None
-
-
-
-
 
 
 def _interp_findings_text(stats: dict, dname) -> str:
@@ -955,13 +891,17 @@ def _interp_findings_text(stats: dict, dname) -> str:
         "Between-collection differences per variable (eta-squared = ICC, "
         "share of day-to-day variance lying between collections):",
     ]
-    pers = [r for r in (stats.get("personalization") or [])
-            if isinstance(r.get("eta2"), (int, float))]
+    pers = [
+        r for r in (stats.get("personalization") or []) if isinstance(r.get("eta2"), (int, float))
+    ]
     for r in sorted(pers, key=lambda r: r["eta2"], reverse=True)[:10]:
         lines.append(f"- {dname(r['component'])}: eta2={r['eta2']:.2f} ({r.get('magnitude')})")
 
-    pp = [r for r in (stats.get("permanova_personalization") or [])
-          if isinstance(r.get("pseudo_F"), (int, float))]
+    pp = [
+        r
+        for r in (stats.get("permanova_personalization") or [])
+        if isinstance(r.get("pseudo_F"), (int, float))
+    ]
     if pp:
         lines.append("")
         lines.append("Whole-profile separation between collections (PERMANOVA):")
@@ -969,31 +909,39 @@ def _interp_findings_text(stats: dict, dname) -> str:
             lines.append(f"- {dname(r['family'])}: pseudo-F={r['pseudo_F']:.1f}")
 
     anova = [r for r in (stats.get("anova") or []) if not r.get("nested_in_collection")]
-    sig = [r for r in anova
-           if isinstance(r.get("q"), (int, float)) and r["q"] < 0.05
-           and isinstance(r.get("omega2"), (int, float))]
+    sig = [
+        r
+        for r in anova
+        if isinstance(r.get("q"), (int, float))
+        and r["q"] < 0.05
+        and isinstance(r.get("omega2"), (int, float))
+    ]
     lines.append("")
-    lines.append(f"Within-collection comparisons (collection differences removed): "
-                 f"{len(sig)} of {len(anova)} tests significant at q<.05.")
+    lines.append(
+        f"Within-collection comparisons (collection differences removed): "
+        f"{len(sig)} of {len(anova)} tests significant at q<.05."
+    )
     for r in sorted(sig, key=lambda r: r["omega2"], reverse=True)[:10]:
-        lines.append(f"- {dname(r['factor'])} -> {dname(r['component'])}: "
-                     f"partial omega2={r['omega2']:.3f}, q={r['q']:.3f}")
+        lines.append(
+            f"- {dname(r['factor'])} -> {dname(r['component'])}: "
+            f"partial omega2={r['omega2']:.3f}, q={r['q']:.3f}"
+        )
 
     perma = [r for r in (stats.get("permanova") or []) if not r.get("nested_in_collection")]
     sig_perma = [r for r in perma if isinstance(r.get("q"), (int, float)) and r["q"] < 0.05]
     if perma:
         lines.append("")
-        lines.append("Whole-profile differences within collections (PERMANOVA, "
-                     f"within-collection centered): {len(sig_perma)} of {len(perma)} "
-                     "significant at q<.05.")
+        lines.append(
+            "Whole-profile differences within collections (PERMANOVA, "
+            f"within-collection centered): {len(sig_perma)} of {len(perma)} "
+            "significant at q<.05."
+        )
         for r in sig_perma[:8]:
-            lines.append(f"- {dname(r['family'])} by {dname(r['factor'])}: "
-                         f"pseudo-F={r['pseudo_F']:.1f}, q={r['q']:.3f}")
+            lines.append(
+                f"- {dname(r['family'])} by {dname(r['factor'])}: "
+                f"pseudo-F={r['pseudo_F']:.1f}, q={r['q']:.3f}"
+            )
     return "\n".join(lines)
-
-
-
-
 
 
 def build_interpretation(study: str) -> tuple[str | None, str | None]:
@@ -1004,18 +952,22 @@ def build_interpretation(study: str) -> tuple[str | None, str | None]:
     and sent to the configured Gemini generation model.
     """
     if not interpretation_available():
-        return None, ("AI interpretation is not available: no Gemini model is "
-                      "configured on this instance.")
+        return None, (
+            "AI interpretation is not available: no Gemini model is configured on this instance."
+        )
     stats = load_group_stats(study)
     if not isinstance(stats, dict) or stats.get("version") != 2:
         return None, "Group statistics are not computed (or outdated) for this study."
 
-    named_cols = ({r.get("component") for r in stats.get("personalization") or []}
-                  | {r.get("component") for r in stats.get("anova") or []}
-                  | {r.get("family") for r in (stats.get("permanova") or [])
-                     + (stats.get("permanova_personalization") or [])}
-                  | {r.get("factor") for r in (stats.get("anova") or [])
-                     + (stats.get("permanova") or [])})
+    named_cols = (
+        {r.get("component") for r in stats.get("personalization") or []}
+        | {r.get("component") for r in stats.get("anova") or []}
+        | {
+            r.get("family")
+            for r in (stats.get("permanova") or []) + (stats.get("permanova_personalization") or [])
+        }
+        | {r.get("factor") for r in (stats.get("anova") or []) + (stats.get("permanova") or [])}
+    )
     schema_map, _ = _build_schema_map(sorted(c for c in named_cols if c))
     dname = lambda c: schema_map.get(c, {}).get("display_name", c)  # noqa: E731
 
@@ -1060,7 +1012,8 @@ def build_interpretation(study: str) -> tuple[str | None, str | None]:
             thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
         )
         resp = _interp_client().models.generate_content(
-            model=model, contents=prompt, config=gen_config)
+            model=model, contents=prompt, config=gen_config
+        )
         text = (getattr(resp, "text", None) or "").strip()
         if not text:
             return None, "The model returned an empty interpretation. Try again."

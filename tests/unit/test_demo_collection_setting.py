@@ -34,8 +34,9 @@ def test_empty_value_always_valid():
 
 
 def test_getter_strips_and_defaults(monkeypatch):
-    monkeypatch.setattr(admin_settings, "get_setting",
-                        lambda key: "  c9  " if key == "demo_collection" else None)
+    monkeypatch.setattr(
+        admin_settings, "get_setting", lambda key: "  c9  " if key == "demo_collection" else None
+    )
     assert admin_settings.get_demo_collection() == "c9"
     monkeypatch.setattr(admin_settings, "get_setting", lambda key: None)
     assert admin_settings.get_demo_collection() == ""
@@ -46,6 +47,10 @@ def test_choices_come_from_the_default_study(monkeypatch, default, expected):
     monkeypatch.setattr(admin_settings, "get_default_study", lambda: default)
     if default:
         import web_interface.services.study_data as study_data
-        monkeypatch.setattr(study_data, "get_study_collections",
-                            lambda name: [{"collection_id": "b"}, {"collection_id": "a"}])
+
+        monkeypatch.setattr(
+            study_data,
+            "get_study_collections",
+            lambda name: [{"collection_id": "b"}, {"collection_id": "a"}],
+        )
     assert admin_settings.demo_collection_choices() == expected

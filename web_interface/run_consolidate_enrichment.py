@@ -29,10 +29,10 @@ def _shadow_check_age_days() -> float | None:
     try:
         import fyp.core.data_io as data_io
         from fyp.analysis.organize_datasets import _SHADOW_CHECK_FILENAME
+
         if not data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
             return None
-        payload = data_io.load_json(storage_location="recoded",
-                                    filename=_SHADOW_CHECK_FILENAME)
+        payload = data_io.load_json(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME)
         checked_at = (payload or {}).get("checked_at")
         if not checked_at:
             return None
@@ -64,21 +64,25 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     )
 
     def _progress(pct: float, msg: str) -> None:
-        reporter.update_progress(int(pct), msg, stage_index=1, stage_total=1,
-                                 stage_name="consolidate_enrichment")
+        reporter.update_progress(
+            int(pct), msg, stage_index=1, stage_total=1, stage_name="consolidate_enrichment"
+        )
 
     age = _shadow_check_age_days()
     if age is not None and age < _SHADOW_CHECK_INTERVAL_DAYS:
         reporter.log(
             f"Shadow verification skipped — last check was {age * 24:.1f} h ago "
-            f"(interval {_SHADOW_CHECK_INTERVAL_DAYS} d).")
+            f"(interval {_SHADOW_CHECK_INTERVAL_DAYS} d)."
+        )
         return None
 
     # It shares the consolidate card and log, so say plainly what this run is:
     # on 2026-09-03 the admin read it as "consolidation fired twice".
-    reporter.log("Weekly shadow verification — a read-only check that the incremental "
-                 "artifacts match a full rebuild. Not a consolidation; nothing is written "
-                 "unless a mismatch is found. Takes ~13 min.")
+    reporter.log(
+        "Weekly shadow verification — a read-only check that the incremental "
+        "artifacts match a full rebuild. Not a consolidation; nothing is written "
+        "unless a mismatch is found. Takes ~13 min."
+    )
     _progress(5, "Shadow-verifying incremental consolidation…")
     result = verify_consolidation_equivalence(progress_cb=_progress)
     reporter.emit_data({"shadow_check": result})
@@ -90,10 +94,11 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     reporter.log(f"Shadow verification found divergence: {result.get('mismatches')}")
     try:
         from web_interface import task_failures
+
         task_failures.record_failure(
             task="consolidate_enrichment",
             error=f"[SHADOW] incremental consolidation diverged from a full rebuild: "
-                  f"{result.get('mismatches')}",
+            f"{result.get('mismatches')}",
             status_key="consolidate_enrichment",
             retry_count=0,
             disposition=task_failures.DISPOSITION_DEAD,
@@ -105,24 +110,29 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
 
     reporter.log("Promoting a full rebuild over the divergent incremental artifacts…")
     promote = consolidate_enrichment_data(
-        force_consolidation=True, verbose=False, progress_cb=_progress)
+        force_consolidation=True, verbose=False, progress_cb=_progress
+    )
     impact = promote.get("impact") if promote else None
     if impact:
         try:
             from web_interface.services import downstream_refresh
+
             # System-initiated recovery, not an operator's deferral: this must
             # not sit waiting for someone to notice it.
             downstream_refresh.accumulate_deferred_impact(impact, from_plan=True)
             reporter.log("Healed-data impact queued for the next full downstream refresh.")
         except Exception as exc:
             reporter.log(f"Could not record the healed-data impact: {exc}")
-    reporter.log("Full rebuild promoted. Investigate the divergence before re-enabling "
-                 "incremental consolidation if it recurs.")
+    reporter.log(
+        "Full rebuild promoted. Investigate the divergence before re-enabling "
+        "incremental consolidation if it recurs."
+    )
     return None
 
 
-def _journal_consolidation(task_args: dict, impact: dict | None,
-                           had_new_data: bool, auto_refresh: bool) -> None:
+def _journal_consolidation(
+    task_args: dict, impact: dict | None, had_new_data: bool, auto_refresh: bool
+) -> None:
     """The consolidation's one history line: what it folded in, for whom, and
     whether the analyses follow now or later. Never raises."""
     try:
@@ -132,9 +142,12 @@ def _journal_consolidation(task_args: dict, impact: dict | None,
         from_plan = bool((task_args or {}).get("plan_deferred"))
         impact = impact or {}
         if not had_new_data:
-            journal.record("consolidate.finished",
-                           "Consolidated — nothing new to fold in",
-                           actor=actor, had_new_data=False)
+            journal.record(
+                "consolidate.finished",
+                "Consolidated — nothing new to fold in",
+                actor=actor,
+                had_new_data=False,
+            )
             return
         new_scrapes = int(impact.get("new_scrape_item_count") or 0)
         new_annos = int(impact.get("new_annotation_item_count") or 0)
@@ -155,11 +168,18 @@ def _journal_consolidation(task_args: dict, impact: dict | None,
             message += "; the analyses are refreshed when the plan finishes"
         else:
             message += "; the analyses were not refreshed (use Refresh All Affected when wanted)"
-        journal.record("consolidate.finished", message, actor=actor,
-                       collection_ids=collections, new_scrapes=new_scrapes,
-                       new_annotations=new_annos, studies=len(studies),
-                       changed=int(impact.get("changed_item_count") or 0),
-                       auto_refresh=bool(auto_refresh), from_plan=from_plan)
+        journal.record(
+            "consolidate.finished",
+            message,
+            actor=actor,
+            collection_ids=collections,
+            new_scrapes=new_scrapes,
+            new_annotations=new_annos,
+            studies=len(studies),
+            changed=int(impact.get("changed_item_count") or 0),
+            auto_refresh=bool(auto_refresh),
+            from_plan=from_plan,
+        )
     except Exception:
         pass
 
@@ -183,20 +203,30 @@ def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool
             dispatch_deadline_for,
             is_cloud_run,
         )
+
         if not is_cloud_run():
-            reporter.log("Shadow verification is due — run consolidate_enrichment "
-                         "with --verify-consolidation (local mode does not self-schedule).")
+            reporter.log(
+                "Shadow verification is due — run consolidate_enrichment "
+                "with --verify-consolidation (local mode does not self-schedule)."
+            )
             return
         success, msg = _dispatch_cloud_task(
-            "consolidate_enrichment", {"verify_consolidation": True},
-            dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", {}))
-        reporter.log(f"Weekly shadow verification dispatched: {msg}" if success else
-                     f"Weekly shadow verification failed to dispatch: {msg}")
+            "consolidate_enrichment",
+            {"verify_consolidation": True},
+            dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", {}),
+        )
+        reporter.log(
+            f"Weekly shadow verification dispatched: {msg}"
+            if success
+            else f"Weekly shadow verification failed to dispatch: {msg}"
+        )
     except Exception as exc:
         reporter.log(f"Shadow-check scheduling skipped (consolidation unaffected): {exc}")
 
 
-def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_consolidate_enrichment(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Consolidate enrichment data (scrapes + machine annotations).
 
     When ``task_args.auto_refresh`` is True and the consolidation produced a
@@ -237,16 +267,16 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
             storage_location="recoded", filename="consolidated_enrichment_files.json"
         )
         known_scrape = set(meta_before.get(SCRAPES_LABEL, {}).get("filenames", []))
-        known_annotation = set(
-            meta_before.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", [])
-        )
+        known_annotation = set(meta_before.get(MACHINE_ANNOTATIONS_LABEL, {}).get("filenames", []))
 
     current_scrape = {
-        fn for fn in data_io.listdir(storage_location="scrape")
+        fn
+        for fn in data_io.listdir(storage_location="scrape")
         if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")
     }
     current_annotation = {
-        fn for fn in data_io.listdir(storage_location="machine_annotations_refined")
+        fn
+        for fn in data_io.listdir(storage_location="machine_annotations_refined")
         if fn.startswith(MACHINE_ANNOTATIONS_LABEL) and fn.endswith(".parquet")
     }
 
@@ -271,9 +301,12 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # must not import web_interface.
     try:
         from web_interface.admin_settings import get_setting
+
         incremental = bool(get_setting("incremental_consolidation"))
     except Exception as exc:
-        reporter.log(f"Could not read the incremental-consolidation setting (using full rebuild): {exc}")
+        reporter.log(
+            f"Could not read the incremental-consolidation setting (using full rebuild): {exc}"
+        )
         incremental = False
 
     # Feed the reporter sub-progress from inside consolidation so the UI step
@@ -368,32 +401,40 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         if impact:
             try:
                 from web_interface.services import downstream_refresh
+
                 # plan_deferred is set only by the enrichment supervisor's own
                 # consolidation. Without it this is the operator's deferral and
                 # the loop must not spend it — see accumulate_deferred_impact.
                 from_plan = bool(task_args.get("plan_deferred"))
                 downstream_refresh.accumulate_deferred_impact(impact, from_plan=from_plan)
-                summary = ("Downstream refreshes deferred — the impact is "
-                           "queued for the next full refresh." if from_plan else
-                           "Downstream refreshes were skipped — use "
-                           "\"Refresh All Affected\" when you want them.")
+                summary = (
+                    "Downstream refreshes deferred — the impact is "
+                    "queued for the next full refresh."
+                    if from_plan
+                    else "Downstream refreshes were skipped — use "
+                    '"Refresh All Affected" when you want them.'
+                )
             except Exception as exc:
                 reporter.log(f"Could not record the deferred impact: {exc}")
-        reporter.emit_data({
-            "last_pipeline_summary": summary,
-            "last_pipeline_summary_ts": now_iso,
-            "pipeline_impact": None,
-            "last_pipeline_partial": False,
-            "last_pipeline_failed_at": None,
-        })
+        reporter.emit_data(
+            {
+                "last_pipeline_summary": summary,
+                "last_pipeline_summary_ts": now_iso,
+                "pipeline_impact": None,
+                "last_pipeline_partial": False,
+                "last_pipeline_failed_at": None,
+            }
+        )
         return None
 
     # A full refresh covers any deferred debt too: widen the scope to the
     # union, and settle the ledger entry now that the run will carry it.
     try:
         from web_interface.services import downstream_refresh
+
         effective_impact = downstream_refresh.impact_union(
-            downstream_refresh.get_deferred_impact(), impact)
+            downstream_refresh.get_deferred_impact(), impact
+        )
     except Exception as exc:
         reporter.log(f"Could not read the deferred impact: {exc}")
         downstream_refresh = None
@@ -404,13 +445,15 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # the refresh pipeline from the signals each finished step reports — see
     # web_interface/services/refresh_pipeline. Publishing the scope is all this
     # worker owes it.
-    reporter.emit_data({
-        "last_pipeline_summary": "Refresh run in progress — refreshing caches...",
-        "last_pipeline_summary_ts": now_iso,
-        "pipeline_impact": effective_impact or None,
-        "last_pipeline_partial": False,
-        "last_pipeline_failed_at": None,
-    })
+    reporter.emit_data(
+        {
+            "last_pipeline_summary": "Refresh run in progress — refreshing caches...",
+            "last_pipeline_summary_ts": now_iso,
+            "pipeline_impact": effective_impact or None,
+            "last_pipeline_partial": False,
+            "last_pipeline_failed_at": None,
+        }
+    )
 
     if effective_impact and downstream_refresh is not None:
         try:
@@ -429,8 +472,6 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     return None
 
 
-
-
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
@@ -441,14 +482,26 @@ if __name__ == "__main__":
         run_consolidate_enrichment,
         "consolidate_enrichment",
         arg_specs=[
-            (('--force-consolidation',), {'action': 'store_true',
-                                          'help': 'Re-consolidate even if no new files detected.'}),
-            (('--auto-refresh',), {'action': 'store_true',
-                                   'help': 'After consolidation, record the impact so the '
-                                           'web service can dispatch downstream refreshes.'}),
-            (('--verify-consolidation',), {'action': 'store_true',
-                                           'help': 'Shadow-verify the incremental artifacts '
-                                                   'against a full rebuild instead of consolidating.'}),
+            (
+                ("--force-consolidation",),
+                {"action": "store_true", "help": "Re-consolidate even if no new files detected."},
+            ),
+            (
+                ("--auto-refresh",),
+                {
+                    "action": "store_true",
+                    "help": "After consolidation, record the impact so the "
+                    "web service can dispatch downstream refreshes.",
+                },
+            ),
+            (
+                ("--verify-consolidation",),
+                {
+                    "action": "store_true",
+                    "help": "Shadow-verify the incremental artifacts "
+                    "against a full rebuild instead of consolidating.",
+                },
+            ),
         ],
         make_task_args=lambda args: {
             "force_consolidation": bool(args.force_consolidation),

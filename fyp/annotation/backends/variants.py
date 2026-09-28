@@ -40,8 +40,6 @@ _NAME_RE = re.compile(r"^[a-z0-9_]+$")
 _META_KEYS = ("backend", "label", "pricing")
 
 
-
-
 @dataclass(frozen=True)
 class VariantSpec:
     """One resolved backend selection.
@@ -63,10 +61,6 @@ class VariantSpec:
     overrides: dict = field(default_factory=dict)
     label: str = ""
     pricing: dict | None = None
-
-
-
-
 
 
 def declared_variants() -> dict:
@@ -94,33 +88,39 @@ def declared_variants() -> dict:
                 logger.warning(f"[machine.{backend_id}.variants.{name}] is not a table — skipped")
                 continue
             if not _NAME_RE.match(name):
-                logger.warning(f"[machine.{backend_id}.variants.{name}]: name must "
-                               f"match [a-z0-9_]+ — skipped")
+                logger.warning(
+                    f"[machine.{backend_id}.variants.{name}]: name must match [a-z0-9_]+ — skipped"
+                )
                 continue
             if name in BACKEND_IDS or name in out:
-                logger.warning(f"[machine.{backend_id}.variants.{name}]: name collides "
-                               f"with a backend id or another variant — skipped")
+                logger.warning(
+                    f"[machine.{backend_id}.variants.{name}]: name collides "
+                    f"with a backend id or another variant — skipped"
+                )
                 continue
             declared_backend = block.get("backend")
             if declared_backend not in (None, backend_id):
-                logger.warning(f"[machine.{backend_id}.variants.{name}]: backend "
-                               f"{declared_backend!r} contradicts the parent block — skipped")
+                logger.warning(
+                    f"[machine.{backend_id}.variants.{name}]: backend "
+                    f"{declared_backend!r} contradicts the parent block — skipped"
+                )
                 continue
             overrides = {k: v for k, v in block.items() if k not in _META_KEYS}
             unknown = [k for k in overrides if k not in _known_override_keys(backend_id)]
             if unknown:
-                logger.warning(f"[machine.{backend_id}.variants.{name}]: override keys "
-                               f"{unknown} are not known {backend_id!r} config keys (typo?)")
+                logger.warning(
+                    f"[machine.{backend_id}.variants.{name}]: override keys "
+                    f"{unknown} are not known {backend_id!r} config keys (typo?)"
+                )
             pricing = block.get("pricing")
             out[name] = VariantSpec(
-                selection=name, backend_id=backend_id, overrides=overrides,
+                selection=name,
+                backend_id=backend_id,
+                overrides=overrides,
                 label=str(block.get("label") or name),
-                pricing=dict(pricing) if isinstance(pricing, dict) else None)
+                pricing=dict(pricing) if isinstance(pricing, dict) else None,
+            )
     return out
-
-
-
-
 
 
 def _known_override_keys(backend_id: str) -> tuple:
@@ -134,8 +134,7 @@ def _known_override_keys(backend_id: str) -> tuple:
         The known override key names for ``backend_id``.
     """
     if backend_id == "gemini":
-        return ("model", "temperature", "thinking_budget", "media_resolution",
-                "max_output_tokens")
+        return ("model", "temperature", "thinking_budget", "media_resolution", "max_output_tokens")
     if backend_id == "qwen_api":
         from fyp.annotation.backends.qwen_api import _api_cf
 
@@ -149,10 +148,6 @@ def _known_override_keys(backend_id: str) -> tuple:
 
         return tuple(_minicpm_cf())
     return ()
-
-
-
-
 
 
 def resolve(selection: str) -> VariantSpec:
@@ -175,12 +170,9 @@ def resolve(selection: str) -> VariantSpec:
     variants = declared_variants()
     if selection in variants:
         return variants[selection]
-    raise ValueError(f"Unknown annotation backend selection: {selection!r} "
-                     f"(known: {selection_ids()})")
-
-
-
-
+    raise ValueError(
+        f"Unknown annotation backend selection: {selection!r} (known: {selection_ids()})"
+    )
 
 
 def selection_pricing(selection: str) -> dict | None:
@@ -204,10 +196,6 @@ def selection_pricing(selection: str) -> dict | None:
     block = get_config()["machine"].get(spec.backend_id, {}) or {}
     pricing = block.get("pricing")
     return dict(pricing) if isinstance(pricing, dict) else None
-
-
-
-
 
 
 def selection_ids() -> tuple:

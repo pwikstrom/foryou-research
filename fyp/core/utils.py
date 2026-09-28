@@ -16,16 +16,13 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-
 # Well-known HEAD-tolerant host used for the default connectivity probe.
 DEFAULT_PROBE_HOST = "connectivitycheck.gstatic.com"
 
 
 # check internet connectivity
-def online_ok(url=DEFAULT_PROBE_HOST,
-                        timeout=3):
-    connection = http.client.HTTPConnection(url,
-                                        timeout=timeout)
+def online_ok(url=DEFAULT_PROBE_HOST, timeout=3):
+    connection = http.client.HTTPConnection(url, timeout=timeout)
     try:
         # only header requested for fast operation
         connection.request("HEAD", "/")
@@ -36,18 +33,10 @@ def online_ok(url=DEFAULT_PROBE_HOST,
         return False
 
 
-
-
-
-
-
-
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
-        yield lst[i:i + n]
-
-
+        yield lst[i : i + n]
 
 
 def record_dropped_columns(
@@ -140,8 +129,6 @@ def record_dropped_columns(
     return summary
 
 
-
-
 def best_similarity_match(reference: str, candidates: Iterable[str]) -> tuple[str | None, float]:
     """Return the most similar candidate to ``reference`` and its similarity ratio.
 
@@ -164,24 +151,19 @@ def best_similarity_match(reference: str, candidates: Iterable[str]) -> tuple[st
     return best_candidate, best_ratio
 
 
-
-
-
-
 def clean_url(the_url: str) -> dict:
     outout = {}
     if "?" not in the_url or "&" not in the_url:
         return outout
     for u in the_url.split("?")[1].split("&"):
         v = u.split("=")
-        v[1] = unquote(v[1]).replace(",","|")
+        v[1] = unquote(v[1]).replace(",", "|")
         try:
             v[1] = int(v[1])
         except Exception:
             pass
-        outout.update({"source_url."+v[0]:v[1]})
+        outout.update({"source_url." + v[0]: v[1]})
     return outout
-
 
 
 def start_monitor(
@@ -219,8 +201,10 @@ def start_monitor(
         s = int(s)
         h, r = divmod(s, 3600)
         m, s = divmod(r, 60)
-        if h: return f"{h}h{m}m{s}s"
-        if m: return f"{m}m{s}s"
+        if h:
+            return f"{h}h{m}m{s}s"
+        if m:
+            return f"{m}m{s}s"
         return f"{s}s"
 
     def _bar(done, total, width=30, fill="#", empty="-"):
@@ -282,62 +266,62 @@ def start_monitor(
             except Exception:
                 term_width = 140
             if len(line) > term_width:
-                line = line[:max(0, term_width - 1)]
+                line = line[: max(0, term_width - 1)]
 
             # single-line update (reporter vs web interface vs terminal)
             if reporter is not None:
-                 overall_done = cumulative_done + done if cumulative_total > 0 else done
-                 overall_total = cumulative_total if cumulative_total > 0 else total
-                 overall_eta = (overall_total - overall_done) / throughput if throughput > 0 else 0
-                 pct = int((overall_done / overall_total) * 100) if overall_total > 0 else 0
-                 # Job-wide totals: cumulative carries OK/fail finalised in prior
-                 # batches/chains; the current batch's live counts are added on top.
-                 # Note for the scraper: mid-batch a not-yet-succeeded item counts
-                 # as fail here (done - n_good); transient failures that will be
-                 # retried only get reconciled back into pending at the batch
-                 # boundary, where cumulative_fail carries permanent fails only.
-                 batch_ok = n_good if n_good is not None else 0
-                 batch_fail = (done - n_good) if n_good is not None else 0
-                 total_ok = cumulative_ok + batch_ok
-                 total_fail = cumulative_fail + batch_fail
-                 total_pending = max(0, overall_total - overall_done - running)
-                 batch_pct = int((done / total) * 100) if total > 0 else 0
-                 # batch_label is "n/max"; render "Batch n (dd%)/max".
-                 if batch_label and "/" in batch_label:
-                     b_n, b_max = batch_label.split("/", 1)
-                     batch_str = f"Batch {b_n} ({batch_pct}%)/{b_max} · "
-                 elif batch_label:
-                     batch_str = f"Batch {batch_label} ({batch_pct}%) · "
-                 else:
-                     batch_str = ""
-                 reporter.update_progress(
-                     pct,
-                     f"{batch_str}{total_ok} OK · {total_fail} fail · "
-                     f"{running} processing · {total_pending} pending · "
-                     f"ETA {_fmt_secs(overall_eta)}",
-                 )
+                overall_done = cumulative_done + done if cumulative_total > 0 else done
+                overall_total = cumulative_total if cumulative_total > 0 else total
+                overall_eta = (overall_total - overall_done) / throughput if throughput > 0 else 0
+                pct = int((overall_done / overall_total) * 100) if overall_total > 0 else 0
+                # Job-wide totals: cumulative carries OK/fail finalised in prior
+                # batches/chains; the current batch's live counts are added on top.
+                # Note for the scraper: mid-batch a not-yet-succeeded item counts
+                # as fail here (done - n_good); transient failures that will be
+                # retried only get reconciled back into pending at the batch
+                # boundary, where cumulative_fail carries permanent fails only.
+                batch_ok = n_good if n_good is not None else 0
+                batch_fail = (done - n_good) if n_good is not None else 0
+                total_ok = cumulative_ok + batch_ok
+                total_fail = cumulative_fail + batch_fail
+                total_pending = max(0, overall_total - overall_done - running)
+                batch_pct = int((done / total) * 100) if total > 0 else 0
+                # batch_label is "n/max"; render "Batch n (dd%)/max".
+                if batch_label and "/" in batch_label:
+                    b_n, b_max = batch_label.split("/", 1)
+                    batch_str = f"Batch {b_n} ({batch_pct}%)/{b_max} · "
+                elif batch_label:
+                    batch_str = f"Batch {batch_label} ({batch_pct}%) · "
+                else:
+                    batch_str = ""
+                reporter.update_progress(
+                    pct,
+                    f"{batch_str}{total_ok} OK · {total_fail} fail · "
+                    f"{running} processing · {total_pending} pending · "
+                    f"ETA {_fmt_secs(overall_eta)}",
+                )
             elif "WEB_INTERFACE" in os.environ:
-                 overall_done = cumulative_done + done if cumulative_total > 0 else done
-                 overall_total = cumulative_total if cumulative_total > 0 else total
-                 overall_remaining = overall_total - overall_done
-                 overall_eta = (overall_remaining / throughput) if throughput > 0 else 0
+                overall_done = cumulative_done + done if cumulative_total > 0 else done
+                overall_total = cumulative_total if cumulative_total > 0 else total
+                overall_remaining = overall_total - overall_done
+                overall_eta = (overall_remaining / throughput) if throughput > 0 else 0
 
-                 progress_data = {
-                     "done": overall_done,
-                     "total": overall_total,
-                     "batch_done": done,
-                     "batch_total": total,
-                     "rate": throughput,
-                     "eta": overall_eta
-                 }
-                 if batch_label:
-                     progress_data["batch"] = batch_label
-                 # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
-                 # parses subprocess stdout for the ::PROGRESS:: marker; never convert to logging.
-                 print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
+                progress_data = {
+                    "done": overall_done,
+                    "total": overall_total,
+                    "batch_done": done,
+                    "batch_total": total,
+                    "rate": throughput,
+                    "eta": overall_eta,
+                }
+                if batch_label:
+                    progress_data["batch"] = batch_label
+                # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
+                # parses subprocess stdout for the ::PROGRESS:: marker; never convert to logging.
+                print(f"::PROGRESS::{json.dumps(progress_data)}", flush=True)
             else:
-                 sys.stdout.write("\r" + line)
-                 sys.stdout.flush()
+                sys.stdout.write("\r" + line)
+                sys.stdout.flush()
 
             if done == total:
                 break
@@ -350,9 +334,6 @@ def start_monitor(
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return t
-
-
-
 
 
 # The activity-type vocabulary. Every platform ingester maps its export's
@@ -370,20 +351,22 @@ def start_monitor(
 # Viewing rows (`play`, `observe`, `ad_play`) are what studies are built on.
 # The remaining standalone types are kept for participant-facing stats and
 # never enter a study.
-VIEWING_ACTIVITY_TYPES = ('play', 'observe', 'ad_play')
-ENGAGEMENT_TYPES = ('fave', 'save', 'comment', 'share')
-STANDALONE_ACTIVITY_TYPES = ('follow', 'followed_by', 'search', 'login', 'post')
-KNOWN_ACTIVITY_TYPES = frozenset(VIEWING_ACTIVITY_TYPES + ENGAGEMENT_TYPES + STANDALONE_ACTIVITY_TYPES)
+VIEWING_ACTIVITY_TYPES = ("play", "observe", "ad_play")
+ENGAGEMENT_TYPES = ("fave", "save", "comment", "share")
+STANDALONE_ACTIVITY_TYPES = ("follow", "followed_by", "search", "login", "post")
+KNOWN_ACTIVITY_TYPES = frozenset(
+    VIEWING_ACTIVITY_TYPES + ENGAGEMENT_TYPES + STANDALONE_ACTIVITY_TYPES
+)
 # Events that happen TO the account rather than BY the donor: another account
 # following them. They are no part of a phone sitting, so session assignment
 # leaves them out (a follower arriving mid-afternoon must not join the
 # donor's lunchtime and evening scrolling into one session).
-RECEIVED_ACTIVITY_TYPES = ('followed_by',)
+RECEIVED_ACTIVITY_TYPES = ("followed_by",)
 
 # Human labels for the UI (Explorer facet, Timelines series, My Collections).
 # The stored token stays `fave`; only the label says "Like".
-ENGAGEMENT_LABELS = {'fave': 'Like', 'save': 'Save', 'comment': 'Comment', 'share': 'Share'}
-STANDALONE_ENGAGEMENT_LABELS = {**ENGAGEMENT_LABELS, 'follow': 'Follow'}
+ENGAGEMENT_LABELS = {"fave": "Like", "save": "Save", "comment": "Comment", "share": "Share"}
+STANDALONE_ENGAGEMENT_LABELS = {**ENGAGEMENT_LABELS, "follow": "Follow"}
 
 # Engagement tokens carried inside the folded `extra_data` column of a play
 # row: a comma-separated list of "<atype>[:context]" tokens (e.g. "fave",
@@ -422,23 +405,17 @@ def engagement_label(token: str) -> str:
     return STANDALONE_ENGAGEMENT_LABELS.get(token, str(token).title())
 
 
-
-
-
 def parse_extra_data_tokens(s) -> set:
     """Parse a folded extra_data cell into its normalised engagement-type tokens."""
     if not isinstance(s, str) or not s:
         return set()
     out = set()
-    for part in s.split(','):
-        atype = part.split(':', 1)[0].strip().lower()
+    for part in s.split(","):
+        atype = part.split(":", 1)[0].strip().lower()
         mapped = ACTIVITY_TYPE_MAP.get(atype)
         if mapped:
             out.add(mapped)
     return out
-
-
-
 
 
 def repair_mojibake(text: str) -> str:
@@ -462,9 +439,6 @@ def repair_mojibake(text: str) -> str:
         return text.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         return text
-
-
-
 
 
 def read_zip_members(local_path: str, suffixes: list[str]) -> dict[str, bytes | None]:
@@ -501,8 +475,3 @@ def read_zip_members(local_path: str, suffixes: list[str]) -> dict[str, bytes | 
                     out[suffix] = zf.read(name)
                     remaining.discard(suffix)
     return out
-
-
-
-
-

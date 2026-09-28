@@ -14,14 +14,19 @@ from fyp.annotation.backends.qwen_local import QwenLocalBackend
 # Every key the flatten/refine pipeline reads off a raw row (the interface
 # boundary pinned by the golden batch tests).
 _RAW_ROW_KEYS = {
-    "item_id", "source_platform", "inference_ts", "inference_duration",
-    "model", "prompt_fn", "annotation_version", "structured", "usage",
-    "error", "finish_reason", "response",
+    "item_id",
+    "source_platform",
+    "inference_ts",
+    "inference_duration",
+    "model",
+    "prompt_fn",
+    "annotation_version",
+    "structured",
+    "usage",
+    "error",
+    "finish_reason",
+    "response",
 }
-
-
-
-
 
 
 @pytest.fixture
@@ -34,21 +39,21 @@ def backend(monkeypatch):
         prompt_tokens = 4000
         generation_tokens = 500
 
-    monkeypatch.setattr(QwenLocalBackend, "_ensure_model",
-                        lambda self: (object(), object()))
-    monkeypatch.setattr(ql, "_generate",
-                        lambda *a, **k: {"text": _Result.text,
-                                         "prompt_tokens": _Result.prompt_tokens,
-                                         "generation_tokens": _Result.generation_tokens})
+    monkeypatch.setattr(QwenLocalBackend, "_ensure_model", lambda self: (object(), object()))
+    monkeypatch.setattr(
+        ql,
+        "_generate",
+        lambda *a, **k: {
+            "text": _Result.text,
+            "prompt_tokens": _Result.prompt_tokens,
+            "generation_tokens": _Result.generation_tokens,
+        },
+    )
     monkeypatch.setattr(ql, "_fetch_media", lambda item_id, platform: ("/tmp/fake.mp4", None))
     monkeypatch.setattr(ql, "_probe_duration", lambda path: 30.0)
     monkeypatch.setattr(ql, "_sample_frames", lambda *a, **k: ["/tmp/f0.jpg", "/tmp/f1.jpg"])
     monkeypatch.setattr(ql, "_extract_audio", lambda *a, **k: "/tmp/audio.wav")
     return b
-
-
-
-
 
 
 def test_raw_row_shape_complete(backend):
@@ -65,10 +70,6 @@ def test_raw_row_shape_complete(backend):
     assert row["annotation_version"].startswith("av_") or row["annotation_version"] == "unknown"
 
 
-
-
-
-
 def test_media_not_found_is_dnf(backend, monkeypatch):
     monkeypatch.setattr(ql, "_fetch_media", lambda item_id, platform: (None, None))
     row = backend.annotate_one("123", platform="tiktok")
@@ -77,22 +78,20 @@ def test_media_not_found_is_dnf(backend, monkeypatch):
     assert _RAW_ROW_KEYS <= set(row)
 
 
-
-
-
-
 def test_unparseable_response_is_dnf(backend, monkeypatch):
-    monkeypatch.setattr(ql, "_generate",
-                        lambda *a, **k: {"text": '{"transcript": "trunca',
-                                         "prompt_tokens": 1, "generation_tokens": 1})
+    monkeypatch.setattr(
+        ql,
+        "_generate",
+        lambda *a, **k: {
+            "text": '{"transcript": "trunca',
+            "prompt_tokens": 1,
+            "generation_tokens": 1,
+        },
+    )
     row = backend.annotate_one("123", platform="tiktok")
     assert row["finish_reason"] == "DNF - unparseable response"
     assert row["error"].startswith("parse:")
     assert row["response"].startswith('{"transcript"')  # raw text preserved for the archive
-
-
-
-
 
 
 def test_generation_crash_is_dnf(backend, monkeypatch):
@@ -105,17 +104,9 @@ def test_generation_crash_is_dnf(backend, monkeypatch):
     assert "metal exploded" in row["error"]
 
 
-
-
-
-
 def test_non_dict_schema_rejected(backend):
     row = backend.annotate_one("123", platform="tiktok", response_schema=object())
     assert row["finish_reason"] == "DNF - bad schema"
-
-
-
-
 
 
 def test_backend_class_contract():
@@ -131,10 +122,6 @@ def test_backend_class_contract():
     assert gen["use_structured_output"] is True and gen["temperature"] == 0.0
 
 
-
-
-
-
 def test_rope_fix_skips_on_newer_mlx_vlm(monkeypatch):
     import sys
     import types
@@ -146,9 +133,6 @@ def test_rope_fix_skips_on_newer_mlx_vlm(monkeypatch):
     monkeypatch.setitem(sys.modules, "mlx_vlm", fake)
     monkeypatch.setattr(fix, "_APPLIED", False)
     assert fix.apply_patches() is False  # assumed fixed upstream — no-op
-
-
-
 
 
 def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
@@ -172,10 +156,15 @@ def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
         def blob(self, name):
             return _Blob(name)
 
-    monkeypatch.setattr(media_paths, "resolve_media",
-                        lambda item_id, platform=None: {
-                            "kind": "gcs", "bucket_name": "b",
-                            "blob_name": "media/tiktok/123.mp4"})
+    monkeypatch.setattr(
+        media_paths,
+        "resolve_media",
+        lambda item_id, platform=None: {
+            "kind": "gcs",
+            "bucket_name": "b",
+            "blob_name": "media/tiktok/123.mp4",
+        },
+    )
     monkeypatch.setitem(get_config()["data_io"], "bucket", _Bucket())
 
     path, cleanup = qwen_local._fetch_media("123", "tiktok")

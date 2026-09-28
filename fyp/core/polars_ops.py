@@ -28,7 +28,6 @@ still pending (all-null). These helpers mitigate that with:
    schema-unification error; correctness always wins over speed.
 """
 
-
 import warnings
 from typing import Iterable, Literal
 
@@ -42,9 +41,6 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-
-
-
 # Catch the base PolarsError so every schema/unification/cast failure falls
 # through to the pandas safe path. Narrow catches have proven too narrow —
 # deeply nested types (list<string>, struct) surface failures from multiple
@@ -53,15 +49,9 @@ logger = get_logger(__name__)
 _POLARS_ERRORS: tuple[type[Exception], ...] = (pl.exceptions.PolarsError,)
 
 
-
-
-
 def _pandas_to_polars(df: pd.DataFrame) -> pl.DataFrame:
     """Convert a pandas DataFrame to a polars DataFrame via pyarrow."""
     return pl.from_pandas(df)
-
-
-
 
 
 def _safe_convert_dtypes_pyarrow(df: pd.DataFrame) -> pd.DataFrame:
@@ -98,7 +88,11 @@ def _safe_convert_dtypes_pyarrow(df: pd.DataFrame) -> pd.DataFrame:
         series = df[col]
         try:
             # pandas would turn an Arrow date into timestamp[ms]; keep it.
-            converted = series if is_arrow_date(series.dtype) else series.convert_dtypes(dtype_backend="pyarrow")
+            converted = (
+                series
+                if is_arrow_date(series.dtype)
+                else series.convert_dtypes(dtype_backend="pyarrow")
+            )
         except Exception:
             # Known-failure path: all-null nested-type columns. The
             # original series is already pyarrow-backed and functionally
@@ -108,9 +102,6 @@ def _safe_convert_dtypes_pyarrow(df: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame(out, index=df.index)
     # Ensure column order matches input
     return result[list(df.columns)]
-
-
-
 
 
 def _polars_to_pandas(df: pl.DataFrame) -> pd.DataFrame:
@@ -128,9 +119,6 @@ def _polars_to_pandas(df: pl.DataFrame) -> pd.DataFrame:
     return _safe_convert_dtypes_pyarrow(out)
 
 
-
-
-
 def _normalize_via_pandas(df: pd.DataFrame) -> pd.DataFrame:
     """Reset index and normalize to the canonical ArrowDtype flavor.
 
@@ -139,9 +127,6 @@ def _normalize_via_pandas(df: pd.DataFrame) -> pd.DataFrame:
     `pd.merge`) isn't killed by the same all-null-nested-column bug.
     """
     return _safe_convert_dtypes_pyarrow(df.reset_index(drop=True))
-
-
-
 
 
 def _log_polars_fallback(
@@ -153,16 +138,12 @@ def _log_polars_fallback(
     logs, so this surfaces real trigger cases in production without making
     the caller crash."""
     message = (
-        f"{helper_name} falling back to pandas because polars raised "
-        f"{type(exc).__name__}: {exc}"
+        f"{helper_name} falling back to pandas because polars raised {type(exc).__name__}: {exc}"
     )
     warnings.warn(message, RuntimeWarning, stacklevel=3)
     # Also log so the trigger is visible in server logs even if the caller
     # doesn't configure the warnings filter.
     logger.warning(f"[polars_ops] {message}")
-
-
-
 
 
 def _richer_arrow_type(a: pa.DataType, b: pa.DataType) -> pa.DataType:
@@ -195,9 +176,6 @@ def _richer_arrow_type(a: pa.DataType, b: pa.DataType) -> pa.DataType:
     return a
 
 
-
-
-
 def _arrow_type_of(series: pd.Series) -> pa.DataType | None:
     """Best-effort extraction of a column's underlying pyarrow type.
 
@@ -211,9 +189,6 @@ def _arrow_type_of(series: pd.Series) -> pa.DataType | None:
     if isinstance(dtype, pd.StringDtype) and getattr(dtype, "storage", None) == "pyarrow":
         return pa.string()
     return None
-
-
-
 
 
 def _align_schemas_for_concat(
@@ -272,9 +247,6 @@ def _align_schemas_for_concat(
     return aligned
 
 
-
-
-
 def fast_vertical_concat(
     dfs: Iterable[pd.DataFrame],
     ignore_index: bool = True,
@@ -311,8 +283,7 @@ def fast_vertical_concat(
     """
     if not ignore_index:
         raise NotImplementedError(
-            "fast_vertical_concat only supports ignore_index=True; polars has no "
-            "index concept."
+            "fast_vertical_concat only supports ignore_index=True; polars has no index concept."
         )
 
     dfs_list = list(dfs)
@@ -337,19 +308,12 @@ def fast_vertical_concat(
         return _polars_to_pandas(combined)
     except _POLARS_ERRORS as exc:
         _log_polars_fallback("fast_vertical_concat", exc)
-        return _normalize_via_pandas(
-            pd.concat(non_empty, ignore_index=True)
-        )
+        return _normalize_via_pandas(pd.concat(non_empty, ignore_index=True))
     except Exception as exc:
         # Defensive: anything else from pyarrow / pandas round-trips is
         # also non-fatal — correctness via pandas fallback.
         _log_polars_fallback("fast_vertical_concat", exc)
-        return _normalize_via_pandas(
-            pd.concat(non_empty, ignore_index=True)
-        )
-
-
-
+        return _normalize_via_pandas(pd.concat(non_empty, ignore_index=True))
 
 
 def fast_join(
@@ -389,11 +353,7 @@ def fast_join(
         return _polars_to_pandas(joined)
     except _POLARS_ERRORS as exc:
         _log_polars_fallback("fast_join", exc)
-        return _normalize_via_pandas(
-            pd.merge(left, right, on=on, how=how)
-        )
+        return _normalize_via_pandas(pd.merge(left, right, on=on, how=how))
     except Exception as exc:
         _log_polars_fallback("fast_join", exc)
-        return _normalize_via_pandas(
-            pd.merge(left, right, on=on, how=how)
-        )
+        return _normalize_via_pandas(pd.merge(left, right, on=on, how=how))

@@ -20,26 +20,21 @@ from web_interface.services import study_data
 _N_ROWS = 40
 
 
-
-
-
 def _raw_frame():
     """A study frame shaped like a recoded parquet: mask columns, an id, and
     several payload columns standing in for the ~100 real ones."""
-    return pd.DataFrame({
-        "item_id": [f"v{i:04d}" for i in range(_N_ROWS)],
-        "activity_type": ["play" if i % 4 else "fave" for i in range(_N_ROWS)],
-        "annotated_ok": [i % 3 != 0 for i in range(_N_ROWS)],
-        "scraped_ok": [True] * _N_ROWS,
-        "annotation_version": [f"av_{i % 2}" for i in range(_N_ROWS)],
-        "desc": [f"caption {i}" for i in range(_N_ROWS)],
-        "play_duration": [float(i) for i in range(_N_ROWS)],
-        "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers"
-                       for i in range(_N_ROWS)],
-    })
-
-
-
+    return pd.DataFrame(
+        {
+            "item_id": [f"v{i:04d}" for i in range(_N_ROWS)],
+            "activity_type": ["play" if i % 4 else "fave" for i in range(_N_ROWS)],
+            "annotated_ok": [i % 3 != 0 for i in range(_N_ROWS)],
+            "scraped_ok": [True] * _N_ROWS,
+            "annotation_version": [f"av_{i % 2}" for i in range(_N_ROWS)],
+            "desc": [f"caption {i}" for i in range(_N_ROWS)],
+            "play_duration": [float(i) for i in range(_N_ROWS)],
+            "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers" for i in range(_N_ROWS)],
+        }
+    )
 
 
 def _col_types():
@@ -55,24 +50,21 @@ def _col_types():
     }
 
 
-
-
-
 def _seed_cache(monkeypatch, study="proj_study"):
     """Seed the RAM cache the way _cached_study_frame would, so no parquet is
     touched. The cache holds the context-filtered frame, so filter here too."""
     monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
     filtered, status = study_data._apply_context_filter(_raw_frame())
-    study_data.study_cache.put(study, {
-        "df": filtered,
-        "col_types": _col_types(),
-        "status": status,
-        "mtime": 1.0,
-    })
+    study_data.study_cache.put(
+        study,
+        {
+            "df": filtered,
+            "col_types": _col_types(),
+            "status": status,
+            "mtime": 1.0,
+        },
+    )
     return study, filtered
-
-
-
 
 
 def test_projection_returns_only_requested_and_mask_columns(monkeypatch):
@@ -81,20 +73,22 @@ def test_projection_returns_only_requested_and_mask_columns(monkeypatch):
     study, _ = _seed_cache(monkeypatch)
 
     df, col_types = study_data.get_explorer_data(
-        study, context="explorer", columns=("item_id", "annotation_version"),
+        study,
+        context="explorer",
+        columns=("item_id", "annotation_version"),
     )
 
     assert set(df.columns) == {
-        "item_id", "annotation_version",
-        "annotated_ok", "scraped_ok", "activity_type",
+        "item_id",
+        "annotation_version",
+        "annotated_ok",
+        "scraped_ok",
+        "activity_type",
     }
     # col_types must be narrowed with it: get_current_stats iterates col_types
     # and indexes the frame with each key.
     assert set(col_types) == set(df.columns)
     assert "desc" not in df.columns and "desc" not in col_types
-
-
-
 
 
 def test_projection_selects_the_same_rows_as_the_full_frame(monkeypatch):
@@ -103,14 +97,13 @@ def test_projection_selects_the_same_rows_as_the_full_frame(monkeypatch):
 
     full, _ = study_data.get_explorer_data(study, context="explorer")
     projected, _ = study_data.get_explorer_data(
-        study, context="explorer", columns=("item_id",),
+        study,
+        context="explorer",
+        columns=("item_id",),
     )
 
     assert list(projected.index) == list(full.index)
     assert projected["item_id"].tolist() == full["item_id"].tolist()
-
-
-
 
 
 def test_projection_ignores_unknown_column_names(monkeypatch):
@@ -119,14 +112,13 @@ def test_projection_ignores_unknown_column_names(monkeypatch):
     study, _ = _seed_cache(monkeypatch)
 
     df, _ = study_data.get_explorer_data(
-        study, context="explorer", columns=("item_id", "User Tags"),
+        study,
+        context="explorer",
+        columns=("item_id", "User Tags"),
     )
 
     assert "User Tags" not in df.columns
     assert "item_id" in df.columns
-
-
-
 
 
 def test_unprojected_call_still_returns_every_column(monkeypatch):
@@ -140,9 +132,6 @@ def test_unprojected_call_still_returns_every_column(monkeypatch):
     assert set(col_types) == set(_col_types())
 
 
-
-
-
 def test_enrich_with_user_tags_does_not_mutate_the_callers_frame():
     """The copy is shallow now, so this asserts the caller's frame keeps its
     original columns and values."""
@@ -151,7 +140,9 @@ def test_enrich_with_user_tags_does_not_mutate_the_callers_frame():
     before_versions = df["annotation_version"].tolist()
 
     enriched, col_types = study_data.enrich_with_user_tags(
-        df, _col_types(), "nobody@example.com",
+        df,
+        _col_types(),
+        "nobody@example.com",
     )
 
     assert list(df.columns) == before_columns
@@ -162,16 +153,15 @@ def test_enrich_with_user_tags_does_not_mutate_the_callers_frame():
     assert col_types["Has Annotation"] == "category"
 
 
-
-
-
 def test_enrich_with_user_tags_writes_machine_annotations_correctly():
     """The .loc write lands on the enriched frame, with the values the
     annotated_ok flags imply."""
     df = _raw_frame()
 
     enriched, _ = study_data.enrich_with_user_tags(
-        df, _col_types(), "nobody@example.com",
+        df,
+        _col_types(),
+        "nobody@example.com",
     )
 
     machine = enriched["Machine Annotations"]
@@ -179,9 +169,6 @@ def test_enrich_with_user_tags_writes_machine_annotations_correctly():
         v for v in machine if v.startswith("av_")
     }
     assert set(machine[~enriched["annotated_ok"]]) == {"Cannot Machine Annotate"}
-
-
-
 
 
 def test_filter_dataframe_does_not_mutate_the_callers_frame():
@@ -192,16 +179,16 @@ def test_filter_dataframe_does_not_mutate_the_callers_frame():
     before_values = df["niche_name"].tolist()
 
     out = explorer.filter_dataframe(
-        df, _col_types(), {"niche_name": {"value": ["Cat Mischief"]}}, None,
+        df,
+        _col_types(),
+        {"niche_name": {"value": ["Cat Mischief"]}},
+        None,
     )
 
     assert len(df) == before_len
     assert df["niche_name"].tolist() == before_values
     assert len(out) < before_len
     assert set(out["niche_name"]) == {"Cat Mischief"}
-
-
-
 
 
 def test_returned_frame_is_independent_of_the_cached_frame(monkeypatch):
@@ -214,10 +201,15 @@ def test_returned_frame_is_independent_of_the_cached_frame(monkeypatch):
 
     df, col_types = study_data.get_explorer_data(study, context="explorer")
     enriched, _ = study_data.enrich_with_user_tags(
-        df, col_types, "nobody@example.com",
+        df,
+        col_types,
+        "nobody@example.com",
     )
     filtered = explorer.filter_dataframe(
-        enriched, col_types, {"niche_name": {"value": ["Cat Mischief"]}}, None,
+        enriched,
+        col_types,
+        {"niche_name": {"value": ["Cat Mischief"]}},
+        None,
     )
 
     # Nothing downstream may add columns to, or alter values in, the cached
@@ -228,9 +220,6 @@ def test_returned_frame_is_independent_of_the_cached_frame(monkeypatch):
     assert len(filtered) < before_len
 
 
-
-
-
 def test_get_explorer_data_returns_a_view_not_a_row_copy(monkeypatch):
     """The cache holds the context-filtered frame, so a request is a column
     view of it — same rows, shared column data."""
@@ -239,10 +228,8 @@ def test_get_explorer_data_returns_a_view_not_a_row_copy(monkeypatch):
     df, _ = study_data.get_explorer_data(study, context="explorer")
 
     assert list(df.index) == list(cached.index)
-    assert df is not cached          # distinct object, so attrs/drops are safe
+    assert df is not cached  # distinct object, so attrs/drops are safe
     assert df["item_id"].tolist() == cached["item_id"].tolist()
-
-
 
 
 def test_context_filter_keeps_only_enriched_play_rows():
@@ -254,8 +241,6 @@ def test_context_filter_keeps_only_enriched_play_rows():
     assert filtered["item_id"].notna().all()
     assert len(filtered) < _N_ROWS
     assert status["ok"] is True
-
-
 
 
 def test_get_explorer_rows_finds_an_item_by_id(monkeypatch):
@@ -272,20 +257,18 @@ def test_get_explorer_rows_finds_an_item_by_id(monkeypatch):
     assert set(col_types) == set(_col_types())
 
 
-
-
 def test_get_explorer_rows_prefers_the_row_index(monkeypatch):
     """row_index disambiguates duplicate item_ids, so it wins when valid."""
     study, cached = _seed_cache(monkeypatch)
     idx = cached.index[2]
 
     rows, _ = study_data.get_explorer_rows(
-        study, item_id="does-not-matter", row_index=idx,
+        study,
+        item_id="does-not-matter",
+        row_index=idx,
     )
 
     assert list(rows.index) == [idx]
-
-
 
 
 def test_get_explorer_rows_falls_back_when_the_index_is_stale(monkeypatch):
@@ -295,13 +278,13 @@ def test_get_explorer_rows_falls_back_when_the_index_is_stale(monkeypatch):
     wanted = cached["item_id"].iloc[0]
 
     rows, _ = study_data.get_explorer_rows(
-        study, item_id=wanted, row_index=10**9,
+        study,
+        item_id=wanted,
+        row_index=10**9,
     )
 
     assert len(rows) == 1
     assert rows["item_id"].iloc[0] == wanted
-
-
 
 
 def test_get_explorer_rows_returns_empty_for_a_filtered_out_item(monkeypatch):
@@ -315,8 +298,6 @@ def test_get_explorer_rows_returns_empty_for_a_filtered_out_item(monkeypatch):
     assert rows.empty
 
 
-
-
 def test_get_explorer_rows_does_not_mutate_the_cached_frame(monkeypatch):
     """The returned rows are copied, so the detail panel cannot write back."""
     study, cached = _seed_cache(monkeypatch)
@@ -328,20 +309,21 @@ def test_get_explorer_rows_does_not_mutate_the_cached_frame(monkeypatch):
     assert cached["niche_name"].tolist() == before
 
 
-
-
 def test_enrich_user_tags_values_and_shared_empty(monkeypatch):
     """The vectorized User-Tags build fills tagged rows with their tags and
     every other row with an empty list, and never touches the input frame."""
     df = _raw_frame()
     tagged_id = df["item_id"].iloc[2]
     monkeypatch.setattr(
-        study_data, "get_user_json_cached",
+        study_data,
+        "get_user_json_cached",
         lambda u: {"annotations": {tagged_id: {"topic": ["cats", "music"]}}},
     )
 
     enriched, col_types = study_data.enrich_with_user_tags(
-        df, _col_types(), "somebody@example.com",
+        df,
+        _col_types(),
+        "somebody@example.com",
     )
 
     assert col_types["User Tags"] == "list"
@@ -356,18 +338,19 @@ def test_enrich_user_tags_values_and_shared_empty(monkeypatch):
     assert "User Tags" not in df.columns
 
 
-
-
 def test_enrich_user_tags_column_absent_when_no_tag_matches(monkeypatch):
     """Tags for items outside the study must not create the column (the old
     implementation created-then-dropped it)."""
     monkeypatch.setattr(
-        study_data, "get_user_json_cached",
+        study_data,
+        "get_user_json_cached",
         lambda u: {"annotations": {"not-in-study": {"topic": ["x"]}}},
     )
 
     enriched, col_types = study_data.enrich_with_user_tags(
-        _raw_frame(), _col_types(), "somebody@example.com",
+        _raw_frame(),
+        _col_types(),
+        "somebody@example.com",
     )
 
     assert "User Tags" not in enriched.columns
@@ -377,26 +360,28 @@ def test_enrich_user_tags_column_absent_when_no_tag_matches(monkeypatch):
     assert "Has Annotation" in enriched.columns
 
 
-
-
 def test_big_study_load_evicts_other_cached_studies(monkeypatch):
     """Loading a study at/over the row threshold must clear the other cache
     slots BEFORE the parquet load — raw + filtered coexist during a load, so
     a big study cannot fit alongside previously cached frames (the 2026-08-03
     23:47 OOM)."""
     monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
-    study_data.study_cache.put("small_a", {"df": _raw_frame(),
-                                           "col_types": _col_types(),
-                                           "status": {"ok": True}, "mtime": 1.0})
-    study_data.study_cache.put("small_b", {"df": _raw_frame(),
-                                           "col_types": _col_types(),
-                                           "status": {"ok": True}, "mtime": 1.0})
+    study_data.study_cache.put(
+        "small_a",
+        {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
+    )
+    study_data.study_cache.put(
+        "small_b",
+        {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
+    )
     monkeypatch.setattr(
-        study_data, "get_study_sidecar",
+        study_data,
+        "get_study_sidecar",
         lambda s: {"row_count": study_data._BIG_STUDY_ROW_THRESHOLD},
     )
-    monkeypatch.setattr(study_data.explorer, "load_data",
-                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+    monkeypatch.setattr(
+        study_data.explorer, "load_data", lambda s, verbose=False: (_raw_frame(), _col_types())
+    )
 
     df, _, _ = study_data._cached_study_frame("huge_study")
 
@@ -406,18 +391,17 @@ def test_big_study_load_evicts_other_cached_studies(monkeypatch):
     assert study_data.study_cache.get("huge_study") is not None
 
 
-
-
 def test_small_study_load_keeps_other_cached_studies(monkeypatch):
     """Below the threshold the two-slot LRU behavior is unchanged."""
     monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
-    study_data.study_cache.put("small_a", {"df": _raw_frame(),
-                                           "col_types": _col_types(),
-                                           "status": {"ok": True}, "mtime": 1.0})
-    monkeypatch.setattr(study_data, "get_study_sidecar",
-                        lambda s: {"row_count": 50_000})
-    monkeypatch.setattr(study_data.explorer, "load_data",
-                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+    study_data.study_cache.put(
+        "small_a",
+        {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
+    )
+    monkeypatch.setattr(study_data, "get_study_sidecar", lambda s: {"row_count": 50_000})
+    monkeypatch.setattr(
+        study_data.explorer, "load_data", lambda s, verbose=False: (_raw_frame(), _col_types())
+    )
 
     df, _, _ = study_data._cached_study_frame("small_c")
 
@@ -425,18 +409,18 @@ def test_small_study_load_keeps_other_cached_studies(monkeypatch):
     assert study_data.study_cache.get("small_a") is not None
 
 
-
-
 def test_missing_sidecar_counts_as_big(monkeypatch):
     """No sidecar means unknown size — evict, since the failure mode of
     guessing small is an OOM-killed instance."""
     monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
-    study_data.study_cache.put("small_a", {"df": _raw_frame(),
-                                           "col_types": _col_types(),
-                                           "status": {"ok": True}, "mtime": 1.0})
+    study_data.study_cache.put(
+        "small_a",
+        {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
+    )
     monkeypatch.setattr(study_data, "get_study_sidecar", lambda s: None)
-    monkeypatch.setattr(study_data.explorer, "load_data",
-                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+    monkeypatch.setattr(
+        study_data.explorer, "load_data", lambda s, verbose=False: (_raw_frame(), _col_types())
+    )
 
     study_data._cached_study_frame("unknown_size_study")
 

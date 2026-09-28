@@ -28,8 +28,7 @@ def ledger(monkeypatch):
 
 
 def test_record_withdrawal_stamps_are_offset_aware(ledger):
-    entry = mcs.record_withdrawal(
-        "c1", "p@x.com", ["c1.json"], "raw/c1.json", "display1", "tiktok")
+    entry = mcs.record_withdrawal("c1", "p@x.com", ["c1.json"], "raw/c1.json", "display1", "tiktok")
 
     for field in ("deleted_at", "restorable_until"):
         ts = pd.Timestamp(entry[field])
@@ -42,24 +41,31 @@ def test_record_withdrawal_stamps_are_offset_aware(ledger):
 
 def test_load_withdrawals_purges_only_expired_entries(ledger, monkeypatch):
     now = pd.Timestamp.now(tz="UTC")
-    ledger.update({
-        "live": {"restorable_until": (now + pd.Timedelta(days=5)).isoformat(),
-                 "files": ["live.json"]},
-        "expired": {"restorable_until": (now - pd.Timedelta(days=1)).isoformat(),
-                    "files": ["expired.json"]},
-        # Written before the stamps became offset-aware: naive UTC.
-        "legacy_expired": {
-            "restorable_until": (now - pd.Timedelta(days=1)).tz_localize(None).isoformat(),
-            "files": ["legacy.json"]},
-        "legacy_live": {
-            "restorable_until": (now + pd.Timedelta(days=5)).tz_localize(None).isoformat(),
-            "files": ["legacy_live.json"]},
-        "unparseable": {"restorable_until": "not a date", "files": []},
-    })
+    ledger.update(
+        {
+            "live": {
+                "restorable_until": (now + pd.Timedelta(days=5)).isoformat(),
+                "files": ["live.json"],
+            },
+            "expired": {
+                "restorable_until": (now - pd.Timedelta(days=1)).isoformat(),
+                "files": ["expired.json"],
+            },
+            # Written before the stamps became offset-aware: naive UTC.
+            "legacy_expired": {
+                "restorable_until": (now - pd.Timedelta(days=1)).tz_localize(None).isoformat(),
+                "files": ["legacy.json"],
+            },
+            "legacy_live": {
+                "restorable_until": (now + pd.Timedelta(days=5)).tz_localize(None).isoformat(),
+                "files": ["legacy_live.json"],
+            },
+            "unparseable": {"restorable_until": "not a date", "files": []},
+        }
+    )
     removed: list[str] = []
     monkeypatch.setattr(mcs.data_io, "exists", lambda **kw: True)
-    monkeypatch.setattr(mcs.data_io, "remove",
-                        lambda **kw: removed.append(kw["filename"]))
+    monkeypatch.setattr(mcs.data_io, "remove", lambda **kw: removed.append(kw["filename"]))
 
     remaining = mcs.load_withdrawals()
 
@@ -80,8 +86,11 @@ def test_restore_past_the_window_is_refused(ledger, aware):
     closed = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)
     if not aware:
         closed = closed.tz_localize(None)
-    ledger["c1"] = {"restorable_until": closed.isoformat(),
-                    "raw_path": "raw/c1.json", "files": ["c1.json"]}
+    ledger["c1"] = {
+        "restorable_until": closed.isoformat(),
+        "raw_path": "raw/c1.json",
+        "files": ["c1.json"],
+    }
 
     with pytest.raises(mcs.RestoreError, match="restore window"):
         mcs.restore_withdrawal("c1")

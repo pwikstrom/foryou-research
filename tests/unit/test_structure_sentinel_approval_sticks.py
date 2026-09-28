@@ -68,7 +68,9 @@ def _quarantine_then_approve(stores, filename="pruned.json"):
     baselines, verdicts = stores
     _mature_baseline(baselines)
     first = ss.StructureSentinel()
-    verdict = first.check_raw(FakeCollection(_fp(PRUNED_PATHS)), filename, pd.DataFrame({"a": range(20)}))
+    verdict = first.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)), filename, pd.DataFrame({"a": range(20)})
+    )
     assert verdict["status"] == "quarantined"
     first.commit(set())
     assert verdicts["files"][filename]["status"] == "quarantined"
@@ -82,12 +84,16 @@ def test_approved_file_is_not_requarantined_by_the_same_finding(stores):
     # The baseline is still overwhelmingly FULL_PATHS: the pruned shape is
     # missing-core-path drift again by the numbers ...
     second = ss.StructureSentinel()
-    verdict = second.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)}))
+    verdict = second.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)})
+    )
     # ... but the approval stands.
     assert verdict["status"] == "approved"
     assert verdict["review_action"] == "approve"
     assert verdict["reviewed_by"] == "admin"
-    assert any(f["code"] == "missing_core_paths" for f in verdict["findings"]), "findings stay on record"
+    assert any(f["code"] == "missing_core_paths" for f in verdict["findings"]), (
+        "findings stay on record"
+    )
 
 
 def test_approved_file_survives_phase_b_and_is_learned_on_commit(stores):
@@ -100,7 +106,9 @@ def test_approved_file_survives_phase_b_and_is_learned_on_commit(stores):
     assert verdict["status"] == "approved"
     second.commit({"pruned.json"})
     assert verdicts["files"]["pruned.json"]["status"] == "approved"
-    assert "pruned.json" in baselines["baselines"][ss.baseline_key("tiktok", "ddp")]["learned_files"]
+    assert (
+        "pruned.json" in baselines["baselines"][ss.baseline_key("tiktok", "ddp")]["learned_files"]
+    )
 
 
 def test_new_kind_of_quarantine_finding_still_quarantines(stores):
@@ -108,15 +116,24 @@ def test_new_kind_of_quarantine_finding_still_quarantines(stores):
     second = ss.StructureSentinel()
     # Same file name, but now a known path comes back with a different type:
     # a finding the reviewer never saw.
-    retyped = [*PRUNED_PATHS[:1], "Activity.Video Browsing History.VideoList[].Link|int"]  # Link retyped
-    verdict = second.check_raw(FakeCollection(_fp(retyped)), "pruned.json", pd.DataFrame({"a": range(20)}))
+    retyped = [
+        *PRUNED_PATHS[:1],
+        "Activity.Video Browsing History.VideoList[].Link|int",
+    ]  # Link retyped
+    verdict = second.check_raw(
+        FakeCollection(_fp(retyped)), "pruned.json", pd.DataFrame({"a": range(20)})
+    )
     assert verdict["status"] == "quarantined"
     assert any(f["code"] == "type_changed" for f in verdict["findings"])
 
 
 def test_apply_review_ignores_rejections_and_unreviewed(stores):
-    verdict = {"status": "quarantined", "findings": [
-        {"layer": "structure", "severity": "quarantine", "code": "missing_core_paths"}]}
+    verdict = {
+        "status": "quarantined",
+        "findings": [
+            {"layer": "structure", "severity": "quarantine", "code": "missing_core_paths"}
+        ],
+    }
     assert ss.apply_review(dict(verdict), None)["status"] == "quarantined"
     rejected = {"review_action": "reject", "findings": verdict["findings"]}
     assert ss.apply_review(dict(verdict), rejected)["status"] == "quarantined"
@@ -126,13 +143,17 @@ def test_commit_keeps_a_review_recorded_after_this_runs_evaluation(stores):
     baselines, verdicts = stores
     _mature_baseline(baselines)
     run = ss.StructureSentinel()
-    verdict = run.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)}))
+    verdict = run.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)})
+    )
     assert verdict["status"] == "quarantined"
     # The admin approves while the run is still going (their reviewed_at is
     # later than the run's ts_evaluated).
     verdicts["files"]["pruned.json"] = {
         **{k: v for k, v in verdict.items() if k != "fingerprint"},
-        "status": "approved", "review_action": "approve", "reviewed_by": "admin",
+        "status": "approved",
+        "review_action": "approve",
+        "reviewed_by": "admin",
         "reviewed_at": "9999-01-01T00:00:00+00:00",
     }
     run.commit(set())
@@ -143,23 +164,33 @@ def test_commit_overwrites_a_review_older_than_this_runs_evaluation(stores):
     baselines, verdicts = stores
     _mature_baseline(baselines)
     verdicts["files"]["pruned.json"] = {
-        "status": "approved", "review_action": "approve", "reviewed_by": "admin",
-        "reviewed_at": "2000-01-01T00:00:00+00:00", "findings": [
-            {"layer": "structure", "severity": "quarantine", "code": "missing_member"}],
+        "status": "approved",
+        "review_action": "approve",
+        "reviewed_by": "admin",
+        "reviewed_at": "2000-01-01T00:00:00+00:00",
+        "findings": [{"layer": "structure", "severity": "quarantine", "code": "missing_member"}],
     }
     run = ss.StructureSentinel()
     # The old approval covered a different finding, so this run quarantines
     # and its verdict (newer than the review) is what gets stored.
-    verdict = run.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)}))
+    verdict = run.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)})
+    )
     assert verdict["status"] == "quarantined"
     run.commit(set())
     assert verdicts["files"]["pruned.json"]["status"] == "quarantined"
 
 
 def test_review_is_newer():
-    assert ss.review_is_newer({"review_action": "approve", "reviewed_at": "2026-09-07T07:28:40+00:00"},
-                              "2026-09-07T07:27:53+00:00")
-    assert not ss.review_is_newer({"review_action": "approve", "reviewed_at": "2026-09-07T07:28:40+00:00"},
-                                  "2026-09-07T07:41:11+00:00")
-    assert not ss.review_is_newer({"review_action": None, "reviewed_at": None}, "2026-09-07T07:27:53+00:00")
+    assert ss.review_is_newer(
+        {"review_action": "approve", "reviewed_at": "2026-09-07T07:28:40+00:00"},
+        "2026-09-07T07:27:53+00:00",
+    )
+    assert not ss.review_is_newer(
+        {"review_action": "approve", "reviewed_at": "2026-09-07T07:28:40+00:00"},
+        "2026-09-07T07:41:11+00:00",
+    )
+    assert not ss.review_is_newer(
+        {"review_action": None, "reviewed_at": None}, "2026-09-07T07:27:53+00:00"
+    )
     assert not ss.review_is_newer(None, "2026-09-07T07:27:53+00:00")

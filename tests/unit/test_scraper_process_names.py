@@ -42,6 +42,7 @@ def main() -> int:
     # The Cloud Tasks task-function registry must accept every platform name
     # plus the bare-name transition alias for in-flight chains.
     from web_interface.routes.process_routes import TASK_FUNCTIONS, _ensure_task_functions_loaded
+
     _ensure_task_functions_loaded()
     for name in SCRAPER_PROCESS_NAMES + ["queue_scraper"]:
         assert name in TASK_FUNCTIONS, f"{name} missing from TASK_FUNCTIONS"

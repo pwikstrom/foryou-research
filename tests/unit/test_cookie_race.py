@@ -45,8 +45,8 @@ def _hammer(get_cookiefile, iterations: int, errors: list) -> None:
         path = get_cookiefile()
         try:
             jar = YoutubeDLCookieJar(path)
-            jar.load()          # yt-dlp does this at YoutubeDL() construction
-            jar.save()          # ...and this on context-manager exit
+            jar.load()  # yt-dlp does this at YoutubeDL() construction
+            jar.save()  # ...and this on context-manager exit
         except LoadError as e:
             errors.append(str(e))
         except Exception as e:  # noqa: BLE001 - surface anything unexpected
@@ -117,8 +117,9 @@ def test_race() -> None:
         print(f"NEW (private copy): {len(new_errors)} LoadError(s) across threads")
 
         # The canonical file must remain a valid Netscape file after the new run.
-        assert scraper_cookies._looks_like_netscape(canonical), \
+        assert scraper_cookies._looks_like_netscape(canonical), (
             "canonical file corrupted under new pattern"
+        )
         assert not new_errors, f"private-copy pattern still raced: {new_errors[:3]}"
 
         # The whole point: the shared pattern was capable of racing (so the fix

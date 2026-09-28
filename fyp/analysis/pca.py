@@ -1,5 +1,3 @@
-
-
 import datetime as _dt
 import time as _time
 from collections.abc import Sequence
@@ -30,15 +28,11 @@ from fyp.core.types import (
 logger = get_logger(__name__)
 
 
-
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
-
-
 
 
 # The column the PCA frame carries for each group's video count. Structural
@@ -105,22 +99,16 @@ YES_NO_UNCLEAR = frozenset({"yes", "no", "unclear"})
 SHARE_OF_FEED_SUFFIX = "_share_of_feed"
 
 
-
-
-
-
 def _recode_sentinels() -> set:
     """Lowercased recode missing-value sentinel labels from config."""
     try:
         labels = _cf()["labels"]
-        return {str(labels["NOT_CODED"]).strip().lower(),
-                str(labels["UNABLE_TO_DETECT"]).strip().lower()}
+        return {
+            str(labels["NOT_CODED"]).strip().lower(),
+            str(labels["UNABLE_TO_DETECT"]).strip().lower(),
+        }
     except Exception:
         return {"not coded", "unable to detect"}
-
-
-
-
 
 
 def is_yes_no_counts(counts_df: pd.DataFrame) -> bool:
@@ -143,10 +131,6 @@ def is_yes_no_counts(counts_df: pd.DataFrame) -> bool:
     return bool(substantive) and all(n in YES_NO_UNCLEAR for n in substantive)
 
 
-
-
-
-
 def yes_share_from_counts(counts_df: pd.DataFrame) -> pd.Series:
     """Per-group share of "yes" among the yes/no/unclear answers.
 
@@ -165,13 +149,12 @@ def yes_share_from_counts(counts_df: pd.DataFrame) -> pd.Series:
     yes_cols = [c for c, low in lowered.items() if low == "yes"]
 
     denominator = counts_df[substantive].sum(axis=1).astype("float64")
-    numerator = (counts_df[yes_cols].sum(axis=1).astype("float64")
-                 if yes_cols else pd.Series(0.0, index=counts_df.index))
+    numerator = (
+        counts_df[yes_cols].sum(axis=1).astype("float64")
+        if yes_cols
+        else pd.Series(0.0, index=counts_df.index)
+    )
     return (numerator / denominator.where(denominator > 0)).astype("float64")
-
-
-
-
 
 
 Group = Union[dict[str, int], Sequence[str]]
@@ -180,20 +163,16 @@ Mode = Literal["distance", "similarity"]
 Weighting = Literal["none", "idf"]
 
 
-
-
-
-
 def pairwise_matrix_for_categorical_groups(
-        counts_df,
-        metric: Metric = "jensen-shannon",
-        mode: Mode = "similarity",
-        #labels: Optional[List[str]] = None,
-        smoothing: float = 1e-9,
-        weighting: Weighting = "none",
-        gamma: float | None = None,
-        drop_rare_globally_below: float = 0.0,
-    ):
+    counts_df,
+    metric: Metric = "jensen-shannon",
+    mode: Mode = "similarity",
+    # labels: Optional[List[str]] = None,
+    smoothing: float = 1e-9,
+    weighting: Weighting = "none",
+    gamma: float | None = None,
+    drop_rare_globally_below: float = 0.0,
+):
     """
     Pairwise matrix for categorical groups with power-law friendly options.
 
@@ -209,15 +188,11 @@ def pairwise_matrix_for_categorical_groups(
     drop_rare_globally_below: drop categories whose global relative mass is below this threshold
     """
 
-
-
     def _row_normalize(mat: np.ndarray) -> np.ndarray:
         sums = mat.sum(axis=1, keepdims=True)
         with np.errstate(invalid="ignore"):
             probs = np.divide(mat, sums, out=np.zeros_like(mat), where=sums > 0)
         return probs
-
-
 
     def _chi2_distance(x: np.ndarray, y: np.ndarray) -> float:
         den = x + y
@@ -247,7 +222,6 @@ def pairwise_matrix_for_categorical_groups(
         P_gamma = np.power(P, gamma)
         return _row_normalize(P_gamma)
 
-
     # main code starts here
 
     # Optionally drop globally rare categories (helps with extreme tails)
@@ -272,28 +246,27 @@ def pairwise_matrix_for_categorical_groups(
     P = _apply_tempering(P, gamma)
 
     # Compute pairwise
-    
 
     if metric == "jensen-shannon":
         # Scipy's jensenshannon is sqrt(JS_divergence). base=2 puts it in [0,1]
-        D_condensed = scipy_pdist(P, metric='jensenshannon', base=2.0)
+        D_condensed = scipy_pdist(P, metric="jensenshannon", base=2.0)
         D = scipy_squareform(D_condensed)
-    
+
     elif metric == "hellinger":
         # Hellinger is 1/sqrt(2) * Euclidean distance of sqrt(probs)
-        D_condensed = scipy_pdist(np.sqrt(P), metric='euclidean')
+        D_condensed = scipy_pdist(np.sqrt(P), metric="euclidean")
         D = scipy_squareform(D_condensed) / np.sqrt(2)
-    
+
     elif metric == "total-variation":
         # TV is 0.5 * L1 distance
-        D_condensed = scipy_pdist(P, metric='cityblock')
+        D_condensed = scipy_pdist(P, metric="cityblock")
         D = scipy_squareform(D_condensed) * 0.5
-    
+
     elif metric == "bray-curtis":
         # Built-in braycurtis
-        D_condensed = scipy_pdist(counts_smooth, metric='braycurtis')
+        D_condensed = scipy_pdist(counts_smooth, metric="braycurtis")
         D = scipy_squareform(D_condensed)
-    
+
     elif metric == "chi2":
         # Chi2 is harder to vectorise cleanly with pdist without massive memory usage
         # Falling back to your loop for this one specific metric or using explicit expansion
@@ -317,16 +290,10 @@ def pairwise_matrix_for_categorical_groups(
     np.fill_diagonal(S, 1.0)
     return pd.DataFrame(S, index=counts_df.index, columns=counts_df.index)
 
-    
 
-
-
-def calc_entropy_and_dominance(
-        counts_df,
-        top_n: int = 1) -> dict:
-
+def calc_entropy_and_dominance(counts_df, top_n: int = 1) -> dict:
     """
-    1. Calculate entropy (Shannon diversity) 
+    1. Calculate entropy (Shannon diversity)
     2. Calculate dominance as the combined share of the top N categories for each group.
 
     Parameters
@@ -342,10 +309,8 @@ def calc_entropy_and_dominance(
         Dominance score for each group (sum of top_n category proportions).
     """
 
-
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
-
 
     # convert to probabilities (row-normalized)
     probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
@@ -355,16 +320,14 @@ def calc_entropy_and_dominance(
 
     entropy = -(probs * np.log2(np.clip(probs, 1e-12, 1))).sum(axis=1)
 
-    return {"entropy":entropy} # simplifying things
+    return {"entropy": entropy}  # simplifying things
 
-    return {"dominance":dom, "entropy":entropy}
-
-
+    return {"dominance": dom, "entropy": entropy}
 
 
 def interpret_axes_with_categories(
-    counts_df = None,
-    feat = None,
+    counts_df=None,
+    feat=None,
     top=5,
     cutoff=None,
 ) -> dict:
@@ -378,23 +341,22 @@ def interpret_axes_with_categories(
     if cutoff is None:
         cutoff = float(_cf().get("correlations", {}).get("interpretation_cutoff", 0.2))
 
-    
     probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
     probs = probs.loc[feat.index]  # align
 
     out = {}
-    
+
     # --- Vectorized Correlation ---
     # Convert feat (Principal Components) and probs (Category Proportions) to aligned matrices
     # probs is N_groups x N_categories
     # feat is N_groups x N_components
-    
+
     # 1. Align indices strictly
     common_index = probs.index.intersection(feat.index)
     P = probs.loc[common_index]
     F = feat.loc[common_index]
 
-    if len(P) < 2: 
+    if len(P) < 2:
         # Not enough data for correlation
         return {col: {"top_positive": [], "top_negative": []} for col in feat.columns}
 
@@ -416,8 +378,6 @@ def interpret_axes_with_categories(
 
     # 4. Extract top correlations per component
     return _interpretation_from_corr(corr_matrix, feat.columns, top=top, cutoff=cutoff)
-
-
 
 
 def _interpretation_from_corr(corr_matrix, feat_columns, top=5, cutoff=None) -> dict:
@@ -448,21 +408,42 @@ def _interpretation_from_corr(corr_matrix, feat_columns, top=5, cutoff=None) -> 
 
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
-        top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos]) if top_pos else ""
+        top_pos = [
+            (cat, cor)
+            for cat, cor in top_pos
+            if cor > cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]
+        ]
+        top_pos_str = (
+            "More likely: "
+            + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos])
+            if top_pos
+            else ""
+        )
         top_pos_cat = top_pos[0][0] if top_pos else None
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
-        top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg]) if top_neg else ""
+        top_neg = [
+            (cat, cor)
+            for cat, cor in top_neg
+            if cor < -cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]
+        ]
+        top_neg_str = (
+            "More likely: "
+            + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg])
+            if top_neg
+            else ""
+        )
         top_neg_cat = top_neg[0][0] if top_neg else None
 
-        out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str, "top_positive_cat": top_pos_cat, "top_negative_cat": top_neg_cat}
+        out[col] = {
+            "top_positive": top_pos_str,
+            "top_negative": top_neg_str,
+            "top_positive_cat": top_pos_cat,
+            "top_negative_cat": top_neg_cat,
+        }
 
     return out
-
-
 
 
 def _sparse_corr_with_components(S, categories, feat) -> pd.DataFrame:
@@ -503,7 +484,6 @@ def _sparse_corr_with_components(S, categories, feat) -> pd.DataFrame:
     return pd.DataFrame(corr, index=pd.Index(categories), columns=feat.columns)
 
 
-
 """def interpret_pca_axes(
     c = None,
     scaled_pca_scores = None, 
@@ -534,13 +514,9 @@ def _sparse_corr_with_components(S, categories, feat) -> pd.DataFrame:
     return xx"""
 
 
-
-
-
-
 def transform_category_column_to_counts_df(
     some_events,
-    the_column = None,
+    the_column=None,
     grouping_factors: list = None,
     drop_rare_globally_below: float = None,
 ):
@@ -570,24 +546,21 @@ def transform_category_column_to_counts_df(
 
     grouping_factors = sorted(grouping_factors)
 
-
-    def _shorten_strings(
-        s_list,
-        min_length = 20):
+    def _shorten_strings(s_list, min_length=20):
 
         for s in s_list:
-            if type(s)!=str:
+            if type(s) != str:
                 return s_list
 
         target_length = min_length
-        #original_max_length = max([len(s) for s in s_list])
+        # original_max_length = max([len(s) for s in s_list])
         new_list = [s[:target_length] for s in s_list]
 
         while len(set(new_list)) != len(new_list):
             target_length += 5
             new_list = [s[:target_length] for s in s_list]
 
-        #new_max_length = max([len(s) for s in new_list])
+        # new_max_length = max([len(s) for s in new_list])
         return new_list
 
     # 1. Subset & Explode
@@ -603,18 +576,19 @@ def transform_category_column_to_counts_df(
     # that are genuinely list-like.
     df[the_column] = downgrade_series_if_large(df[the_column])
     col_pa_type = getattr(df[the_column].dtype, "pyarrow_dtype", None)
-    is_list_col = (col_pa_type is not None and pa.types.is_list(col_pa_type)) or df[the_column].dtype == object
+    is_list_col = (col_pa_type is not None and pa.types.is_list(col_pa_type)) or df[
+        the_column
+    ].dtype == object
     df_exploded = df.explode(the_column) if is_list_col else df
 
     # 2. Filter (Vectorized)
     # Remove nulls and unwanted keywords
     if df_exploded[the_column].empty:
         # Handle case where column is empty or all null
-         return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
-
+        return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
     if df_exploded.empty:
-         return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
+        return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
     # 2b. High-cardinality gate. A free-text-ish categorical can carry tens of
     # thousands of near-unique values; the dense crosstab below costs
@@ -625,12 +599,17 @@ def transform_category_column_to_counts_df(
         col_vals = df_exploded[the_column]
         vc = col_vals.value_counts()
         stringy = pd.api.types.is_string_dtype(col_vals.dtype) or (
-            col_vals.dtype == object
-            and all(isinstance(x, str) for x in vc.index))
+            col_vals.dtype == object and all(isinstance(x, str) for x in vc.index)
+        )
         if stringy and len(vc) > DENSE_CATEGORY_LIMIT:
             return _high_cardinality_counts_df(
-                df_exploded, the_column, grouping_factors, vc,
-                drop_rare_globally_below, _shorten_strings)
+                df_exploded,
+                the_column,
+                grouping_factors,
+                vc,
+                drop_rare_globally_below,
+                _shorten_strings,
+            )
 
     # 3. Crosstab / Pivot
     # groupby factors + category column -> size -> unstack
@@ -648,7 +627,7 @@ def transform_category_column_to_counts_df(
         index=[df_exploded[c] for c in grouping_factors],
         columns=[df_exploded[the_column]],
     )
-    
+
     # Crosstab returns ints, convert to float as per original return type expectations
     counts_df = counts_df.astype(float)
 
@@ -658,10 +637,9 @@ def transform_category_column_to_counts_df(
     return counts_df
 
 
-
-
-def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
-                                drop_rare_globally_below, shorten) -> pd.DataFrame:
+def _high_cardinality_counts_df(
+    df_exploded, the_column, grouping_factors, vc, drop_rare_globally_below, shorten
+) -> pd.DataFrame:
     """Survivors-only dense counts frame + exact full-distribution sidecar.
 
     The historical path built the dense crosstab over ALL categories and let
@@ -714,18 +692,21 @@ def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
         logger.warning(
             f"    [PCA] {the_column}: no category reaches "
             f"{drop_rare_globally_below:.2%} of {int(total):,} observations — "
-            f"keeping the {RARE_FALLBACK_TOP_N} most frequent of {len(mass):,}.")
+            f"keeping the {RARE_FALLBACK_TOP_N} most frequent of {len(mass):,}."
+        )
         survivors = mass.iloc[:RARE_FALLBACK_TOP_N]
     elif len(survivors) > DENSE_CATEGORY_LIMIT:
         logger.warning(
             f"    [PCA] {the_column}: {len(survivors):,} categories clear the "
             f"{drop_rare_globally_below:.2%} threshold — capping the dense frame "
-            f"at the {DENSE_CATEGORY_LIMIT:,} most frequent.")
+            f"at the {DENSE_CATEGORY_LIMIT:,} most frequent."
+        )
         survivors = survivors.iloc[:DENSE_CATEGORY_LIMIT]
     logger.info(
         f"    [PCA] {the_column}: {len(vc):,} categories -> "
         f"{len(survivors)} survive the {drop_rare_globally_below:.2%} filter "
-        f"({float(survivors.sum()) / total:.1%} of observations).")
+        f"({float(survivors.sum()) / total:.1%} of observations)."
+    )
 
     # Shorten against the FULL sorted category list — the historical dense
     # path shortened all-columns-at-once, and collision-driven extension means
@@ -754,8 +735,7 @@ def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
     counts_df.columns = [short_map[str(c)] for c in counts_df.columns]
 
     # Exact full-distribution statistics from long-format counts.
-    long = (dfe.groupby(grouping_factors + [the_column]).size()
-            .rename("n").reset_index())
+    long = dfe.groupby(grouping_factors + [the_column]).size().rename("n").reset_index()
     long["_total"] = long.groupby(grouping_factors)["n"].transform("sum")
     p = long["n"].astype("float64") / long["_total"].astype("float64")
 
@@ -770,18 +750,22 @@ def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
     # Modal category: max count, ties to the first category in dense column
     # order (sorted original names) — the tie-break idxmax used.
     ordered = long.assign(_orig=long[the_column].astype(str)).sort_values(
-        ["n", "_orig"], ascending=[False, True], kind="stable")
-    top1 = (ordered.drop_duplicates(subset=grouping_factors, keep="first")
-            .set_index(grouping_factors)[the_column].astype(str).map(short_map))
+        ["n", "_orig"], ascending=[False, True], kind="stable"
+    )
+    top1 = (
+        ordered.drop_duplicates(subset=grouping_factors, keep="first")
+        .set_index(grouping_factors)[the_column]
+        .astype(str)
+        .map(short_map)
+    )
     top1 = top1.reindex(full_index)
 
     # Sparse full-denominator probability matrix (groups × all categories).
     row_codes = full_index.get_indexer(group_keys)
-    cat_codes = pd.Categorical(
-        long[the_column].astype(str), categories=all_cats_sorted).codes
+    cat_codes = pd.Categorical(long[the_column].astype(str), categories=all_cats_sorted).codes
     sparse_probs = scipy_sparse.csr_matrix(
-        (p.to_numpy(), (row_codes, cat_codes)),
-        shape=(len(full_index), len(all_cats_sorted)))
+        (p.to_numpy(), (row_codes, cat_codes)), shape=(len(full_index), len(all_cats_sorted))
+    )
 
     counts_df.attrs["pca_full_dist"] = {
         "n_categories": len(vc),
@@ -791,12 +775,6 @@ def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
         "categories": [short_map[c] for c in all_cats_sorted],
     }
     return counts_df
-
-
-
-
-
-
 
 
 def _prepare_probability_matrix(
@@ -810,11 +788,11 @@ def _prepare_probability_matrix(
     Prepare weighted/tempered probability matrix from counts.
     Extracted from pairwise_matrix_for_categorical_groups to reuse
     the same preprocessing without computing pairwise distances.
-    
+
     Returns the processed probability matrix as a DataFrame with
     the same index as the (possibly filtered) counts_df.
     """
-    
+
     def _row_normalize(mat):
         sums = mat.sum(axis=1, keepdims=True)
         with np.errstate(invalid="ignore"):
@@ -853,14 +831,6 @@ def _prepare_probability_matrix(
     return pd.DataFrame(P, index=counts_df.index, columns=counts_df.columns)
 
 
-
-
-
-
-
-
-
-
 def transform_categories_to_components_and_diversity(
     counts_df=None,
     smoothing=1e-9,
@@ -869,14 +839,14 @@ def transform_categories_to_components_and_diversity(
     drop_rare_globally_below=0.001,
     max_components=5,
     target_explained_variance=0.8,
-    verbose=False
+    verbose=False,
 ):
     """
     Transform categorical count data into principal components and diversity metrics.
-    
+
     Uses direct PCA on weighted/tempered probability vectors (fast) rather than
     the previous MDS→PCA pipeline (slow). Produces equivalent geometric structure.
-    
+
     Parameters
     ----------
     counts_df : pd.DataFrame
@@ -914,22 +884,34 @@ def transform_categories_to_components_and_diversity(
     # variable whose dense frame shrank to one surviving column still takes
     # the PCA path, exactly as the all-categories frame did after the
     # downstream rare-drop.
-    n_total_categories = (full_dist["n_categories"] if full_dist is not None
-                          else counts_df.shape[1])
+    n_total_categories = full_dist["n_categories"] if full_dist is not None else counts_df.shape[1]
     if n_total_categories < 2:
         if verbose:
-            print(f"Skipping PCA for {counts_df.shape[1]} category. Returning 0-variance component.")
-        
+            print(
+                f"Skipping PCA for {counts_df.shape[1]} category. Returning 0-variance component."
+            )
+
         # Create a single component of zeros
         pc_df = pd.DataFrame(0.0, index=counts_df.index, columns=["C0"])
-        
+
         # 1 component explains 0 variance (technically undefined but 0 is safe)
         n_components = 1
         explained = [0.0]
-        
-        print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="\n", flush=True)
 
-        result_df = pd.concat([pc_df, pd.DataFrame(entropy_and_dominance),pd.DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
+        print(
+            f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance",
+            end="\n",
+            flush=True,
+        )
+
+        result_df = pd.concat(
+            [
+                pc_df,
+                pd.DataFrame(entropy_and_dominance),
+                pd.DataFrame(counts_df.T.idxmax(), columns=["top1"]),
+            ],
+            axis=1,
+        )
 
         # Interpretation is empty/trivial
         xx = {}
@@ -937,8 +919,6 @@ def transform_categories_to_components_and_diversity(
             xx[col] = {"top_positive": "", "top_negative": "", "explained_variance_pct": 0.0}
 
         return result_df, pc_df, xx
-
-
 
     # Direct PCA on weighted/tempered probability vectors
     prob_matrix = _prepare_probability_matrix(
@@ -962,27 +942,36 @@ def transform_categories_to_components_and_diversity(
 
     # Check how much variance each component explains
     explained = pca.explained_variance_ratio_
-    
+
     # Handle the case where total variance is 0, causing NaNs in explained_variance_ratio_
     explained = np.nan_to_num(explained, nan=0.0)
 
     explained_cumsum = explained.cumsum()
     for i in range(len(explained_cumsum), 0, -1):
-        if (explained_cumsum[i-1] < target_explained_variance):
-            required_components = i+1
-            n_components = min(max_components, i+1, pca_coords.shape[1])
+        if explained_cumsum[i - 1] < target_explained_variance:
+            required_components = i + 1
+            n_components = min(max_components, i + 1, pca_coords.shape[1])
             break
         required_components = 1
         n_components = 1
-        
 
     if verbose:
-        logger.info(f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}")
-        logger.info(f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}")
+        logger.info(
+            f"Explained variance per component: {', '.join([f'{p:.3f}' for p in explained])}"
+        )
+        logger.info(
+            f"Cumulative explained variance: {', '.join([f'{p:.3f}' for p in explained.cumsum()])}"
+        )
 
-    print(f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance", end="", flush=True)
+    print(
+        f"{n_components} components explain {sum(explained[:n_components]):.2%} of the variance",
+        end="",
+        flush=True,
+    )
     if required_components != n_components:
-        print(f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance")
+        print(
+            f"  |  {required_components} required to be able to explain {target_explained_variance:.0%} of the variance"
+        )
     else:
         print()
 
@@ -995,7 +984,8 @@ def transform_categories_to_components_and_diversity(
         # One sparse correlation pass serves both the sign fix and the axis
         # interpretation; flipping a PC negates its correlation column.
         corr_all = _sparse_corr_with_components(
-            full_dist["sparse_probs"], full_dist["categories"], pc_df)
+            full_dist["sparse_probs"], full_dist["categories"], pc_df
+        )
         target_cat = None
         for cat in ["yes", "Yes", "True", "true"]:
             if cat in corr_all.index:
@@ -1025,7 +1015,9 @@ def transform_categories_to_components_and_diversity(
                     pc_df[col] *= -1
         top1_series = counts_df.T.idxmax()
 
-    result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),top1_series.to_frame("top1")],axis=1)
+    result_df = pd.concat(
+        [pc_df, pd.DataFrame(entropy_and_dominance), top1_series.to_frame("top1")], axis=1
+    )
 
     if full_dist is not None:
         if len(pc_df) < 2:
@@ -1035,7 +1027,7 @@ def transform_categories_to_components_and_diversity(
         else:
             xx = _interpretation_from_corr(corr_all, pc_df.columns, top=5)
     else:
-        xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
+        xx = interpret_axes_with_categories(counts_df=counts_df, feat=pc_df, top=5)
 
     # Pre-calculate variance percentages
     for idx, col in enumerate(pc_df.columns):
@@ -1045,58 +1037,59 @@ def transform_categories_to_components_and_diversity(
     # Inject True 0-1 proportions for the dominant category of each component as its `_raw` absolute value
     # Only injected for components that explain exactly 100% of the variance to reduce tooltip bloat
     if full_dist is not None:
+
         def _prob_series(cat):
             # One category's full-denominator probability series from the
             # sparse matrix — the dense probs frame is never built here.
             j = full_dist["categories"].index(cat)
-            col_vec = np.asarray(
-                full_dist["sparse_probs"][:, j].todense()).ravel()
+            col_vec = np.asarray(full_dist["sparse_probs"][:, j].todense()).ravel()
             return pd.Series(col_vec, index=counts_df.index)
     else:
         probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
 
         def _prob_series(cat):
             return probs[cat]
+
     raw_prob_cols = {}
     for col in pc_df.columns:
-        if col in xx and xx.get(col, {}).get("top_positive_cat") and xx[col].get("explained_variance_pct") == 100.0:
+        if (
+            col in xx
+            and xx.get(col, {}).get("top_positive_cat")
+            and xx[col].get("explained_variance_pct") == 100.0
+        ):
             raw_prob_cols[f"{col}_raw"] = _prob_series(xx[col]["top_positive_cat"])
-    
+
     if raw_prob_cols:
-        result_df = pd.concat([result_df, pd.DataFrame(raw_prob_cols, index=result_df.index)], axis=1)
+        result_df = pd.concat(
+            [result_df, pd.DataFrame(raw_prob_cols, index=result_df.index)], axis=1
+        )
 
     for yy in xx:
         for zz in xx[yy]:
             if verbose:
                 logger.info(f"{yy} {zz} {xx[yy][zz]}")
 
-
     return result_df, pc_df, xx
 
 
-
-
-
-
 def calculate_scaled_pca_scores(
-    study_name = None,
-    study_recoded_dataset = None,
-    minimum_group_size = None,
-    target_explained_variance = 0.8,
-    drop_rare_globally_below = 0.01,
-    scale_it = True,
-    load_from_cache = True,
-    save_to_cache = True,
-    verbose = False,
-    ):
+    study_name=None,
+    study_recoded_dataset=None,
+    minimum_group_size=None,
+    target_explained_variance=0.8,
+    drop_rare_globally_below=0.01,
+    scale_it=True,
+    load_from_cache=True,
+    save_to_cache=True,
+    verbose=False,
+):
 
     # None -> the [correlations] config section (default 10), so every caller
     # (refresh workers, on-demand web path) honours the same admin-set value.
     if minimum_group_size is None:
         minimum_group_size = int(_cf().get("correlations", {}).get("minimum_group_size", 10))
-    
-    logger.info(
-        f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")
+
+    logger.info(f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")
 
     # Phase timers (for Cloud Run vs local diagnostics). Each phase wall-clock
     # is accumulated below and emitted in a single summary line at the end.
@@ -1108,44 +1101,48 @@ def calculate_scaled_pca_scores(
     _t_save = 0.0
 
     if study_name is None and study_recoded_dataset is None:
-        logger.error("    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed.")
+        logger.error(
+            "    [PCA] ERROR: This process cannot run without a study name or a recoded study dataset as input. Process failed."
+        )
         return None
-
 
     _t_phase = _time.perf_counter()
     if load_from_cache and study_name is not None:
-
         if data_io.exists(
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
-            ):
+        ):
             # Project to only the columns PCA actually consumes. The cache
             # `*_recoded.parquet` files contain 91 columns (collections joined
             # with scrapes + annotations), but PCA only needs the var_schema
             # factors/features/grouping_factors plus `annotated_ok` (filter).
             pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
             pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
-            cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping
-                                      + ['annotated_ok']))
+            cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping + ["annotated_ok"]))
             study_recoded_dataset = data_io.load_parquet_selective(
                 storage_location="cache",
                 filename=f"{study_name}_recoded.parquet",
                 columns=cols_for_pca,
-                verbose=verbose)
+                verbose=verbose,
+            )
 
     if study_name is not None and study_recoded_dataset is None:
-        logger.info("@@ No cached recoded study dataset found. I must create it. Please wait a moment...")
+        logger.info(
+            "@@ No cached recoded study dataset found. I must create it. Please wait a moment..."
+        )
         study_recoded_dataset = create_study_recoded_dataset(
-            study_name = study_name,
-            save_to_cache=True,
-            verbose = verbose
+            study_name=study_name, save_to_cache=True, verbose=verbose
         )
         if study_recoded_dataset is None:
             raise ValueError("No study dataset found for study '{study_name}'")
-        logger.info("@@ Back after created recoded dataset for this study. I will now resume the PCA analysis.")
+        logger.info(
+            "@@ Back after created recoded dataset for this study. I will now resume the PCA analysis."
+        )
 
     if study_recoded_dataset is None:
-        logger.error("    [PCA] ERROR: This process cannot run without a study dataset. Process failed.")
+        logger.error(
+            "    [PCA] ERROR: This process cannot run without a study dataset. Process failed."
+        )
         return None
 
     _t_load = _time.perf_counter() - _t_phase
@@ -1154,12 +1151,17 @@ def calculate_scaled_pca_scores(
     if verbose:
         logger.info(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
 
-
     # checking that the groupubg factors are properly defined and present in the dataset
-    targeted_grouping_factors = get_grouping_factors_from_var_schema(some_events_df = None, verbose=verbose)
-    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
+    targeted_grouping_factors = get_grouping_factors_from_var_schema(
+        some_events_df=None, verbose=verbose
+    )
+    grouping_factors = get_grouping_factors_from_var_schema(
+        some_events_df=study_recoded_dataset, verbose=verbose
+    )
     if targeted_grouping_factors != grouping_factors:
-        logger.error(f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating.")
+        logger.error(
+            f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating."
+        )
         return None, None
     del targeted_grouping_factors
 
@@ -1181,12 +1183,15 @@ def calculate_scaled_pca_scores(
             varying_factors.append(gf)
 
     if not varying_factors:
-        logger.error(f"    [PCA] Every grouping factor ({', '.join(grouping_factors)}) has a "
-                     "single value, so there are no groups to compare. Terminating.")
+        logger.error(
+            f"    [PCA] Every grouping factor ({', '.join(grouping_factors)}) has a "
+            "single value, so there are no groups to compare. Terminating."
+        )
         return None, None
 
-
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(
+        some_events_df=study_recoded_dataset, verbose=verbose
+    )
 
     # PCA always requires annotated rows, regardless of the [viz] require_annotated_items
     # flag. The PCA features are themselves annotation-derived recoded variables, so
@@ -1194,64 +1199,94 @@ def calculate_scaled_pca_scores(
     # anyway — keeping the filter explicit avoids confusing downstream behaviour.
     pre_len = len(study_recoded_dataset)
     if "annotated_ok" in study_recoded_dataset.columns:
-        study_recoded_dataset = study_recoded_dataset[study_recoded_dataset["annotated_ok"].fillna(False)]
+        study_recoded_dataset = study_recoded_dataset[
+            study_recoded_dataset["annotated_ok"].fillna(False)
+        ]
     else:
         # No annotations ingested yet — drop everything so downstream sees empty
         study_recoded_dataset = study_recoded_dataset.iloc[0:0]
     post_len = len(study_recoded_dataset)
     if verbose:
-        logger.info(f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(
+            f"    [PCA] Only keeping events that are successfully annotated -> {pre_len - post_len:,} events dropped. Shape: {study_recoded_dataset.shape}"
+        )
 
     if post_len == 0:
         logger.error("    [PCA] No annotated events available for this study. Terminating.")
         return None, None
 
-
-    not_na_columns = study_recoded_dataset[fyp_features + grouping_factors].notna().sum() / len(study_recoded_dataset)
-    columns_to_be_dropped = not_na_columns[not_na_columns<=0.9].index
+    not_na_columns = study_recoded_dataset[fyp_features + grouping_factors].notna().sum() / len(
+        study_recoded_dataset
+    )
+    columns_to_be_dropped = not_na_columns[not_na_columns <= 0.9].index
     study_recoded_dataset = study_recoded_dataset.drop(columns=columns_to_be_dropped)
     if verbose:
-        logger.info(f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(
+            f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}"
+        )
 
     # I need to do this again in case some factors or features were dropped in the previous step
-    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
+    fyp_factors, fyp_features = get_factors_and_features_from_var_schema(
+        some_events_df=study_recoded_dataset, verbose=verbose
+    )
 
     pre_len = len(study_recoded_dataset)
-    study_recoded_dataset = study_recoded_dataset.dropna(subset = fyp_features + grouping_factors)
+    study_recoded_dataset = study_recoded_dataset.dropna(subset=fyp_features + grouping_factors)
     post_len = len(study_recoded_dataset)
     if verbose:
-        logger.info(f"    [PCA] Dropping rows with missing values in features and grouping factors -> {(pre_len - post_len):,} rows dropped. Shape: {study_recoded_dataset.shape}")
+        logger.info(
+            f"    [PCA] Dropping rows with missing values in features and grouping factors -> {(pre_len - post_len):,} rows dropped. Shape: {study_recoded_dataset.shape}"
+        )
     del pre_len, post_len, columns_to_be_dropped
-
 
     # ----------------------------
     # Dropping groups that are too small
     # ----------------------------
     if verbose:
-        logger.info(f"    [PCA] Dropping <{'|'.join(grouping_factors)}> groups that are smaller than {minimum_group_size} rows")
+        logger.info(
+            f"    [PCA] Dropping <{'|'.join(grouping_factors)}> groups that are smaller than {minimum_group_size} rows"
+        )
 
-    group_sizes = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(group_size = pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
-    good_sized_groups = group_sizes[list((group_sizes>=minimum_group_size).to_dict()["group_size"].values())]
+    group_sizes = (
+        study_recoded_dataset[grouping_factors]
+        .groupby(grouping_factors)
+        .agg(group_size=pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
+    )
+    good_sized_groups = group_sizes[
+        list((group_sizes >= minimum_group_size).to_dict()["group_size"].values())
+    ]
 
     if len(good_sized_groups) < 10:
-        logger.error(f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating.")
+        logger.error(
+            f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating."
+        )
         return None, None
     elif len(good_sized_groups) < 100:
-        logger.warning(f"    [PCA] WARNING: Only {len(good_sized_groups):,} groups of {len(group_sizes):,} have at least {minimum_group_size} elements. This is dangerously low. Please check your data.")
-    
-    too_small_groups = group_sizes[list((group_sizes<minimum_group_size).to_dict()["group_size"].values())]
+        logger.warning(
+            f"    [PCA] WARNING: Only {len(good_sized_groups):,} groups of {len(group_sizes):,} have at least {minimum_group_size} elements. This is dangerously low. Please check your data."
+        )
+
+    too_small_groups = group_sizes[
+        list((group_sizes < minimum_group_size).to_dict()["group_size"].values())
+    ]
 
     if len(too_small_groups) > 0:
-
         n_groups = len(group_sizes)
         if verbose:
             logger.info(
                 f"    [PCA] {len(too_small_groups):,} groups of {n_groups:,} have fewer than {minimum_group_size}"
                 f" elements and will be excluded from the analysis. {len(good_sized_groups):,} groups remain."
             )
-            logger.info(f"    [PCA] This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain.")
+            logger.info(
+                f"    [PCA] This results in a loss of {too_small_groups.sum().values[0]:,} elements. {good_sized_groups.sum().values[0]:,} elements remain."
+            )
 
-        study_recoded_dataset = study_recoded_dataset.set_index(grouping_factors).loc[good_sized_groups.index].reset_index().copy()
+        study_recoded_dataset = (
+            study_recoded_dataset.set_index(grouping_factors)
+            .loc[good_sized_groups.index]
+            .reset_index()
+            .copy()
+        )
 
         if verbose:
             logger.info(f"    [PCA] Confirming new shape: {study_recoded_dataset.shape}")
@@ -1266,14 +1301,19 @@ def calculate_scaled_pca_scores(
     # PCA transformation
     # ----------------------------
     if verbose:
-        logger.info("    [PCA] Consolidating events into aggregation groups and performing PCA transformation on categorical variables")
+        logger.info(
+            "    [PCA] Consolidating events into aggregation groups and performing PCA transformation on categorical variables"
+        )
 
     events_pca_scores = []
     comp_interpretations = {}
 
     # batch all numerical features into a single groupby
-    numerical_features = [c for c in study_recoded_dataset[fyp_features].columns
-                          if c in study_recoded_dataset.select_dtypes(include=["number"]).columns]
+    numerical_features = [
+        c
+        for c in study_recoded_dataset[fyp_features].columns
+        if c in study_recoded_dataset.select_dtypes(include=["number"]).columns
+    ]
     numerical_means_raw = None
     if numerical_features:
         num_block = study_recoded_dataset[numerical_features + grouping_factors]
@@ -1292,25 +1332,33 @@ def calculate_scaled_pca_scores(
         numerical_means = transformed.groupby(grouping_factors).mean()
         events_pca_scores.append(numerical_means)
 
-
     # transform categorical features to counts dataframes. Passing the rare
     # threshold lets high-cardinality columns build their dense frame for the
     # surviving categories only (see transform_category_column_to_counts_df).
     def _f1(cc):
         return transform_category_column_to_counts_df(
-            study_recoded_dataset, the_column=cc, grouping_factors=grouping_factors,
-            drop_rare_globally_below=drop_rare_globally_below)
-    categorical_features = study_recoded_dataset[fyp_features].select_dtypes(exclude=["number"]).columns
+            study_recoded_dataset,
+            the_column=cc,
+            grouping_factors=grouping_factors,
+            drop_rare_globally_below=drop_rare_globally_below,
+        )
+
+    categorical_features = (
+        study_recoded_dataset[fyp_features].select_dtypes(exclude=["number"]).columns
+    )
 
     # Build each counts frame inside the loop rather than materializing them all
     # up front: these are dense group x category matrices, so holding every
     # feature's frame at once made peak memory the SUM of them instead of the
     # largest one.
     for i in range(len(categorical_features)):
-
         col_name = categorical_features[i]
         counts_df = _f1(col_name)
-        print(f"    [PCA] {(i+1):02}/{len(categorical_features)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
+        print(
+            f"    [PCA] {(i + 1):02}/{len(categorical_features)}. {col_name}, {counts_df.shape}",
+            end=": ",
+            flush=True,
+        )
 
         # Yes/no(/unclear) variables bypass PCA: emit the day share of "yes"
         # instead of components/entropy. The scaled copy joins the frame like
@@ -1342,10 +1390,11 @@ def calculate_scaled_pca_scores(
             max_components=15,
             target_explained_variance=target_explained_variance,
             drop_rare_globally_below=drop_rare_globally_below,
-            verbose=False)
+            verbose=False,
+        )
 
         wer.drop("top1", axis=1, inplace=True, errors="ignore")
-        wer.columns = [col_name+"_"+col for col in wer.columns]
+        wer.columns = [col_name + "_" + col for col in wer.columns]
 
         if len(grouping_factors) > 1:
             wer.index = pd.MultiIndex.from_tuples(wer.index, names=grouping_factors)
@@ -1354,13 +1403,12 @@ def calculate_scaled_pca_scores(
             wer.index.name = grouping_factors[0]
 
         wer.index = convert_index_dtype_pyarrow(wer.index)
-        
+
         for cvb in comp_interpretation:
-            comp_interpretations[col_name+"_"+cvb] = comp_interpretation[cvb]
+            comp_interpretations[col_name + "_" + cvb] = comp_interpretation[cvb]
 
         events_pca_scores += [wer.copy()]
 
-        
     events_pca_scores = pd.concat(events_pca_scores, axis=1)
 
     _t_pca = _time.perf_counter() - _t_phase
@@ -1373,26 +1421,25 @@ def calculate_scaled_pca_scores(
         if verbose:
             logger.info("    [PCA] Not scaling the scores and not saving them either")
 
-
     if verbose:
         logger.info("    [PCA] Scaling pca scores and concatenating factors into the scaled table")
 
     events_pca_scores_scaled = pd.DataFrame(
         StandardScaler().fit_transform(events_pca_scores),
         index=events_pca_scores.index,
-        columns=events_pca_scores.columns)
+        columns=events_pca_scores.columns,
+    )
 
     events_pca_scores_scaled.reset_index(inplace=True)
-    
 
     # Ensure we don't select duplicate columns if grouping_factors overlap with the time columns
     cols_to_keep = list(set(fyp_factors + grouping_factors) & set(study_recoded_dataset.columns))
 
     # Shuffle rows to ensure random output order and avoid systematic bias (e.g. always picking the 'first' row)
     # when reducing the dataset to unique metadata combinations.
-    time_columns_to_put_back = study_recoded_dataset[cols_to_keep].sample(frac=1, random_state=42).drop_duplicates()
-    
-
+    time_columns_to_put_back = (
+        study_recoded_dataset[cols_to_keep].sample(frac=1, random_state=42).drop_duplicates()
+    )
 
     time_columns_to_put_back = time_columns_to_put_back.set_index(grouping_factors)
     pca_indexed = events_pca_scores_scaled.set_index(grouping_factors)
@@ -1402,10 +1449,11 @@ def calculate_scaled_pca_scores(
     # log1p-transformed features.
     if numerical_means_raw is not None:
         raw_num_df = numerical_means_raw.rename(
-            columns={c: f"{c}_raw" for c in numerical_means_raw.columns})
+            columns={c: f"{c}_raw" for c in numerical_means_raw.columns}
+        )
     else:
         raw_num_df = pd.DataFrame(index=events_pca_scores.index)
-    
+
     # Extract previously injected raw proportion columns from PCA categories
     raw_cat_cols = [c for c in events_pca_scores.columns if str(c).endswith("_raw")]
     raw_cat_df = events_pca_scores[raw_cat_cols]
@@ -1420,24 +1468,28 @@ def calculate_scaled_pca_scores(
     # consumption intensity (declared as `videos_watched` in the derived
     # contract) and the sample-summary video count. Attached after scaling so
     # it never enters the PCA basis.
-    group_size_df = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(
-        **{VIDEOS_WATCHED_COL: pd.NamedAgg(column=grouping_factors[0], aggfunc="count")})
+    group_size_df = (
+        study_recoded_dataset[grouping_factors]
+        .groupby(grouping_factors)
+        .agg(**{VIDEOS_WATCHED_COL: pd.NamedAgg(column=grouping_factors[0], aggfunc="count")})
+    )
     group_size_df.index = convert_index_dtype_pyarrow(group_size_df.index)
 
-    events_pca_scores_scaled = pd.concat(
-        [time_columns_to_put_back, pca_indexed, raw_df, group_size_df], axis=1).reset_index().copy()
-
+    events_pca_scores_scaled = (
+        pd.concat([time_columns_to_put_back, pca_indexed, raw_df, group_size_df], axis=1)
+        .reset_index()
+        .copy()
+    )
 
     # TODO: avoid making direct references to column names
-    #events_pca_scores_scaled[local_month"] = events_pca_scores_scaled[local_date"].map(lambda x:x.month)
+    # events_pca_scores_scaled[local_month"] = events_pca_scores_scaled[local_date"].map(lambda x:x.month)
 
     if verbose:
         logger.info(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")
 
     for c in events_pca_scores_scaled.columns:
         if c not in comp_interpretations:
-            comp_interpretations[c] = {'top_positive':'high', 'top_negative':'low'}
-
+            comp_interpretations[c] = {"top_positive": "high", "top_negative": "low"}
 
     if verbose:
         logger.info("    [PCA] Converting dtypes to pyarrow")
@@ -1448,16 +1500,17 @@ def calculate_scaled_pca_scores(
 
     if save_to_cache and study_name is not None:
         pca_filename = f"{study_name}_PCA.parquet"
-        events_pca_scores_scaled.attrs['study_name'] = study_name
+        events_pca_scores_scaled.attrs["study_name"] = study_name
         data_io.save_parquet(
             df=events_pca_scores_scaled,
             storage_location="cache",
             filename=pca_filename,
             verbose=verbose,
-            )
+        )
         if verbose:
-            logger.info(f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'.")
-
+            logger.info(
+                f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'."
+            )
 
         comp_inter_filename = f"{study_name}_comp_interpretations.json"
         data_io.save_json(
@@ -1465,9 +1518,11 @@ def calculate_scaled_pca_scores(
             storage_location="cache",
             filename=comp_inter_filename,
             verbose=verbose,
-            )
+        )
         if verbose:
-            logger.info(f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'.")
+            logger.info(
+                f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'."
+            )
 
     _t_save = _time.perf_counter() - _t_phase
     _t_total = _time.perf_counter() - _t_start
@@ -1479,7 +1534,4 @@ def calculate_scaled_pca_scores(
     )
     logger.info(f"...done. PCA completed at {_dt.datetime.now()}")
 
-
-
     return events_pca_scores_scaled, comp_interpretations
-

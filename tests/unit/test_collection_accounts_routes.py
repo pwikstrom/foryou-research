@@ -43,13 +43,20 @@ class _Store:
         self.files.setdefault(storage_location, {})[filename] = df.copy()
 
     def move(self, src_storage_location="", dst_storage_location="", filename="", **kw):
-        self.files.setdefault(dst_storage_location, {})[filename] = self.files.get(src_storage_location, {}).pop(filename, b"")
+        self.files.setdefault(dst_storage_location, {})[filename] = self.files.get(
+            src_storage_location, {}
+        ).pop(filename, b"")
 
 
 def _metadata():
-    cols = pd.MultiIndex.from_tuples([("counts", "total"), ("other", "accepted"), ("participants", "campaign")])
-    return pd.DataFrame([[10, True, "qut"], [20, True, "qut"]], columns=cols,
-                        index=pd.Index(["c1", "c2"], name="collection_id"))
+    cols = pd.MultiIndex.from_tuples(
+        [("counts", "total"), ("other", "accepted"), ("participants", "campaign")]
+    )
+    return pd.DataFrame(
+        [[10, True, "qut"], [20, True, "qut"]],
+        columns=cols,
+        index=pd.Index(["c1", "c2"], name="collection_id"),
+    )
 
 
 @pytest.fixture
@@ -60,9 +67,19 @@ def env(monkeypatch):
     from web_interface.fyp_data_hub import app
 
     store = _Store()
-    patches = [patch.object(core_io, name, side_effect=getattr(store, name))
-               for name in ("exists", "listdir", "load_json", "save_json", "remove",
-                            "load_parquet", "save_parquet", "move")]
+    patches = [
+        patch.object(core_io, name, side_effect=getattr(store, name))
+        for name in (
+            "exists",
+            "listdir",
+            "load_json",
+            "save_json",
+            "remove",
+            "load_parquet",
+            "save_parquet",
+            "move",
+        )
+    ]
     patches.append(patch.object(ca, "placeholder_domain", return_value="example.test"))
     for p in patches:
         p.start()
@@ -113,25 +130,43 @@ def test_accounts_list_and_collections_payload(env):
 
 def test_save_annotation_sets_and_preserves_link(env):
     store, client, um = env
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c1", "display_collection_id": "One", "tags": ["t1", "t2"],
-        "hidden": False, "user_id": "member@example.test"})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={
+            "collection_id": "c1",
+            "display_collection_id": "One",
+            "tags": ["t1", "t2"],
+            "hidden": False,
+            "user_id": "member@example.test",
+        },
+    )
     assert r.status_code == 200, r.get_json()
     assert store.files["recoded"]["collections_tags.json"]["c1"]["user_id"] == "member@example.test"
 
     # A tag-only edit (no user_id key) keeps the link.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c1", "display_collection_id": "One", "tags": ["t1"], "hidden": True})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={
+            "collection_id": "c1",
+            "display_collection_id": "One",
+            "tags": ["t1"],
+            "hidden": True,
+        },
+    )
     assert r.status_code == 200
     entry = store.files["recoded"]["collections_tags.json"]["c1"]
     assert entry["user_id"] == "member@example.test" and entry["hidden"] is True
 
     # Unknown account is refused; null unassigns.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c1", "tags": [], "user_id": "ghost@example.test"})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c1", "tags": [], "user_id": "ghost@example.test"},
+    )
     assert r.status_code == 400
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c1", "tags": [], "user_id": None})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c1", "tags": [], "user_id": None},
+    )
     assert r.status_code == 200
     assert store.files["recoded"]["collections_tags.json"]["c1"]["user_id"] is None
 
@@ -147,41 +182,59 @@ def test_save_annotation_refuses_a_display_id_another_collection_holds(env):
     is not a rename, or a tag tick on grandfathered data could never save."""
     store, client, um = env
     store.files["recoded"]["collections_tags.json"]["c2"] = {
-        "display_collection_id": None, "annotation_tags": [], "hidden": False}
+        "display_collection_id": None,
+        "annotation_tags": [],
+        "hidden": False,
+    }
 
     # c1 is "One"; c2 may not become it — case and spacing are not a difference.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "  one  ", "tags": []})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "  one  ", "tags": []},
+    )
     assert r.status_code == 409
     assert "c1" in r.get_json()["error"]
     assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] is None
 
     # Nor onto c1's bare id, which is what an unlabelled collection shows.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "c1", "tags": []})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "c1", "tags": []},
+    )
     assert r.status_code == 409
 
     # A free name lands, whitespace-normalised.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": " Donor   Two ", "tags": []})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": " Donor   Two ", "tags": []},
+    )
     assert r.status_code == 200, r.get_json()
-    assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] == "Donor Two"
+    assert (
+        store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"]
+        == "Donor Two"
+    )
 
     # Re-saving its own name is not a rename.
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "Donor Two", "tags": ["t"]})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "Donor Two", "tags": ["t"]},
+    )
     assert r.status_code == 200, r.get_json()
 
     # Clearing the box is not "no name" — the collection then shows its own
     # id, so it is a rename onto that id and is checked the same way.
     store.files["recoded"]["collections_tags.json"]["c1"]["display_collection_id"] = "c2"
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "", "tags": []})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "", "tags": []},
+    )
     assert r.status_code == 409
     assert "c1" in r.get_json()["error"]
     store.files["recoded"]["collections_tags.json"]["c1"]["display_collection_id"] = "One"
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "", "tags": []})
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "", "tags": []},
+    )
     assert r.status_code == 200, r.get_json()
     assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] is None
 
@@ -191,9 +244,14 @@ def test_save_annotation_lets_a_grandfathered_duplicate_still_be_edited(env):
     renames it; a bulk tag edit resends that name and must not be refused."""
     store, client, um = env
     store.files["recoded"]["collections_tags.json"]["c2"] = {
-        "display_collection_id": "One", "annotation_tags": [], "hidden": False}
-    r = client.post("/api/manage/collection/save_annotation", json={
-        "collection_id": "c2", "display_collection_id": "One", "tags": ["t9"]})
+        "display_collection_id": "One",
+        "annotation_tags": [],
+        "hidden": False,
+    }
+    r = client.post(
+        "/api/manage/collection/save_annotation",
+        json={"collection_id": "c2", "display_collection_id": "One", "tags": ["t9"]},
+    )
     assert r.status_code == 200, r.get_json()
     entry = store.files["recoded"]["collections_tags.json"]["c2"]
     assert entry["display_collection_id"] == "One" and entry["annotation_tags"] == ["t9"]
@@ -220,7 +278,9 @@ def test_collections_payload_labels_linked_account(env):
     ca.set_collection_owner("c1", "vanished@example.test")
     by_id = {c["id"]: c for c in client.get("/api/manage/collections").get_json()}
     assert by_id["c2"]["user_label"] == "Mem Ber" and by_id["c2"]["user_known"] is True
-    assert by_id["c1"]["user_label"] == "vanished@example.test" and by_id["c1"]["user_known"] is False
+    assert (
+        by_id["c1"]["user_label"] == "vanished@example.test" and by_id["c1"]["user_known"] is False
+    )
 
 
 def test_user_profile_roundtrip(env):
@@ -230,11 +290,24 @@ def test_user_profile_roundtrip(env):
     body = r.get_json()
     assert body["email"] == _ADMIN and set(body["profile"]) == set(auth.PROFILE_FIELDS)
 
-    r = client.post("/api/user/profile", json={"profile": {"full_name": "Route Admin", "age": "21 - 25",
-                                                           "consent_to_contact": True, "postcode": ""}})
+    r = client.post(
+        "/api/user/profile",
+        json={
+            "profile": {
+                "full_name": "Route Admin",
+                "age": "21 - 25",
+                "consent_to_contact": True,
+                "postcode": "",
+            }
+        },
+    )
     assert r.status_code == 200, r.get_json()
     prof = client.get("/api/user/profile").get_json()["profile"]
-    assert prof["full_name"] == "Route Admin" and prof["age"] == "21 - 25" and prof["consent_to_contact"] is True
+    assert (
+        prof["full_name"] == "Route Admin"
+        and prof["age"] == "21 - 25"
+        and prof["consent_to_contact"] is True
+    )
     assert store.files["users"][f"{_ADMIN}.json"]["profile"]["full_name"] == "Route Admin"
 
     r = client.post("/api/user/profile", json={"profile": {"age": "lots"}})
@@ -253,8 +326,14 @@ def test_admin_users_profile_collections_and_delete_unlinks(env):
     assert m["collections"] == ["c1", "c2"] and m["collections_count"] == 2
     assert m["can_login"] is True and m["account_kind"] == "member" and "password_hash" not in m
 
-    r = client.put("/api/admin/users", json={"action": "set_profile", "username": "member@example.test",
-                                             "profile": {"country": "Australia"}})
+    r = client.put(
+        "/api/admin/users",
+        json={
+            "action": "set_profile",
+            "username": "member@example.test",
+            "profile": {"country": "Australia"},
+        },
+    )
     assert r.status_code == 200
     assert um.get_user("member@example.test").profile["country"] == "Australia"
 
@@ -284,7 +363,9 @@ def test_orphan_participants_endpoint(env):
     um.add_user("p-1@example.test", None, "viewer", placeholder=True, account_kind="participant")
     um.add_user("p-2@example.test", None, "viewer", placeholder=True, account_kind="participant")
     ca.set_collection_owner("c1", "p-1@example.test")
-    assert client.get("/api/admin/users/orphan_participants").get_json() == {"orphans": ["p-2@example.test"]}
+    assert client.get("/api/admin/users/orphan_participants").get_json() == {
+        "orphans": ["p-2@example.test"]
+    }
     r = client.post("/api/admin/users/orphan_participants")
     assert r.get_json()["removed"] == ["p-2@example.test"]
     assert um.get_user("p-2@example.test") is None and um.get_user("p-1@example.test") is not None
@@ -293,18 +374,33 @@ def test_orphan_participants_endpoint(env):
 def test_upload_records_account_link(env):
     store, client, um = env
     from fyp.ingest import get_main_collection
-    raw_path = next(c.raw_path for c in get_main_collection(verbose=False).collections if c.raw_path)
+
+    raw_path = next(
+        c.raw_path for c in get_main_collection(verbose=False).collections if c.raw_path
+    )
     store.files.setdefault(raw_path, {})
 
     # data_io.exists must see the moved file; the fake move() stores it under raw_path.
-    data = {"files": (io.BytesIO(b"{}"), "donor_a.json"), "raw_path": raw_path,
-            "collection_id_mode": "per_file", "tags": '["alpha"]', "user_id": "member@example.test"}
+    data = {
+        "files": (io.BytesIO(b"{}"), "donor_a.json"),
+        "raw_path": raw_path,
+        "collection_id_mode": "per_file",
+        "tags": '["alpha"]',
+        "user_id": "member@example.test",
+    }
+
     def _fake_save(self, dst, *a, **k):
         store.files["temp"][dst] = b"{}"
 
-    with patch("web_interface.routes.management.ingestion.os.path.join", side_effect=lambda *a: a[-1]), \
-         patch("werkzeug.datastructures.FileStorage.save", new=_fake_save):
-        r = client.post("/api/manage/ingestion/upload", data=data, content_type="multipart/form-data")
+    with (
+        patch(
+            "web_interface.routes.management.ingestion.os.path.join", side_effect=lambda *a: a[-1]
+        ),
+        patch("werkzeug.datastructures.FileStorage.save", new=_fake_save),
+    ):
+        r = client.post(
+            "/api/manage/ingestion/upload", data=data, content_type="multipart/form-data"
+        )
     assert r.status_code == 200, r.get_json()
     # The stored name and the collection id are generated; the browser's
     # filename survives only as provenance (fyp.ingest.raw_names).
@@ -318,9 +414,15 @@ def test_upload_records_account_link(env):
     assert entry["user_id"] == "member@example.test" and entry["annotation_tags"] == ["alpha"]
     assert entry["display_collection_id"] == "donor_a"
 
-    r = client.post("/api/manage/ingestion/upload", data={
-        "files": (io.BytesIO(b"{}"), "donor_b.json"), "raw_path": raw_path, "user_id": "ghost@example.test"},
-        content_type="multipart/form-data")
+    r = client.post(
+        "/api/manage/ingestion/upload",
+        data={
+            "files": (io.BytesIO(b"{}"), "donor_b.json"),
+            "raw_path": raw_path,
+            "user_id": "ghost@example.test",
+        },
+        content_type="multipart/form-data",
+    )
     assert r.status_code == 400
 
 
@@ -331,8 +433,10 @@ def test_coverage_endpoint_is_separate_from_the_listing(env):
     whole activity parquet, so it must not be able to slow the listing down.
     """
     store, client, um = env
-    with patch("web_interface.services.collection_coverage.corpus_coverage",
-               return_value={"c1": {"pct_scraped": 0.5, "pct_annotated": 0.25}}) as scan:
+    with patch(
+        "web_interface.services.collection_coverage.corpus_coverage",
+        return_value={"c1": {"pct_scraped": 0.5, "pct_annotated": 0.25}},
+    ) as scan:
         r = client.get("/api/manage/collections/coverage")
         assert r.status_code == 200
         assert r.get_json()["c1"]["pct_annotated"] == 0.25

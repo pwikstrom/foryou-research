@@ -7,7 +7,7 @@ import web_interface.auth as auth
 
 # --- Auth Setup ---
 login_manager = LoginManager()
-login_manager.login_view = 'auth_bp.login' # Updated to point to blueprint view
+login_manager.login_view = "auth_bp.login"  # Updated to point to blueprint view
 login_manager.anonymous_user = auth.AnonymousUser
 
 # Neither service preloads the full user roster anymore — it is loaded lazily on
@@ -35,11 +35,12 @@ user_manager = auth.UserManager(
     bootstrap=not _IS_TASK_RUNNER,
 )
 
+
 @login_manager.unauthorized_handler
 def unauthorized():
-    if request.path.startswith('/api/'):
+    if request.path.startswith("/api/"):
         return jsonify({"error": "unauthorized"}), 401
-    return redirect(url_for('auth_bp.login'))
+    return redirect(url_for("auth_bp.login"))
 
 
 @login_manager.user_loader

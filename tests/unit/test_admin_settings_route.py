@@ -16,10 +16,6 @@ from fyp.annotation.backends import settings as backend_settings
 _TEST_ADMIN = "__settings_test_admin__"
 
 
-
-
-
-
 @pytest.fixture
 def client(monkeypatch):
     from web_interface import security
@@ -38,7 +34,9 @@ def client(monkeypatch):
     # Snapshot + restore the settings file so the local store is untouched.
     fname = backend_settings.SETTINGS_FILENAME
     had_file = data_io.exists(storage_location="users", filename=fname)
-    saved_settings = data_io.load_json(storage_location="users", filename=fname) if had_file else None
+    saved_settings = (
+        data_io.load_json(storage_location="users", filename=fname) if had_file else None
+    )
     # Start from the fresh-install state — the tests assert the DEFAULTS, which
     # a real local store (e.g. a locally-selected non-gemini backend) would mask.
     if had_file:
@@ -58,10 +56,6 @@ def client(monkeypatch):
         data_io.remove(storage_location="users", filename=fname)
 
 
-
-
-
-
 def test_get_includes_backend_keys_and_defaults(client):
     res = client.get("/api/admin/settings")
     assert res.status_code == 200
@@ -74,31 +68,23 @@ def test_get_includes_backend_keys_and_defaults(client):
     assert "machine_defaults" not in body
 
 
-
-
-
-
 def test_put_rejects_unknown_backend(client):
     res = client.put("/api/admin/settings", json={"annotation_backend": "nope_backend"})
     assert res.status_code == 400
     assert "backend" in res.get_json()["error"]
 
 
-
-
-
-
 def test_put_rejects_retired_machine_keys(client):
-    for key, value in (("machine_temperature", 0.8), ("machine_model", "gemini-x"),
-                       ("machine_thinking_budget", 0), ("machine_media_resolution", "LOW"),
-                       ("machine_max_output_tokens", 1024)):
+    for key, value in (
+        ("machine_temperature", 0.8),
+        ("machine_model", "gemini-x"),
+        ("machine_thinking_budget", 0),
+        ("machine_media_resolution", "LOW"),
+        ("machine_max_output_tokens", 1024),
+    ):
         res = client.put("/api/admin/settings", json={key: value})
         assert res.status_code == 400, key
         assert "Unknown settings" in res.get_json()["error"]
-
-
-
-
 
 
 def test_put_valid_backend_roundtrip(client):
@@ -106,10 +92,6 @@ def test_put_valid_backend_roundtrip(client):
     assert res.status_code == 200
     res = client.get("/api/admin/settings")
     assert res.get_json()["settings"]["annotation_backend"] == "gemini"
-
-
-
-
 
 
 def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
@@ -127,16 +109,17 @@ def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
         assert settings[key] == pytest.approx(float(cfg[cfg_key])), key
 
 
-
-
-
-
 def test_session_floor_roundtrip_overrides_the_config_seed(client):
     from web_interface.admin_settings import get_session_floors
 
-    res = client.put("/api/admin/settings", json={
-        "sessions_min_plays": 25, "sessions_min_minutes": 7.5,
-        "sessions_min_coverage_pct": 40})
+    res = client.put(
+        "/api/admin/settings",
+        json={
+            "sessions_min_plays": 25,
+            "sessions_min_minutes": 7.5,
+            "sessions_min_coverage_pct": 40,
+        },
+    )
     assert res.status_code == 200
 
     settings = client.get("/api/admin/settings").get_json()["settings"]
@@ -144,13 +127,11 @@ def test_session_floor_roundtrip_overrides_the_config_seed(client):
     assert settings["sessions_min_minutes"] == 7.5
     assert settings["sessions_min_coverage_pct"] == 40
     # ...and the resolver the Sessions tab reads agrees with what the page shows.
-    assert get_session_floors() == {"sessions_min_plays": 25,
-                                    "sessions_min_minutes": 7.5,
-                                    "sessions_min_coverage_pct": 40.0}
-
-
-
-
+    assert get_session_floors() == {
+        "sessions_min_plays": 25,
+        "sessions_min_minutes": 7.5,
+        "sessions_min_coverage_pct": 40.0,
+    }
 
 
 def test_put_rejects_out_of_range_session_floors(client):

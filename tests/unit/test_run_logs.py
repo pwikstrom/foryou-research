@@ -43,8 +43,14 @@ def _fake_io(store: dict, fail: bool = False):
             del store[filename]
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             if fail:
                 raise OSError("storage down")
             current = json.loads(store[filename]) if filename in store else default
@@ -72,10 +78,6 @@ def _isolate_state():
         run_logs._states.clear()
 
 
-
-
-
-
 def test_append_stamps_each_line_exactly_once():
     store = {}
     with patch.object(run_logs, "data_io", _fake_io(store)):
@@ -95,17 +97,20 @@ def test_append_stamps_each_line_exactly_once():
     assert body[1] == "[09:15:00] pre-stamped line"
 
 
-
-
-
-
 def test_banner_records_who_started_the_run_and_its_args():
     store = {}
     with patch.object(run_logs, "data_io", _fake_io(store)):
-        run_logs.open_run("demo_proc", started_by="patrik@example.com",
-                          task_args={"batch_size": 500, "platform": "youtube",
-                                     "log_run_id": "hidden", "started_by": "hidden"},
-                          mode="cloud")
+        run_logs.open_run(
+            "demo_proc",
+            started_by="patrik@example.com",
+            task_args={
+                "batch_size": 500,
+                "platform": "youtube",
+                "log_run_id": "hidden",
+                "started_by": "hidden",
+            },
+            mode="cloud",
+        )
 
     lines = _runs(store)[0]["lines"]
     assert any("Started by patrik@example.com" in ln for ln in lines)
@@ -120,10 +125,6 @@ def test_banner_falls_back_to_system_when_unattributed():
     with patch.object(run_logs, "data_io", _fake_io(store)):
         run_logs.open_run("demo_proc")
     assert any("Started by system" in ln for ln in _runs(store)[0]["lines"])
-
-
-
-
 
 
 def test_run_ring_caps_at_max_runs_and_archives_the_previous_run():
@@ -193,15 +194,11 @@ def test_overlong_lines_are_truncated():
     assert _runs(store)[0]["lines"][-1].endswith("… (truncated)")
 
 
-
-
-
-
 def test_attach_run_adopts_an_open_run_instead_of_starting_a_second_one():
     store = {}
     with patch.object(run_logs, "data_io", _fake_io(store)):
         run_id = run_logs.open_run("demo_proc", started_by="patrik")
-        run_logs.detach("demo_proc")          # chain hop: this link is done
+        run_logs.detach("demo_proc")  # chain hop: this link is done
         adopted = run_logs.attach_run("demo_proc", run_id=run_id)
         run_logs.append("demo_proc", "second batch")
         run_logs.flush("demo_proc")
@@ -247,10 +244,6 @@ def test_finalize_writes_a_footer_and_a_terminal_state():
     assert run["state"] == run_logs.STATE_FAILED
     assert run["ended_at"]
     assert any("Run failed" in ln for ln in run["lines"])
-
-
-
-
 
 
 def test_read_since_cursor_returns_only_new_lines():
@@ -322,10 +315,6 @@ def test_read_of_an_unknown_process_is_empty_not_an_error():
     assert out == {"lines": [], "next_since": 0, "reset": True, "run": None, "runs": []}
 
 
-
-
-
-
 def test_unsafe_keys_are_rejected_everywhere():
     for bad in ("../secrets", "a/b", "with space", "", "key$"):
         assert not run_logs.valid_key(bad)
@@ -333,8 +322,12 @@ def test_unsafe_keys_are_rejected_everywhere():
             run_logs.log_filename(bad)
 
     # Participant-study keys embed the owner's email address.
-    for good in ("pca_refresh", "study_refresh__my-study", "queue_scraper_youtube",
-                 "study_refresh____me__someone@example.org"):
+    for good in (
+        "pca_refresh",
+        "study_refresh__my-study",
+        "queue_scraper_youtube",
+        "study_refresh____me__someone@example.org",
+    ):
         assert run_logs.valid_key(good)
         assert run_logs.log_filename(good) == f"proc_logs/{good}.json"
 
@@ -347,10 +340,6 @@ def test_unsafe_key_never_reaches_storage():
         assert run_logs.read("../escape")["lines"] == []
         assert run_logs.clear("../escape") is False
     assert store == {}
-
-
-
-
 
 
 def test_every_entry_point_survives_a_dead_storage_backend():
@@ -376,17 +365,14 @@ def test_clear_removes_the_history():
     assert store == {}
 
 
-
-
-
-
 def test_reporter_log_handler_forwards_records_without_recursing():
     store = {}
     with patch.object(run_logs, "data_io", _fake_io(store)):
         run_logs.open_run("demo_proc")
         handler = run_logs.ReporterLogHandler("demo_proc")
-        record = logging.LogRecord("fyp.test", logging.INFO, __file__, 1,
-                                   "worker narration", None, None)
+        record = logging.LogRecord(
+            "fyp.test", logging.INFO, __file__, 1, "worker narration", None, None
+        )
         handler.emit(record)
         run_logs.flush("demo_proc")
 
@@ -398,8 +384,7 @@ def test_reporter_log_handler_drops_records_emitted_during_a_write():
     # the stack blew, so they are dropped rather than queued.
     store = {}
     handler = run_logs.ReporterLogHandler("demo_proc")
-    record = logging.LogRecord("fyp.test", logging.INFO, __file__, 1,
-                               "re-entrant", None, None)
+    record = logging.LogRecord("fyp.test", logging.INFO, __file__, 1, "re-entrant", None, None)
     with patch.object(run_logs, "data_io", _fake_io(store)):
         run_logs.open_run("demo_proc")
         run_logs._guard.handling = True

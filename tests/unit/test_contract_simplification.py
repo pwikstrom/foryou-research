@@ -29,26 +29,18 @@ SECTIONED_PROMPT = FIXTURES / "annotation_prompt_sectioned_v1.txt"
 METADATA_V1 = FIXTURES / "annotation_contract_column_metadata_v1.json"
 
 
-
-
 def _sectioned_contract() -> dict:
     return ac.load_contract(SECTIONED_TOML)
-
-
 
 
 def _baked_contract() -> dict:
     return ac.load_contract(ac.default_contract_path())
 
 
-
-
 def test_sectioned_legacy_prompt_byte_identical():
     """A [[section]] contract renders exactly the pre-migration prompt text."""
     prompt = sch.build_prompt(_sectioned_contract())
     assert prompt == SECTIONED_PROMPT.read_text(encoding="utf-8")
-
-
 
 
 def test_sectionless_prompt_is_flat():
@@ -63,17 +55,12 @@ def test_sectionless_prompt_is_flat():
     assert len(bullets) == len(contract["fields"])
 
 
-
-
 def test_migration_only_changed_the_prompt():
     """The section removal must not have touched the response schema."""
-    assert (
-        sch.get_annotation_json_schema(_sectioned_contract())
-        == sch.get_annotation_json_schema(_baked_contract())
+    assert sch.get_annotation_json_schema(_sectioned_contract()) == sch.get_annotation_json_schema(
+        _baked_contract()
     )
     assert sch.build_prompt(_sectioned_contract()) != sch.build_prompt(_baked_contract())
-
-
 
 
 @pytest.mark.parametrize(
@@ -83,14 +70,12 @@ def test_migration_only_changed_the_prompt():
         ({"array": True}, "list"),
         ({"array": 2, "enum": "content_category"}, "list"),
         ({"enum": "yes_no"}, "categorical"),
-        ({}, None),                       # free-text: ambiguous
-        ({"type": "object"}, None),       # objects: per-sub-key
+        ({}, None),  # free-text: ambiguous
+        ({"type": "object"}, None),  # objects: per-sub-key
     ],
 )
 def test_infer_scale_matrix(field, expected):
     assert ac.infer_scale(field) == expected
-
-
 
 
 @pytest.mark.parametrize(
@@ -98,11 +83,11 @@ def test_infer_scale_matrix(field, expected):
     [
         ("list: notable sounds", False, "list"),
         ("int(0,100): pct", False, "numeric"),
-        ("int: age", True, "numeric"),            # numeric-mean aggregation
-        ("enum:gender", True, "list"),            # pipe-joined across elements
+        ("int: age", True, "numeric"),  # numeric-mean aggregation
+        ("enum:gender", True, "list"),  # pipe-joined across elements
         ("enum:gender", False, "categorical"),
         ("the apparent ethnicity", True, "list"),
-        ("free text", False, None),               # ambiguous
+        ("free text", False, None),  # ambiguous
         ({"spec": "enum:gender", "scale": "list"}, False, "categorical"),  # infer ignores meta
     ],
 )
@@ -110,14 +95,10 @@ def test_infer_subkey_scale_matrix(spec, parent_array, expected):
     assert ac.infer_subkey_scale(spec, parent_array=parent_array) == expected
 
 
-
-
 def test_effective_scale_prefers_explicit():
     assert ac.effective_scale({"scale": "text"}) == "text"
     assert ac.effective_scale({"enum": "yes_no"}) == "categorical"
     assert ac.effective_subkey_scale({"spec": "enum:gender", "scale": "raw"}) == "raw"
-
-
 
 
 def test_metadata_identical_to_pre_migration():
@@ -138,11 +119,10 @@ def test_metadata_identical_to_pre_migration():
     for col, meta in old.items():
         for key in ("scale", "display_name"):
             assert new[col].get(key) == meta.get(key), f"{col}.{key} drifted"
-        assert normalize_role(new[col].get("role")) == normalize_role(meta.get("role")), \
+        assert normalize_role(new[col].get("role")) == normalize_role(meta.get("role")), (
             f"{col}.role drifted"
+        )
         assert new[col].get("description")  # falls back to desc, never empty
-
-
 
 
 def test_validation_free_text_needs_scale():
@@ -155,8 +135,6 @@ def test_validation_free_text_needs_scale():
     assert not ac.validate_contract(contract)
 
 
-
-
 def test_validation_rejects_stale_section_key():
     contract = _baked_contract()
     contract["fields"][0]["section"] = "profile"
@@ -164,12 +142,8 @@ def test_validation_rejects_stale_section_key():
     assert any("no [[section]] entries" in e for e in errors)
 
 
-
-
 def test_validation_accepts_legacy_sectioned_contract():
     assert not ac.validate_contract(_sectioned_contract())
-
-
 
 
 def test_serialize_drops_section_aot():

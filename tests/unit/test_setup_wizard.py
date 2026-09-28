@@ -20,10 +20,6 @@ setup = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(setup)
 
 
-
-
-
-
 def test_build_config_toml_minimal_local():
     """A GCS-free, Gemini-free run emits only paths + the three GCS toggles."""
     answers = setup.Answers(data_dir="/tmp/fyp_data")
@@ -38,19 +34,11 @@ def test_build_config_toml_minimal_local():
     }
 
 
-
-
-
-
 def test_build_config_toml_vertex():
     """Vertex mode emits [machine.gemini] project and nothing else machine-related."""
     answers = setup.Answers(data_dir="/tmp/d", gemini_mode="vertex", vertex_project="my-proj")
     parsed = tomllib.loads(setup.build_config_toml(answers))
     assert parsed["machine"] == {"gemini": {"project": "my-proj"}}
-
-
-
-
 
 
 def test_build_config_toml_api_key_mode():
@@ -61,18 +49,13 @@ def test_build_config_toml_api_key_mode():
     assert "GEMINI" not in setup.build_config_toml(answers)
 
 
-
-
-
-
 def test_build_config_toml_gcs_all_surfaces():
     """All three surfaces on GCS: toggles on, bucket recorded, no local paths.
 
     A fully bucket-backed install has no local directory to override, so the
     committed paths.local_data stays in charge of the GCS prefix derivation.
     """
-    answers = setup.Answers(gcs_data=True, gcs_media=True, gcs_cache=True,
-                            gcs_bucket="my-bucket")
+    answers = setup.Answers(gcs_data=True, gcs_media=True, gcs_cache=True, gcs_bucket="my-bucket")
     parsed = tomllib.loads(setup.build_config_toml(answers))
     assert parsed["data_io"] == {
         "use_gcs_for_data": True,
@@ -83,10 +66,6 @@ def test_build_config_toml_gcs_all_surfaces():
     assert "paths" not in parsed
 
 
-
-
-
-
 def test_build_config_toml_gcs_media_only():
     """Media-only GCS keeps the local data path and drops the media path."""
     answers = setup.Answers(data_dir="/tmp/d", gcs_media=True, gcs_bucket="b")
@@ -95,10 +74,6 @@ def test_build_config_toml_gcs_media_only():
     assert parsed["data_io"]["use_gcs_for_data"] is False
     assert parsed["data_io"]["use_gcs_for_cache"] is False
     assert parsed["paths"] == {"local_data": "/tmp/d"}
-
-
-
-
 
 
 def test_build_config_toml_gcs_data_only_keeps_local_data():
@@ -113,10 +88,6 @@ def test_build_config_toml_gcs_data_only_keeps_local_data():
     assert parsed["paths"]["local_media"] == "/tmp/d/media"
 
 
-
-
-
-
 def test_build_config_toml_contact_email():
     """A provided contact email lands under [site]; skipped -> no [site] table."""
     answers = setup.Answers(data_dir="/tmp/d", contact_email="me@example.org")
@@ -124,10 +95,6 @@ def test_build_config_toml_contact_email():
     assert parsed["site"] == {"contact_email": "me@example.org"}
     without = tomllib.loads(setup.build_config_toml(setup.Answers(data_dir="/tmp/d")))
     assert "site" not in without
-
-
-
-
 
 
 def test_validate_data_dir_rejects_file(tmp_path):
@@ -138,18 +105,10 @@ def test_validate_data_dir_rejects_file(tmp_path):
     assert "file" in problem
 
 
-
-
-
-
 def test_validate_data_dir_rejects_repo_checkout():
     """A path inside the repository checkout is flagged."""
     _, problem = setup.validate_data_dir(str(ROOT / "somewhere"))
     assert "repository" in problem
-
-
-
-
 
 
 def test_validate_data_dir_accepts_missing_under_writable(tmp_path):
@@ -157,10 +116,6 @@ def test_validate_data_dir_accepts_missing_under_writable(tmp_path):
     resolved, problem = setup.validate_data_dir(str(tmp_path / "new" / "deep"))
     assert problem == ""
     assert resolved == str(tmp_path / "new" / "deep")
-
-
-
-
 
 
 def test_build_env_file_append_only():
@@ -174,18 +129,10 @@ def test_build_env_file_append_only():
     assert "FLASK_SECRET_KEY=fsk" in merged
 
 
-
-
-
-
 def test_build_env_file_no_additions_is_identity():
     """With nothing collected, the existing text is returned unchanged."""
     existing = "A=1\n"
     assert setup.build_env_file(setup.Answers(), existing) == existing
-
-
-
-
 
 
 def test_build_env_file_header_says_auto_loaded():
@@ -193,10 +140,6 @@ def test_build_env_file_header_says_auto_loaded():
     text = setup.build_env_file(setup.Answers(flask_secret="fsk"), "")
     assert "Loaded automatically" in text
     assert "NOT auto-loaded" not in text
-
-
-
-
 
 
 def test_check_environment_levels_without_local_models():
@@ -211,10 +154,6 @@ def test_check_environment_levels_without_local_models():
     assert not any(r.name.startswith("local minicpm") for r in results)
 
 
-
-
-
-
 def test_print_checks_required_failure_flips_exit(capsys):
     """print_checks returns False only when a *required* check fails."""
     ok_required = setup.CheckResult("python", True, "3.12", "required", level="required")
@@ -225,18 +164,10 @@ def test_print_checks_required_failure_flips_exit(capsys):
     capsys.readouterr()
 
 
-
-
-
-
 def test_free_space_gb_on_missing_path(tmp_path):
     """A not-yet-existing directory is measured via its nearest ancestor."""
     free = setup.free_space_gb(str(tmp_path / "does" / "not" / "exist"))
     assert free is not None and free > 0
-
-
-
-
 
 
 def test_gcs_surfaces_from_args_bucket_alone_means_all_three():
@@ -247,19 +178,11 @@ def test_gcs_surfaces_from_args_bucket_alone_means_all_three():
     assert answers.gcs_bucket == "b"
 
 
-
-
-
-
 def test_gcs_surfaces_from_args_subset():
     """``--gcs-for`` narrows the bucket to the named surfaces only."""
     args = argparse.Namespace(gcs_bucket="b", gcs_for="media,cache")
     answers = setup.gcs_surfaces_from_args(args, setup.Answers())
     assert (answers.gcs_data, answers.gcs_media, answers.gcs_cache) == (False, True, True)
-
-
-
-
 
 
 def test_gcs_surfaces_from_args_rejects_unknown_surface():
@@ -270,19 +193,11 @@ def test_gcs_surfaces_from_args_rejects_unknown_surface():
     assert "cashe" in str(exc.value)
 
 
-
-
-
-
 def test_gcs_surfaces_from_args_subset_without_bucket_fails():
     """``--gcs-for`` alone cannot work: there is no bucket to write to."""
     args = argparse.Namespace(gcs_bucket=None, gcs_for="media")
     with pytest.raises(SystemExit):
         setup.gcs_surfaces_from_args(args, setup.Answers())
-
-
-
-
 
 
 def test_gcs_surfaces_from_args_keeps_existing_mix():
@@ -292,10 +207,6 @@ def test_gcs_surfaces_from_args_keeps_existing_mix():
     answers = setup.gcs_surfaces_from_args(args, defaults)
     assert (answers.gcs_data, answers.gcs_media, answers.gcs_cache) == (False, True, False)
     assert answers.gcs_bucket == "old-bucket"
-
-
-
-
 
 
 def test_load_existing_defaults_preserves_mixed_surfaces(tmp_path, monkeypatch):
@@ -312,10 +223,6 @@ def test_load_existing_defaults_preserves_mixed_surfaces(tmp_path, monkeypatch):
     defaults = setup.load_existing_defaults()
     assert (defaults.gcs_data, defaults.gcs_media, defaults.gcs_cache) == (False, True, False)
     assert defaults.gcs is True
-
-
-
-
 
 
 def test_answers_needs_local_paths():

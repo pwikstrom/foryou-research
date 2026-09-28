@@ -6,6 +6,7 @@ the private ``_apply_contract_*`` helpers the golden harness imports, and the
 ``PROJECT_ROOT`` / ``*_SCRIPT`` / ``PYTHON_EXEC`` constants re-exported from
 ``fyp.core.paths``.
 """
+
 import sys
 
 from fyp.core import fyp_config as _real

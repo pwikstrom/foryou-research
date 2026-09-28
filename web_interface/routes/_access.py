@@ -26,18 +26,10 @@ def current_user_ctx() -> tuple[str, str | None, bool]:
     return username, role, is_admin
 
 
-
-
-
-
 def accessible_study_names() -> list[str]:
     """Return the list of study names the current user can access."""
     username, role, is_admin = current_user_ctx()
     return get_accessible_studies(username, role, is_admin)
-
-
-
-
 
 
 def study_access_error(study: str):
@@ -47,23 +39,15 @@ def study_access_error(study: str):
     return jsonify({"error": "Access denied to this study"}), 403
 
 
-
-
-
-
 def collection_access_error(collection_id: str):
     """Return a 403 response tuple unless ``collection_id`` belongs to at
     least one study the current user can access, else None."""
     wanted = str(collection_id)
     for study in accessible_study_names():
         for d in get_study_collections(study):
-            if str(d.get('collection_id')) == wanted:
+            if str(d.get("collection_id")) == wanted:
                 return None
     return jsonify({"error": "Access denied to this collection"}), 403
-
-
-
-
 
 
 def owned_collection_access_error(collection_id: str):
@@ -87,6 +71,7 @@ def owned_collection_access_error(collection_id: str):
     # Function-level import: collection_accounts pulls in the security module
     # lazily and must stay import-light for the task-runner.
     from ..collection_accounts import collections_for_user
+
     if str(collection_id) in {str(c) for c in collections_for_user(username)}:
         return None
     return jsonify({"error": "This collection is not linked to your account"}), 403

@@ -43,7 +43,7 @@ from fyp.core.paths import (
 )
 
 
-#import fyp
+# import fyp
 
 
 # Fallback for [site].repo_url when neither config.toml nor FYP_REPO_URL
@@ -104,14 +104,14 @@ def _load_dotenv(project_root: str, verbose: bool = False) -> list[str]:
 
 def _create_local_dirs(cf: dict, verbose: bool = False):
     # create missing local folders if not using GCS for data
-    if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
+    if not cf["data_io"]["use_gcs_for_data"] or cf["misc"]["local_mode"]:
         if verbose:
             print("Data is stored in locally")
             print("Cache is stored in locally")
         for k in cf["paths"].keys():
             os.makedirs(cf["paths"][k], exist_ok=True)
     # create missing local folders if not using GCS for data
-    elif not cf['data_io']['use_gcs_for_cache']:
+    elif not cf["data_io"]["use_gcs_for_cache"]:
         if verbose:
             print("Cache is stored in locally")
         if not os.path.exists(cf["paths"]["cache"]):
@@ -120,12 +120,10 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
             os.makedirs(cf["paths"]["cache"], exist_ok=True)
 
     # Media is orthogonal to data/cache - ensure its folder exists whenever GCS media is off
-    if not cf['data_io']['use_gcs_for_media'] or cf['misc']['local_mode']:
+    if not cf["data_io"]["use_gcs_for_media"] or cf["misc"]["local_mode"]:
         if verbose:
             print("Media is stored locally")
         os.makedirs(cf["paths"]["media"], exist_ok=True)
-
-
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -149,21 +147,30 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return base
 
 
-
-
 # Former flat [machine] keys that belong to the Gemini backend — the canonical
 # home is now [machine.gemini] (config schema 2026-07). Includes retired knobs
 # (use_structured_output, prompt, ...) so any old config hoists completely.
 _LEGACY_GEMINI_KEYS = (
-    "key", "model", "vertexai", "project", "location",
-    "http_options_api_version", "http_options_timeout",
-    "temperature", "max_output_tokens", "thinking_budget",
-    "max_retries", "retry_base_delay", "media_resolution", "version_label",
-    "use_structured_output", "use_generated_prompt", "prompt",
-    "presence_penalty", "frequency_penalty",
+    "key",
+    "model",
+    "vertexai",
+    "project",
+    "location",
+    "http_options_api_version",
+    "http_options_timeout",
+    "temperature",
+    "max_output_tokens",
+    "thinking_budget",
+    "max_retries",
+    "retry_base_delay",
+    "media_resolution",
+    "version_label",
+    "use_structured_output",
+    "use_generated_prompt",
+    "prompt",
+    "presence_penalty",
+    "frequency_penalty",
 )
-
-
 
 
 def _normalize_machine_config(cf: dict) -> None:
@@ -202,10 +209,10 @@ def _normalize_machine_config(cf: dict) -> None:
     # The short-lived model-keyed [machine.pricing] table (2026-07) moved to a
     # per-block `pricing` inline table; a leftover copy is dropped, not read.
     if machine.pop("pricing", None) is not None:
-        print("[CONFIG] Ignoring legacy [machine.pricing] - prices now live as "
-              "`pricing = {input=..., output=...}` on each backend/variant block.")
-
-
+        print(
+            "[CONFIG] Ignoring legacy [machine.pricing] - prices now live as "
+            "`pricing = {input=..., output=...}` on each backend/variant block."
+        )
 
 
 def _localize_default_path(configured: str, home_subdir: str) -> str:
@@ -235,13 +242,8 @@ def _localize_default_path(configured: str, home_subdir: str) -> str:
     return configured
 
 
+def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict:
 
-
-def initialize(
-    verbose: bool = False,
-    abs_project_root_path: str = None
-    ) -> dict:
-    
     # ------------------------------------------------------------------
     # Locate the project root - I don't know what other people do - this works for me
     # ------------------------------------------------------------------
@@ -260,7 +262,6 @@ def initialize(
         env_config_path = None
 
     if abs_project_root_path is None:
-
         # I put an empty __proj__.py file in the root folder of the project structure
         cwd = Path(os.getcwd())
         candidates = [cwd] + list(cwd.parents)
@@ -271,11 +272,10 @@ def initialize(
         else:
             raise FileNotFoundError("Could not find __proj__.py in any parent directory")
         if verbose:
-            print("Project root:",abs_project_root_path)
+            print("Project root:", abs_project_root_path)
 
         # add project root path to PATH since the modules are located in the project structure
         sys.path.append(abs_project_root_path)
-
 
     # A gitignored .env at the project root is loaded here, before any of the
     # os.environ reads below, so users never need `set -a; source .env`.
@@ -285,7 +285,7 @@ def initialize(
     # ------------------------------------------------------------------
     # Load essential config - let it blow up if the files aren't found
     # ------------------------------------------------------------------
-    config_path = env_config_path or os.path.join(abs_project_root_path,"config","config.toml")
+    config_path = env_config_path or os.path.join(abs_project_root_path, "config", "config.toml")
     global _active_config_path
     _active_config_path = str(Path(config_path).resolve())
     cf = toml.load(config_path)
@@ -307,7 +307,6 @@ def initialize(
     # per-backend schema BEFORE the env-secret writes below target it.
     _normalize_machine_config(cf)
 
-
     # ------------------------------------------------------------------
     # Use env var for secrets; fall back to config if present (avoid committing real keys)
     # ------------------------------------------------------------------
@@ -324,9 +323,7 @@ def initialize(
     # GCP_PROJECT_ID env var they already carry; FYP_VERTEX_PROJECT overrides.
     if not cf["machine"]["gemini"].get("project"):
         cf["machine"]["gemini"]["project"] = (
-            os.environ.get("FYP_VERTEX_PROJECT")
-            or os.environ.get("GCP_PROJECT_ID")
-            or ""
+            os.environ.get("FYP_VERTEX_PROJECT") or os.environ.get("GCP_PROJECT_ID") or ""
         )
 
     # Site/branding values ([site]): committed defaults are empty; env vars
@@ -363,7 +360,6 @@ def initialize(
     else:
         site.setdefault("participant_placeholder_domain", DEFAULT_PARTICIPANT_PLACEHOLDER_DOMAIN)
 
-
     # ------------------------------------------------------------------
     # initialize paths
     # ------------------------------------------------------------------
@@ -395,7 +391,9 @@ def initialize(
     # Resolve relative paths against the project root for consistent file access.
     # I'm creating the paths as if they are local - if everything is GCS, these will just be
     # used as a template for the gcs paths
-    cf["paths"]["local_data"] = os.path.abspath(os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"]))
+    cf["paths"]["local_data"] = os.path.abspath(
+        os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"])
+    )
 
     # Resolve the local media path the same way. Accepts absolute or project-relative values.
     cf["paths"]["media"] = os.path.abspath(
@@ -403,8 +401,7 @@ def initialize(
     )
     del cf["paths"]["local_media"]
 
-
-    cf["paths"]["activity_data"] = os.path.join(cf["paths"]["local_data"],"activity_data")
+    cf["paths"]["activity_data"] = os.path.join(cf["paths"]["local_data"], "activity_data")
 
     # NOTE — raw-folder naming is inconsistent for historical reasons; do not
     # "fix" it casually. The three TikTok sources below are keyed by SOURCE
@@ -439,25 +436,29 @@ def initialize(
     cf["paths"]["scrape"] = os.path.join(cf["paths"]["local_data"], "scrape")
 
     # paths to machine annotations
-    cf["paths"]["machine_annotations"] = os.path.join(cf["paths"]["local_data"], "machine_annotations")
-    cf["paths"]["machine_annotations_raw"] = os.path.join(cf["paths"]["machine_annotations"], "machine_annotations_raw")
-    cf["paths"]["machine_annotations_refined"] = os.path.join(cf["paths"]["machine_annotations"], "machine_annotations_refined")
+    cf["paths"]["machine_annotations"] = os.path.join(
+        cf["paths"]["local_data"], "machine_annotations"
+    )
+    cf["paths"]["machine_annotations_raw"] = os.path.join(
+        cf["paths"]["machine_annotations"], "machine_annotations_raw"
+    )
+    cf["paths"]["machine_annotations_refined"] = os.path.join(
+        cf["paths"]["machine_annotations"], "machine_annotations_refined"
+    )
 
     # other paths
     cf["paths"]["recoded"] = os.path.join(cf["paths"]["local_data"], "recoded")
     cf["paths"]["archive"] = os.path.join(cf["paths"]["local_data"], "archive")
-    cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users") 
-    cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache") 
-    
+    cf["paths"]["users"] = os.path.join(cf["paths"]["local_data"], "users")
+    cf["paths"]["cache"] = os.path.join(cf["paths"]["local_data"], "cache")
+
     cf["paths"]["temp"] = os.path.join(tempfile.gettempdir(), "fyp", "")
     os.makedirs(cf["paths"]["temp"], exist_ok=True)
-    
 
     # ------------------------------------------------------------------
     # prepare gen ai parameters for initialisation
     # ------------------------------------------------------------------
     cf["machine"]["gemini"]["client"] = None
-
 
     # ------------------------------------------------------------------
     # prepare data storage for initialisation - either gcs or local
@@ -472,19 +473,19 @@ def initialize(
     if os.environ.get("K_SERVICE") or os.environ.get("FYP_FORCE_GCS"):
         source = "Cloud Run detected." if os.environ.get("K_SERVICE") else "FYP_FORCE_GCS set."
         print(f"{source} Forcing all storage to GCS.")
-        cf['data_io']['use_gcs_for_data'] = True
-        cf['data_io']['use_gcs_for_cache'] = True
-        cf['data_io']['use_gcs_for_media'] = True
-        cf['misc']['local_mode'] = False
+        cf["data_io"]["use_gcs_for_data"] = True
+        cf["data_io"]["use_gcs_for_cache"] = True
+        cf["data_io"]["use_gcs_for_media"] = True
+        cf["misc"]["local_mode"] = False
 
     # If local mode is enabled, set the GCS flags to False
-    elif cf['misc']['local_mode']:
+    elif cf["misc"]["local_mode"]:
         print("Local mode is enabled. GCS data will not be used.")
-        cf['data_io']['use_gcs_for_data'] = False
-        cf['data_io']['use_gcs_for_cache'] = False
-        cf['data_io']['use_gcs_for_media'] = False
+        cf["data_io"]["use_gcs_for_data"] = False
+        cf["data_io"]["use_gcs_for_cache"] = False
+        cf["data_io"]["use_gcs_for_media"] = False
 
-    if cf['data_io']['use_gcs_for_data']:
+    if cf["data_io"]["use_gcs_for_data"]:
         cf["gcs_paths"] = {}
         gcs_prefix = cf["data_io"].get("gcs_data_prefix", "")
         for k, v in cf["paths"].items():
@@ -492,22 +493,17 @@ def initialize(
                 continue  # media uses data_io.gcs_media_prefix, not gcs_paths
             if isinstance(v, str) and v.startswith(cf["paths"]["local_data"]) and k != "local_data":
                 rel = os.path.relpath(v, cf["paths"]["local_data"])
-                if rel == ".": 
+                if rel == ".":
                     gcs_path = gcs_prefix
                 else:
-                    gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel            
+                    gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
                 cf["gcs_paths"][k] = gcs_path
-        
+
     # create missing local folders - note that this function first checks relevant flags and
-    # only creates folders if needed 
+    # only creates folders if needed
     _create_local_dirs(cf, verbose=verbose)
 
-
     return cf
-
-
-
-
 
 
 # Well-known HEAD-tolerant host used for the default connectivity probe.
@@ -515,10 +511,8 @@ _DEFAULT_PROBE_HOST = "connectivitycheck.gstatic.com"
 
 
 # check internet connectivity
-def _online_ok(url=_DEFAULT_PROBE_HOST,
-                        timeout=1):
-    connection = http.client.HTTPConnection(url,
-                                        timeout=timeout)
+def _online_ok(url=_DEFAULT_PROBE_HOST, timeout=1):
+    connection = http.client.HTTPConnection(url, timeout=timeout)
     try:
         # only header requested for fast operation
         connection.request("HEAD", "/")
@@ -529,10 +523,6 @@ def _online_ok(url=_DEFAULT_PROBE_HOST,
         return False
 
 
-
-
-
-
 def _connect_to_google(cf, verbose=False):
 
     if cf["data_io"]["bucket"] is not None:
@@ -540,7 +530,11 @@ def _connect_to_google(cf, verbose=False):
 
     cf["data_io"]["bucket"] = None
 
-    if cf['misc']['local_mode'] or not (cf['data_io']['use_gcs_for_data'] or cf['data_io']['use_gcs_for_cache'] or cf['data_io']['use_gcs_for_media']):
+    if cf["misc"]["local_mode"] or not (
+        cf["data_io"]["use_gcs_for_data"]
+        or cf["data_io"]["use_gcs_for_cache"]
+        or cf["data_io"]["use_gcs_for_media"]
+    ):
         return cf
 
     # On Cloud Run (K_SERVICE set) connectivity and GCS creds are guaranteed, so
@@ -548,7 +542,6 @@ def _connect_to_google(cf, verbose=False):
     # timeout on a slow response) to every cold start.
     probe_host = cf["misc"].get("connectivity_probe_host") or _DEFAULT_PROBE_HOST
     if os.environ.get("K_SERVICE") or _online_ok(url=probe_host):
-
         # Initialize a GCS storage client
         try:
             bucket_client = gcs_storage.Client()
@@ -562,21 +555,21 @@ def _connect_to_google(cf, verbose=False):
             cf["data_io"]["bucket"] = bucket
             print(f"GCS bucket '{bucket.name}' handle ready (metadata resolved lazily).")
             if verbose:
-                if cf['data_io']['use_gcs_for_data']:
+                if cf["data_io"]["use_gcs_for_data"]:
                     print("Data is stored in GCS")
                 else:
                     print("Data is stored locally")
-                if cf['data_io']['use_gcs_for_cache']:
+                if cf["data_io"]["use_gcs_for_cache"]:
                     print("Cache is stored in GCS")
                 else:
                     print("Cache is stored locally")
-                if cf['data_io']['use_gcs_for_media']:
+                if cf["data_io"]["use_gcs_for_media"]:
                     print("Media is stored in GCS")
                 else:
                     print("Media is stored locally")
 
             return cf
-        
+
         except google_Forbidden:
             print("I don't have access to the GCS.")
         except Exception as e:
@@ -584,24 +577,21 @@ def _connect_to_google(cf, verbose=False):
 
     else:
         print("No internet connection. Running local mode.")
-        cf['misc']['local_mode'] = True
+        cf["misc"]["local_mode"] = True
 
     # FYP_FORCE_GCS means the process must operate on GCS data (e.g. a local
     # scrape-queue drain against prod) — silently degrading to local storage
     # would make it read/write the wrong data, so fail hard instead.
     if os.environ.get("FYP_FORCE_GCS"):
-        raise RuntimeError("FYP_FORCE_GCS is set but the GCS connection failed - refusing local fallback.")
+        raise RuntimeError(
+            "FYP_FORCE_GCS is set but the GCS connection failed - refusing local fallback."
+        )
 
-    cf['data_io']['use_gcs_for_data'] = False
-    cf['data_io']['use_gcs_for_cache'] = False
-    cf['data_io']['use_gcs_for_media'] = False
+    cf["data_io"]["use_gcs_for_data"] = False
+    cf["data_io"]["use_gcs_for_cache"] = False
+    cf["data_io"]["use_gcs_for_media"] = False
     _create_local_dirs(cf, verbose=verbose)
     return cf
-
-
-
-
-
 
 
 def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str | None:
@@ -652,19 +642,15 @@ def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str 
                 parts.append(f"{fname}:unknown")
         # Runtime annotation contract (one stat; absent → baked default).
         try:
-            st = data_io.stat(
-                storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
-            )
+            st = data_io.stat(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
             parts.append(
-                f"{ac.RUNTIME_FILENAME}:{st['mtime']}" if st
-                else f"{ac.RUNTIME_FILENAME}:absent"
+                f"{ac.RUNTIME_FILENAME}:{st['mtime']}" if st else f"{ac.RUNTIME_FILENAME}:absent"
             )
         except Exception:
             parts.append(f"{ac.RUNTIME_FILENAME}:unknown")
         return "|".join(parts)
     except Exception:
         return None
-
 
 
 def _apply_contract_accepted_labels(cf) -> None:
@@ -719,8 +705,6 @@ def _apply_contract_accepted_labels(cf) -> None:
         name = vs.at[idx, "variable_name"]
         if name in enum_labels:
             vs.at[idx, "accepted_labels"] = enum_labels[name]
-
-
 
 
 def _apply_contract_variable_metadata(cf) -> None:
@@ -792,17 +776,18 @@ def _apply_contract_variable_metadata(cf) -> None:
             rows = []
             for name in missing:
                 owned = all_owned[name]
-                rows.append({
-                    "variable_name": name,
-                    "role": owned.get("role"),
-                    "scale": owned.get("scale"),
-                    "display_name": owned.get("display_name"),
-                    "description": owned.get("description"),
-                    "section": "AI Annotations",
-                    "skip_recode": False,
-                })
+                rows.append(
+                    {
+                        "variable_name": name,
+                        "role": owned.get("role"),
+                        "scale": owned.get("scale"),
+                        "display_name": owned.get("display_name"),
+                        "description": owned.get("description"),
+                        "section": "AI Annotations",
+                        "skip_recode": False,
+                    }
+                )
             cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
-
 
 
 def _apply_contract_scrape_metadata(cf) -> None:
@@ -864,18 +849,18 @@ def _apply_contract_scrape_metadata(cf) -> None:
         rows = []
         for name in missing:
             owned = meta[name]
-            rows.append({
-                "variable_name": name,
-                "role": owned.get("role"),
-                "scale": owned.get("scale"),
-                "display_name": owned.get("display_name"),
-                "description": owned.get("description"),
-                "section": owned.get("section"),
-                "skip_recode": _owned_skip_recode(owned),
-            })
+            rows.append(
+                {
+                    "variable_name": name,
+                    "role": owned.get("role"),
+                    "scale": owned.get("scale"),
+                    "display_name": owned.get("display_name"),
+                    "description": owned.get("description"),
+                    "section": owned.get("section"),
+                    "skip_recode": _owned_skip_recode(owned),
+                }
+            )
         cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
-
-
 
 
 def _owned_skip_recode(owned: dict) -> bool:
@@ -889,8 +874,6 @@ def _owned_skip_recode(owned: dict) -> bool:
     if "skip_recode" in owned:
         return bool(owned["skip_recode"])
     return str(owned.get("source") or "").startswith("derived:")
-
-
 
 
 def _overlay_contract_metadata(cf, meta: dict) -> None:
@@ -928,18 +911,18 @@ def _overlay_contract_metadata(cf, meta: dict) -> None:
         rows = []
         for name in missing:
             owned = meta[name]
-            rows.append({
-                "variable_name": name,
-                "role": owned.get("role"),
-                "scale": owned.get("scale"),
-                "display_name": owned.get("display_name"),
-                "description": owned.get("description"),
-                "section": owned.get("section"),
-                "skip_recode": _owned_skip_recode(owned),
-            })
+            rows.append(
+                {
+                    "variable_name": name,
+                    "role": owned.get("role"),
+                    "scale": owned.get("scale"),
+                    "display_name": owned.get("display_name"),
+                    "description": owned.get("description"),
+                    "section": owned.get("section"),
+                    "skip_recode": _owned_skip_recode(owned),
+                }
+            )
         cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
-
-
 
 
 def _apply_contract_activity_metadata(cf) -> None:
@@ -971,8 +954,6 @@ def _apply_contract_activity_metadata(cf) -> None:
     _overlay_contract_metadata(cf, meta)
 
 
-
-
 def _apply_contract_derived_metadata(cf) -> None:
     """Materialize enrichment-variable metadata from the derived contract, in memory.
 
@@ -990,17 +971,21 @@ def _apply_contract_derived_metadata(cf) -> None:
     _overlay_contract_metadata(cf, meta)
 
 
-
 # The synthesized schema's column set (accepted_labels is added by its overlay;
 # the internal boolean ``skip_recode`` — contract-owned, drives the recode plan —
 # is added typed by the skeleton in :func:`load_var_schema`).
 VAR_SCHEMA_COLUMNS = [
-    "section", "variable_name", "display_name", "role", "scale",
-    "web_filter_prio", "web_timeline_prio", "web_viz_prio", "web_display_prio",
+    "section",
+    "variable_name",
+    "display_name",
+    "role",
+    "scale",
+    "web_filter_prio",
+    "web_timeline_prio",
+    "web_viz_prio",
+    "web_display_prio",
     "description",
 ]
-
-
 
 
 def load_var_schema(cf, verbose=False):
@@ -1059,6 +1044,7 @@ def load_var_schema(cf, verbose=False):
     if "role" in cf["var_schema"].columns:
         try:
             from fyp.annotation.recode_variables import normalize_role
+
             cf["var_schema"]["role"] = cf["var_schema"]["role"].map(
                 lambda r: normalize_role(r) if pd.notna(r) else r
             )
@@ -1088,14 +1074,16 @@ def load_var_schema(cf, verbose=False):
         members = set(presentation.get("surfaces", {}).get(surface, []) or [])
         vs[col] = pd.Series(
             ["1" if n in members else pd.NA for n in vs["variable_name"]],
-            dtype="string[pyarrow]", index=vs.index,
+            dtype="string[pyarrow]",
+            index=vs.index,
         )
 
     cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf, _presentation_raw)
     if verbose:
-        print(f"Synthesized variable schema from contracts + presentation store. Shape: {cf['var_schema'].shape}")
+        print(
+            f"Synthesized variable schema from contracts + presentation store. Shape: {cf['var_schema'].shape}"
+        )
     return cf
-
 
 
 def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
@@ -1124,12 +1112,6 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
     return True
 
 
-
-
-
-
-
-
 # The heavy init (config load, GCS connect, var_schema synthesis) is lazy: it
 # runs on first access of ``fyp_cf`` — served by the module ``__getattr__``
 # below (PEP 562) — instead of at module import. ``from fyp.fyp_config import
@@ -1137,8 +1119,6 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
 # always binds the same singleton dict.
 _fyp_cf: dict | None = None
 _fyp_cf_lock = threading.Lock()
-
-
 
 
 def get_config() -> dict:
@@ -1182,8 +1162,6 @@ def get_config() -> dict:
     return _fyp_cf
 
 
-
-
 def active_config_path() -> str:
     """Return the absolute path of the config TOML this process is running on.
 
@@ -1205,12 +1183,8 @@ def active_config_path() -> str:
     return _active_config_path
 
 
-
-
 def __getattr__(name: str):
     """Serve ``fyp_cf`` lazily (PEP 562), triggering the heavy init on first use."""
     if name == "fyp_cf":
         return get_config()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-

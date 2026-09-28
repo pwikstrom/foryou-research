@@ -1,12 +1,13 @@
 """Confirm the convert_dtypes_to_pyarrow fast path:
-  - returns identical output (shape, dtypes, values) for already-arrow input
-  - meaningfully reduces wall-clock on full load_parquet() of a big file
+- returns identical output (shape, dtypes, values) for already-arrow input
+- meaningfully reduces wall-clock on full load_parquet() of a big file
 """
+
 import sys
 import time
 from os.path import abspath, dirname, join
 
-sys.path.insert(0, abspath(join(dirname(__file__), '..')))
+sys.path.insert(0, abspath(join(dirname(__file__), "..")))
 
 import pandas as pd
 import pytest
@@ -29,8 +30,9 @@ def _expect(cond, msg):
 def test_equivalence_on_arrow_df():
     print("\n[1] Fast-path returns equivalent DataFrame for already-arrow input")
     df0 = pd.read_parquet(
-        join(fyp_config.fyp_cf['paths']['cache'], 'chenglong_recoded.parquet'),
-        engine='pyarrow', dtype_backend='pyarrow',
+        join(fyp_config.fyp_cf["paths"]["cache"], "chenglong_recoded.parquet"),
+        engine="pyarrow",
+        dtype_backend="pyarrow",
     )
     out = convert_dtypes_to_pyarrow(df0, verbose=True)
     _expect(out.shape == df0.shape, f"shape preserved: {out.shape} == {df0.shape}")
@@ -44,14 +46,14 @@ def test_equivalence_on_arrow_df():
 
 def test_speedup_on_big_file():
     print("\n[2] Speedup on cache/everything_recoded.parquet")
-    fname = 'everything_recoded.parquet'
-    if not data_io.exists('cache', fname):
+    fname = "everything_recoded.parquet"
+    if not data_io.exists("cache", fname):
         print(f"      [SKIP] {fname} not present")
         return
     times = []
     for run in range(3):
         t0 = time.perf_counter()
-        df = data_io.load_parquet(storage_location='cache', filename=fname, verbose=False)
+        df = data_io.load_parquet(storage_location="cache", filename=fname, verbose=False)
         times.append(time.perf_counter() - t0)
     med = sorted(times)[len(times) // 2]
     print(f"      load_parquet medians (3 runs): {[f'{t:.3f}s' for t in sorted(times)]}")
@@ -64,9 +66,10 @@ def test_speedup_on_big_file():
 def test_metadata_load_still_works():
     print("\n[3] load_parquet of metadata file (MultiIndex repair) still works")
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+
     df = data_io.load_parquet(
-        storage_location='recoded',
-        filename=f'{COLLECTIONS_LABEL}_metadata.parquet',
+        storage_location="recoded",
+        filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
         verbose=False,
     )
     _expect(df is not None and not df.empty, f"loaded ok ({df.shape if df is not None else None})")
@@ -79,19 +82,26 @@ def test_non_arrow_df_still_takes_slow_path():
     print("\n[4] Non-arrow input still goes through full conversion (sanity)")
     # Build a df that's *not* arrow-typed
     import numpy as np
-    df = pd.DataFrame({
-        'a': np.array([1, 2, 3], dtype='int64'),
-        'b': np.array([1.0, 2.0, 3.0], dtype='float64'),
-        'c': ['x', 'y', 'z'],
-    })
-    _expect(not all(isinstance(d, pd.ArrowDtype) for d in df.dtypes),
-            "input df is NOT all-arrow (sanity)")
+
+    df = pd.DataFrame(
+        {
+            "a": np.array([1, 2, 3], dtype="int64"),
+            "b": np.array([1.0, 2.0, 3.0], dtype="float64"),
+            "c": ["x", "y", "z"],
+        }
+    )
+    _expect(
+        not all(isinstance(d, pd.ArrowDtype) for d in df.dtypes),
+        "input df is NOT all-arrow (sanity)",
+    )
     out = convert_dtypes_to_pyarrow(df, verbose=False)
-    _expect(all(isinstance(d, pd.ArrowDtype) for d in out.dtypes),
-            f"slow-path output is all-arrow (got {list(out.dtypes)})")
+    _expect(
+        all(isinstance(d, pd.ArrowDtype) for d in out.dtypes),
+        f"slow-path output is all-arrow (got {list(out.dtypes)})",
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_equivalence_on_arrow_df()
     test_speedup_on_big_file()
     test_metadata_load_still_works()

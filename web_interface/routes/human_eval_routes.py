@@ -24,9 +24,7 @@ from .. import activity_log, mail_utils
 from ..permissions import permission_required
 from ..security import user_manager
 
-human_eval_bp = Blueprint('human_eval', __name__)
-
-
+human_eval_bp = Blueprint("human_eval", __name__)
 
 
 def _notify_coders(task: dict, usernames: list[str], inviter: str) -> None:
@@ -47,11 +45,14 @@ def _notify_coders(task: dict, usernames: list[str], inviter: str) -> None:
             print(f"[human_eval] not an email address, skipping invite: {username}")
             continue
         mail_utils.send_invitation_email_async(
-            username, run_id, task_type, inviter, n_items, n_variables,
+            username,
+            run_id,
+            task_type,
+            inviter,
+            n_items,
+            n_variables,
             on_success=lambda u=username: human_eval.set_notified(run_id, task_type, u),
         )
-
-
 
 
 def _actor() -> str:
@@ -62,8 +63,6 @@ def _actor() -> str:
         return ""
 
 
-
-
 def _is_admin() -> bool:
     """True when the acting user is an admin."""
     try:
@@ -72,15 +71,13 @@ def _is_admin() -> bool:
         return False
 
 
-
-
 # ---------------------------------------------------------------------------
 # Admin: task setup & monitoring.
 # ---------------------------------------------------------------------------
 
 
-@human_eval_bp.route('/api/manage/human-eval/runs', methods=['GET'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/runs", methods=["GET"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def list_human_eval_runs():
     """Finished A/B runs, each flagged with the human tasks it already has."""
@@ -99,10 +96,8 @@ def list_human_eval_runs():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/runs/<run_id>/variables', methods=['GET'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/runs/<run_id>/variables", methods=["GET"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def get_human_eval_variables(run_id):
     """The variables of a finished run a human task can cover."""
@@ -112,10 +107,8 @@ def get_human_eval_variables(run_id):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/users', methods=['GET'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/users", methods=["GET"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def list_human_eval_users():
     """Thin roster for the coder picker: approved users' names and roles."""
@@ -131,10 +124,8 @@ def list_human_eval_users():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks', methods=['GET'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks", methods=["GET"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def list_human_eval_tasks():
     """The global human-task index."""
@@ -144,10 +135,8 @@ def list_human_eval_tasks():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks', methods=['POST'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks", methods=["POST"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def create_human_eval_task():
     """Create a human task on a finished run.
@@ -167,11 +156,15 @@ def create_human_eval_task():
             arms=list(payload.get("arms") or []) or None,
         )
         activity_log.record(
-            actor=_actor(), category="admin", action="human_eval.create_task",
+            actor=_actor(),
+            category="admin",
+            action="human_eval.create_task",
             target=run_id,
-            details={"task_type": task_type,
-                     "n_variables": len(task["variables"]),
-                     "coders": sorted(task["coders"])},
+            details={
+                "task_type": task_type,
+                "n_variables": len(task["variables"]),
+                "coders": sorted(task["coders"]),
+            },
         )
         _notify_coders(task, list(task["coders"]), _actor())
         return jsonify({"task": task})
@@ -181,10 +174,8 @@ def create_human_eval_task():
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>', methods=['GET'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>", methods=["GET"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def get_human_eval_task(run_id, task_type):
     """One task's definition plus derived per-coder progress."""
@@ -192,29 +183,32 @@ def get_human_eval_task(run_id, task_type):
         task = human_eval.load_task(run_id, task_type)
         if task is None:
             return jsonify({"error": "task not found"}), 404
-        return jsonify({
-            "task": task,
-            "coder_status": human_eval.coder_status(run_id, task_type, task=task),
-            "results": human_eval.load_results(run_id, task_type),
-        })
+        return jsonify(
+            {
+                "task": task,
+                "coder_status": human_eval.coder_status(run_id, task_type, task=task),
+                "results": human_eval.load_results(run_id, task_type),
+            }
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>', methods=['DELETE'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>", methods=["DELETE"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def delete_human_eval_task(run_id, task_type):
     """Delete a task with its coder files and results."""
     try:
         removed = human_eval.delete_task(run_id, task_type)
         activity_log.record(
-            actor=_actor(), category="admin", action="human_eval.delete_task",
-            target=run_id, details={"task_type": task_type, "removed": removed},
+            actor=_actor(),
+            category="admin",
+            action="human_eval.delete_task",
+            target=run_id,
+            details={"task_type": task_type, "removed": removed},
         )
         return jsonify({"removed": removed})
     except ValueError as e:
@@ -223,10 +217,8 @@ def delete_human_eval_task(run_id, task_type):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>/coders', methods=['POST'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/coders", methods=["POST"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def add_human_eval_coders(run_id, task_type):
     """Invite additional coders. Body: ``{coders: [...]}``."""
@@ -238,8 +230,11 @@ def add_human_eval_coders(run_id, task_type):
         before = set((human_eval.load_task(run_id, task_type) or {}).get("coders", {}))
         task = human_eval.add_coders(run_id, task_type, coders, invited_by=_actor())
         activity_log.record(
-            actor=_actor(), category="admin", action="human_eval.add_coders",
-            target=run_id, details={"task_type": task_type, "coders": coders},
+            actor=_actor(),
+            category="admin",
+            action="human_eval.add_coders",
+            target=run_id,
+            details={"task_type": task_type, "coders": coders},
         )
         newly_added = [u for u in coders if u not in before]
         _notify_coders(task, newly_added, _actor())
@@ -250,10 +245,8 @@ def add_human_eval_coders(run_id, task_type):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>/notify', methods=['POST'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/notify", methods=["POST"])
+@permission_required("tab.admin.human_eval")
 @login_required
 def resend_human_eval_invite(run_id, task_type):
     """(Re)send one coder's invitation email synchronously. Body: ``{username}``.
@@ -272,16 +265,23 @@ def resend_human_eval_invite(run_id, task_type):
         if not mail_utils.is_email(username):
             return jsonify({"error": f"{username} is not an email address"}), 400
         sent = mail_utils.send_invitation_email(
-            username, run_id, task_type, _actor(),
-            len(task.get("item_ids", [])), len(task.get("variables", [])),
+            username,
+            run_id,
+            task_type,
+            _actor(),
+            len(task.get("item_ids", [])),
+            len(task.get("variables", [])),
         )
         if sent:
             human_eval.set_notified(run_id, task_type, username)
         else:
             return jsonify({"error": "email not sent — is MAIL_PASSWORD configured?"}), 400
         activity_log.record(
-            actor=_actor(), category="admin", action="human_eval.resend_invite",
-            target=run_id, details={"task_type": task_type, "username": username},
+            actor=_actor(),
+            category="admin",
+            action="human_eval.resend_invite",
+            target=run_id,
+            details={"task_type": task_type, "username": username},
         )
         return jsonify({"sent": True})
     except ValueError as e:
@@ -290,10 +290,10 @@ def resend_human_eval_invite(run_id, task_type):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute', methods=['POST'])
-@permission_required('tab.admin.human_eval')
+@human_eval_bp.route(
+    "/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute", methods=["POST"]
+)
+@permission_required("tab.admin.human_eval")
 @login_required
 def recompute_human_eval_results(run_id, task_type):
     """Recompute a task's ICR metrics from the submitted codings."""
@@ -304,8 +304,6 @@ def recompute_human_eval_results(run_id, task_type):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -330,9 +328,7 @@ def _load_invited_task(run_id: str, task_type: str):
     return task, None
 
 
-
-
-@human_eval_bp.route('/api/human-eval/my-tasks', methods=['GET'])
+@human_eval_bp.route("/api/human-eval/my-tasks", methods=["GET"])
 @login_required
 def my_human_eval_tasks():
     """The acting user's tasks with their own progress counts."""
@@ -341,23 +337,24 @@ def my_human_eval_tasks():
         entries = human_eval.tasks_for_user(username, is_admin=_is_admin())
         tasks = []
         for entry in entries:
-            state = human_eval.load_coder_state(
-                entry["run_id"], entry["task_type"], username)
-            tasks.append({
-                **entry,
-                "my_status": (state.get("status")
-                              if (state.get("responses") or state.get("status") == "submitted")
-                              else "invited"),
-                "my_n_answered": len(state.get("responses") or {}),
-            })
+            state = human_eval.load_coder_state(entry["run_id"], entry["task_type"], username)
+            tasks.append(
+                {
+                    **entry,
+                    "my_status": (
+                        state.get("status")
+                        if (state.get("responses") or state.get("status") == "submitted")
+                        else "invited"
+                    ),
+                    "my_n_answered": len(state.get("responses") or {}),
+                }
+            )
         return jsonify({"tasks": tasks})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/human-eval/tasks/<run_id>/<task_type>', methods=['GET'])
+@human_eval_bp.route("/api/human-eval/tasks/<run_id>/<task_type>", methods=["GET"])
 @login_required
 def get_coder_task(run_id, task_type):
     """A coder's working payload: items, field specs, and their own responses.
@@ -387,8 +384,8 @@ def get_coder_task(run_id, task_type):
         payload["responses"] = {
             item_id: {
                 "choice": human_eval.letter_for_arm(
-                    task, item_id, username,
-                    (response.get("values") or {}).get("choice", "")),
+                    task, item_id, username, (response.get("values") or {}).get("choice", "")
+                ),
                 "note": response.get("note", ""),
             }
             for item_id, response in (state.get("responses") or {}).items()
@@ -404,9 +401,7 @@ def get_coder_task(run_id, task_type):
     return jsonify(payload)
 
 
-
-
-@human_eval_bp.route('/api/human-eval/tasks/<run_id>/<task_type>/responses', methods=['POST'])
+@human_eval_bp.route("/api/human-eval/tasks/<run_id>/<task_type>/responses", methods=["POST"])
 @login_required
 def save_coder_response(run_id, task_type):
     """Autosave one item's values and/or note.
@@ -426,24 +421,26 @@ def save_coder_response(run_id, task_type):
         if username not in task.get("coders", {}):
             human_eval.add_coders(run_id, task_type, [username], invited_by=username)
         state = human_eval.save_response(
-            run_id, task_type, username,
+            run_id,
+            task_type,
+            username,
             item_id=str(payload.get("item_id") or ""),
             values=payload.get("values") if "values" in payload else None,
             note=payload.get("note") if "note" in payload else None,
         )
-        return jsonify({
-            "saved": True,
-            "n_answered": human_eval._n_answered(state),
-        })
+        return jsonify(
+            {
+                "saved": True,
+                "n_answered": human_eval._n_answered(state),
+            }
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-
-@human_eval_bp.route('/api/human-eval/tasks/<run_id>/<task_type>/submit', methods=['POST'])
+@human_eval_bp.route("/api/human-eval/tasks/<run_id>/<task_type>/submit", methods=["POST"])
 @login_required
 def submit_coder_task(run_id, task_type):
     """Finalize the acting coder's work and trigger the results computation."""
@@ -453,8 +450,11 @@ def submit_coder_task(run_id, task_type):
     try:
         outcome = human_eval.submit(run_id, task_type, _actor())
         activity_log.record(
-            actor=_actor(), category="human_eval", action="human_eval.submit",
-            target=run_id, details={"task_type": task_type, **outcome},
+            actor=_actor(),
+            category="human_eval",
+            action="human_eval.submit",
+            target=run_id,
+            details={"task_type": task_type, **outcome},
         )
         return jsonify(outcome)
     except ValueError as e:

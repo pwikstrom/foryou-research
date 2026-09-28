@@ -44,8 +44,10 @@ _OVERLAY_SCALARS = ["political_score", "sensitivity_score"]
 
 # Cached map geometry, rebuilt only when the map file's fingerprint changes.
 _GEO_CACHE: dict = {
-    "fingerprint": None, "item_geo": None,
-    "niche_centroids": None, "niche_names": None,
+    "fingerprint": None,
+    "item_geo": None,
+    "niche_centroids": None,
+    "niche_names": None,
 }
 
 # Bounded in-process cache of built trajectories, keyed on request params plus
@@ -64,32 +66,22 @@ _ELLIPSE_MIN_POINTS = 3
 _MIN_PLAYS_FLAG = 3
 
 
-
-
-
-
 def _map_fingerprint() -> str | None:
     """Return a size:mtime fingerprint of the map file, or None if absent."""
     fp = data_io.stat(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE,
+        storage_location=embeddings.STORE_LOCATION,
+        filename=video_map.MAP_FILE,
     )
     return None if fp is None else f"{fp.get('size')}:{fp.get('mtime')}"
-
-
-
-
 
 
 def _map_built_at() -> float | None:
     """Return the map file's mtime (used by the frontend freshness check)."""
     fp = data_io.stat(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE,
+        storage_location=embeddings.STORE_LOCATION,
+        filename=video_map.MAP_FILE,
     )
     return fp.get("mtime") if fp else None
-
-
-
-
 
 
 def _load_niche_geometry() -> tuple[pd.DataFrame, dict, dict]:
@@ -111,12 +103,14 @@ def _load_niche_geometry() -> tuple[pd.DataFrame, dict, dict]:
     try:
         map_df = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION,
-            filename=video_map.MAP_FILE, columns=cols + _OVERLAY_SCALARS,
+            filename=video_map.MAP_FILE,
+            columns=cols + _OVERLAY_SCALARS,
         )
     except Exception:
         map_df = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION,
-            filename=video_map.MAP_FILE, columns=cols,
+            filename=video_map.MAP_FILE,
+            columns=cols,
         )
 
     item_geo = map_df.copy()
@@ -136,31 +130,34 @@ def _load_niche_geometry() -> tuple[pd.DataFrame, dict, dict]:
     mapped = item_geo.dropna(subset=["x", "y"])
     centroids_df = mapped.groupby("niche")[["x", "y"]].median()
     niche_centroids = {
-        int(n): (float(row["x"]), float(row["y"]))
-        for n, row in centroids_df.iterrows()
+        int(n): (float(row["x"]), float(row["y"])) for n, row in centroids_df.iterrows()
     }
 
-    niches_meta = data_io.load_json(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.NICHES_FILE,
-    ) or {}
+    niches_meta = (
+        data_io.load_json(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=video_map.NICHES_FILE,
+        )
+        or {}
+    )
     niche_names = {int(k): v.get("name", f"Niche {k}") for k, v in niches_meta.items()}
 
-    _GEO_CACHE.update({
-        "fingerprint": fingerprint, "item_geo": item_geo,
-        "niche_centroids": niche_centroids, "niche_names": niche_names,
-    })
+    _GEO_CACHE.update(
+        {
+            "fingerprint": fingerprint,
+            "item_geo": item_geo,
+            "niche_centroids": niche_centroids,
+            "niche_names": niche_names,
+        }
+    )
     return item_geo, niche_centroids, niche_names
 
 
-
-
-
-
 def _load_collection_plays(
-        collection_id: str,
-        start: str | None,
-        end: str | None,
-    ) -> tuple[pd.DataFrame | None, str]:
+    collection_id: str,
+    start: str | None,
+    end: str | None,
+) -> tuple[pd.DataFrame | None, str]:
     """Load one collection's play/observe rows with a watch-time weight.
 
     Reads only the activity columns for ``collection_id`` from the consolidated
@@ -219,10 +216,6 @@ def _load_collection_plays(
     return df[["item_id", "_date", "_dt", "_w"]].copy(), weight_mode
 
 
-
-
-
-
 def _ellipse(mapped: pd.DataFrame, center: tuple | None = None) -> dict | None:
     """Weighted dispersion ellipse of a bucket's mapped plays.
 
@@ -267,14 +260,12 @@ def _ellipse(mapped: pd.DataFrame, center: tuple | None = None) -> dict | None:
     ry = _ELLIPSE_K * math.sqrt(vals[1])
     theta = math.degrees(math.atan2(vecs[1, 0], vecs[0, 0]))
     return {
-        "cx": round(float(mean[0]), 3), "cy": round(float(mean[1]), 3),
-        "rx": round(float(rx), 3), "ry": round(float(ry), 3),
+        "cx": round(float(mean[0]), 3),
+        "cy": round(float(mean[1]), 3),
+        "rx": round(float(rx), 3),
+        "ry": round(float(ry), 3),
         "theta": round(float(theta), 2),
     }
-
-
-
-
 
 
 def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict) -> dict:
@@ -289,15 +280,22 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
     Returns:
         A metrics dict (see module docstring / API payload shape).
     """
-    n_plays = int(len(sub))            # all plays in the bucket (incl. uncorpus'd)
+    n_plays = int(len(sub))  # all plays in the bucket (incl. uncorpus'd)
     watch_time = round(float(sub["_w"].sum()), 1)
     has_niche = sub.dropna(subset=["niche"])
-    n_mapped = int(len(has_niche))      # plays WITH a niche — the set every metric uses
+    n_mapped = int(len(has_niche))  # plays WITH a niche — the set every metric uses
 
     base = {
-        "x": None, "y": None, "niche_entropy": None, "niche_entropy_norm": None,
-        "n_plays": n_plays, "n_mapped": n_mapped, "watch_time": watch_time,
-        "top_niches": [], "ellipse": None, "low_volume": n_plays < _MIN_PLAYS_FLAG,
+        "x": None,
+        "y": None,
+        "niche_entropy": None,
+        "niche_entropy_norm": None,
+        "n_plays": n_plays,
+        "n_mapped": n_mapped,
+        "watch_time": watch_time,
+        "top_niches": [],
+        "ellipse": None,
+        "low_volume": n_plays < _MIN_PLAYS_FLAG,
         "_probs": {},
     }
 
@@ -309,7 +307,9 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
         vals = pd.to_numeric(sub[sc], errors="coerce")
         m = vals.notna()
         wsc = float(sub["_w"][m].sum())
-        base[f"mean_{sc}"] = round(float((vals[m] * sub["_w"][m]).sum() / wsc), 4) if wsc > 0 else None
+        base[f"mean_{sc}"] = (
+            round(float((vals[m] * sub["_w"][m]).sum() / wsc), 4) if wsc > 0 else None
+        )
 
     if has_niche.empty:
         return base
@@ -343,8 +343,11 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
 
     top = p.sort_values(ascending=False).head(3)
     base["top_niches"] = [
-        {"niche": int(n), "name": niche_names.get(int(n), f"Niche {n}"),
-         "share": round(float(s), 4)}
+        {
+            "niche": int(n),
+            "name": niche_names.get(int(n), f"Niche {n}"),
+            "share": round(float(s), 4),
+        }
         for n, s in top.items()
     ]
     base["niche_entropy"] = round(entropy, 4)
@@ -352,10 +355,6 @@ def _bucket_metrics(sub: pd.DataFrame, niche_centroids: dict, niche_names: dict)
     # Centre the ellipse on the COG so the dot is always its centre (see _ellipse).
     base["ellipse"] = _ellipse(has_niche, center=(base["x"], base["y"]))
     return base
-
-
-
-
 
 
 def _js_divergence(p: np.ndarray, q: np.ndarray) -> float:
@@ -369,10 +368,6 @@ def _js_divergence(p: np.ndarray, q: np.ndarray) -> float:
     return 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
 
 
-
-
-
-
 def _js_divergence_dicts(a: dict, b: dict) -> float:
     """JS divergence between two ``niche -> probability`` distributions."""
     keys = set(a) | set(b)
@@ -382,10 +377,6 @@ def _js_divergence_dicts(a: dict, b: dict) -> float:
     if s <= 0 or t <= 0:
         return 0.0
     return _js_divergence(p / s, q / t)
-
-
-
-
 
 
 def _enrich_change_metrics(payload: dict) -> None:
@@ -416,8 +407,9 @@ def _enrich_change_metrics(payload: dict) -> None:
         else:
             p["novelty"] = None
         p["cum_niches"] = len(seen)
-        p["js_from_prev"] = (round(_js_divergence_dicts(prev, probs), 4)
-                             if (prev and probs) else None)
+        p["js_from_prev"] = (
+            round(_js_divergence_dicts(prev, probs), 4) if (prev and probs) else None
+        )
         if probs:
             prev = probs
 
@@ -430,11 +422,14 @@ def _enrich_change_metrics(payload: dict) -> None:
     payload["velocity_mean"] = round(float(np.mean(js_steps)), 4) if js_steps else None
     payload["tortuosity"] = (
         round(_js_divergence_dicts(prob_seq[0], prob_seq[-1]) / total_js, 4)
-        if len(prob_seq) >= 2 and total_js > 0 else None
+        if len(prob_seq) >= 2 and total_js > 0
+        else None
     )
 
     trends = {}
-    for key in ["niche_entropy", "novelty", "js_from_prev"] + [f"mean_{s}" for s in _OVERLAY_SCALARS]:
+    for key in ["niche_entropy", "novelty", "js_from_prev"] + [
+        f"mean_{s}" for s in _OVERLAY_SCALARS
+    ]:
         vals = [p[key] for p in points if p.get(key) is not None]
         if len(vals) >= 2:
             lr = compute_linreg(vals)
@@ -442,16 +437,12 @@ def _enrich_change_metrics(payload: dict) -> None:
     payload["trends"] = trends
 
 
-
-
-
-
 def build_trajectory(
-        collection_id: str,
-        interval: str = "day",
-        start: str | None = None,
-        end: str | None = None,
-    ) -> dict:
+    collection_id: str,
+    interval: str = "day",
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
     """Build the centre-of-gravity / entropy / trajectory payload for a collection.
 
     Args:
@@ -476,11 +467,16 @@ def build_trajectory(
     plays, weight_mode = _load_collection_plays(collection_id, start, end)
 
     payload = {
-        "collection_id": collection_id, "interval": interval,
-        "weight_mode": weight_mode, "start": start, "end": end,
+        "collection_id": collection_id,
+        "interval": interval,
+        "weight_mode": weight_mode,
+        "start": start,
+        "end": end,
         "map_built_at": _map_built_at(),
-        "n_plays_total": 0, "n_unmapped": 0,
-        "points": [], "all_time": None,
+        "n_plays_total": 0,
+        "n_unmapped": 0,
+        "points": [],
+        "all_time": None,
     }
 
     if plays is None or plays.empty:

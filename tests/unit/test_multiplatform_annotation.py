@@ -31,6 +31,7 @@ ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{5,40}")
 # item-id sanity pattern (platform-agnostic)
 # ---------------------------------------------------------------------------
 
+
 def test_id_pattern_accepts_tiktok() -> None:
     assert ID_PATTERN.fullmatch("7234567890123456789")
 
@@ -57,13 +58,34 @@ def test_id_pattern_rejects_garbage() -> None:
 # composite-key active view
 # ---------------------------------------------------------------------------
 
+
 def _multi_platform_frame() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"source_platform": "tiktok", "item_id": "11111111111", "annotation_version": "vA", "val": "tt-old"},
-            {"source_platform": "tiktok", "item_id": "11111111111", "annotation_version": "vB", "val": "tt-new"},
-            {"source_platform": "youtube", "item_id": "11111111111", "annotation_version": "vB", "val": "yt"},
-            {"source_platform": "instagram", "item_id": "CxYzAb12Q3d", "annotation_version": "vA", "val": "ig"},
+            {
+                "source_platform": "tiktok",
+                "item_id": "11111111111",
+                "annotation_version": "vA",
+                "val": "tt-old",
+            },
+            {
+                "source_platform": "tiktok",
+                "item_id": "11111111111",
+                "annotation_version": "vB",
+                "val": "tt-new",
+            },
+            {
+                "source_platform": "youtube",
+                "item_id": "11111111111",
+                "annotation_version": "vB",
+                "val": "yt",
+            },
+            {
+                "source_platform": "instagram",
+                "item_id": "CxYzAb12Q3d",
+                "annotation_version": "vA",
+                "val": "ig",
+            },
         ]
     )
 
@@ -74,7 +96,9 @@ def test_active_view_keeps_same_id_on_two_platforms() -> None:
     # back to its vA row. 3 rows total.
     assert len(out) == 3
     assert set(zip(out["source_platform"], out["val"])) == {
-        ("tiktok", "tt-new"), ("youtube", "yt"), ("instagram", "ig"),
+        ("tiktok", "tt-new"),
+        ("youtube", "yt"),
+        ("instagram", "ig"),
     }
 
 
@@ -108,13 +132,18 @@ def test_version_view_is_composite_keyed() -> None:
 # batch request builder file_uri override
 # ---------------------------------------------------------------------------
 
+
 def test_build_request_dict_uses_explicit_file_uri() -> None:
     from fyp.annotation.machine_annotation_batch import build_request_dict
 
     req = build_request_dict(
-        "dQw4w9WgXcQ", bucket="b", media_prefix="media",
-        system_instruction="p", schema_json={"type": "object"},
-        gen_params={}, file_uri="gs://b/media/youtube/dQw4w9WgXcQ.mp4",
+        "dQw4w9WgXcQ",
+        bucket="b",
+        media_prefix="media",
+        system_instruction="p",
+        schema_json={"type": "object"},
+        gen_params={},
+        file_uri="gs://b/media/youtube/dQw4w9WgXcQ.mp4",
     )
     uri = req["request"]["contents"][0]["parts"][1]["fileData"]["fileUri"]
     assert uri == "gs://b/media/youtube/dQw4w9WgXcQ.mp4"
@@ -124,8 +153,12 @@ def test_build_request_dict_falls_back_to_flat_uri() -> None:
     from fyp.annotation.machine_annotation_batch import build_request_dict
 
     req = build_request_dict(
-        "7234567890123456789", bucket="b", media_prefix="media",
-        system_instruction="p", schema_json={"type": "object"}, gen_params={},
+        "7234567890123456789",
+        bucket="b",
+        media_prefix="media",
+        system_instruction="p",
+        schema_json={"type": "object"},
+        gen_params={},
     )
     uri = req["request"]["contents"][0]["parts"][1]["fileData"]["fileUri"]
     assert uri == "gs://b/media/7234567890123456789.mp4"

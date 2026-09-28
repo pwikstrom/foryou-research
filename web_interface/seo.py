@@ -271,8 +271,12 @@ def sitemap_xml():
 # reliably infer from a team-card grid. tests/unit/test_seo.py asserts every
 # name here appears on the About page and vice versa, so the two cannot drift.
 TEAM = (
-    ("Patrik Wikstrom", "Project Leader", "Queensland University of Technology",
-     "https://orcid.org/0000-0003-4720-0416"),
+    (
+        "Patrik Wikstrom",
+        "Project Leader",
+        "Queensland University of Technology",
+        "https://orcid.org/0000-0003-4720-0416",
+    ),
     ("Jean Burgess", "Chief Investigator", "Queensland University of Technology", ""),
     ("Jonathon Hutchinson", "Chief Investigator", "University of Sydney", ""),
     ("Joanne Gray", "Chief Investigator", "University of Sydney", ""),
@@ -327,8 +331,10 @@ def _organization_node():
         "parentOrganization": [
             {"@type": "CollegeOrUniversity", "name": name, "url": url}
             for name, url in (
-                ("Queensland University of Technology", INSTITUTION_URLS[
-                    "Queensland University of Technology"]),
+                (
+                    "Queensland University of Technology",
+                    INSTITUTION_URLS["Queensland University of Technology"],
+                ),
                 ("University of Sydney", INSTITUTION_URLS["University of Sydney"]),
             )
         ],

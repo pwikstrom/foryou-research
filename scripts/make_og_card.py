@@ -36,8 +36,12 @@ DOMAIN = "foryouresearch.net"
 
 # --fyr-grad from style.css, as (stop, RGB). The card carries the site's accent
 # stripe so a share and a visit look like the same project.
-BRAND_STOPS = ((0.0, (236, 72, 153)), (0.35, (249, 115, 22)),
-               (0.70, (13, 148, 136)), (1.0, (139, 92, 246)))
+BRAND_STOPS = (
+    (0.0, (236, 72, 153)),
+    (0.35, (249, 115, 22)),
+    (0.70, (13, 148, 136)),
+    (1.0, (139, 92, 246)),
+)
 STRIPE_HEIGHT = 10
 
 # The site sets DM Sans over Inter over the system sans. None of those ship
@@ -66,8 +70,7 @@ def load_font(size):
 def cover(image, width, height):
     """Resize and centre-crop ``image`` to exactly ``width`` x ``height``."""
     scale = max(width / image.width, height / image.height)
-    resized = image.resize((round(image.width * scale), round(image.height * scale)),
-                           Image.LANCZOS)
+    resized = image.resize((round(image.width * scale), round(image.height * scale)), Image.LANCZOS)
     left = (resized.width - width) // 2
     top = (resized.height - height) // 2
     return resized.crop((left, top, left + width, top + height))
@@ -108,8 +111,9 @@ def brand_stripe(width, height):
             t1, c1 = BRAND_STOPS[i + 1]
             if t0 <= t <= t1:
                 k = (t - t0) / (t1 - t0)
-                bar.putpixel((x, 0), tuple(round(a + (b - a) * k)
-                                          for a, b in zip(c0, c1, strict=True)))
+                bar.putpixel(
+                    (x, 0), tuple(round(a + (b - a) * k) for a, b in zip(c0, c1, strict=True))
+                )
                 break
     return bar.resize((width, height))
 
@@ -154,8 +158,12 @@ def build(source, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE,
-                        help="background image (default: the About page hero)")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=DEFAULT_SOURCE,
+        help="background image (default: the About page hero)",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 

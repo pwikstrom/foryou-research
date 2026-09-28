@@ -36,6 +36,7 @@ class _Recorder:
         def _fn(*a, **k):
             self.calls.append((name, k))
             return retval
+
         return _fn
 
     def names(self):
@@ -144,10 +145,12 @@ def test_marker_written_after_status_save() -> None:
     orig_failed = od.load_failed_scrapes
     od.load_failed_scrapes = lambda **k: []
     try:
-        collections = pd.DataFrame({
-            "item_id": pd.array(["aaa", "aaa", "bbb"], dtype="string[pyarrow]"),
-            od.collection_id_column: pd.array(["c1", "c2", "c1"], dtype="string[pyarrow]"),
-        })
+        collections = pd.DataFrame(
+            {
+                "item_id": pd.array(["aaa", "aaa", "bbb"], dtype="string[pyarrow]"),
+                od.collection_id_column: pd.array(["c1", "c2", "c1"], dtype="string[pyarrow]"),
+            }
+        )
         od.update_enrichment_status(
             all_datasets={
                 od._collections_label(): collections,

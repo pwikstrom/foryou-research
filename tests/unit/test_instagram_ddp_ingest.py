@@ -27,19 +27,32 @@ def _export_zip(path) -> str:
             "label_values": [
                 {"label": "URL", "value": f"https://www.instagram.com/reel/SHORT{i:02d}/"},
                 {"label": "Caption", "value": f"caption {i}"},
-                {"title": "Owner", "dict": [{"dict": [
-                    {"label": "Name", "value": "Some Creator"},
-                    {"label": "Username", "value": "creator"},
-                ]}]},
+                {
+                    "title": "Owner",
+                    "dict": [
+                        {
+                            "dict": [
+                                {"label": "Name", "value": "Some Creator"},
+                                {"label": "Username", "value": "creator"},
+                            ]
+                        }
+                    ],
+                },
             ],
             "timestamp": _T0 + 60 * i,
         }
         for i in range(12)
     ]
-    likes = {"likes_media_likes": [{
-        "title": "creator",
-        "string_list_data": [{"href": "https://www.instagram.com/p/SHORT00/", "timestamp": _T0 + 50}],
-    }]}
+    likes = {
+        "likes_media_likes": [
+            {
+                "title": "creator",
+                "string_list_data": [
+                    {"href": "https://www.instagram.com/p/SHORT00/", "timestamp": _T0 + 50}
+                ],
+            }
+        ]
+    }
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("ads_information/ads_and_topics/videos_watched.json", json.dumps(watched))
         zf.writestr("your_instagram_activity/likes/liked_posts.json", json.dumps(likes))
@@ -49,8 +62,9 @@ def _export_zip(path) -> str:
 @pytest.fixture
 def collection(monkeypatch, tmp_path):
     zip_path = _export_zip(tmp_path / "export.zip")
-    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(
+        instagram_mod.data_io, "local_copy", lambda storage_location=None, filename=None: zip_path
+    )
     monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
     return instagram_mod.InstagramDDPCollection(verbose=False)
 
@@ -63,7 +77,9 @@ def test_export_zip_parses_into_activity_rows(collection):
 
     assert (out["activity_type"] == "play").sum() == 12
     assert (out["activity_type"] == "fave").sum() == 1
-    assert set(out.loc[out["activity_type"] == "play", "item_id"]) == {f"SHORT{i:02d}" for i in range(12)}
+    assert set(out.loc[out["activity_type"] == "play", "item_id"]) == {
+        f"SHORT{i:02d}" for i in range(12)
+    }
     assert out["utc_timestamp"].notna().all()
     assert (out["seed_author_id"] == "creator").all()
 
@@ -94,8 +110,9 @@ def test_zip_without_expected_members_raises(monkeypatch, tmp_path):
     path = tmp_path / "empty.zip"
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("something_else.json", "[]")
-    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: str(path))
+    monkeypatch.setattr(
+        instagram_mod.data_io, "local_copy", lambda storage_location=None, filename=None: str(path)
+    )
     monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
     collection = instagram_mod.InstagramDDPCollection(verbose=False)
 
@@ -114,11 +131,20 @@ def _likes_heavy_zip(path, n_watched: int, n_likes: int) -> str:
         }
         for i in range(n_watched)
     ]
-    likes = {"likes_media_likes": [{
-        "title": "creator",
-        "string_list_data": [{"href": f"https://www.instagram.com/p/LIKED{i:02d}/",
-                              "timestamp": _T0 + 100 + i}],
-    } for i in range(n_likes)]}
+    likes = {
+        "likes_media_likes": [
+            {
+                "title": "creator",
+                "string_list_data": [
+                    {
+                        "href": f"https://www.instagram.com/p/LIKED{i:02d}/",
+                        "timestamp": _T0 + 100 + i,
+                    }
+                ],
+            }
+            for i in range(n_likes)
+        ]
+    }
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("ads_information/ads_and_topics/videos_watched.json", json.dumps(watched))
         zf.writestr("your_instagram_activity/likes/liked_posts.json", json.dumps(likes))
@@ -128,8 +154,9 @@ def _likes_heavy_zip(path, n_watched: int, n_likes: int) -> str:
 def test_likes_alone_do_not_satisfy_the_viability_floor(monkeypatch, tmp_path):
     """23 rows, but only 3 of them are viewing — the donation is not usable."""
     zip_path = _likes_heavy_zip(tmp_path / "likes.zip", n_watched=3, n_likes=20)
-    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(
+        instagram_mod.data_io, "local_copy", lambda storage_location=None, filename=None: zip_path
+    )
     monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
     col = instagram_mod.InstagramDDPCollection(verbose=False)
 
@@ -139,8 +166,9 @@ def test_likes_alone_do_not_satisfy_the_viability_floor(monkeypatch, tmp_path):
 def test_enough_views_still_load_when_likes_are_present(monkeypatch, tmp_path):
     """The floor counts views only — it must not reject a healthy export."""
     zip_path = _likes_heavy_zip(tmp_path / "ok.zip", n_watched=10, n_likes=1)
-    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(
+        instagram_mod.data_io, "local_copy", lambda storage_location=None, filename=None: zip_path
+    )
     monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
     col = instagram_mod.InstagramDDPCollection(verbose=False)
 
@@ -157,37 +185,56 @@ def test_enough_views_still_load_when_likes_are_present(monkeypatch, tmp_path):
 
 def _export_zip_with_saves_and_comments(path) -> str:
     _export_zip(path)
-    saved = {"saved_saved_media": [{
-        "title": "creator",
-        "string_map_data": {"Saved on": {
-            "href": "https://www.instagram.com/reel/SHORT03/", "timestamp": _T0 + 3 * 60 + 40}},
-    }]}
-    post_comments = [{
-        "string_map_data": {
-            "Comment": {"value": "lovely Ã©tÃ©"},
-            "Media Owner": {"value": "creator"},
-            "Time": {"timestamp": _T0 + 5 * 60 + 20},
+    saved = {
+        "saved_saved_media": [
+            {
+                "title": "creator",
+                "string_map_data": {
+                    "Saved on": {
+                        "href": "https://www.instagram.com/reel/SHORT03/",
+                        "timestamp": _T0 + 3 * 60 + 40,
+                    }
+                },
+            }
+        ]
+    }
+    post_comments = [
+        {
+            "string_map_data": {
+                "Comment": {"value": "lovely Ã©tÃ©"},
+                "Media Owner": {"value": "creator"},
+                "Time": {"timestamp": _T0 + 5 * 60 + 20},
+            }
         }
-    }]
-    reels_comments = {"comments_reels_comments": [{
-        "string_map_data": {
-            "Comment": {"value": "again"},
-            "Media Owner": {"value": "other_creator"},
-            "Time": {"timestamp": _T0 + 7 * 60 + 20},
-        }
-    }]}
+    ]
+    reels_comments = {
+        "comments_reels_comments": [
+            {
+                "string_map_data": {
+                    "Comment": {"value": "again"},
+                    "Media Owner": {"value": "other_creator"},
+                    "Time": {"timestamp": _T0 + 7 * 60 + 20},
+                }
+            }
+        ]
+    }
     with zipfile.ZipFile(path, "a") as zf:
         zf.writestr("your_instagram_activity/saved/saved_posts.json", json.dumps(saved))
-        zf.writestr("your_instagram_activity/comments/post_comments_1.json", json.dumps(post_comments))
-        zf.writestr("your_instagram_activity/comments/reels_comments.json", json.dumps(reels_comments))
+        zf.writestr(
+            "your_instagram_activity/comments/post_comments_1.json", json.dumps(post_comments)
+        )
+        zf.writestr(
+            "your_instagram_activity/comments/reels_comments.json", json.dumps(reels_comments)
+        )
     return str(path)
 
 
 @pytest.fixture
 def rich_collection(monkeypatch, tmp_path):
     zip_path = _export_zip_with_saves_and_comments(tmp_path / "export.zip")
-    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(
+        instagram_mod.data_io, "local_copy", lambda storage_location=None, filename=None: zip_path
+    )
     monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
     return instagram_mod.InstagramDDPCollection(verbose=False)
 

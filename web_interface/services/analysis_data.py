@@ -50,6 +50,7 @@ def get_pca_df(study_name):
     # the base (default) study's scores. Resolving here also keeps the lazy
     # compute below from ever building artifacts under a composed name.
     from .study_data import resolve_artifact_study
+
     study_name = resolve_artifact_study(study_name)
 
     pca_filename = f"{study_name}_PCA.parquet"
@@ -73,7 +74,8 @@ def get_pca_df(study_name):
         # and saved the artifacts while this thread waited.
         mtime = _pca_mtime(study_name)
         if mtime is not None and data_io.exists(
-                storage_location="cache", filename=comp_inter_filename):
+            storage_location="cache", filename=comp_inter_filename
+        ):
             with _pca_cache_lock:
                 entry = _pca_cache.get(study_name)
                 if entry is not None and entry[0] == mtime:
@@ -104,8 +106,6 @@ def get_pca_df(study_name):
     return df
 
 
-
-
 # In-process caches for sequence-analysis artifacts. Unlike pca_df_cache these
 # are mtime-checked so a worker rewriting the artifact in another process
 # invalidates the RAM copy automatically (same pattern as StudyCache).
@@ -133,6 +133,7 @@ def get_sequence_summary(study_name):
     if not study_name:
         return None
     from .study_data import resolve_artifact_study
+
     study_name = resolve_artifact_study(study_name)
     mtime = _sequence_mtime(study_name, "_summary.json")
     if mtime is None:
@@ -164,6 +165,7 @@ def get_sequence_df(study_name):
     if not study_name:
         return None
     from .study_data import resolve_artifact_study
+
     study_name = resolve_artifact_study(study_name)
     mtime = _sequence_mtime(study_name, ".parquet")
     if mtime is None:
@@ -182,7 +184,3 @@ def get_sequence_df(study_name):
     with _sequence_cache_lock:
         _sequence_cache[key] = (mtime, df)
     return df
-
-
-
-

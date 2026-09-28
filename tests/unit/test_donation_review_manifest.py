@@ -36,8 +36,9 @@ def test_tiktok_manifest_matches_whitelist():
     assert posted["match_key"] == "videolist"
     # The client's parent test must use the same sections the parser does.
     assert set(posted["parents"]) == TikTokDDPCollection._POSTED_VIDEO_SECTIONS
-    assert posted["title"] != TikTokDDPCollection._REVIEW_TITLES["videolist"], \
+    assert posted["title"] != TikTokDDPCollection._REVIEW_TITLES["videolist"], (
         "posted videos must not be shown as a second 'Videos you watched' card"
+    )
 
     # Viability mirrors load_single_raw's discard gate (> 10 videolist rows).
     v = manifest["viability"]
@@ -92,7 +93,8 @@ def test_youtube_manifest_matches_members():
     v = manifest["viability"]
     assert "min_total_rows" not in v
     assert set(v["sections"]) == {
-        YouTubeDDPCollection._MEMBER_SUFFIX_JSON, YouTubeDDPCollection._MEMBER_SUFFIX_HTML,
+        YouTubeDDPCollection._MEMBER_SUFFIX_JSON,
+        YouTubeDDPCollection._MEMBER_SUFFIX_HTML,
     }
     assert v["min_rows"] == YouTubeDDPCollection(verbose=False).min_required_rows_per_raw_file
     for suffix, _, _ in YouTubeDDPCollection._ENGAGEMENT_MEMBERS:
@@ -101,6 +103,7 @@ def test_youtube_manifest_matches_members():
 
 def test_manifests_are_json_serializable():
     import json
+
     for cls in (TikTokDDPCollection, InstagramDDPCollection, YouTubeDDPCollection):
         json.dumps(cls.review_manifest())
 
@@ -115,8 +118,10 @@ def test_tiktok_pruned_document_round_trips():
         "Activity": {
             "Video Browsing History": {
                 "VideoList": [
-                    {"Date": f"2026-05-{(i % 28) + 1:02d} 10:{i % 60:02d}:00",
-                     "Link": f"https://www.tiktokv.com/share/video/7{i:018d}/"}
+                    {
+                        "Date": f"2026-05-{(i % 28) + 1:02d} 10:{i % 60:02d}:00",
+                        "Link": f"https://www.tiktokv.com/share/video/7{i:018d}/",
+                    }
                     for i in range(15)  # 20 in the export, donor removed 5
                 ]
             },

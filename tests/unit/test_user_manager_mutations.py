@@ -14,7 +14,6 @@ Run:
     PYTHONPATH=. python tests/unit/test_user_manager_mutations.py
 """
 
-
 import copy
 import sys
 import traceback
@@ -27,8 +26,6 @@ sys.path.insert(0, str(project_root))
 
 
 from web_interface import auth  # noqa: E402
-
-
 
 
 class _FakeStore:
@@ -53,8 +50,6 @@ class _FakeStore:
         self.files.pop(filename, None)
 
 
-
-
 def _manager_over(store: _FakeStore, bootstrap: bool = True):
     """Build a UserManager whose data_io is backed by ``store``."""
     patches = [
@@ -75,8 +70,6 @@ def _manager_over(store: _FakeStore, bootstrap: bool = True):
     return um, patches
 
 
-
-
 def test_bootstrap_creates_default_admin_on_empty_store() -> None:
     store = _FakeStore()
     um, patches = _manager_over(store, bootstrap=True)
@@ -87,8 +80,6 @@ def test_bootstrap_creates_default_admin_on_empty_store() -> None:
     finally:
         for p in patches:
             p.stop()
-
-
 
 
 def test_full_mutation_lifecycle() -> None:
@@ -146,8 +137,6 @@ def test_full_mutation_lifecycle() -> None:
             p.stop()
 
 
-
-
 def test_last_admin_demotion_blocked() -> None:
     store = _FakeStore()
     um, patches = _manager_over(store, bootstrap=True)
@@ -159,8 +148,6 @@ def test_last_admin_demotion_blocked() -> None:
     finally:
         for p in patches:
             p.stop()
-
-
 
 
 def test_get_oldest_admin_prefers_earliest_created_at() -> None:
@@ -194,8 +181,6 @@ def test_get_oldest_admin_prefers_earliest_created_at() -> None:
             p.stop()
 
 
-
-
 def test_record_approval_notification_persists_marker() -> None:
     store = _FakeStore()
     um, patches = _manager_over(store, bootstrap=True)
@@ -203,7 +188,8 @@ def test_record_approval_notification_persists_marker() -> None:
         um.add_user("bob@x.net", "pw", "viewer", approved=False)
 
         ok, _ = um.record_approval_notification(
-            "bob@x.net", sent_to="admin@admin.net", sent_at="2026-07-14T00:00:00+00:00")
+            "bob@x.net", sent_to="admin@admin.net", sent_at="2026-07-14T00:00:00+00:00"
+        )
         assert ok
         marker = store.files["bob@x.net.json"]["approval_notification"]
         assert marker == {"sent_to": "admin@admin.net", "sent_at": "2026-07-14T00:00:00+00:00"}
@@ -217,8 +203,6 @@ def test_record_approval_notification_persists_marker() -> None:
     finally:
         for p in patches:
             p.stop()
-
-
 
 
 def test_touch_activity_debounces_writes() -> None:
@@ -264,8 +248,6 @@ TESTS = [
 ]
 
 
-
-
 def main() -> int:
     fails = 0
     for t in TESTS:
@@ -279,8 +261,6 @@ def main() -> int:
     total = len(TESTS)
     print(f"\n{total - fails}/{total} passed")
     return 0 if fails == 0 else 1
-
-
 
 
 if __name__ == "__main__":

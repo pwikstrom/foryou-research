@@ -13,10 +13,6 @@ def _directional(vectors: np.ndarray) -> np.ndarray:
     return em.to_directional(vectors, vectors.mean(axis=0))
 
 
-
-
-
-
 def test_identical_vectors_are_maximally_focused():
     rng = np.random.default_rng(1)
     v = rng.normal(size=8)
@@ -31,10 +27,6 @@ def test_identical_vectors_are_maximally_focused():
     assert eff_rank == pytest.approx(1.0, abs=1e-2)
 
 
-
-
-
-
 def test_orthogonal_vectors_have_full_effective_rank():
     n = 4
     u = np.eye(n, 16)
@@ -44,20 +36,12 @@ def test_orthogonal_vectors_have_full_effective_rank():
     assert em.mean_pairwise_cosine_distance(u) == pytest.approx(1.0, abs=1e-6)
 
 
-
-
-
-
 def test_small_windows_return_nan():
     u = np.ones((1, 8))
     ent, eff_rank = em.spectral_entropy(u)
     assert np.isnan(ent) and np.isnan(eff_rank)
     assert np.isnan(em.mean_pairwise_cosine_distance(u))
     assert np.isnan(em.coherence(np.empty((0, 8))))
-
-
-
-
 
 
 def test_weights_shift_the_pairwise_distance():
@@ -73,10 +57,6 @@ def test_weights_shift_the_pairwise_distance():
     assert weighted < unweighted
 
 
-
-
-
-
 def test_window_metrics_normalised_entropy_bounded():
     rng = np.random.default_rng(2)
     mat = rng.normal(size=(6, 16))
@@ -85,10 +65,6 @@ def test_window_metrics_normalised_entropy_bounded():
     assert 0.0 <= out["spectral_entropy_norm"] <= 1.0 + 1e-9
     assert out["spectral_entropy_bits"] <= np.log2(6) + 1e-9
     assert out["dispersion"] == pytest.approx(1.0 - out["coherence"], abs=1e-12)
-
-
-
-
 
 
 def test_trajectory_geometry_separates_binge_from_drift():
@@ -107,10 +83,6 @@ def test_trajectory_geometry_separates_binge_from_drift():
     assert geo_drift["straightness"] > 0.9
     assert geo_binge["straightness"] < geo_drift["straightness"]
     assert geo_binge["diameter"] < drift.shape[0] * geo_drift["step_mean"]
-
-
-
-
 
 
 def test_direction_permutation_p_is_length_free_where_straightness_is_not():
@@ -143,20 +115,12 @@ def test_direction_permutation_p_is_length_free_where_straightness_is_not():
     assert rng is not None
 
 
-
-
-
-
 def test_direction_permutation_p_refuses_runs_it_cannot_reject():
     """Reversal ties every ordering, so 4 videos can never reach p < 0.05."""
     t = np.linspace(0, 0.9, 4)
     v = np.vstack([[np.cos(a), np.sin(a)] + [0.0] * 30 for a in t])
     v /= np.linalg.norm(v, axis=1, keepdims=True)
     assert np.isnan(em.direction_permutation_p(v))
-
-
-
-
 
 
 def test_direction_permutation_p_floor_and_determinism():

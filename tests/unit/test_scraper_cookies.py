@@ -35,8 +35,6 @@ def _netscape_file(rows: list[tuple[str, int]]) -> str:
     return path
 
 
-
-
 def test_path_derivation():
     # The local cookie cache lives in the OS temp dir (``/tmp`` on Cloud Run,
     # ``%TEMP%`` on Windows) — derived via tempfile.gettempdir() for portability.
@@ -45,8 +43,6 @@ def test_path_derivation():
     )
     assert scraper_cookies._gcs_blob_name("youtube") == "secrets/youtube_cookies.txt"
     print("PASS: per-platform path derivation")
-
-
 
 
 def test_env_var_precedence():
@@ -63,8 +59,6 @@ def test_env_var_precedence():
         os.remove(generic)
         os.remove(specific)
     print("PASS: env-var precedence (platform-specific before legacy)")
-
-
 
 
 def test_cookie_opts_local_dev():
@@ -92,18 +86,26 @@ def test_cookie_opts_local_dev():
     print("PASS: cookie_opts local dev → Chrome export, cookiesfrombrowser fallback")
 
 
-
-
 def _chrome_cookie(name: str, domain: str):
     """A minimal http.cookiejar.Cookie as Chrome extraction would yield."""
     return Cookie(
-        version=0, name=name, value="v", port=None, port_specified=False,
-        domain=domain, domain_specified=True, domain_initial_dot=domain.startswith("."),
-        path="/", path_specified=True, secure=True, expires=int(time.time()) + 3600,
-        discard=False, comment=None, comment_url=None, rest={},
+        version=0,
+        name=name,
+        value="v",
+        port=None,
+        port_specified=False,
+        domain=domain,
+        domain_specified=True,
+        domain_initial_dot=domain.startswith("."),
+        path="/",
+        path_specified=True,
+        secure=True,
+        expires=int(time.time()) + 3600,
+        discard=False,
+        comment=None,
+        comment_url=None,
+        rest={},
     )
-
-
 
 
 def test_chrome_export_filters_domains_and_caches():
@@ -112,16 +114,19 @@ def test_chrome_export_filters_domains_and_caches():
     from yt_dlp.cookies import YoutubeDLCookieJar
 
     jar = YoutubeDLCookieJar()
-    for name, domain in [("sessionid", ".tiktok.com"), ("tt_csrf", ".tiktokv.com"),
-                         ("SID", ".google.com"), ("other", ".example.com")]:
+    for name, domain in [
+        ("sessionid", ".tiktok.com"),
+        ("tt_csrf", ".tiktokv.com"),
+        ("SID", ".google.com"),
+        ("other", ".example.com"),
+    ]:
         jar.set_cookie(_chrome_cookie(name, domain))
 
     export_path = os.path.join(tempfile.gettempdir(), "tiktok_chrome_cookies.txt")
     if os.path.exists(export_path):
         os.remove(export_path)
     try:
-        with patch("yt_dlp.cookies.extract_cookies_from_browser",
-                   return_value=jar) as extract:
+        with patch("yt_dlp.cookies.extract_cookies_from_browser", return_value=jar) as extract:
             first = scraper_cookies._export_chrome_cookies("tiktok")
             second = scraper_cookies._export_chrome_cookies("tiktok")
         assert first == second == export_path
@@ -137,20 +142,17 @@ def test_chrome_export_filters_domains_and_caches():
     print("PASS: Chrome export filters domains and caches within TTL")
 
 
-
-
 def test_chrome_export_failure_returns_none():
     # A denied Keychain prompt / missing profile must degrade, not raise.
     export_path = os.path.join(tempfile.gettempdir(), "tiktok_chrome_cookies.txt")
     if os.path.exists(export_path):
         os.remove(export_path)
-    with patch("yt_dlp.cookies.extract_cookies_from_browser",
-               side_effect=RuntimeError("keychain denied")):
+    with patch(
+        "yt_dlp.cookies.extract_cookies_from_browser", side_effect=RuntimeError("keychain denied")
+    ):
         assert scraper_cookies._export_chrome_cookies("tiktok") is None
     assert not os.path.exists(export_path)
     print("PASS: Chrome export failure returns None")
-
-
 
 
 def _health_with_env(platform: str, session_cookie: str, path: str | None) -> dict:
@@ -166,8 +168,6 @@ def _health_with_env(platform: str, session_cookie: str, path: str | None) -> di
         os.environ.pop(env_key, None)
 
 
-
-
 def test_health_expiring_soon():
     path = _netscape_file([("sessionid", int(time.time()) + 7 * 86400)])
     try:
@@ -180,8 +180,6 @@ def test_health_expiring_soon():
     print("PASS: cookie_health expiring_soon")
 
 
-
-
 def test_health_expired():
     path = _netscape_file([("sessionid", int(time.time()) - 86400)])
     try:
@@ -190,8 +188,6 @@ def test_health_expired():
     finally:
         os.remove(path)
     print("PASS: cookie_health expired")
-
-
 
 
 def test_health_degrades_to_file_age_without_session_row():
@@ -209,8 +205,6 @@ def test_health_degrades_to_file_age_without_session_row():
     print("PASS: cookie_health degrades to file age without session row")
 
 
-
-
 def test_health_missing_file():
     # No env cookie file, no GCS bucket locally, /tmp cache path absent for a
     # platform name that never exists.
@@ -219,8 +213,6 @@ def test_health_missing_file():
     health = _health_with_env("nosuchplatform", "sessionid", None)
     assert health["status"] == "missing", health
     print("PASS: cookie_health missing file")
-
-
 
 
 if __name__ == "__main__":

@@ -31,10 +31,6 @@ _STUDY_ENDPOINTS = [
 ]
 
 
-
-
-
-
 @pytest.fixture
 def client(monkeypatch):
     from web_interface import security
@@ -56,18 +52,10 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-
 
 
 def _grant_permissions(monkeypatch, perms):
@@ -77,28 +65,16 @@ def _grant_permissions(monkeypatch, perms):
     monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
-
-
-
-
 def _request(client, method, path, payload):
     if method == "GET":
         return client.get(path)
     return client.post(path, json=payload)
 
 
-
-
-
-
 def test_unauthenticated_is_rejected(client):
     for method, path, payload in _STUDY_ENDPOINTS:
         res = _request(client, method, path, payload)
         assert res.status_code in (302, 401), path
-
-
-
-
 
 
 def test_requires_tab_permission(client, monkeypatch):
@@ -109,32 +85,26 @@ def test_requires_tab_permission(client, monkeypatch):
         assert res.status_code == 403, path
 
 
-
-
-
-
 def test_inaccessible_study_is_403(client, monkeypatch):
     """Tab permission alone is not enough — the study must be accessible."""
     from web_interface.routes import _access
 
-    _grant_permissions(monkeypatch, [
-        "tab.explore", "tab.video_analysis", "tab.timelines"])
+    _grant_permissions(monkeypatch, ["tab.explore", "tab.video_analysis", "tab.timelines"])
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["other_study"])
     _login(client, _TEST_VIEWER)
 
     # Timelines/data is excluded: its access model is collection-based (an
     # inaccessible *study* filter degrades to unscoped rather than 403).
-    study_scoped = [e for e in _STUDY_ENDPOINTS
-                    if ("secret" in e[1] or (e[2] or {}).get("study") == "secret")
-                    and not e[1].startswith("/api/timelines/")]
+    study_scoped = [
+        e
+        for e in _STUDY_ENDPOINTS
+        if ("secret" in e[1] or (e[2] or {}).get("study") == "secret")
+        and not e[1].startswith("/api/timelines/")
+    ]
     assert len(study_scoped) == 8
     for method, path, payload in study_scoped:
         res = _request(client, method, path, payload)
         assert res.status_code == 403, path
-
-
-
-
 
 
 def test_video_stream_requires_item_in_study(client, monkeypatch):
@@ -153,8 +123,7 @@ def test_video_stream_requires_item_in_study(client, monkeypatch):
     assert b"not found in this study" in res.data.lower()
 
     # Item in the study passes the gate and proceeds to media resolution
-    monkeypatch.setattr(viewer.media_paths, "resolve_media",
-                        lambda item_id, platform=None: None)
+    monkeypatch.setattr(viewer.media_paths, "resolve_media", lambda item_id, platform=None: None)
     res = client.get("/api/video/mystudy/111")
     assert res.status_code == 404
     assert b"video 111 not found" in res.data.lower()
@@ -170,13 +139,17 @@ def test_video_stream_lets_an_admin_play_items_outside_the_study(client, monkeyp
     admin = "__gate_admin__"
     orig_get = security.user_manager.get_user
     monkeypatch.setattr(
-        security.user_manager, "get_user",
-        lambda uid: (User(username=admin, role=ROLE_ADMIN, password_hash="", approved=True)
-                     if uid == admin else orig_get(uid)))
+        security.user_manager,
+        "get_user",
+        lambda uid: (
+            User(username=admin, role=ROLE_ADMIN, password_hash="", approved=True)
+            if uid == admin
+            else orig_get(uid)
+        ),
+    )
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["mystudy"])
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset({"111"}))
-    monkeypatch.setattr(viewer.media_paths, "resolve_media",
-                        lambda item_id, platform=None: None)
+    monkeypatch.setattr(viewer.media_paths, "resolve_media", lambda item_id, platform=None: None)
     _login(client, admin)
 
     # Not in the study's frame, yet the gate passes to media resolution.
@@ -184,14 +157,13 @@ def test_video_stream_lets_an_admin_play_items_outside_the_study(client, monkeyp
     assert res.status_code == 404
     assert b"video 999 not found" in res.data.lower()
     # Study access is not lifted for admins.
-    monkeypatch.setattr(viewer, "study_access_error",
-                        lambda study: (viewer.jsonify({"error": "Access denied"}), 403))
+    monkeypatch.setattr(
+        viewer,
+        "study_access_error",
+        lambda study: (viewer.jsonify({"error": "Access denied"}), 403),
+    )
     res = client.get("/api/video/mystudy/999")
     assert res.status_code == 403
-
-
-
-
 
 
 def test_eval_stream_coder_access(client, monkeypatch):
@@ -199,12 +171,15 @@ def test_eval_stream_coder_access(client, monkeypatch):
     from web_interface.routes import api_viewer_routes as viewer
 
     _grant_permissions(monkeypatch, [])
-    monkeypatch.setattr(viewer.human_eval, "tasks_for_user",
-                        lambda username: [{"run_id": "r1", "task_type": "coding"}])
-    monkeypatch.setattr(viewer.human_eval, "load_task",
-                        lambda run_id, task_type: {"item_ids": ["111"]})
-    monkeypatch.setattr(viewer.media_paths, "resolve_media",
-                        lambda item_id, platform=None: None)
+    monkeypatch.setattr(
+        viewer.human_eval,
+        "tasks_for_user",
+        lambda username: [{"run_id": "r1", "task_type": "coding"}],
+    )
+    monkeypatch.setattr(
+        viewer.human_eval, "load_task", lambda run_id, task_type: {"item_ids": ["111"]}
+    )
+    monkeypatch.setattr(viewer.media_paths, "resolve_media", lambda item_id, platform=None: None)
     _login(client, _TEST_VIEWER)
 
     viewer._EVAL_ACCESS_CACHE.clear()
@@ -217,19 +192,11 @@ def test_eval_stream_coder_access(client, monkeypatch):
     viewer._EVAL_ACCESS_CACHE.clear()
 
 
-
-
-
-
 def test_worker_logs_admin_only(client, monkeypatch):
     _grant_permissions(monkeypatch, [])
     _login(client, _TEST_VIEWER)
     res = client.get("/api/logs/queue_annotator")
     assert res.status_code == 403
-
-
-
-
 
 
 def test_status_redacted_for_plain_viewers(client, monkeypatch):
@@ -244,10 +211,6 @@ def test_status_redacted_for_plain_viewers(client, monkeypatch):
         assert "last_run_study" not in entry, name
 
 
-
-
-
-
 def test_status_full_for_dm_permission_holders(client, monkeypatch):
     _grant_permissions(monkeypatch, ["tab.data_management.refresh"])
     _login(client, _TEST_VIEWER)
@@ -255,10 +218,6 @@ def test_status_full_for_dm_permission_holders(client, monkeypatch):
     assert res.status_code == 200
     payload = res.get_json()
     assert any("task_args" in entry for entry in payload.values())
-
-
-
-
 
 
 def test_personal_write_surface_requires_permission(client, monkeypatch):
@@ -272,11 +231,10 @@ def test_personal_write_surface_requires_permission(client, monkeypatch):
     assert client.post("/api/video_analysis/vote", json={"item_id": "1"}).status_code == 403
 
 
-
-
 def test_personal_write_surface_passes_with_permission(client, monkeypatch):
-    _grant_permissions(monkeypatch, [
-        "tab.explore", "tab.my_stuff.video_tags", "feature.annotation_votes"])
+    _grant_permissions(
+        monkeypatch, ["tab.explore", "tab.my_stuff.video_tags", "feature.annotation_votes"]
+    )
     _login(client, _TEST_VIEWER)
 
     assert client.get("/api/studies/defined").status_code == 200
@@ -287,8 +245,6 @@ def test_personal_write_surface_passes_with_permission(client, monkeypatch):
     assert res.status_code == 400
 
 
-
-
 def test_timelines_vote_requires_votes_key(client, monkeypatch):
     """tab.timelines alone no longer suffices for vote_annotation (AND gate)."""
     from web_interface import security
@@ -296,21 +252,17 @@ def test_timelines_vote_requires_votes_key(client, monkeypatch):
 
     _grant_permissions(monkeypatch, ["tab.timelines"])
     _login(client, _TEST_VIEWER)
-    res = client.post("/api/timelines/vote_annotation",
-                      json={"collection_id": "c1", "period": "p"})
+    res = client.post("/api/timelines/vote_annotation", json={"collection_id": "c1", "period": "p"})
     assert res.status_code == 403
 
     _grant_permissions(monkeypatch, ["tab.timelines", "feature.annotation_votes"])
-    monkeypatch.setattr(_access, "get_study_collections",
-                        lambda study: [{"collection_id": "c1"}])
+    monkeypatch.setattr(_access, "get_study_collections", lambda study: [{"collection_id": "c1"}])
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["s1"])
-    monkeypatch.setattr(security.user_manager, "register_annotation_vote",
-                        lambda *a, **k: (True, "ok"))
-    res = client.post("/api/timelines/vote_annotation",
-                      json={"collection_id": "c1", "period": "p"})
+    monkeypatch.setattr(
+        security.user_manager, "register_annotation_vote", lambda *a, **k: (True, "ok")
+    )
+    res = client.post("/api/timelines/vote_annotation", json={"collection_id": "c1", "period": "p"})
     assert res.status_code == 200
-
-
 
 
 def test_user_settings_key_whitelist(client, monkeypatch):
@@ -318,8 +270,7 @@ def test_user_settings_key_whitelist(client, monkeypatch):
 
     _grant_permissions(monkeypatch, [])
     _login(client, _TEST_VIEWER)
-    monkeypatch.setattr(security.user_manager, "update_user_settings",
-                        lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(security.user_manager, "update_user_settings", lambda *a, **k: (True, "ok"))
 
     res = client.post("/api/user/settings", json={"arbitrary_key": {"x": 1}})
     assert res.status_code == 400
@@ -330,8 +281,6 @@ def test_user_settings_key_whitelist(client, monkeypatch):
 
     res = client.post("/api/user/settings", json=["not", "a", "dict"])
     assert res.status_code == 400
-
-
 
 
 def test_internal_bp_only_on_task_runner(monkeypatch):

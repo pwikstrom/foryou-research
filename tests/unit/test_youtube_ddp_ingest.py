@@ -23,7 +23,9 @@ def _json_export(path) -> str:
         record = {
             "title": f"Watched Video {i}",
             "titleUrl": f"https://www.youtube.com/watch?v={vid}",
-            "subtitles": [{"name": "Some Channel", "url": "https://www.youtube.com/channel/UCabcdef"}],
+            "subtitles": [
+                {"name": "Some Channel", "url": "https://www.youtube.com/channel/UCabcdef"}
+            ],
             "time": f"2026-05-01T10:{i:02d}:00.000Z",
         }
         if i == 5:
@@ -31,10 +33,12 @@ def _json_export(path) -> str:
         records.append(record)
     comments = (
         "Comment create timestamp,Video ID,Comment text\n"
-        f"2026-05-01T10:00:30.000Z,{_IDS[0]},\"{{\"\"text\"\": \"\"great\"\"}}\"\n"
+        f'2026-05-01T10:00:30.000Z,{_IDS[0]},"{{""text"": ""great""}}"\n'
     )
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("Takeout/YouTube and YouTube Music/history/watch-history.json", json.dumps(records))
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/history/watch-history.json", json.dumps(records)
+        )
         zf.writestr("Takeout/YouTube and YouTube Music/comments/comments.csv", comments)
     return str(path)
 
@@ -46,18 +50,21 @@ def _html_export(path, tz_label: str) -> str:
             '<div class="outer-cell"><div class="body-1">'
             f'Watched <a href="https://www.youtube.com/watch?v={vid}">Video {i}</a><br>'
             f'<a href="https://www.youtube.com/channel/UCabcdef">Some Channel</a><br>'
-            f'{i + 1} Jun 2026, 21:{i:02d}:00 {tz_label}</div>'
+            f"{i + 1} Jun 2026, 21:{i:02d}:00 {tz_label}</div>"
             '<div class="mdl-typography--caption"></div></div>'
         )
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("Takeout/YouTube and YouTube Music/history/watch-history.html",
-                    "<html>" + "".join(blocks) + "</html>")
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/history/watch-history.html",
+            "<html>" + "".join(blocks) + "</html>",
+        )
     return str(path)
 
 
 def _patch(monkeypatch, zip_path: str):
-    monkeypatch.setattr(youtube_mod.data_io, "local_copy",
-                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(
+        youtube_mod.data_io, "local_copy", lambda storage_location=None, filename=None: zip_path
+    )
     monkeypatch.setattr(youtube_mod.data_io, "release_local_copy", lambda p: None)
 
 
@@ -130,27 +137,35 @@ def _ad_heavy_export(path, n_organic: int, n_ads: int, n_comments: int = 0) -> s
         record = {
             "title": f"Watched Video {i}",
             "titleUrl": f"https://www.youtube.com/watch?v={vid}",
-            "subtitles": [{"name": "Some Channel", "url": "https://www.youtube.com/channel/UCabcdef"}],
+            "subtitles": [
+                {"name": "Some Channel", "url": "https://www.youtube.com/channel/UCabcdef"}
+            ],
             "time": f"2026-05-01T10:{i:02d}:00.000Z",
         }
         if i >= n_organic:
             record["details"] = [{"name": "From Google Ads"}]
         records.append(record)
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("Takeout/YouTube and YouTube Music/history/watch-history.json", json.dumps(records))
+        zf.writestr(
+            "Takeout/YouTube and YouTube Music/history/watch-history.json", json.dumps(records)
+        )
         if n_comments:
             rows = "".join(
-                f"2026-05-01T10:{i:02d}:30.000Z,vid{i:08d},\"{{\"\"text\"\": \"\"hi\"\"}}\"\n"
+                f'2026-05-01T10:{i:02d}:30.000Z,vid{i:08d},"{{""text"": ""hi""}}"\n'
                 for i in range(n_comments)
             )
-            zf.writestr("Takeout/YouTube and YouTube Music/comments/comments.csv",
-                        "Comment create timestamp,Video ID,Comment text\n" + rows)
+            zf.writestr(
+                "Takeout/YouTube and YouTube Music/comments/comments.csv",
+                "Comment create timestamp,Video ID,Comment text\n" + rows,
+            )
     return str(path)
 
 
 def test_ads_and_comments_do_not_satisfy_the_viability_floor(collection, monkeypatch, tmp_path):
     """35 rows, but only 5 organic watches — ads are dropped from every study."""
-    _patch(monkeypatch, _ad_heavy_export(tmp_path / "ads.zip", n_organic=5, n_ads=20, n_comments=10))
+    _patch(
+        monkeypatch, _ad_heavy_export(tmp_path / "ads.zip", n_organic=5, n_ads=20, n_comments=10)
+    )
 
     assert collection.load_single_raw("ads.zip").empty
 
@@ -173,7 +188,9 @@ def _json_export_with_playlists(path) -> str:
     _json_export(path)
     header = "Video ID,Playlist video creation timestamp\n"
     liked = header + f"{_IDS[1]},2026-05-01T10:01:30.000Z\n"
-    favorites = header + f"{_IDS[2]},2026-05-01T10:02:30.000Z\n" + "not-an-id,2026-05-01T10:02:31.000Z\n"
+    favorites = (
+        header + f"{_IDS[2]},2026-05-01T10:02:30.000Z\n" + "not-an-id,2026-05-01T10:02:31.000Z\n"
+    )
     with zipfile.ZipFile(path, "a") as zf:
         zf.writestr("Takeout/YouTube and YouTube Music/playlists/Liked videos.csv", liked)
         zf.writestr("Takeout/YouTube and YouTube Music/playlists/Favorites videos.csv", favorites)
@@ -188,8 +205,9 @@ def test_liked_and_favorites_playlists_become_fave_and_save(collection, monkeypa
     out = collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
 
     assert list(out.loc[out["activity_type"] == "fave", "item_id"]) == [_IDS[1]]
-    assert list(out.loc[out["activity_type"] == "save", "item_id"]) == [_IDS[2]], \
+    assert list(out.loc[out["activity_type"] == "save", "item_id"]) == [_IDS[2]], (
         "the malformed id row is skipped"
+    )
     plays = out[out["activity_type"] == "play"].set_index("item_id")
     assert plays.loc[_IDS[1], "extra_data"] == "fave"
     assert plays.loc[_IDS[2], "extra_data"] == "save"

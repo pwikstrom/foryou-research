@@ -36,37 +36,45 @@ def test_defaults_without_prefs() -> None:
 
 
 def test_include_and_exclude_compose_in_canonical_order() -> None:
-    got = compose_effective_variables(
-        GLOBAL, {"include": ["e", "a"], "exclude": ["d"]}, ALL_ORDER)
+    got = compose_effective_variables(GLOBAL, {"include": ["e", "a"], "exclude": ["d"]}, ALL_ORDER)
     assert got == ["a", "b", "e"], got
 
 
 def test_unknown_names_ignored() -> None:
     got = compose_effective_variables(
-        GLOBAL, {"include": ["nope"], "exclude": ["ghost"]}, ALL_ORDER)
+        GLOBAL, {"include": ["nope"], "exclude": ["ghost"]}, ALL_ORDER
+    )
     assert got == ["b", "d"], got
 
 
 def test_non_schema_extras_preserved_first() -> None:
     # machine_state / dynamic user-tag columns live in the global list but not
     # in all_variables_order; they survive composition ahead of the ordering.
-    got = compose_effective_variables(
-        ["machine_state"] + GLOBAL, {"exclude": ["b"]}, ALL_ORDER)
+    got = compose_effective_variables(["machine_state"] + GLOBAL, {"exclude": ["b"]}, ALL_ORDER)
     assert got == ["machine_state", "d"], got
 
 
 def test_available_clips_includes_but_not_globals() -> None:
     got = compose_effective_variables(
-        GLOBAL, {"include": ["a", "c"]}, ALL_ORDER, available={"a", "b"})
+        GLOBAL, {"include": ["a", "c"]}, ALL_ORDER, available={"a", "b"}
+    )
     # 'c' has no data -> clipped; 'd' is global -> kept even without data.
     assert got == ["a", "b", "d"], got
 
 
 def test_validation_accepts_documented_shape() -> None:
     assert _validate_variable_prefs({}) is None
-    assert _validate_variable_prefs(
-        {"filter": {"include": ["x"], "exclude": []},
-         "display": {}, "timeline": {"exclude": ["y"]}, "viz": {"include": []}}) is None
+    assert (
+        _validate_variable_prefs(
+            {
+                "filter": {"include": ["x"], "exclude": []},
+                "display": {},
+                "timeline": {"exclude": ["y"]},
+                "viz": {"include": []},
+            }
+        )
+        is None
+    )
 
 
 def test_validation_rejects_bad_shapes() -> None:
@@ -76,8 +84,7 @@ def test_validation_rejects_bad_shapes() -> None:
     assert _validate_variable_prefs({"filter": {"add": []}}) is not None
     assert _validate_variable_prefs({"filter": {"include": "x"}}) is not None
     assert _validate_variable_prefs({"filter": {"include": [1]}}) is not None
-    assert _validate_variable_prefs(
-        {"filter": {"include": ["v"] * 501}}) is not None
+    assert _validate_variable_prefs({"filter": {"include": ["v"] * 501}}) is not None
 
 
 def _main() -> int:

@@ -13,10 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fyp.analysis.video_map import _dedupe_niche_names
 
 
-
-
-
-
 def test_collisions_renamed_largest_kept() -> None:
     """Duplicate labels are renamed; the largest niche in each group keeps its name."""
     meta = {
@@ -46,10 +42,6 @@ def test_collisions_renamed_largest_kept() -> None:
     print("test_collisions_renamed_largest_kept OK")
 
 
-
-
-
-
 def test_fallback_suffix_on_model_failure() -> None:
     """When the model errors, the duplicate gets a top-term suffix."""
     meta = {
@@ -63,10 +55,6 @@ def test_fallback_suffix_on_model_failure() -> None:
     assert meta[0]["name"] == "Pet Antics"
     assert meta[1]["name"] == "Pet Antics (cat)"
     print("test_fallback_suffix_on_model_failure OK")
-
-
-
-
 
 
 if __name__ == "__main__":

@@ -40,8 +40,6 @@ _LEASE_LOCATION = "cache"
 _LEASE_STALE_S = 3600
 
 
-
-
 def _claim_link(run_id: str, chunk: int) -> bool:
     """Atomically claim the right to execute link ``chunk`` of ``run_id``.
 
@@ -79,11 +77,10 @@ def _claim_link(run_id: str, chunk: int) -> bool:
         claimed["won"] = True
         return lease
 
-    data_io.update_json(storage_location=_LEASE_LOCATION, filename=_LEASE_FILE,
-                        mutate=_mutate, default=None)
+    data_io.update_json(
+        storage_location=_LEASE_LOCATION, filename=_LEASE_FILE, mutate=_mutate, default=None
+    )
     return claimed["won"]
-
-
 
 
 def _release_lease(run_id: str) -> None:
@@ -100,13 +97,16 @@ def _release_lease(run_id: str) -> None:
         return lease
 
     try:
-        data_io.update_json(storage_location=_LEASE_LOCATION,
-                            filename=_LEASE_FILE, mutate=_mutate, default=None)
+        data_io.update_json(
+            storage_location=_LEASE_LOCATION, filename=_LEASE_FILE, mutate=_mutate, default=None
+        )
     except Exception:
         pass
 
 
-def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_embeddings_refresh(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Embed one batch of pending videos and optionally chain to the next.
 
     Args:
@@ -143,8 +143,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         # An explicit zero: a skipped link wrote nothing, so a pipeline built on
         # this step must not rebuild the map off it. Absent signals mean
         # "unknown" downstream and would (correctly) refresh everything.
-        reporter.emit_data({"embeddings_embedded_run": embedded_so_far,
-                            "embeddings_skipped": True})
+        reporter.emit_data({"embeddings_embedded_run": embedded_so_far, "embeddings_skipped": True})
         return None
 
     backend = active_embedding_backend()
@@ -177,9 +176,14 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     pct = int(done / total * 100) if total else 100
     reporter.update_progress(pct, f"Embedded {done:,}/{total:,} videos")
     embedded_so_far += embedded
-    reporter.emit_data({"embeddings_total": done, "embeddings_remaining": remaining,
-                        "embeddings_embedded_run": embedded_so_far,
-                        "embeddings_skipped": False})
+    reporter.emit_data(
+        {
+            "embeddings_total": done,
+            "embeddings_remaining": remaining,
+            "embeddings_embedded_run": embedded_so_far,
+            "embeddings_skipped": False,
+        }
+    )
     reporter.log(
         f"Batch {chunk_index + 1} complete: +{embedded:,} embedded, "
         f"{remaining:,} remaining of {total:,}."
@@ -224,18 +228,21 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     }
 
 
-
-
 if __name__ == "__main__":
     import argparse
 
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Embed pending annotated videos")
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
-                        help="Videos embedded per batch")
-    parser.add_argument("--max-batches", type=int, default=None,
-                        help="Max batches to run (default: until backlog empty)")
+    parser.add_argument(
+        "--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Videos embedded per batch"
+    )
+    parser.add_argument(
+        "--max-batches",
+        type=int,
+        default=None,
+        help="Max batches to run (default: until backlog empty)",
+    )
     args = parser.parse_args()
 
     reporter = LocalStatusReporter("embeddings_refresh")
@@ -256,5 +263,6 @@ if __name__ == "__main__":
         reporter.fail(str(e))
         print(f"Embeddings refresh failed: {e}")
         import traceback
+
         traceback.print_exc()
         os._exit(1)

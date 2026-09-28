@@ -29,7 +29,6 @@ current session has been rate-limited…"). Classification checks rate-limit
 keywords before the removal keywords so it stays transient + throttled.
 """
 
-
 import logging
 import os
 from datetime import datetime, timezone
@@ -47,8 +46,6 @@ from fyp.scrape import scraper_cookies
 from fyp.scrape.platform_scraper import BaseScraper, cleanup_temp_files, empty_fail
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def _cf():
@@ -70,8 +67,7 @@ def _cf():
 # by <claimant>" — distinct from "removed" so a later run from another
 # vantage point can single it out, like "geo_blocked".
 _RETRYABLE = {"bot_check", "rate_limited", "network", "server_error", "unknown"}
-_PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_blocked",
-              "blocked"}
+_PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_blocked", "blocked"}
 
 # Permanent verdicts that stand even when YouTube still has the video's record
 # (channel, views, duration): the player refuses it HERE, on grounds that name
@@ -86,14 +82,13 @@ _DL_MAX_RETRIES = 2
 
 # YouTube serves >360p only as separate DASH video+audio streams; the merge
 # (ffmpeg is in the deploy image) caps at 720p to keep storage sane.
-_FORMAT = ('bv*[height<=720][ext=mp4]+ba[ext=m4a]'
-           '/b[height<=720][ext=mp4]/b[ext=mp4]/b')
+_FORMAT = "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b[ext=mp4]/b"
 
 # YouTube's n-challenge solver (yt-dlp-ejs) needs a JavaScript runtime. deno
 # is yt-dlp's default-enabled runtime; node must be enabled explicitly and is
 # used when deno is absent (e.g. local dev). An unavailable runtime is simply
 # not used, so enabling both is safe everywhere.
-_JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+_JS_RUNTIMES = {"deno": {"path": None}, "node": {"path": None}}
 
 # Player clients for the metadata leg: yt-dlp's defaults plus "tv". When
 # YouTube refuses a video, the default web clients all report a bare "Video
@@ -102,14 +97,12 @@ _JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
 # made this video available in your country", "It was blocked due to the
 # claimed content by …". Measured 2026-09-21: ~1 s more per item, and a
 # playable video resolves the same formats. The media leg keeps the defaults.
-_METADATA_PLAYER_CLIENTS = ['default', 'tv']
+_METADATA_PLAYER_CLIENTS = ["default", "tv"]
 
 # The bgutil PO-token provider's script directory (Dockerfile.base builds it
 # and sets this env var). YouTube requires proof-of-origin tokens for media
 # streams from datacenter IPs — cookies alone don't pass the bot wall.
-_POT_SERVER_HOME_ENV = 'BGUTIL_POT_SERVER_HOME'
-
-
+_POT_SERVER_HOME_ENV = "BGUTIL_POT_SERVER_HOME"
 
 
 def _pot_extractor_args() -> dict:
@@ -120,9 +113,9 @@ def _pot_extractor_args() -> dict:
     script, or ``{}`` when the script isn't present (e.g. local dev, where a
     residential IP passes the bot wall without PO tokens).
     """
-    server_home = os.environ.get(_POT_SERVER_HOME_ENV, '')
-    if server_home and exists(join(server_home, 'build', 'generate_once.js')):
-        return {'extractor_args': {'youtubepot-bgutilscript': {'server_home': [server_home]}}}
+    server_home = os.environ.get(_POT_SERVER_HOME_ENV, "")
+    if server_home and exists(join(server_home, "build", "generate_once.js")):
+        return {"extractor_args": {"youtubepot-bgutilscript": {"server_home": [server_home]}}}
     return {}
 
 
@@ -144,7 +137,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         - "unknown"        — unrecognised (kept retryable)
     """
     msg = str(exc)
-    cause = getattr(exc, 'cause', None)
+    cause = getattr(exc, "cause", None)
 
     if isinstance(exc, GeoRestrictedError):
         return "geo_blocked", msg
@@ -171,35 +164,50 @@ def _classify_message(msg: str) -> tuple[str, str]:
     """
     # YouTube uses typographic apostrophes ("confirm you’re not a bot") —
     # normalize so ASCII keyword matching works.
-    msg_lower = msg.lower().replace('’', "'")
+    msg_lower = msg.lower().replace("’", "'")
 
-    if ("confirm you're not a bot" in msg_lower or 'not a robot' in msg_lower
-            or 'captcha' in msg_lower):
+    if (
+        "confirm you're not a bot" in msg_lower
+        or "not a robot" in msg_lower
+        or "captcha" in msg_lower
+    ):
         return "bot_check", msg
 
     # Rate-limit detection must precede the "removed" keywords: YouTube's
     # session rate-limit response reads "Video unavailable. This content isn't
     # available, try again later. The current session has been rate-limited…"
     # — it contains the removal phrasing, but the item is fine and retryable.
-    if ('rate-limited' in msg_lower or 'rate limit' in msg_lower
-            or 'too many requests' in msg_lower
-            or 'http error 403' in msg_lower or 'http error 429' in msg_lower):
+    if (
+        "rate-limited" in msg_lower
+        or "rate limit" in msg_lower
+        or "too many requests" in msg_lower
+        or "http error 403" in msg_lower
+        or "http error 429" in msg_lower
+    ):
         return "rate_limited", msg
 
-    if 'private video' in msg_lower or 'video is private' in msg_lower:
+    if "private video" in msg_lower or "video is private" in msg_lower:
         return "private", msg
 
-    if 'confirm your age' in msg_lower or 'age-restricted' in msg_lower or 'age restricted' in msg_lower:
+    if (
+        "confirm your age" in msg_lower
+        or "age-restricted" in msg_lower
+        or "age restricted" in msg_lower
+    ):
         return "age_restricted", msg
 
-    if 'members-only' in msg_lower or 'members only' in msg_lower or 'join this channel' in msg_lower:
+    if (
+        "members-only" in msg_lower
+        or "members only" in msg_lower
+        or "join this channel" in msg_lower
+    ):
         return "members_only", msg
 
     # Geo restrictions sometimes surface as a flattened message instead of a
     # GeoRestrictedError instance. A territorial copyright block ("…who has
     # blocked it in your country on copyright grounds") lands here too — it
     # is region-bound, which is what the category records.
-    if 'in your country' in msg_lower or 'geo restriction' in msg_lower:
+    if "in your country" in msg_lower or "geo restriction" in msg_lower:
         return "geo_blocked", msg
 
     # A Content ID block names the rights holder: "It was blocked due to the
@@ -208,7 +216,7 @@ def _classify_message(msg: str) -> tuple[str, str]:
     # say a bare "Video unavailable"). A copyright TAKEDOWN ("no longer
     # available due to a copyright claim") says nothing of blocking and falls
     # through to "removed".
-    if 'claimed content' in msg_lower or ('copyright' in msg_lower and 'blocked' in msg_lower):
+    if "claimed content" in msg_lower or ("copyright" in msg_lower and "blocked" in msg_lower):
         return "blocked", msg
 
     # "This content isn't available, try again later" without the rate-limit
@@ -218,23 +226,44 @@ def _classify_message(msg: str) -> tuple[str, str]:
     # "unknown" for days (every one of the nine seen was gone for good). The
     # tv client words takedowns as "It was removed following a copyright
     # removal request by <claimant>".
-    if any(kw in msg_lower for kw in ('video unavailable', 'video is unavailable',
-                                       'has been removed', 'was removed', 'removal request',
-                                       'no longer available', 'account associated',
-                                       'terminated', 'does not exist', 'not available')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "video unavailable",
+            "video is unavailable",
+            "has been removed",
+            "was removed",
+            "removal request",
+            "no longer available",
+            "account associated",
+            "terminated",
+            "does not exist",
+            "not available",
+        )
+    ):
         return "removed", msg
 
-    if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
-                                       'ssl', 'certificate', 'dns', 'reset by peer')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "timed out",
+            "timeout",
+            "connection",
+            "network",
+            "ssl",
+            "certificate",
+            "dns",
+            "reset by peer",
+        )
+    ):
         return "network", msg
 
     return "unknown", msg
 
 
-
-
-def _empty_fail(error_type: str = "unknown", error_detail: str = "", *,
-                corroborated: bool = False) -> pd.DataFrame:
+def _empty_fail(
+    error_type: str = "unknown", error_detail: str = "", *, corroborated: bool = False
+) -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata."""
     return empty_fail(error_type, error_detail, corroborated=corroborated)
 
@@ -244,11 +273,9 @@ def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
     cleanup_temp_files(temp_dir, item_id)
 
 
-
-
 def _parse_create_time(info: dict) -> datetime:
     """Upload time from ``timestamp``, falling back to ``upload_date`` (YYYYMMDD)."""
-    ts = info.get('timestamp')
+    ts = info.get("timestamp")
     if ts:
         try:
             # Parsed as UTC then made naive so the value does not depend on
@@ -256,15 +283,13 @@ def _parse_create_time(info: dict) -> datetime:
             return datetime.fromtimestamp(int(ts), tz=timezone.utc).replace(tzinfo=None)
         except (ValueError, TypeError, OSError):
             pass
-    upload_date = info.get('upload_date')
+    upload_date = info.get("upload_date")
     if upload_date:
         try:
-            return datetime.strptime(str(upload_date), '%Y%m%d')
+            return datetime.strptime(str(upload_date), "%Y%m%d")
         except ValueError:
             pass
     return datetime(2000, 1, 1)
-
-
 
 
 def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
@@ -273,34 +298,36 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
     ``item_id`` is stamped from the *requested* video id so the
     queue/enrichment join can never drift from what was asked for.
     """
-    categories = info.get('categories') or []
+    categories = info.get("categories") or []
 
     row = {
-        'item_id': str(item_id),
-        'desc': info.get('description', '') or '',
-        'create_time_raw': _parse_create_time(info),
-        'duration_raw': info.get('duration') or -1,
-        'author_id': str(info.get('channel_id', '') or ''),
-        'yt_author_handle': str(info.get('uploader_id', '') or ''),
-        'author_name_raw': str(info.get('channel', '') or info.get('uploader', '') or ''),
-        'play_count_raw': info.get('view_count') if info.get('view_count') is not None else -1,
-        'yt_like_count': info.get('like_count') if info.get('like_count') is not None else -1,
-        'yt_comment_count': info.get('comment_count') if info.get('comment_count') is not None else -1,
-        'yt_channel_follower_count': info.get('channel_follower_count') if info.get('channel_follower_count') is not None else -1,
-        'yt_categories': " | ".join(str(c) for c in categories),
-        'video_downloaded': False,
-        'last_modified': datetime.now(),
+        "item_id": str(item_id),
+        "desc": info.get("description", "") or "",
+        "create_time_raw": _parse_create_time(info),
+        "duration_raw": info.get("duration") or -1,
+        "author_id": str(info.get("channel_id", "") or ""),
+        "yt_author_handle": str(info.get("uploader_id", "") or ""),
+        "author_name_raw": str(info.get("channel", "") or info.get("uploader", "") or ""),
+        "play_count_raw": info.get("view_count") if info.get("view_count") is not None else -1,
+        "yt_like_count": info.get("like_count") if info.get("like_count") is not None else -1,
+        "yt_comment_count": info.get("comment_count")
+        if info.get("comment_count") is not None
+        else -1,
+        "yt_channel_follower_count": info.get("channel_follower_count")
+        if info.get("channel_follower_count") is not None
+        else -1,
+        "yt_categories": " | ".join(str(c) for c in categories),
+        "video_downloaded": False,
+        "last_modified": datetime.now(),
     }
     return pd.DataFrame([row])
 
 
-
-
 def _metadata_extractor_args() -> dict:
     """``extractor_args`` for the metadata leg: the PO-token wiring + tv client."""
-    args = dict(_pot_extractor_args().get('extractor_args', {}))
-    args['youtube'] = {'player_client': list(_METADATA_PLAYER_CLIENTS)}
-    return {'extractor_args': args}
+    args = dict(_pot_extractor_args().get("extractor_args", {}))
+    args["youtube"] = {"player_client": list(_METADATA_PLAYER_CLIENTS)}
+    return {"extractor_args": args}
 
 
 class _ReasonLog:
@@ -316,8 +343,14 @@ class _ReasonLog:
     debug.
     """
 
-    _NOT_REASONS = ('[pot', 'no video formats found', 'requested format is not available',
-                    'n challenge', 'formats have been skipped', 'sabr')
+    _NOT_REASONS = (
+        "[pot",
+        "no video formats found",
+        "requested format is not available",
+        "n challenge",
+        "formats have been skipped",
+        "sabr",
+    )
 
     def __init__(self):
         self.reasons: list[str] = []
@@ -330,9 +363,9 @@ class _ReasonLog:
 
     def warning(self, msg):
         text = str(msg)
-        if not text.startswith('[youtube] '):
+        if not text.startswith("[youtube] "):
             return
-        text = text[len('[youtube] '):]
+        text = text[len("[youtube] ") :]
         lowered = text.lower()
         if any(marker in lowered for marker in self._NOT_REASONS):
             return
@@ -371,7 +404,7 @@ def _has_no_record(info: dict) -> bool:
     ("youtube video #<id>") — and until 2026-09-21 that shell was saved as a
     scraped row: no author, -1 plays, created 2000-01-01.
     """
-    return all(info.get(k) is None for k in ('channel_id', 'uploader_id', 'view_count', 'duration'))
+    return all(info.get(k) is None for k in ("channel_id", "uploader_id", "view_count", "duration"))
 
 
 def _extract_metadata(url: str, item_id: str, verbose: bool = False):
@@ -385,47 +418,58 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
     :meth:`YouTubeScraper.fetch` as ``info['_fyp_unplayable']``.
     """
     ydl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **scraper_cookies.cookie_opts("youtube"),
-        'skip_download': True,
-        'noplaylist': True,
-        'no_color': True,
-        'extractor_retries': 3,
-        'socket_timeout': 30,
-        'js_runtimes': _JS_RUNTIMES,
+        "skip_download": True,
+        "noplaylist": True,
+        "no_color": True,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
+        "js_runtimes": _JS_RUNTIMES,
         **_metadata_extractor_args(),
         # Metadata must never depend on the n-challenge solver: without a JS
         # runtime + yt-dlp-ejs, format extraction fails ("No video formats
         # found") even though all metadata fields are present. The media phase
         # runs its own extraction and does need the solver. The flag also
         # swallows a refused video's reason, hence the capturing logger.
-        'ignore_no_formats_error': True,
+        "ignore_no_formats_error": True,
     }
 
     for attempt in range(_META_MAX_RETRIES):
         reason_log = _ReasonLog()
         try:
-            with yt_dlp.YoutubeDL({**ydl_opts, 'logger': reason_log}) as ydl:
+            with yt_dlp.YoutubeDL({**ydl_opts, "logger": reason_log}) as ydl:
                 info = ydl.extract_info(url, download=False)
-            if info and not info.get('formats'):
+            if info and not info.get("formats"):
                 verdict = _playability_verdict(reason_log.reasons)
                 if _has_no_record(info):
                     category, detail = verdict or (
-                        "unknown", "no record of the video and no stated reason")
-                    logger.warning("Scrape %s metadata: no record of the video — [%s] %s",
-                                   item_id, category, detail)
-                    return None, _empty_fail(category, detail,
-                                             corroborated=category in _PERMANENT)
+                        "unknown",
+                        "no record of the video and no stated reason",
+                    )
+                    logger.warning(
+                        "Scrape %s metadata: no record of the video — [%s] %s",
+                        item_id,
+                        category,
+                        detail,
+                    )
+                    return None, _empty_fail(category, detail, corroborated=category in _PERMANENT)
                 if verdict is not None:
-                    info['_fyp_unplayable'] = verdict
+                    info["_fyp_unplayable"] = verdict
             return info, None
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
-            logger.warning("Scrape %s metadata attempt %d/%d failed: [%s] %s",
-                           item_id, attempt + 1, _META_MAX_RETRIES, category, detail)
+            logger.warning(
+                "Scrape %s metadata attempt %d/%d failed: [%s] %s",
+                item_id,
+                attempt + 1,
+                _META_MAX_RETRIES,
+                category,
+                detail,
+            )
             if category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
-                backoff = 3 * (2 ** attempt)
+                backoff = 3 * (2**attempt)
                 logger.info("Retrying %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
@@ -435,8 +479,6 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
             return None, _empty_fail("unknown", str(e))
 
     return None, _empty_fail("extraction", "No info returned by yt-dlp")
-
-
 
 
 def _download_media(
@@ -453,21 +495,21 @@ def _download_media(
         on success, otherwise the :func:`_classify_error` result of the last
         failure so the caller can distinguish transient from permanent.
     """
-    temp_dir = _cf()['paths']['temp']
+    temp_dir = _cf()["paths"]["temp"]
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
     dl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **scraper_cookies.cookie_opts("youtube"),
-        'outtmpl': out_template,
-        'no_color': True,
-        'overwrites': True,
-        'noplaylist': True,
-        'format': _FORMAT,
-        'merge_output_format': 'mp4',
-        'retries': 3,
-        'socket_timeout': 30,
-        'js_runtimes': _JS_RUNTIMES,
+        "outtmpl": out_template,
+        "no_color": True,
+        "overwrites": True,
+        "noplaylist": True,
+        "format": _FORMAT,
+        "merge_output_format": "mp4",
+        "retries": 3,
+        "socket_timeout": 30,
+        "js_runtimes": _JS_RUNTIMES,
         **_pot_extractor_args(),
     }
 
@@ -479,8 +521,10 @@ def _download_media(
             downloaded = join(temp_dir, f"{item_id}.mp4")
             if not exists(downloaded):
                 candidates = glob(join(temp_dir, f"{item_id}.*"))
-                mp4_candidates = [c for c in candidates if c.endswith('.mp4')]
-                downloaded = mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
+                downloaded = (
+                    mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                )
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
@@ -504,11 +548,17 @@ def _download_media(
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
-            logger.warning("Scrape %s download attempt %d/%d failed: [%s] %s",
-                           item_id, attempt + 1, _DL_MAX_RETRIES, category, detail)
+            logger.warning(
+                "Scrape %s download attempt %d/%d failed: [%s] %s",
+                item_id,
+                attempt + 1,
+                _DL_MAX_RETRIES,
+                category,
+                detail,
+            )
             _cleanup_temp_files(temp_dir, item_id)
             if category in _RETRYABLE and attempt < _DL_MAX_RETRIES - 1:
-                backoff = 3 * (3 ** attempt)
+                backoff = 3 * (3**attempt)
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
@@ -520,8 +570,6 @@ def _download_media(
             return False, "unknown", str(e)
 
     return False, "unknown", "download retries exhausted"
-
-
 
 
 # Raw column names → canonical base names. The raw yt_* counts/handle translate
@@ -539,8 +587,6 @@ _RAW_TO_CANONICAL: dict[str, str] = {
 }
 
 
-
-
 class YouTubeScraper(BaseScraper):
     """YouTube platform scraper (yt-dlp, authenticated via research-account cookies).
 
@@ -554,10 +600,8 @@ class YouTubeScraper(BaseScraper):
     slideshow_image_column = None
     residential_ip_only = True
 
-
     def item_url(self, item_id: str) -> str:
         return self.url_template.format(item_id=item_id)
-
 
     def fetch(
         self,
@@ -581,48 +625,50 @@ class YouTubeScraper(BaseScraper):
         if not save_media:
             return data_row
 
-        duration = data_row.loc[0, 'duration_raw']
+        duration = data_row.loc[0, "duration_raw"]
         if not self.should_download_media(duration):
-            logger.info("Item '%s' duration (%ss) exceeds %ss cap. Skipping download.",
-                        item_id, duration, self.media_duration_cap())
+            logger.info(
+                "Item '%s' duration (%ss) exceeds %ss cap. Skipping download.",
+                item_id,
+                duration,
+                self.media_duration_cap(),
+            )
             return data_row
 
-        unplayable = info.get('_fyp_unplayable')
+        unplayable = info.get("_fyp_unplayable")
         if unplayable is not None and unplayable[0] in _UNPLAYABLE_WITH_RECORD:
             # YouTube keeps the video's record but will not play it here, and
             # says why in terms of the video itself. The media leg could only
             # repeat that, so the verdict is corroborated: the metadata row
             # stands and the id leaves the queue instead of burning retries.
-            logger.info("Item '%s' is unplayable here — [%s] %s. Metadata only.",
-                        item_id, *unplayable)
-            data_row.attrs['media_error_type'], data_row.attrs['media_error_detail'] = unplayable
-            data_row.attrs['verdict_corroborated'] = True
+            logger.info(
+                "Item '%s' is unplayable here — [%s] %s. Metadata only.", item_id, *unplayable
+            )
+            data_row.attrs["media_error_type"], data_row.attrs["media_error_detail"] = unplayable
+            data_row.attrs["verdict_corroborated"] = True
             return data_row
 
         ok, media_category, media_detail = _download_media(
-            url, item_id, save_path,
-            stream_to_bucket=stream_to_bucket, verbose=verbose)
+            url, item_id, save_path, stream_to_bucket=stream_to_bucket, verbose=verbose
+        )
         if ok:
-            data_row.loc[0, 'video_downloaded'] = True
+            data_row.loc[0, "video_downloaded"] = True
         else:
             # Metadata row is still saved; the orchestrator uses these attrs
             # to keep transient media failures queued for retry (see
             # BaseScraper.fetch contract).
-            data_row.attrs['media_error_type'] = media_category
-            data_row.attrs['media_error_detail'] = media_detail
+            data_row.attrs["media_error_type"] = media_category
+            data_row.attrs["media_error_detail"] = media_detail
         return data_row
-
 
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         return raw.rename(columns=_RAW_TO_CANONICAL)
 
-
     def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
         """Raw fix-ups: the -1 unknown-duration sentinel becomes NA."""
-        if 'duration_raw' in df.columns:
-            df.loc[(df['duration_raw'] < 1).fillna(False), 'duration_raw'] = pd.NA
+        if "duration_raw" in df.columns:
+            df.loc[(df["duration_raw"] < 1).fillna(False), "duration_raw"] = pd.NA
         return df
-
 
     def classify_error(self, error_type: str | None) -> str:
         if error_type is None:
@@ -630,10 +676,8 @@ class YouTubeScraper(BaseScraper):
         bucket = "permanent" if error_type in _PERMANENT else "transient"
         return f"{bucket}:{error_type}"
 
-
     def repair_counts(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
-
 
     # Pacing. Every request rides ONE signed-in session (locally: the user's
     # own Chrome cookies on a residential IP), and YouTube throttles that
@@ -649,25 +693,20 @@ class YouTubeScraper(BaseScraper):
         except Exception:
             return default
 
-
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
         # bot_check events shrink concurrency further via the throttle controller.
         cap = max(1, self._pacing("max_concurrency", 2))
         return (min(max_workers, cap), 1, cap)
 
-
     def inter_request_delay(self) -> float:
         return max(0.0, self._pacing("inter_request_delay", 5.0))
-
 
     def max_batch_size(self) -> int | None:
         cap = self._pacing("max_batch_size", 250)
         return cap if cap > 0 else None
 
-
     def health_check(self) -> dict | None:
         return scraper_cookies.cookie_health("youtube", session_cookie="__Secure-3PSID")
-
 
     def media_probe_url(self, item_id: str) -> dict | None:
         # Unlike the metadata path, format resolution here depends on the
@@ -675,15 +714,15 @@ class YouTubeScraper(BaseScraper):
         # plumbing the media download uses, which is exactly what the probe
         # should exercise.
         ydl_opts: dict = {
-            'quiet': True,
-            'no_warnings': True,
+            "quiet": True,
+            "no_warnings": True,
             **scraper_cookies.cookie_opts("youtube"),
-            'skip_download': True,
-            'noplaylist': True,
-            'no_color': True,
-            'socket_timeout': 30,
-            'format': _FORMAT,
-            'js_runtimes': _JS_RUNTIMES,
+            "skip_download": True,
+            "noplaylist": True,
+            "no_color": True,
+            "socket_timeout": 30,
+            "format": _FORMAT,
+            "js_runtimes": _JS_RUNTIMES,
             **_pot_extractor_args(),
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

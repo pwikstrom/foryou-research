@@ -19,9 +19,14 @@ import pytest
 from web_interface.services import refresh_pipeline as rp
 from web_interface.services import worker_status as ws
 
-T0 = "2026-09-03T00:23:20+00:00"          # run seeded / consolidation started
-STEPS = ["recode_refresh_studies", "meta_refresh_groups", "pca_refresh",
-         "timelines_refresh", "sessions_refresh"]
+T0 = "2026-09-03T00:23:20+00:00"  # run seeded / consolidation started
+STEPS = [
+    "recode_refresh_studies",
+    "meta_refresh_groups",
+    "pca_refresh",
+    "timelines_refresh",
+    "sessions_refresh",
+]
 
 
 def _iso(base: str, plus_s: float) -> str:
@@ -44,8 +49,7 @@ def stores(monkeypatch):
     monkeypatch.setattr(ws, "processes", state["processes"])
     monkeypatch.setattr(ws, "read_task_status", lambda step: state["task_status"].get(step))
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    monkeypatch.setattr(rp, "load_run",
-                        lambda reload=True: state["process_stats"].get(rp.RUN_KEY))
+    monkeypatch.setattr(rp, "load_run", lambda reload=True: state["process_stats"].get(rp.RUN_KEY))
     state["process_stats"][rp.RUN_KEY] = _run()
     return state
 
@@ -56,16 +60,19 @@ def _by_step(view):
 
 def test_finished_steps_get_start_end_and_duration(stores):
     stores["process_stats"]["consolidate_enrichment"] = {
-        "last_run_end_time": _iso(T0, 42), "last_run_duration": 42.0,
+        "last_run_end_time": _iso(T0, 42),
+        "last_run_duration": 42.0,
         "last_run_outcome": "Success",
     }
     stores["process_stats"]["recode_refresh_studies"] = {
-        "last_run_end_time": _iso(T0, 42 + 145), "last_run_duration": 145.0,
+        "last_run_end_time": _iso(T0, 42 + 145),
+        "last_run_duration": 145.0,
         "last_run_outcome": "Success",
     }
     # A self-chaining leaf: the recorded duration spans its whole chain.
     stores["process_stats"]["timelines_refresh"] = {
-        "last_run_end_time": _iso(T0, 42 + 145 + 120), "last_run_duration": 120.0,
+        "last_run_end_time": _iso(T0, 42 + 145 + 120),
+        "last_run_duration": 120.0,
         "last_run_outcome": "Failed",
     }
 
@@ -88,15 +95,20 @@ def test_finished_steps_get_start_end_and_duration(stores):
 
 def test_running_step_carries_its_live_start_and_queued_leaf_its_stamp(stores):
     stores["process_stats"]["consolidate_enrichment"] = {
-        "last_run_end_time": _iso(T0, 42), "last_run_duration": 42.0,
+        "last_run_end_time": _iso(T0, 42),
+        "last_run_duration": 42.0,
         "last_run_outcome": "Success",
     }
     stores["task_status"]["recode_refresh_studies"] = {
-        "state": "running", "start_time": _iso(T0, 43), "updated_at": _iso(T0, 90),
+        "state": "running",
+        "start_time": _iso(T0, 43),
+        "updated_at": _iso(T0, 90),
         "progress": {"percent": 40, "message": "Study 2/5"},
     }
     stores["task_status"]["timelines_refresh"] = {
-        "state": "queued", "start_time": None, "updated_at": _iso(T0, 88),
+        "state": "queued",
+        "start_time": None,
+        "updated_at": _iso(T0, 88),
         "progress": {"percent": 0, "message": "Queued — waiting for a worker…"},
     }
 
@@ -115,7 +127,9 @@ def test_stale_status_from_an_earlier_run_is_not_used_for_timing(stores):
     """A running status older than the run belongs to a previous one."""
     stores["process_stats"]["consolidate_enrichment"] = {}
     stores["task_status"]["pca_refresh"] = {
-        "state": "running", "start_time": _iso(T0, -900), "updated_at": _iso(T0, -600),
+        "state": "running",
+        "start_time": _iso(T0, -900),
+        "updated_at": _iso(T0, -600),
         "progress": {},
     }
     rows = _by_step(ws._build_pipeline_step_view(pipeline_active=True))
@@ -125,7 +139,8 @@ def test_stale_status_from_an_earlier_run_is_not_used_for_timing(stores):
 
 def test_a_bad_duration_does_not_break_the_view(stores):
     stores["process_stats"]["consolidate_enrichment"] = {
-        "last_run_end_time": _iso(T0, 42), "last_run_duration": "not-a-number",
+        "last_run_end_time": _iso(T0, 42),
+        "last_run_duration": "not-a-number",
         "last_run_outcome": "Success",
     }
     c = _by_step(ws._build_pipeline_step_view(pipeline_active=False))["consolidate_enrichment"]

@@ -31,10 +31,6 @@ def _cf():
     return fyp_cf
 
 
-
-
-
-
 def _registered_platforms() -> list[str]:
     """Lazy list of platforms registered in the scrape contract."""
     import fyp.scrape.scrape_queues as scrape_queues
@@ -42,17 +38,9 @@ def _registered_platforms() -> list[str]:
     return scrape_queues.registered_platforms()
 
 
-
-
-
-
 def media_relpath(platform: str, item_id: str, ext: str = "mp4") -> str:
     """Return the platform-subdirectory relative path for one media object."""
     return f"{platform}/{item_id}.{ext}"
-
-
-
-
 
 
 def candidate_relpaths(item_id: str, platform: str | None = None) -> list[str]:
@@ -77,19 +65,11 @@ def candidate_relpaths(item_id: str, platform: str | None = None) -> list[str]:
     return candidates
 
 
-
-
-
-
 def ensure_local_platform_dir(platform: str) -> str:
     """Create (if needed) and return the local media dir for one platform."""
-    platform_dir = os.path.join(_cf()['paths']['media'], platform)
+    platform_dir = os.path.join(_cf()["paths"]["media"], platform)
     os.makedirs(platform_dir, exist_ok=True)
     return platform_dir
-
-
-
-
 
 
 def _parse_storage_link(storage_link: str) -> dict | None:
@@ -97,16 +77,12 @@ def _parse_storage_link(storage_link: str) -> dict | None:
     if not storage_link:
         return None
     if storage_link.startswith("gs://"):
-        rest = storage_link[len("gs://"):]
+        rest = storage_link[len("gs://") :]
         bucket_name, _, blob_name = rest.partition("/")
         if not bucket_name or not blob_name:
             return None
         return {"kind": "gcs", "bucket_name": bucket_name, "blob_name": blob_name}
     return {"kind": "local", "path": storage_link}
-
-
-
-
 
 
 def _gcs_stat(blob_name: str) -> int | None:
@@ -116,7 +92,7 @@ def _gcs_stat(blob_name: str) -> int | None:
     callers (the viewer's Range handler) need no follow-up ``exists()`` /
     ``reload()`` round-trips.
     """
-    bucket = _cf()['data_io'].get('bucket')
+    bucket = _cf()["data_io"].get("bucket")
     if bucket is None:
         return None
     try:
@@ -124,10 +100,6 @@ def _gcs_stat(blob_name: str) -> int | None:
         return None if blob is None else blob.size
     except Exception:
         return None
-
-
-
-
 
 
 def resolve_media(
@@ -152,7 +124,7 @@ def resolve_media(
         byte size so callers can serve Range requests without re-stat'ing.
     """
     fyp_cf = _cf()
-    use_gcs = fyp_cf['data_io']['use_gcs_for_media']
+    use_gcs = fyp_cf["data_io"]["use_gcs_for_media"]
 
     cache_key = (item_id, platform, storage_link or "", use_gcs)
     with _RESOLVE_CACHE_LOCK:
@@ -174,8 +146,8 @@ def resolve_media(
 
     if resolved is None:
         if use_gcs:
-            prefix = fyp_cf['data_io']['gcs_media_prefix']
-            bucket = fyp_cf['data_io'].get('bucket')
+            prefix = fyp_cf["data_io"]["gcs_media_prefix"]
+            bucket = fyp_cf["data_io"].get("bucket")
             bucket_name = getattr(bucket, "name", "") if bucket is not None else ""
             for rel in candidate_relpaths(item_id, platform):
                 blob_name = f"{prefix}/{rel}"
@@ -184,10 +156,15 @@ def resolve_media(
                     break
                 size = _gcs_stat(blob_name)
                 if size is not None:
-                    resolved = {"kind": "gcs", "bucket_name": bucket_name, "blob_name": blob_name, "size": size}
+                    resolved = {
+                        "kind": "gcs",
+                        "bucket_name": bucket_name,
+                        "blob_name": blob_name,
+                        "size": size,
+                    }
                     break
         else:
-            media_dir = fyp_cf['paths']['media']
+            media_dir = fyp_cf["paths"]["media"]
             for rel in candidate_relpaths(item_id, platform):
                 path = os.path.join(media_dir, rel)
                 if not check_exists:
@@ -203,10 +180,6 @@ def resolve_media(
                 _RESOLVE_CACHE.clear()
             _RESOLVE_CACHE[cache_key] = resolved
     return resolved
-
-
-
-
 
 
 def media_gs_uri(resolved: dict) -> str:

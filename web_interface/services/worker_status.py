@@ -25,10 +25,6 @@ def _actor() -> str:
         return ""
 
 
-
-
-
-
 # The dispatchable refresh steps, in dependency order. The graph itself lives in
 # services/refresh_pipeline; this alias stays because the endpoints, the
 # supervisor and the tests read it as the liveness set ("is any pipeline worker
@@ -174,8 +170,8 @@ def refresh_run_view() -> dict | None:
         "impact": impact,
         "run_id": record.get("run_id"),
         "origin": record.get("origin"),
-        "origin_label": record.get("origin_label") or SHORT_LABELS.get(
-            record.get("origin", ""), record.get("origin")),
+        "origin_label": record.get("origin_label")
+        or SHORT_LABELS.get(record.get("origin", ""), record.get("origin")),
         "origin_kind": record.get("origin_kind"),
         "started_by": record.get("started_by") or "",
         "started_ts": record.get("started_ts"),
@@ -255,9 +251,15 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
                 "state": "idle",
                 "reason": None,
                 "is_origin": False,
-                "percent": None, "message": None, "ran_at": None,
-                "started_at": None, "ended_at": None, "queued_at": None,
-                "duration_s": None, "plan_mode": "refresh", "provisional": False,
+                "percent": None,
+                "message": None,
+                "ran_at": None,
+                "started_at": None,
+                "ended_at": None,
+                "queued_at": None,
+                "duration_s": None,
+                "plan_mode": "refresh",
+                "provisional": False,
             }
             for step in ["consolidate_enrichment"] + list(PIPELINE_STEPS_ORDER)
         ]
@@ -289,8 +291,7 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     origin_end = process_stats.get(origin, {}).get("last_run_end_time") if origin else None
     if origin_end:
         try:
-            origin_done = (started_dt is None
-                           or datetime.fromisoformat(origin_end) >= started_dt)
+            origin_done = started_dt is None or datetime.fromisoformat(origin_end) >= started_dt
         except (ValueError, TypeError):
             origin_done = False
     steps_pending = pipeline_active or (provisional and not origin_done)
@@ -307,17 +308,27 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
         # from a study save) and that foreign work must not be drawn as part of
         # the run, nor stretch its axis.
         if plan_state in ("pruned", "not_planned", "upstream"):
-            view.append({
-                "step": step, "label": label, "state": plan_state,
-                "reason": (steps_plan.get(step) or {}).get("reason"),
-            # The scope this step was actually dispatched with, which a
-            # map rebuild can widen well past the consolidation impact.
-            "scope": (steps_plan.get(step) or {}).get("scope"),
-                "is_origin": False,
-                "percent": None, "message": None, "ran_at": None,
-                "started_at": None, "ended_at": None, "queued_at": None,
-                "duration_s": None, "plan_mode": plan_mode, "provisional": False,
-            })
+            view.append(
+                {
+                    "step": step,
+                    "label": label,
+                    "state": plan_state,
+                    "reason": (steps_plan.get(step) or {}).get("reason"),
+                    # The scope this step was actually dispatched with, which a
+                    # map rebuild can widen well past the consolidation impact.
+                    "scope": (steps_plan.get(step) or {}).get("scope"),
+                    "is_origin": False,
+                    "percent": None,
+                    "message": None,
+                    "ran_at": None,
+                    "started_at": None,
+                    "ended_at": None,
+                    "queued_at": None,
+                    "duration_s": None,
+                    "plan_mode": plan_mode,
+                    "provisional": False,
+                }
+            )
             continue
 
         # Live status: a fresh running/queued state wins. On Cloud Run this comes
@@ -382,8 +393,9 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
                 started_at = st.get("start_time")
             else:
                 local_start = (processes.get(step, {}) or {}).get("start_time")
-                started_at = (local_start.isoformat() if hasattr(local_start, "isoformat")
-                              else local_start)
+                started_at = (
+                    local_start.isoformat() if hasattr(local_start, "isoformat") else local_start
+                )
         elif state == "queued":
             queued_at = st.get("updated_at") if cloud else None
         elif ran_this_run:
@@ -396,28 +408,30 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             except (TypeError, ValueError):
                 duration_s = None
 
-        view.append({
-            "step": step,
-            "label": label,
-            "state": state,
-            "reason": (steps_plan.get(step) or {}).get("reason"),
-            # The scope this step was actually dispatched with, which a
-            # map rebuild can widen well past the consolidation impact.
-            "scope": (steps_plan.get(step) or {}).get("scope"),
-            "is_origin": step == origin,
-            "percent": percent if state == "running" else None,
-            "message": message if state == "running" else None,
-            "ran_at": end if ran_this_run else None,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "queued_at": queued_at,
-            "duration_s": duration_s,
-            # Repeated on every row so the renderer can word the unplanned rows
-            # ("not needed" vs "not requested") without an envelope.
-            "plan_mode": plan_mode,
-            # True while this row is part of the plan made at dispatch rather
-            # than one the run has confirmed by getting there.
-            "provisional": provisional and step != origin,
-        })
+        view.append(
+            {
+                "step": step,
+                "label": label,
+                "state": state,
+                "reason": (steps_plan.get(step) or {}).get("reason"),
+                # The scope this step was actually dispatched with, which a
+                # map rebuild can widen well past the consolidation impact.
+                "scope": (steps_plan.get(step) or {}).get("scope"),
+                "is_origin": step == origin,
+                "percent": percent if state == "running" else None,
+                "message": message if state == "running" else None,
+                "ran_at": end if ran_this_run else None,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "queued_at": queued_at,
+                "duration_s": duration_s,
+                # Repeated on every row so the renderer can word the unplanned rows
+                # ("not needed" vs "not requested") without an envelope.
+                "plan_mode": plan_mode,
+                # True while this row is part of the plan made at dispatch rather
+                # than one the run has confirmed by getting there.
+                "provisional": provisional and step != origin,
+            }
+        )
 
     return view

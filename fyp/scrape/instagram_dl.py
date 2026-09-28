@@ -43,7 +43,6 @@ muxing the post's music (slideshows are silent for now) and video segments
 inside mixed carousels (currently skipped).
 """
 
-
 import logging
 import os
 import random
@@ -71,8 +70,6 @@ from fyp.scrape.platform_scraper import (
 )
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def _cf():
@@ -104,7 +101,7 @@ _DL_MAX_RETRIES = 2
 # selection (DASH video+audio), an info dict carries that selection's residue,
 # and a second YoutubeDL instance re-processing it for this format got HTTP 403
 # from the CDN every time (measured 2026-09-23); with one format it downloads.
-_FORMAT = 'best[ext=mp4]/best'
+_FORMAT = "best[ext=mp4]/best"
 
 # The logged-in session. On 2026-09-23 Instagram logged it out after ~14
 # authenticated posts in ~60 s — two logged-in API calls each, two threads, no
@@ -143,16 +140,19 @@ def _session_logged_out(detail: str | None) -> bool:
     parse JSON" — a retryable ``unknown`` until 2026-09-23, retried three times
     per post.
     """
-    return 'failed to parse json' in (detail or '').lower()
+    return "failed to parse json" in (detail or "").lower()
 
 
 def _mark_session_dead(item_id: str) -> None:
     """Record that the session was logged out; say so once, loudly."""
     if not _SESSION_DEAD.is_set():
         _SESSION_DEAD.set()
-        logger.warning("Scrape %s: Instagram answered a logged-in request with its login page — "
-                       "the session was logged out. No further logged-in requests this run; "
-                       "log in to Instagram in Chrome again before the next one.", item_id)
+        logger.warning(
+            "Scrape %s: Instagram answered a logged-in request with its login page — "
+            "the session was logged out. No further logged-in requests this run; "
+            "log in to Instagram in Chrome again before the next one.",
+            item_id,
+        )
 
 
 def _reset_session_state() -> None:
@@ -179,7 +179,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         - "unknown"        — unrecognised (kept retryable)
     """
     msg = str(exc)
-    cause = getattr(exc, 'cause', None)
+    cause = getattr(exc, "cause", None)
 
     if isinstance(exc, GeoRestrictedError):
         return "geo_blocked", msg
@@ -195,54 +195,78 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         return "network", f"Transport error: {msg}"
 
     # Normalize typographic apostrophes so ASCII keyword matching works.
-    msg_lower = msg.lower().replace('\u2019', "'")
+    msg_lower = msg.lower().replace("\u2019", "'")
 
     # Image-only / carousel-image posts: yt-dlp parses the post but finds no
     # video stream. Both phrasings mean the same thing — no video to fetch. This
     # is permanent (retrying can't conjure a video); the donated seed still
     # carries the caption/author. Without this, image posts churned 3× per run
     # as 'unknown' and never left the queue.
-    if ('there is no video in this post' in msg_lower
-            or 'no video formats found' in msg_lower):
+    if "there is no video in this post" in msg_lower or "no video formats found" in msg_lower:
         return "no_video", msg
 
     # The ambiguous catch-all must be checked before the "removed" patterns —
     # it contains "not available" but usually means throttled/logged out. The
     # bare hyphenated form also catches yt-dlp's anonymous-access limit
     # ("exceeded the rate-limit for accessing posts anonymously").
-    if 'rate-limit' in msg_lower or 'rate limit' in msg_lower:
+    if "rate-limit" in msg_lower or "rate limit" in msg_lower:
         return "rate_limited", msg
 
-    if ('http error 403' in msg_lower or 'http error 429' in msg_lower
-            or 'too many requests' in msg_lower
-            or 'empty media response' in msg_lower):
+    if (
+        "http error 403" in msg_lower
+        or "http error 429" in msg_lower
+        or "too many requests" in msg_lower
+        or "empty media response" in msg_lower
+    ):
         return "rate_limited", msg
 
     # Follow-gated content is permanently inaccessible to the anonymous
     # extraction path — without this it churned forever as retryable unknown.
-    if 'private' in msg_lower or 'only available for registered users' in msg_lower:
+    if "private" in msg_lower or "only available for registered users" in msg_lower:
         return "private", msg
 
     # Instagram's own ruling for a post it shows only to logged-in viewers
     # ("This content isn't available to everyone: It can't be seen by certain
     # audiences"). It fell through to "unknown" until 2026-09-21; as a login
     # wall it now triggers the retry with the session cookies.
-    if ("isn't available to everyone" in msg_lower or 'certain audiences' in msg_lower
-            or 'login required' in msg_lower or 'log in' in msg_lower
-            or 'logged-in' in msg_lower):
+    if (
+        "isn't available to everyone" in msg_lower
+        or "certain audiences" in msg_lower
+        or "login required" in msg_lower
+        or "log in" in msg_lower
+        or "logged-in" in msg_lower
+    ):
         return "login_required", msg
 
-    if any(kw in msg_lower for kw in ('unavailable', 'removed', 'deleted', 'not found',
-                                       'does not exist', 'page not found')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "unavailable",
+            "removed",
+            "deleted",
+            "not found",
+            "does not exist",
+            "page not found",
+        )
+    ):
         return "removed", msg
 
-    if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
-                                       'ssl', 'certificate', 'dns', 'reset by peer')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "timed out",
+            "timeout",
+            "connection",
+            "network",
+            "ssl",
+            "certificate",
+            "dns",
+            "reset by peer",
+        )
+    ):
         return "network", msg
 
     return "unknown", msg
-
-
 
 
 def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
@@ -253,8 +277,6 @@ def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataF
 def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
     """Remove any partial download files for an item from the temp directory."""
     cleanup_temp_files(temp_dir, item_id)
-
-
 
 
 def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
@@ -270,31 +292,32 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
         # the *scraping machine's* local time, so the same video would get a
         # different create_time on Cloud Run than on a local drain.
         create_time = datetime.fromtimestamp(
-            int(info.get('timestamp', 0)), tz=timezone.utc,
+            int(info.get("timestamp", 0)),
+            tz=timezone.utc,
         ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)
 
     row = {
-        'item_id': str(item_id),
-        'desc': info.get('description', '') or '',
-        'create_time_raw': create_time,
+        "item_id": str(item_id),
+        "desc": info.get("description", "") or "",
+        "create_time_raw": create_time,
         # Float: the download phase may backfill an ffprobe'd fractional value.
-        'duration_raw': float(info.get('duration') or -1),
+        "duration_raw": float(info.get("duration") or -1),
         # yt-dlp ≥2026.7 fills uploader_id with the numeric user pk and channel
         # with the @username (older versions had the username in uploader_id).
-        'author_id': str(info.get('uploader_id', '') or info.get('channel_id', '') or ''),
-        'ig_author_handle': str(info.get('channel', '') or info.get('uploader_id', '') or ''),
-        'author_name_raw': str(info.get('uploader', '') or info.get('channel', '') or ''),
-        'play_count_raw': info.get('view_count') if info.get('view_count') is not None else -1,
-        'ig_like_count': info.get('like_count') if info.get('like_count') is not None else -1,
-        'ig_comment_count': info.get('comment_count') if info.get('comment_count') is not None else -1,
-        'video_downloaded': False,
-        'last_modified': datetime.now(),
+        "author_id": str(info.get("uploader_id", "") or info.get("channel_id", "") or ""),
+        "ig_author_handle": str(info.get("channel", "") or info.get("uploader_id", "") or ""),
+        "author_name_raw": str(info.get("uploader", "") or info.get("channel", "") or ""),
+        "play_count_raw": info.get("view_count") if info.get("view_count") is not None else -1,
+        "ig_like_count": info.get("like_count") if info.get("like_count") is not None else -1,
+        "ig_comment_count": info.get("comment_count")
+        if info.get("comment_count") is not None
+        else -1,
+        "video_downloaded": False,
+        "last_modified": datetime.now(),
     }
     return pd.DataFrame([row])
-
-
 
 
 def _login_gated(category: str, detail: str) -> bool:
@@ -304,7 +327,7 @@ def _login_gated(category: str, detail: str) -> bool:
     the cookies attached it means throttling — but anonymously yt-dlp itself
     says the post may need a login, and on 2026-09-21 every sampled one did.
     """
-    return category == "login_required" or 'empty media response' in (detail or '').lower()
+    return category == "login_required" or "empty media response" in (detail or "").lower()
 
 
 def _extract_metadata(url: str, item_id: str, verbose: bool = False):
@@ -317,20 +340,25 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
     (metadata + image thumbnails) instead of raising ``no_video``.
     """
     info, fail = _extract_metadata_as(url, item_id, {}, verbose=verbose)
-    if fail is None or not _login_gated(fail.attrs.get('error_type'), fail.attrs.get('error_detail')):
+    if fail is None or not _login_gated(
+        fail.attrs.get("error_type"), fail.attrs.get("error_detail")
+    ):
         return info, fail
     cookies = scraper_cookies.cookie_opts("instagram")
     if not cookies:
         return info, fail
     if _SESSION_DEAD.is_set():
-        return None, _empty_fail(SESSION_EXPIRED,
-                                 "hidden from logged-out viewers, and the session was logged "
-                                 "out earlier in this run — not retried with the cookies")
-    logger.info("Scrape %s: hidden from logged-out viewers — retrying with the session cookies",
-                item_id)
+        return None, _empty_fail(
+            SESSION_EXPIRED,
+            "hidden from logged-out viewers, and the session was logged "
+            "out earlier in this run — not retried with the cookies",
+        )
+    logger.info(
+        "Scrape %s: hidden from logged-out viewers — retrying with the session cookies", item_id
+    )
     info, fail = _extract_metadata_as(url, item_id, cookies, verbose=verbose)
     if info is not None:
-        info['_fyp_authenticated'] = True
+        info["_fyp_authenticated"] = True
     return info, fail
 
 
@@ -346,38 +374,45 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
     logged-in requests this run.
     """
     ydl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **cookies,
-        'skip_download': True,
-        'no_color': True,
-        'format': _FORMAT,
-        'ignore_no_formats_error': True,
-        'extractor_retries': 3,
-        'socket_timeout': 30,
+        "skip_download": True,
+        "no_color": True,
+        "format": _FORMAT,
+        "ignore_no_formats_error": True,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
     }
 
     for attempt in range(_META_MAX_RETRIES):
         if cookies:
             if _SESSION_DEAD.is_set():
-                return None, _empty_fail(SESSION_EXPIRED, "the session was logged out earlier "
-                                                          "in this run — not retried")
+                return None, _empty_fail(
+                    SESSION_EXPIRED, "the session was logged out earlier in this run — not retried"
+                )
             _pace_authenticated()
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=False), None
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
-            logger.warning("Scrape %s metadata attempt %d/%d failed%s: [%s] %s",
-                           item_id, attempt + 1, _META_MAX_RETRIES,
-                           " (with cookies)" if cookies else "", category, detail)
+            logger.warning(
+                "Scrape %s metadata attempt %d/%d failed%s: [%s] %s",
+                item_id,
+                attempt + 1,
+                _META_MAX_RETRIES,
+                " (with cookies)" if cookies else "",
+                category,
+                detail,
+            )
             if cookies and _session_logged_out(detail):
                 _mark_session_dead(item_id)
                 return None, _empty_fail(SESSION_EXPIRED, detail)
             if category == "login_required" or (not cookies and _login_gated(category, detail)):
                 return None, _empty_fail(category, detail)
             if category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
-                backoff = 3 * (2 ** attempt)
+                backoff = 3 * (2**attempt)
                 logger.info("Retrying %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
@@ -387,8 +422,6 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
             return None, _empty_fail("unknown", str(e))
 
     return None, _empty_fail("extraction", "No info returned by yt-dlp")
-
-
 
 
 def _probe_duration(path: str) -> float | None:
@@ -402,16 +435,25 @@ def _probe_duration(path: str) -> float | None:
 
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", path],
-            capture_output=True, text=True, timeout=30)
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         duration = float(result.stdout.strip())
         return duration if duration > 0 else None
     except Exception as e:
         logger.debug("ffprobe duration failed for %s: %s", path, e)
         return None
-
-
 
 
 def _download_media(
@@ -444,42 +486,49 @@ def _download_media(
         permanent. ``duration`` is ffprobe'd from the downloaded file (``None``
         on failure or when the probe yields nothing).
     """
-    temp_dir = _cf()['paths']['temp']
+    temp_dir = _cf()["paths"]["temp"]
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
     dl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **(scraper_cookies.cookie_opts("instagram") if authenticated else {}),
-        'outtmpl': out_template,
-        'no_color': True,
-        'overwrites': True,
-        'format': _FORMAT,
-        'merge_output_format': 'mp4',
-        'retries': 3,
-        'socket_timeout': 30,
+        "outtmpl": out_template,
+        "no_color": True,
+        "overwrites": True,
+        "format": _FORMAT,
+        "merge_output_format": "mp4",
+        "retries": 3,
+        "socket_timeout": 30,
     }
 
     for attempt in range(_DL_MAX_RETRIES):
         reuse = info is not None and attempt == 0
         if authenticated and not reuse:
             if _SESSION_DEAD.is_set():
-                return (False, SESSION_EXPIRED, "the session was logged out earlier in this "
-                        "run — not re-extracted with the cookies", None)
+                return (
+                    False,
+                    SESSION_EXPIRED,
+                    "the session was logged out earlier in this "
+                    "run — not re-extracted with the cookies",
+                    None,
+                )
             _pace_authenticated()
         try:
             with yt_dlp.YoutubeDL(dl_opts) as ydl:
                 if reuse:
                     ydl.process_ie_result(
-                        {k: v for k, v in info.items() if not k.startswith('_fyp_')},
-                        download=True)
+                        {k: v for k, v in info.items() if not k.startswith("_fyp_")}, download=True
+                    )
                 else:
                     ydl.download([url])
 
             downloaded = join(temp_dir, f"{item_id}.mp4")
             if not exists(downloaded):
                 candidates = glob(join(temp_dir, f"{item_id}.*"))
-                mp4_candidates = [c for c in candidates if c.endswith('.mp4')]
-                downloaded = mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
+                downloaded = (
+                    mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                )
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
@@ -507,14 +556,20 @@ def _download_media(
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
-            logger.warning("Scrape %s download attempt %d/%d failed: [%s] %s",
-                           item_id, attempt + 1, _DL_MAX_RETRIES, category, detail)
+            logger.warning(
+                "Scrape %s download attempt %d/%d failed: [%s] %s",
+                item_id,
+                attempt + 1,
+                _DL_MAX_RETRIES,
+                category,
+                detail,
+            )
             _cleanup_temp_files(temp_dir, item_id)
             if authenticated and not reuse and _session_logged_out(detail):
                 _mark_session_dead(item_id)
                 return False, SESSION_EXPIRED, detail, None
             if category in _RETRYABLE and attempt < _DL_MAX_RETRIES - 1:
-                backoff = 3 * (3 ** attempt)
+                backoff = 3 * (3**attempt)
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
@@ -528,21 +583,19 @@ def _download_media(
     return False, "unknown", "download retries exhausted", None
 
 
-
-
 # -------------------------------------------------------------------------
 # Page-JSON count supplementation (the TikTok _fetch_item_struct analogue)
 # -------------------------------------------------------------------------
 
 _PAGE_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                  'AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
 # Keys Instagram has used for the reel/video view counter, in preference order.
-_PLAY_COUNT_KEYS = ('play_count', 'ig_play_count', 'video_view_count', 'view_count')
+_PLAY_COUNT_KEYS = ("play_count", "ig_play_count", "video_view_count", "view_count")
 
 
 def _walk_for_media_node(node, item_id: str) -> dict | None:
@@ -556,14 +609,12 @@ def _walk_for_media_node(node, item_id: str) -> dict | None:
     while stack:
         cur = stack.pop()
         if isinstance(cur, dict):
-            if cur.get('code') == item_id and any(k in cur for k in _PLAY_COUNT_KEYS):
+            if cur.get("code") == item_id and any(k in cur for k in _PLAY_COUNT_KEYS):
                 return cur
             stack.extend(cur.values())
         elif isinstance(cur, list):
             stack.extend(cur)
     return None
-
-
 
 
 def _fetch_page_counts(url: str, item_id: str) -> dict | None:
@@ -593,8 +644,6 @@ def _fetch_page_counts(url: str, item_id: str) -> dict | None:
     return _parse_page_counts(html_text, item_id)
 
 
-
-
 def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
     """Extract engagement counts from a post page's HTML (pure, no network).
 
@@ -604,8 +653,8 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
     from bs4 import BeautifulSoup
 
     try:
-        soup = BeautifulSoup(html_text, 'html.parser')
-        for script in soup.find_all('script', attrs={'type': 'application/json'}):
+        soup = BeautifulSoup(html_text, "html.parser")
+        for script in soup.find_all("script", attrs={"type": "application/json"}):
             blob = script.string
             if not blob or item_id not in blob:
                 continue
@@ -618,9 +667,13 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
                 continue
             play = next((node[k] for k in _PLAY_COUNT_KEYS if node.get(k) is not None), None)
             counts = {
-                'play_count': int(play) if play is not None else None,
-                'like_count': int(node['like_count']) if node.get('like_count') is not None else None,
-                'comment_count': int(node['comment_count']) if node.get('comment_count') is not None else None,
+                "play_count": int(play) if play is not None else None,
+                "like_count": int(node["like_count"])
+                if node.get("like_count") is not None
+                else None,
+                "comment_count": int(node["comment_count"])
+                if node.get("comment_count") is not None
+                else None,
             }
             if any(v is not None for v in counts.values()):
                 logger.info("Page JSON counts extracted for %s: %s", item_id, counts)
@@ -633,14 +686,12 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
         m = re.search(r'"(?:ig_play_count|play_count|video_view_count)"\s*:\s*(\d+)', html_text)
         if m:
             logger.info("Page regex play_count extracted for %s: %s", item_id, m.group(1))
-            return {'play_count': int(m.group(1)), 'like_count': None, 'comment_count': None}
+            return {"play_count": int(m.group(1)), "like_count": None, "comment_count": None}
     except Exception:
         pass
 
     logger.info("No page counts found for %s", item_id)
     return None
-
-
 
 
 # -------------------------------------------------------------------------
@@ -673,9 +724,7 @@ _IG_WEB_APP_ID = "936619743392459"
 _MEDIA_INFO_URL = "https://www.instagram.com/api/v1/media/{pk}/info/"
 
 # base64 alphabet Instagram uses to encode the numeric media pk as a shortcode.
-_SHORTCODE_ALPHABET = (
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-)
+_SHORTCODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 # Media-info play-count keys in preference order: play_count is the "views"
 # Instagram now shows, ig_play_count is the reels-plays variant, view_count is
@@ -706,8 +755,6 @@ def _shortcode_to_mediaid(shortcode: str) -> int | None:
     return mediaid
 
 
-
-
 def _csrftoken_from_jar(jar) -> str | None:
     """Return the '.instagram.com' csrftoken value from a cookie jar.
 
@@ -719,14 +766,10 @@ def _csrftoken_from_jar(jar) -> str | None:
     return values.get(".instagram.com") or next(iter(values.values()), None)
 
 
-
-
 def _media_info_circuit_open() -> bool:
     """Whether the circuit breaker has paused count supplementation."""
     with _MEDIA_INFO_LOCK:
         return _MEDIA_INFO_CIRCUIT_OPEN
-
-
 
 
 def _note_media_info_block(item_id: str, status) -> None:
@@ -740,12 +783,18 @@ def _note_media_info_block(item_id: str, status) -> None:
             logger.warning(
                 "IG media-info: %d consecutive blocks (last HTTP %s on %s) — pausing "
                 "count supplementation for the rest of this batch.",
-                count, status, item_id)
+                count,
+                status,
+                item_id,
+            )
         else:
-            logger.warning("IG media-info blocked (HTTP %s) for %s [%d/%d]",
-                           status, item_id, count, _MEDIA_INFO_MAX_CONSECUTIVE_BLOCKS)
-
-
+            logger.warning(
+                "IG media-info blocked (HTTP %s) for %s [%d/%d]",
+                status,
+                item_id,
+                count,
+                _MEDIA_INFO_MAX_CONSECUTIVE_BLOCKS,
+            )
 
 
 def _reset_media_info_blocks() -> None:
@@ -754,8 +803,6 @@ def _reset_media_info_blocks() -> None:
     if _MEDIA_INFO_CONSECUTIVE_BLOCKS:
         with _MEDIA_INFO_LOCK:
             _MEDIA_INFO_CONSECUTIVE_BLOCKS = 0
-
-
 
 
 def _parse_media_info_counts(payload: dict, item_id: str) -> dict | None:
@@ -768,14 +815,14 @@ def _parse_media_info_counts(payload: dict, item_id: str) -> dict | None:
     counts = {
         "play_count": int(play) if play is not None else None,
         "like_count": int(media["like_count"]) if media.get("like_count") is not None else None,
-        "comment_count": int(media["comment_count"]) if media.get("comment_count") is not None else None,
+        "comment_count": int(media["comment_count"])
+        if media.get("comment_count") is not None
+        else None,
     }
     if any(v is not None for v in counts.values()):
         logger.info("IG media-info counts for %s: %s", item_id, counts)
         return counts
     return None
-
-
 
 
 def _fetch_media_info_payload(item_id: str) -> tuple[dict | None, str | None]:
@@ -813,8 +860,7 @@ def _fetch_media_info_payload(item_id: str) -> tuple[dict | None, str | None]:
     try:
         # Randomized delay before each authenticated call (throttle-hard).
         sleep(random.uniform(1.5, 4.0))
-        resp = requests_get(_MEDIA_INFO_URL.format(pk=pk), headers=headers,
-                            cookies=jar, timeout=20)
+        resp = requests_get(_MEDIA_INFO_URL.format(pk=pk), headers=headers, cookies=jar, timeout=20)
     except Exception as e:
         logger.debug("IG media-info fetch failed for %s: %s", item_id, e)
         return None, "network"
@@ -840,8 +886,6 @@ def _fetch_media_info_payload(item_id: str) -> tuple[dict | None, str | None]:
     return payload, None
 
 
-
-
 def _fetch_media_info_counts(item_id: str) -> dict | None:
     """Fetch play/like/comment counts from the authenticated media-info endpoint.
 
@@ -859,8 +903,6 @@ def _fetch_media_info_counts(item_id: str) -> dict | None:
     return _parse_media_info_counts(payload, item_id)
 
 
-
-
 # -------------------------------------------------------------------------
 # Image-only posts (photos and carousels → orchestrator-assembled slideshows)
 # -------------------------------------------------------------------------
@@ -873,14 +915,12 @@ def _best_thumbnail_url(media: dict) -> str | None:
     ``image_versions2.candidates`` list, so the last entry is the largest
     rendition; explicit widths win when present.
     """
-    thumbs = [t for t in (media.get('thumbnails') or []) if t.get('url')]
+    thumbs = [t for t in (media.get("thumbnails") or []) if t.get("url")]
     if not thumbs:
         return None
-    if any(t.get('width') for t in thumbs):
-        return max(thumbs, key=lambda t: t.get('width') or 0)['url']
-    return thumbs[-1]['url']
-
-
+    if any(t.get("width") for t in thumbs):
+        return max(thumbs, key=lambda t: t.get("width") or 0)["url"]
+    return thumbs[-1]["url"]
 
 
 def _image_urls_from_info(info: dict) -> list[str]:
@@ -892,22 +932,20 @@ def _image_urls_from_info(info: dict) -> list[str]:
     a duration) yields nothing — video segments in mixed carousels are skipped
     (phase 2) and a plain video post returns ``[]``.
     """
-    if info.get('_type') == 'playlist':
+    if info.get("_type") == "playlist":
         urls = []
-        for entry in info.get('entries') or []:
-            if not entry or entry.get('formats') or entry.get('duration'):
+        for entry in info.get("entries") or []:
+            if not entry or entry.get("formats") or entry.get("duration"):
                 continue
             url = _best_thumbnail_url(entry)
             if url:
                 urls.append(url)
         return urls
 
-    if info.get('formats') or info.get('duration'):
+    if info.get("formats") or info.get("duration"):
         return []
     url = _best_thumbnail_url(info)
     return [url] if url else []
-
-
 
 
 def _download_images(
@@ -928,8 +966,8 @@ def _download_images(
     _CHUNK = 8 * 1024 * 1024
 
     headers = {
-        'User-Agent': _PAGE_HEADERS['User-Agent'],
-        'Referer': 'https://www.instagram.com/',
+        "User-Agent": _PAGE_HEADERS["User-Agent"],
+        "Referer": "https://www.instagram.com/",
     }
 
     cookies = scraper_cookies.requests_cookiejar("instagram")
@@ -941,16 +979,18 @@ def _download_images(
                 sleep(random.uniform(0.5, 1.5))
             image_fn = f"{item_id}_{k + 1:02}.jpeg"
             if stream_to_bucket is None:
-                resp = requests_get(one_image, allow_redirects=True, headers=headers,
-                                    cookies=cookies, timeout=60)
-                with open(join(save_path, image_fn), 'wb') as f:
+                resp = requests_get(
+                    one_image, allow_redirects=True, headers=headers, cookies=cookies, timeout=60
+                )
+                with open(join(save_path, image_fn), "wb") as f:
                     f.write(resp.content)
                 written.append(join(save_path, image_fn))
             else:
-                resp = requests_get(one_image, headers=headers, cookies=cookies,
-                                    stream=True, timeout=60)
+                resp = requests_get(
+                    one_image, headers=headers, cookies=cookies, stream=True, timeout=60
+                )
                 blob = stream_to_bucket.blob(f"{save_path}/{image_fn}")
-                with blob.open('wb') as gcs_file:
+                with blob.open("wb") as gcs_file:
                     for chunk in resp.iter_content(chunk_size=_CHUNK):
                         if chunk:
                             gcs_file.write(chunk)
@@ -974,8 +1014,6 @@ def _download_images(
         return False
 
 
-
-
 # Raw column names → canonical base names. The raw ig_* counts/handle translate
 # to the generic base fields here (the raw names stay in _info_to_row and the
 # -1 supplementation step, which run pre-canonicalization).
@@ -989,8 +1027,6 @@ _RAW_TO_CANONICAL: dict[str, str] = {
     "ig_comment_count": "comment_count",
     "ig_author_handle": "author_handle",
 }
-
-
 
 
 class InstagramScraper(BaseScraper):
@@ -1012,10 +1048,8 @@ class InstagramScraper(BaseScraper):
     slideshow_image_column = "image_list"
     residential_ip_only = True
 
-
     def item_url(self, item_id: str) -> str:
         return self.url_template.format(item_id=item_id)
-
 
     def fetch(
         self,
@@ -1039,15 +1073,19 @@ class InstagramScraper(BaseScraper):
         image_urls = _image_urls_from_info(info)
         if image_urls:
             return self._fetch_image_post(
-                info, image_urls, item_id, save_media=save_media,
-                save_path=save_path, stream_to_bucket=stream_to_bucket,
-                verbose=verbose)
-        if info.get('_type') == 'playlist':
+                info,
+                image_urls,
+                item_id,
+                save_media=save_media,
+                save_path=save_path,
+                stream_to_bucket=stream_to_bucket,
+                verbose=verbose,
+            )
+        if info.get("_type") == "playlist":
             # A carousel with no image segments (all-video) — nothing phase 1
             # can fetch. Single posts drop through to the video path, whose
             # download phase classifies its own failure.
-            return _empty_fail("no_video",
-                               "carousel has no image segments to fetch")
+            return _empty_fail("no_video", "carousel has no image segments to fetch")
 
         data_row = _info_to_row(info, item_id)
 
@@ -1055,46 +1093,59 @@ class InstagramScraper(BaseScraper):
         # sometimes no like/comment counts). Supplement the -1 sentinels from the
         # authenticated media-info endpoint first (it carries play_count), falling
         # back to the page-JSON walk when that yields nothing.
-        if (data_row.loc[0, 'play_count_raw'] == -1
-                or data_row.loc[0, 'ig_like_count'] == -1
-                or data_row.loc[0, 'ig_comment_count'] == -1):
+        if (
+            data_row.loc[0, "play_count_raw"] == -1
+            or data_row.loc[0, "ig_like_count"] == -1
+            or data_row.loc[0, "ig_comment_count"] == -1
+        ):
             counts = _fetch_media_info_counts(item_id) or _fetch_page_counts(url, item_id)
             if counts:
-                if counts.get('play_count') is not None and data_row.loc[0, 'play_count_raw'] == -1:
-                    data_row.loc[0, 'play_count_raw'] = counts['play_count']
-                if counts.get('like_count') is not None and data_row.loc[0, 'ig_like_count'] == -1:
-                    data_row.loc[0, 'ig_like_count'] = counts['like_count']
-                if counts.get('comment_count') is not None and data_row.loc[0, 'ig_comment_count'] == -1:
-                    data_row.loc[0, 'ig_comment_count'] = counts['comment_count']
+                if counts.get("play_count") is not None and data_row.loc[0, "play_count_raw"] == -1:
+                    data_row.loc[0, "play_count_raw"] = counts["play_count"]
+                if counts.get("like_count") is not None and data_row.loc[0, "ig_like_count"] == -1:
+                    data_row.loc[0, "ig_like_count"] = counts["like_count"]
+                if (
+                    counts.get("comment_count") is not None
+                    and data_row.loc[0, "ig_comment_count"] == -1
+                ):
+                    data_row.loc[0, "ig_comment_count"] = counts["comment_count"]
 
         if not save_media:
             return data_row
 
-        duration = data_row.loc[0, 'duration_raw']
+        duration = data_row.loc[0, "duration_raw"]
         if not self.should_download_media(duration):
-            logger.info("Item '%s' duration (%ss) exceeds %ss cap. Skipping download.",
-                        item_id, duration, self.media_duration_cap())
+            logger.info(
+                "Item '%s' duration (%ss) exceeds %ss cap. Skipping download.",
+                item_id,
+                duration,
+                self.media_duration_cap(),
+            )
             return data_row
 
         ok, media_category, media_detail, media_duration = _download_media(
-            url, item_id, save_path,
-            stream_to_bucket=stream_to_bucket, verbose=verbose,
-            authenticated=bool(info.get('_fyp_authenticated')), info=info)
+            url,
+            item_id,
+            save_path,
+            stream_to_bucket=stream_to_bucket,
+            verbose=verbose,
+            authenticated=bool(info.get("_fyp_authenticated")),
+            info=info,
+        )
         if ok:
-            data_row.loc[0, 'video_downloaded'] = True
+            data_row.loc[0, "video_downloaded"] = True
             # Backfill the duration metadata extraction no longer returns
             # from the downloaded file itself.
-            current = data_row.loc[0, 'duration_raw']
+            current = data_row.loc[0, "duration_raw"]
             if media_duration and (pd.isna(current) or current < 1):
-                data_row.loc[0, 'duration_raw'] = media_duration
+                data_row.loc[0, "duration_raw"] = media_duration
         else:
             # Metadata row is still saved; the orchestrator uses these attrs
             # to keep transient media failures queued for retry (see
             # BaseScraper.fetch contract).
-            data_row.attrs['media_error_type'] = media_category
-            data_row.attrs['media_error_detail'] = media_detail
+            data_row.attrs["media_error_type"] = media_category
+            data_row.attrs["media_error_detail"] = media_detail
         return data_row
-
 
     def _fetch_image_post(
         self,
@@ -1117,25 +1168,23 @@ class InstagramScraper(BaseScraper):
         transient ``carousel`` so the whole post is retried.
         """
         data_row = _info_to_row(info, item_id)
-        data_row.loc[0, 'image_list'] = " | ".join(image_urls)
+        data_row.loc[0, "image_list"] = " | ".join(image_urls)
 
         if not save_media:
             return data_row
 
         # No media_duration_cap check: slideshow duration is image_count × 2s
         # (≤ ~20s for the largest carousels), always far under any cap.
-        ok = _download_images(image_urls, item_id, save_path,
-                              stream_to_bucket=stream_to_bucket, verbose=verbose)
+        ok = _download_images(
+            image_urls, item_id, save_path, stream_to_bucket=stream_to_bucket, verbose=verbose
+        )
         if not ok:
-            return _empty_fail("carousel",
-                               f"failed downloading {len(image_urls)} carousel images")
-        data_row.loc[0, 'video_downloaded'] = True
+            return _empty_fail("carousel", f"failed downloading {len(image_urls)} carousel images")
+        data_row.loc[0, "video_downloaded"] = True
         return data_row
-
 
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         return raw.rename(columns=_RAW_TO_CANONICAL)
-
 
     def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
         """Raw fix-ups: image_list URLs → count (+ slideshow duration), -1 → NA.
@@ -1145,18 +1194,20 @@ class InstagramScraper(BaseScraper):
         count, and image posts get ``duration = count × 2s`` — matching the
         slideshow the orchestrator assembles.
         """
-        if 'image_list' in df.columns:
-            df['image_list'] = df['image_list'].map(
-                lambda x: len(x.split("|")) if isinstance(x, str) and x else 0
-            ).astype("int64[pyarrow]")
-            mask = (df['image_list'] > 0).fillna(False)
-            if 'duration_raw' in df.columns:
-                df.loc[mask, 'duration_raw'] = (
-                    df.loc[mask, 'image_list'] * SLIDESHOW_SECONDS_PER_IMAGE)
-        if 'duration_raw' in df.columns:
-            df.loc[(df['duration_raw'] < 1).fillna(False), 'duration_raw'] = pd.NA
+        if "image_list" in df.columns:
+            df["image_list"] = (
+                df["image_list"]
+                .map(lambda x: len(x.split("|")) if isinstance(x, str) and x else 0)
+                .astype("int64[pyarrow]")
+            )
+            mask = (df["image_list"] > 0).fillna(False)
+            if "duration_raw" in df.columns:
+                df.loc[mask, "duration_raw"] = (
+                    df.loc[mask, "image_list"] * SLIDESHOW_SECONDS_PER_IMAGE
+                )
+        if "duration_raw" in df.columns:
+            df.loc[(df["duration_raw"] < 1).fillna(False), "duration_raw"] = pd.NA
         return df
-
 
     def classify_error(self, error_type: str | None) -> str:
         if error_type is None:
@@ -1164,16 +1215,13 @@ class InstagramScraper(BaseScraper):
         bucket = "permanent" if error_type in _PERMANENT else "transient"
         return f"{bucket}:{error_type}"
 
-
     def repair_counts(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
-
 
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
         # One authenticated session shared by all threads; Instagram bans
         # aggressively, so the ceiling stays very low regardless of workers.
         return (min(max_workers, 2), 1, 3)
-
 
     def health_check(self) -> dict | None:
         # Public posts scrape anonymously, but posts Instagram hides from
@@ -1181,20 +1229,21 @@ class InstagramScraper(BaseScraper):
         # so their state is worth monitoring again. Without them those posts
         # churn in the queue until the retry budget gives up on them.
         health = scraper_cookies.cookie_health("instagram", session_cookie="sessionid")
-        health["message"] = (f"{health.get('message', '')} Public posts scrape anonymously; "
-                             f"the cookies are needed for posts hidden from logged-out "
-                             f"viewers.").strip()
+        health["message"] = (
+            f"{health.get('message', '')} Public posts scrape anonymously; "
+            f"the cookies are needed for posts hidden from logged-out "
+            f"viewers."
+        ).strip()
         return health
-
 
     def media_probe_url(self, item_id: str) -> dict | None:
         ydl_opts: dict = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'no_color': True,
-            'socket_timeout': 30,
-            'format': 'best[ext=mp4]/best',
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "no_color": True,
+            "socket_timeout": 30,
+            "format": "best[ext=mp4]/best",
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(self.item_url(item_id), download=False)

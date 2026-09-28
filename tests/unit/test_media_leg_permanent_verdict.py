@@ -39,13 +39,25 @@ STORM_THRESHOLD = 5
 
 def _metadata_row(item_id: str, media_error: str | None = None) -> pd.DataFrame:
     """A >10-column single-row frame like a real fetch result."""
-    row = pd.DataFrame([{
-        "item_id": item_id, "desc": "x", "create_time_raw": pd.Timestamp("2026-01-01"),
-        "duration_raw": 30, "author_id": "a", "yt_author_handle": "@a",
-        "author_name_raw": "A", "play_count_raw": 1, "yt_like_count": 0,
-        "yt_comment_count": 0, "yt_channel_follower_count": 0,
-        "yt_categories": "", "video_downloaded": media_error is None,
-    }])
+    row = pd.DataFrame(
+        [
+            {
+                "item_id": item_id,
+                "desc": "x",
+                "create_time_raw": pd.Timestamp("2026-01-01"),
+                "duration_raw": 30,
+                "author_id": "a",
+                "yt_author_handle": "@a",
+                "author_name_raw": "A",
+                "play_count_raw": 1,
+                "yt_like_count": 0,
+                "yt_comment_count": 0,
+                "yt_channel_follower_count": 0,
+                "yt_categories": "",
+                "video_downloaded": media_error is None,
+            }
+        ]
+    )
     if media_error is not None:
         row.attrs["media_error_type"] = media_error
         row.attrs["media_error_detail"] = "simulated"
@@ -53,19 +65,21 @@ def _metadata_row(item_id: str, media_error: str | None = None) -> pd.DataFrame:
 
 
 def _run_batch(ids, fake_dl, max_workers=2, **extra_patches):
-    with patch.object(scrape, "download_single_video", side_effect=fake_dl), \
-         patch.object(scrape, "_permanent_storm_threshold", return_value=STORM_THRESHOLD), \
-         patch.object(scrape.scrape_versioning, "ensure_active_version_registered",
-                      lambda: None), \
-         patch.object(YouTubeScraper, "inter_request_delay", return_value=0.0):
+    with (
+        patch.object(scrape, "download_single_video", side_effect=fake_dl),
+        patch.object(scrape, "_permanent_storm_threshold", return_value=STORM_THRESHOLD),
+        patch.object(scrape.scrape_versioning, "ensure_active_version_registered", lambda: None),
+        patch.object(YouTubeScraper, "inter_request_delay", return_value=0.0),
+    ):
         return scrape.download_video_threads(
-            interesting_videos=ids, max_workers=max_workers,
-            dry_run=True, platform="youtube")
+            interesting_videos=ids, max_workers=max_workers, dry_run=True, platform="youtube"
+        )
 
 
 # --------------------------------------------------------------------------- #
 # Media-leg verdicts
 # --------------------------------------------------------------------------- #
+
 
 def test_permanent_media_verdict_keeps_item_queued():
     """'removed' on the media leg: row saved, id transient, never permanent."""
@@ -115,6 +129,7 @@ def test_media_success_is_not_a_retry():
 # Media-retry budget (sidecar helper)
 # --------------------------------------------------------------------------- #
 
+
 def _fake_data_io(tmp: str):
     class FakeIO:
         @staticmethod
@@ -131,8 +146,14 @@ def _fake_data_io(tmp: str):
                 return json.load(f)
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             path = FakeIO._p(filename)
             current = json.loads(json.dumps(default)) if default is not None else None
             if os.path.exists(path):
@@ -167,6 +188,7 @@ def test_charge_media_retry_bounds_and_clears():
 # --------------------------------------------------------------------------- #
 # Batch deadline
 # --------------------------------------------------------------------------- #
+
 
 def test_deadline_keeps_in_flight_rows_and_defers_the_rest():
     """Past the deadline: in-flight downloads land and are kept; un-started

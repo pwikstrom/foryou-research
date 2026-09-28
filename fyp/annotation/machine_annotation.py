@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Script Name: 
-Description: 
+Script Name:
+Description:
 Author: Patrik
-Date: 
+Date:
 """
 
 import collections
@@ -30,7 +30,7 @@ import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.gemini_client as gemini_client
 from fyp.core.logging_setup import get_logger
 
-#from fyp.organize_datasets import select_videos_from_study_dataset
+# from fyp.organize_datasets import select_videos_from_study_dataset
 from fyp.annotation.annotation_schema import (
     build_response_schema,
     flatten_structured,
@@ -54,18 +54,17 @@ def _gcf():
     return _cf()["machine"]["gemini"]
 
 
-
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = Path(_cf()['paths']['project_root']) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    sentinel = (
+        Path(_cf()["paths"]["project_root"]) / "tmp" / "graceful_stop" / f"{process_name}.stop"
+    )
     return sentinel.exists()
 
 
 def _machine_annotations_label() -> str:
     """Lazy accessor for the config-derived machine-annotations label."""
     return _cf()["labels"]["MACHINE_ANNOTATIONS_LABEL"]
-
-
 
 
 def __getattr__(name: str):
@@ -75,21 +74,12 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-
-
-
-
-
-
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
 # functions in this section call the machine and get the raw responses
 # *********************************************************************************************************
 # *********************************************************************************************************
-
-
-
 
 
 def invalidate_caches():
@@ -103,10 +93,6 @@ def invalidate_caches():
     """
     _gcf()["structured_generation_config"] = None
     _gcf()["client"] = None
-
-
-
-
 
 
 def initialize_machine():
@@ -125,14 +111,11 @@ def initialize_machine():
         try:
             http_options = google.genai.types.HttpOptions(
                 api_version=_gcf()["http_options_api_version"],
-                timeout=_gcf()["http_options_timeout"]
+                timeout=_gcf()["http_options_timeout"],
             )
-            _gcf()["client"] = gemini_client.make_client(
-                http_options=http_options
-            )
+            _gcf()["client"] = gemini_client.make_client(http_options=http_options)
 
             logger.info(f"Google Gemini initialized successfully (mode: {mode})")
-
 
         except Exception as e:
             logger.error(f"Could not initialize Gemini. Gemini won't be available. {e}")
@@ -165,10 +148,6 @@ def annotation_configured() -> tuple[bool, str]:
     return result.ok, result.reason
 
 
-
-
-
-
 def _resolve_media_resolution(value=None):
     """Map a ``media_resolution`` setting to a genai enum, or ``None``.
 
@@ -192,8 +171,6 @@ def _resolve_media_resolution(value=None):
     if not value.startswith("MEDIA_RESOLUTION_"):
         value = f"MEDIA_RESOLUTION_{value}"
     return getattr(google.genai.types.MediaResolution, value, None)
-
-
 
 
 def build_structured_generation_config(gen_overrides: dict | None = None):
@@ -239,8 +216,6 @@ def build_structured_generation_config(gen_overrides: dict | None = None):
     return gen_config
 
 
-
-
 # Transient failures (rate limits, 5xx, deadline/timeout, dropped connections)
 # can plausibly succeed on a retry; client errors (bad request, missing media,
 # auth, safety block) cannot and must fail fast.
@@ -261,8 +236,6 @@ _RETRYABLE_MARKERS = (
     "temporarily unavailable",
     "too many requests",
 )
-
-
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -287,8 +260,6 @@ def _is_transient_error(exc: Exception) -> bool:
         return True
     message = str(exc).lower()
     return any(marker in message for marker in _RETRYABLE_MARKERS)
-
-
 
 
 def _generate_with_retry(contents, gen_config, model: str | None = None):
@@ -333,24 +304,19 @@ def _generate_with_retry(contents, gen_config, model: str | None = None):
         except Exception as exc:
             if attempt >= max_retries or not _is_transient_error(exc):
                 raise
-            time.sleep(base_delay * (2 ** attempt) + random())
+            time.sleep(base_delay * (2**attempt) + random())
             attempt += 1
 
 
-
-
-
-
 def call_machine(
-        video_id: str = None,
-        use_local_video_file = False,
-        local_path: str | None = None,
-        verbose = False,
-        dry_run = False,
-        platform: str | None = None,
-        gen_overrides: dict | None = None,
-    ) -> dict:
-
+    video_id: str = None,
+    use_local_video_file=False,
+    local_path: str | None = None,
+    verbose=False,
+    dry_run=False,
+    platform: str | None = None,
+    gen_overrides: dict | None = None,
+) -> dict:
 
     initialize_machine()
 
@@ -359,19 +325,16 @@ def call_machine(
     gen_overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
     effective_model = gen_overrides.get("model") or _gcf()["model"]
 
-
     if dry_run:
         time.sleep(1)
         if verbose:
             logger.info(f"Dry run: would have annotated video {video_id}")
         return {
-            "item_id" : video_id,
-            "error" : "dry run",
+            "item_id": video_id,
+            "error": "dry run",
             "finish_reason": "dry run",
-            "response" : "dry run",
+            "response": "dry run",
         }
-
-
 
     # Platform of the item being annotated: drives media resolution and is
     # stamped onto the output row. Unmapped items fall back to the default
@@ -380,28 +343,28 @@ def call_machine(
 
     times = [_dt.datetime.now()]
     output = {
-        "item_id" : video_id,
-        "source_platform" : annotation_platform,
-        "inference_ts" : int(times[-1].timestamp()),
-        "inference_duration" : -1,
-        "model" : effective_model,
-        "prompt_fn" : annotation_versioning.active_prompt_label(),
-        "annotation_version" : annotation_versioning.active_annotation_version(),
-        "structured" : True,
-        "usage" : {},
+        "item_id": video_id,
+        "source_platform": annotation_platform,
+        "inference_ts": int(times[-1].timestamp()),
+        "inference_duration": -1,
+        "model": effective_model,
+        "prompt_fn": annotation_versioning.active_prompt_label(),
+        "annotation_version": annotation_versioning.active_annotation_version(),
+        "structured": True,
+        "usage": {},
         # None until an exception handler fills it — a successful call must
         # not report an error (nothing downstream reads this field; it exists
         # for humans debugging the raw output rows and temp JSONs).
-        "error" : None,
+        "error": None,
         "finish_reason": "did not even start",
-        "response" : "",
+        "response": "",
     }
 
     temp_fn = f"temp_machine_annotations_{output['item_id']}_{output['inference_ts']}.json"
 
     # The explicit kwarg is an override; otherwise the config flag decides.
-    effective_local = use_local_video_file or not _cf()['data_io']['use_gcs_for_media']
-    effective_local_dir = local_path or _cf()['paths']['media']
+    effective_local = use_local_video_file or not _cf()["data_io"]["use_gcs_for_media"]
+    effective_local_dir = local_path or _cf()["paths"]["media"]
 
     # Media may live at the per-platform subpath or the legacy flat path;
     # media_paths.resolve_media owns that fallback order.
@@ -426,14 +389,13 @@ def call_machine(
                 if resolved_media and resolved_media["kind"] == "local"
                 else os.path.join(effective_local_dir, f"{video_id}.mp4")
             )
-            with open(local_file,'rb') as f:
+            with open(local_file, "rb") as f:
                 video_bytes = f.read()
             contents = [
                 google.genai.types.Part(
-                    inline_data=google.genai.types.Blob(data=video_bytes,
-                    mime_type='video/mp4')
+                    inline_data=google.genai.types.Blob(data=video_bytes, mime_type="video/mp4")
                 ),
-                google.genai.types.Part.from_text(text="Analyze this video")
+                google.genai.types.Part.from_text(text="Analyze this video"),
             ]
         else:
             if resolved_media and resolved_media["kind"] == "gcs":
@@ -441,26 +403,23 @@ def call_machine(
             else:
                 file_uri = f"gs://{_cf()['data_io']['GCS_bucket_name']}/{_cf()['data_io']['gcs_media_prefix']}/{video_id}.mp4"
             contents = [
-                google.genai.types.Part.from_uri(
-                    file_uri=file_uri,
-                    mime_type="video/mp4"
-                ),
-                google.genai.types.Part.from_text(text="Analyze this video")
+                google.genai.types.Part.from_uri(file_uri=file_uri, mime_type="video/mp4"),
+                google.genai.types.Part.from_text(text="Analyze this video"),
             ]
 
     except Exception as e:
         output["error"] = str(e)
-        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), "w") as file:
             json.dump(output, file)
 
         return output
 
-
     # run the model
     try:
         start_ts = _dt.datetime.now()
-        resp = _generate_with_retry(contents, build_structured_generation_config(gen_overrides),
-                                    model=effective_model)
+        resp = _generate_with_retry(
+            contents, build_structured_generation_config(gen_overrides), model=effective_model
+        )
     except Exception as e:
         times += [_dt.datetime.now()]
 
@@ -475,16 +434,15 @@ def call_machine(
         else:
             output["finish_reason"] = "DNF - see error msg"
 
-        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), "w") as file:
             json.dump(output, file)
         return output
-
 
     try:
         the_finish_reason = str(resp.candidates[0].finish_reason)
     except (IndexError, AttributeError):
         the_finish_reason = "Finished, but don't know why"
-    
+
     times += [_dt.datetime.now()]
 
     try:
@@ -495,7 +453,7 @@ def call_machine(
         output["finish_reason"] = the_finish_reason
         output["response"] = resp
 
-        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
+        with open(os.path.join(_cf()["paths"]["temp"], temp_fn), "w") as file:
             json.dump(output, file)
         return output
 
@@ -513,39 +471,26 @@ def call_machine(
         }
 
     # save the json just in case everything crashes
-    with open(os.path.join(_cf()["paths"]["temp"], temp_fn), 'w') as file:
+    with open(os.path.join(_cf()["paths"]["temp"], temp_fn), "w") as file:
         json.dump(output, file)
 
     return output
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def call_machine_threads(
-        interesting_videos = None,
-        max_workers=50,
-        verbose=False,
-        notebook_mode = False,
-        dry_run = False,
-        batch_label: str | None = None,
-        cumulative_done: int = 0,
-        cumulative_total: int = 0,
-        cumulative_ok: int = 0,
-        cumulative_fail: int = 0,
-        reporter=None,
-        platform_by_id: dict[str, str] | None = None):
+    interesting_videos=None,
+    max_workers=50,
+    verbose=False,
+    notebook_mode=False,
+    dry_run=False,
+    batch_label: str | None = None,
+    cumulative_done: int = 0,
+    cumulative_total: int = 0,
+    cumulative_ok: int = 0,
+    cumulative_fail: int = 0,
+    reporter=None,
+    platform_by_id: dict[str, str] | None = None,
+):
 
     if notebook_mode:
         verbose = True
@@ -578,39 +523,46 @@ def call_machine_threads(
         # Sleeping for a bit with the first ones solves the problem.
         # (Local backends are sequential — no stagger needed.)
         if _is_gemini_api and idx < max_workers:
-            time.sleep(3+random()*max_workers/2)
+            time.sleep(3 + random() * max_workers / 2)
 
         if backend is not None:
             if dry_run:
                 time.sleep(1)
-                return idx, {"item_id": video, "error": "dry run",
-                             "finish_reason": "dry run", "response": "dry run"}
-            rr = backend.annotate_one(
-                str(video), platform=(platform_by_id or {}).get(str(video)))
+                return idx, {
+                    "item_id": video,
+                    "error": "dry run",
+                    "finish_reason": "dry run",
+                    "response": "dry run",
+                }
+            rr = backend.annotate_one(str(video), platform=(platform_by_id or {}).get(str(video)))
             return idx, rr
 
         t1 = _dt.datetime.now()
         rr = call_machine(
-            video_id = video,
-            dry_run = dry_run,
-            verbose = verbose,
-            platform = (platform_by_id or {}).get(str(video)),
+            video_id=video,
+            dry_run=dry_run,
+            verbose=verbose,
+            platform=(platform_by_id or {}).get(str(video)),
         )
 
         return idx, rr
 
-
-    _effective_model = (backend.effective_model_id() if backend is not None
-                        else _gcf()["model"])
+    _effective_model = backend.effective_model_id() if backend is not None else _gcf()["model"]
     if verbose:
         if dry_run:
             print("  [dry run] - ", end="", flush=True)
-        logger.info(f"Calling {_effective_model} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+        logger.info(
+            f"Calling {_effective_model} to annotate {len(interesting_videos):,} videos with {max_workers} threads."
+        )
 
     def _annotation_ok(fut):
         try:
             _, rr = fut.result()
-            return bool(rr) and bool(rr.get("response")) and not str(rr.get("finish_reason", "")).startswith("DNF")
+            return (
+                bool(rr)
+                and bool(rr.get("response"))
+                and not str(rr.get("finish_reason", "")).startswith("DNF")
+            )
         except Exception:
             return False
 
@@ -628,7 +580,7 @@ def call_machine_threads(
     # failures (sum of base*2^k for k < max_retries).
     _max_retries = int(_gcf().get("max_retries", 2))
     _retry_base_delay = float(_gcf().get("retry_base_delay", 2.0))
-    _retry_backoff = _retry_base_delay * (2 ** _max_retries - 1)
+    _retry_backoff = _retry_base_delay * (2**_max_retries - 1)
     batch_deadline = int(
         _waves * _per_call_seconds * _safety_margin + _startup_sleep + 60 + _retry_backoff
     )
@@ -647,7 +599,11 @@ def call_machine_threads(
             submit_times[fut] = time.time()
 
         monitor_thread = start_monitor(
-            futures, submit_times, interval=5, label="machine", bar_width=32,
+            futures,
+            submit_times,
+            interval=5,
+            label="machine",
+            bar_width=32,
             result_checker=_annotation_ok,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
@@ -717,30 +673,26 @@ def call_machine_threads(
         # Don't wait for stuck worker threads — they'll be killed at process exit
         ex.shutdown(wait=False, cancel_futures=True)
 
-
     if verbose:
         logger.info(f"Items processed: {len(results_by_index)}")
 
-
     # No raw file is written on a dry run (or an empty batch) — filename stays None.
     filename = None
-    if len(results_by_index)>0 and not dry_run:
-
+    if len(results_by_index) > 0 and not dry_run:
         fine_ts = "".join([k for k in str(_dt.datetime.now()) if k in "0123456789"])
 
         filename = f"{_machine_annotations_label()}_{fine_ts}.json"
 
-        data_io.save_json(data=results_by_index, storage_location="machine_annotations_raw", filename=filename, verbose=verbose)
+        data_io.save_json(
+            data=results_by_index,
+            storage_location="machine_annotations_raw",
+            filename=filename,
+            verbose=verbose,
+        )
         if verbose:
             logger.info(f"Saved raw machine annotations to '{filename}'")
 
-
-
     return results_by_index, filename
-
-
-
-
 
 
 # *********************************************************************************************************
@@ -749,13 +701,11 @@ def call_machine_threads(
 # I'm not using structured outputs because I understand that the machine is calling all the required bits
 # and pieces in the request at the same time if I'd do that. I want it to think about it sequentially. So
 # as a result it happens that the json like output structure is wrong and introduces labels and keys that
-# I don't want. This funciton is trying to figure out which columns are rare and try to merge them back 
-# into the dominant columns. 
+# I don't want. This funciton is trying to figure out which columns are rare and try to merge them back
+# into the dominant columns.
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
-
-
 
 
 # Minimum difflib name-similarity required to merge a rare (<10% populated)
@@ -765,12 +715,9 @@ def call_machine_threads(
 RARE_COLUMN_MERGE_MIN_SIMILARITY = 0.6
 
 
-
-
 def consolidate_rare_columns_from_gemini_output(
-        outputs_from_machine_df_in,
-        verbose=False,
-        notebook_mode = False):
+    outputs_from_machine_df_in, verbose=False, notebook_mode=False
+):
 
     if notebook_mode:
         verbose = True
@@ -784,37 +731,42 @@ def consolidate_rare_columns_from_gemini_output(
     This effectively merges stray keys back into their intended dominant columns and removes the redundant leftovers.
     """
 
-
     outputs_from_machine_df = outputs_from_machine_df_in.copy()
 
-    nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
+    nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(
+        outputs_from_machine_df
+    )
 
     if notebook_mode:
         logger.info(outputs_from_machine_df.shape)
-        logger.info(len(nonnull_ratio[nonnull_ratio<0.1]))
-        logger.info(nonnull_ratio[nonnull_ratio<0.1])
-        logger.info(len(nonnull_ratio[nonnull_ratio<0.5]))
-        logger.info(nonnull_ratio[nonnull_ratio<0.5])
-        logger.info(len(nonnull_ratio[nonnull_ratio<0.8]))
-        logger.info(nonnull_ratio[nonnull_ratio<0.8])
+        logger.info(len(nonnull_ratio[nonnull_ratio < 0.1]))
+        logger.info(nonnull_ratio[nonnull_ratio < 0.1])
+        logger.info(len(nonnull_ratio[nonnull_ratio < 0.5]))
+        logger.info(nonnull_ratio[nonnull_ratio < 0.5])
+        logger.info(len(nonnull_ratio[nonnull_ratio < 0.8]))
+        logger.info(nonnull_ratio[nonnull_ratio < 0.8])
 
-
-
-    nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
+    nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(
+        outputs_from_machine_df
+    )
 
     little_counter = 0
 
-    while(len(nonnull_ratio[nonnull_ratio<0.1]))>0 and little_counter<5:
+    while (len(nonnull_ratio[nonnull_ratio < 0.1])) > 0 and little_counter < 5:
         if verbose:
             logger.info(little_counter)
-            logger.info(len(nonnull_ratio[nonnull_ratio<0.1]))
+            logger.info(len(nonnull_ratio[nonnull_ratio < 0.1]))
 
-
-        for unusual_col_name in nonnull_ratio[nonnull_ratio<0.1].index:
+        for unusual_col_name in nonnull_ratio[nonnull_ratio < 0.1].index:
             try:
                 if verbose:
-                    logger.info(len(outputs_from_machine_df) - outputs_from_machine_df[unusual_col_name].isna().sum())
-                dominant_col_name, similarity = fyp_utils.best_similarity_match(unusual_col_name, nonnull_ratio[nonnull_ratio>0.9].index)
+                    logger.info(
+                        len(outputs_from_machine_df)
+                        - outputs_from_machine_df[unusual_col_name].isna().sum()
+                    )
+                dominant_col_name, similarity = fyp_utils.best_similarity_match(
+                    unusual_col_name, nonnull_ratio[nonnull_ratio > 0.9].index
+                )
 
                 # Only merge a rare column into a dominant one when their names are
                 # genuinely similar (a stray-key variant). Without this guard a
@@ -822,36 +774,36 @@ def consolidate_rare_columns_from_gemini_output(
                 # item_id — merges every real column into item_id and clears the
                 # values, collapsing the batch to item_id alone.
                 if dominant_col_name is not None and similarity >= RARE_COLUMN_MERGE_MIN_SIMILARITY:
-                    rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[~outputs_from_machine_df[unusual_col_name].isna()].loc[:,[dominant_col_name,unusual_col_name]]
+                    rows_w_nonnull_value_in_unusual_col = outputs_from_machine_df[
+                        ~outputs_from_machine_df[unusual_col_name].isna()
+                    ].loc[:, [dominant_col_name, unusual_col_name]]
 
                     for ii in rows_w_nonnull_value_in_unusual_col.index:
-                        if outputs_from_machine_df.loc[ii,dominant_col_name] is np.nan:
+                        if outputs_from_machine_df.loc[ii, dominant_col_name] is np.nan:
                             if verbose:
                                 logger.info(f"******* {ii} {dominant_col_name}")
-                            outputs_from_machine_df.loc[ii,dominant_col_name] = outputs_from_machine_df.loc[ii,unusual_col_name]
+                            outputs_from_machine_df.loc[ii, dominant_col_name] = (
+                                outputs_from_machine_df.loc[ii, unusual_col_name]
+                            )
                         else:
-                            outputs_from_machine_df.loc[ii,unusual_col_name] = np.nan
+                            outputs_from_machine_df.loc[ii, unusual_col_name] = np.nan
             except KeyError:
                 if verbose:
                     logger.error(f"ERROR: {unusual_col_name} doesn't seem to be among the columns")
 
-
             little_counter += 1
 
-
-        nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(outputs_from_machine_df)
-        outputs_from_machine_df.drop(nonnull_ratio[nonnull_ratio==0].index,axis=1,inplace=True, errors='ignore')
+        nonnull_ratio = (len(outputs_from_machine_df) - outputs_from_machine_df.isna().sum()) / len(
+            outputs_from_machine_df
+        )
+        outputs_from_machine_df.drop(
+            nonnull_ratio[nonnull_ratio == 0].index, axis=1, inplace=True, errors="ignore"
+        )
         if verbose:
             logger.info(outputs_from_machine_df.shape)
             logger.info("------------------------------------------------------")
-        
-        
+
     return outputs_from_machine_df
-
-
-
-
-
 
 
 # *********************************************************************************************************
@@ -864,13 +816,7 @@ def consolidate_rare_columns_from_gemini_output(
 # *********************************************************************************************************
 
 
-
-
-
-def flatten_one_machine_response(
-        some_response,
-        verbose=False,
-        notebook_mode = False):
+def flatten_one_machine_response(some_response, verbose=False, notebook_mode=False):
 
     if notebook_mode:
         verbose = True
@@ -879,8 +825,6 @@ def flatten_one_machine_response(
     NOTE: This is directly dependent on the prompt you are using. 
     Changes to the prompt will require changes to this function
     """
-
-
 
     # if the response is not a dictionary, something is wrong - return it as is
     if some_response is None or type(some_response) != dict:
@@ -892,27 +836,29 @@ def flatten_one_machine_response(
 
     # #######################
     # scenes
-    if 'scenes' in flat_response.keys():
-        if isinstance(flat_response['scenes'], str):
-            flat_response['scenes'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['scenes'])
+    if "scenes" in flat_response.keys():
+        if isinstance(flat_response["scenes"], str):
+            flat_response["scenes"] = re.sub(
+                r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["scenes"]
+            )
             try:
-                flat_response['scenes'] = fuzzy_json.loads(flat_response['scenes'])
+                flat_response["scenes"] = fuzzy_json.loads(flat_response["scenes"])
             except Exception:
                 return None
-        if isinstance(flat_response['scenes'], list):
+        if isinstance(flat_response["scenes"], list):
             try:
                 description_list = []
                 sentiment_list = []
-                for k in flat_response['scenes']:
+                for k in flat_response["scenes"]:
                     if isinstance(k, dict):
-                        description_list += [k.get('description','')]
-                        sentiment_list += [k.get('sentiment','')]
-                flat_response['scenes'] = " | ".join(description_list)
+                        description_list += [k.get("description", "")]
+                        sentiment_list += [k.get("sentiment", "")]
+                flat_response["scenes"] = " | ".join(description_list)
                 tt1 = collections.Counter(sentiment_list).most_common(1)
                 if len(tt1) == 0:
-                    flat_response['scene_sentiments'] = ""
+                    flat_response["scene_sentiments"] = ""
                 else:
-                    flat_response['scene_sentiments'] = tt1[0][0]
+                    flat_response["scene_sentiments"] = tt1[0][0]
             except Exception:
                 return None
         else:
@@ -920,38 +866,41 @@ def flatten_one_machine_response(
 
     # #######################
     # transcript
-    if 'transcript' in flat_response.keys():
-        if isinstance(flat_response['transcript'], str):
-            flat_response['transcript'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['transcript'])
+    if "transcript" in flat_response.keys():
+        if isinstance(flat_response["transcript"], str):
+            flat_response["transcript"] = re.sub(
+                r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["transcript"]
+            )
             try:
-                flat_response['transcript'] = fuzzy_json.loads(flat_response['transcript'])
+                flat_response["transcript"] = fuzzy_json.loads(flat_response["transcript"])
             except Exception:
                 return None
-        if isinstance(flat_response['transcript'], list):
+        if isinstance(flat_response["transcript"], list):
             try:
                 text_list = []
-                for k in flat_response['transcript']:
+                for k in flat_response["transcript"]:
                     if isinstance(k, dict):
-                        text_list += [k.get('text','')]
+                        text_list += [k.get("text", "")]
                     elif isinstance(k, str):
                         text_list += [k]
-                flat_response['transcript'] = " | ".join(text_list)
+                flat_response["transcript"] = " | ".join(text_list)
             except Exception:
                 return None
-            #elif isinstance(flat_response['transcript'], str):
+            # elif isinstance(flat_response['transcript'], str):
             #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['transcript'].replace("'text':"," | "))
             #    flat_response['transcript'] = aa.replace("'},  | "," |").replace(" '"," ")[3:-3].strip()
         else:
             return None
-            #flat_response['transcript'] = ""
-
+            # flat_response['transcript'] = ""
 
     # #######################
     # objects
-    for res_key in ['objects','symbols_and_brands','text_overlays','content_category']:
+    for res_key in ["objects", "symbols_and_brands", "text_overlays", "content_category"]:
         if res_key in flat_response.keys():
             if isinstance(flat_response[res_key], str):
-                flat_response[res_key] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response[res_key])
+                flat_response[res_key] = re.sub(
+                    r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response[res_key]
+                )
                 try:
                     flat_response[res_key] = fuzzy_json.loads(flat_response[res_key])
                 except Exception:
@@ -963,83 +912,88 @@ def flatten_one_machine_response(
                     res_list = []
                     for k in flat_response[res_key]:
                         if isinstance(k, dict):
-                            res_list += [k.get(res_key,'')]
+                            res_list += [k.get(res_key, "")]
                         elif isinstance(k, str):
                             res_list += [k]
                     flat_response[res_key] = " | ".join(res_list)
                 except Exception:
                     return None
-            else:#elif not isinstance(flat_response[res_key], str):
+            else:  # elif not isinstance(flat_response[res_key], str):
                 return None
-                #flat_response[res_key] = ""
-
-
+                # flat_response[res_key] = ""
 
     # #######################
     # sometimes audio summary hasn't been converted to json
     # not sure why this happens, this is trying to do something about that
-    if 'audio_summary' in flat_response.keys():
-        if isinstance(flat_response['audio_summary'],str):
-            flat_response['audio_summary'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['audio_summary'])
+    if "audio_summary" in flat_response.keys():
+        if isinstance(flat_response["audio_summary"], str):
+            flat_response["audio_summary"] = re.sub(
+                r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["audio_summary"]
+            )
             try:
-                flat_response['audio_summary'] = fuzzy_json.loads(flat_response['audio_summary'])
+                flat_response["audio_summary"] = fuzzy_json.loads(flat_response["audio_summary"])
             except Exception:
                 if verbose:
-                    logger.info(flat_response['audio_summary'])
+                    logger.info(flat_response["audio_summary"])
                 return None
-        
-        for k in flat_response['audio_summary']:
+
+        for k in flat_response["audio_summary"]:
             try:
-                audio_detail = flat_response['audio_summary'][k]
+                audio_detail = flat_response["audio_summary"][k]
             except Exception as e:
                 if verbose:
                     logger.warning(f"{e} | {k} | {flat_response['audio_summary']}")
                 return None
-            if isinstance(audio_detail,list):
-                flat_response[k] = " | ".join([s for s in audio_detail if type(s)==str])
-            elif isinstance(audio_detail,str):
+            if isinstance(audio_detail, list):
+                flat_response[k] = " | ".join([s for s in audio_detail if type(s) == str])
+            elif isinstance(audio_detail, str):
                 flat_response[k] = audio_detail
             else:
                 return None
-        del flat_response['audio_summary']
+        del flat_response["audio_summary"]
 
     # #######################
     # faces
-    if 'faces' in flat_response.keys():
-        if isinstance(flat_response['faces'], str):
-            flat_response['faces'] = re.sub(r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response['faces'])
+    if "faces" in flat_response.keys():
+        if isinstance(flat_response["faces"], str):
+            flat_response["faces"] = re.sub(
+                r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["faces"]
+            )
             try:
-                flat_response['faces'] = fuzzy_json.loads(flat_response['faces'])
+                flat_response["faces"] = fuzzy_json.loads(flat_response["faces"])
             except Exception:
                 if verbose:
-                    logger.info(flat_response['faces'])
+                    logger.info(flat_response["faces"])
                 return None
 
-        if isinstance(flat_response['faces'], list):
-            for face in flat_response['faces']:
+        if isinstance(flat_response["faces"], list):
+            for face in flat_response["faces"]:
                 if isinstance(face, dict):
                     for k in face:
-                        if "faces_"+k not in flat_response.keys():
-                            flat_response["faces_"+k] = ""                    
+                        if "faces_" + k not in flat_response.keys():
+                            flat_response["faces_" + k] = ""
                         try:
-                            flat_response["faces_"+k] += str(face[k]) + " | "
+                            flat_response["faces_" + k] += str(face[k]) + " | "
                         except Exception:
                             return None
                 else:
                     return None
         else:
             return None
-        del flat_response['faces']
+        del flat_response["faces"]
 
         for k in flat_response:
-            if (k.startswith("faces_")) and (isinstance(flat_response[k],str)) and (flat_response[k].endswith(" | ")):
-                flat_response[k] = flat_response[k][:-3]    
-
+            if (
+                (k.startswith("faces_"))
+                and (isinstance(flat_response[k], str))
+                and (flat_response[k].endswith(" | "))
+            ):
+                flat_response[k] = flat_response[k][:-3]
 
     # #######################
     # get rid of pesky lists that are still lingering - just pick the first element. This is a bit of a hack, but it works.
     for k in flat_response:
-        if isinstance(flat_response[k],list):
+        if isinstance(flat_response[k], list):
             if verbose:
                 logger.info(flat_response[k])
             # An empty list carries no value; collapse it to None rather than
@@ -1049,14 +1003,12 @@ def flatten_one_machine_response(
     return flat_response
 
 
-
-
 def _compress_embedded_repeats(s: str, min_repeats: int = 3, max_unit_len: int = 12) -> str:
     """
     Compress repeated substrings embedded in a larger string.
     Finds the shortest repeating unit at each position that yields the longest run
     (≥ min_repeats), emits as [n]*[unit], and leaves any leftover tail uncompressed.
-    
+
     Args:
       s: input string
       min_repeats: minimum repeats required to compress
@@ -1070,11 +1022,11 @@ def _compress_embedded_repeats(s: str, min_repeats: int = 3, max_unit_len: int =
         best = None  # (covered_len, repeats, unit_len)
         # Try unit sizes starting from 1 so we prefer the *shortest* valid unit
         for unit_len in range(1, min(max_unit_len, n - i) + 1):
-            unit = s[i:i + unit_len]
+            unit = s[i : i + unit_len]
             # Count contiguous repeats of this unit starting at i
             k = 1
             j = i + unit_len
-            while j + unit_len <= n and s[j:j + unit_len] == unit:
+            while j + unit_len <= n and s[j : j + unit_len] == unit:
                 k += 1
                 j += unit_len
             if k >= min_repeats:
@@ -1085,8 +1037,8 @@ def _compress_embedded_repeats(s: str, min_repeats: int = 3, max_unit_len: int =
 
         if best:
             covered, k, unit_len = best
-            unit = s[i:i + unit_len]
-            if len(unit)==1:
+            unit = s[i : i + unit_len]
+            if len(unit) == 1:
                 out.append(f"{unit}")
             else:
                 out.append(f"[{k}]*[{unit}]")
@@ -1097,7 +1049,6 @@ def _compress_embedded_repeats(s: str, min_repeats: int = 3, max_unit_len: int =
             i += 1
 
     return "".join(out)
-
 
 
 def _decode_valid_unicode_escapes(text, drop_invalid=True):
@@ -1113,15 +1064,14 @@ def _decode_valid_unicode_escapes(text, drop_invalid=True):
         str: The string with valid Unicode escapes converted to their corresponding characters.
     """
 
-
     _hex = re.compile(r"^[0-9a-fA-F]{4}$")
 
     # Convert only well-formed \uXXXX escapes; keep or remove the rest.
     parts = []
     i = 0
     while i < len(text):
-        if text[i:i+2] == r"\u" and i + 6 <= len(text):
-            candidate = text[i+2:i+6]
+        if text[i : i + 2] == r"\u" and i + 6 <= len(text):
+            candidate = text[i + 2 : i + 6]
             if _hex.match(candidate):
                 parts.append(chr(int(candidate, 16)))
                 i += 6
@@ -1129,7 +1079,7 @@ def _decode_valid_unicode_escapes(text, drop_invalid=True):
             elif drop_invalid:
                 i += 2  # skip the bad escape entirely
                 continue
-        if text[i:i+2] == r"\u":
+        if text[i : i + 2] == r"\u":
             # broken escape: either double the backslash to keep it literal…
             parts.append(r"\\u")
             i += 2
@@ -1138,38 +1088,37 @@ def _decode_valid_unicode_escapes(text, drop_invalid=True):
         i += 1
     return "".join(parts)
 
-    
-    
-def fuzzy_load_of_json_from_string(resp_text_in: str, notebook_mode = False):
+
+def fuzzy_load_of_json_from_string(resp_text_in: str, notebook_mode=False):
     """
-    The model output is a bit unpredictable so this function is doing what it can to figure 
+    The model output is a bit unpredictable so this function is doing what it can to figure
     out the json structure in the string and load it
     """
 
     resp_text = copy(resp_text_in)
 
-    if type(resp_text)==str and len(resp_text)>0:
-        resp_text = resp_text.replace("\n","")
-        resp_text = resp_text.replace("```","")
+    if type(resp_text) == str and len(resp_text) > 0:
+        resp_text = resp_text.replace("\n", "")
+        resp_text = resp_text.replace("```", "")
         if resp_text[:4] == "json":
             resp_text = resp_text[4:]
-        
+
         try:
             if resp_text.strip()[0] != "{":
                 return None
 
-            refined_text = _compress_embedded_repeats(resp_text, min_repeats = 3, max_unit_len = 12)
-            refined_text = refined_text.replace(': null,',": ---,")
-            refined_text = refined_text.replace(':null,',': ---,')
-            refined_text = refined_text.replace('"null"','---')
-            refined_text = refined_text.replace('\\"',"\'")
-            refined_text = refined_text.replace("\'\'","\'")
+            refined_text = _compress_embedded_repeats(resp_text, min_repeats=3, max_unit_len=12)
+            refined_text = refined_text.replace(": null,", ": ---,")
+            refined_text = refined_text.replace(":null,", ": ---,")
+            refined_text = refined_text.replace('"null"', "---")
+            refined_text = refined_text.replace('\\"', "'")
+            refined_text = refined_text.replace("''", "'")
             if "\\u" in refined_text:
                 refined_text = _decode_valid_unicode_escapes(refined_text)
                 refined_text = refined_text.encode("unicode_escape").decode("ascii")
-            
+
             machine_annotations = fuzzy_json.loads(refined_text)
-            
+
             return machine_annotations
         except Exception as e:
             if notebook_mode:
@@ -1180,16 +1129,7 @@ def fuzzy_load_of_json_from_string(resp_text_in: str, notebook_mode = False):
         return None
 
 
-
-
-
-
-
-
-def flatten_and_fix_machine_outputs(
-        raw_outputs_from_machine,
-        verbose = False,
-        notebook_mode = False):
+def flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose=False, notebook_mode=False):
 
     if notebook_mode:
         verbose = True
@@ -1204,7 +1144,6 @@ def flatten_and_fix_machine_outputs(
     ...
     """
 
-
     bad_count = 0
     good_count = 0
 
@@ -1212,7 +1151,10 @@ def flatten_and_fix_machine_outputs(
     for h in raw_outputs_from_machine:
         flattened_response = None
         flattened_outputs_from_machine[h] = copy(raw_outputs_from_machine[h])
-        if raw_outputs_from_machine[h]['response'] is None or raw_outputs_from_machine[h]['response']=='':
+        if (
+            raw_outputs_from_machine[h]["response"] is None
+            or raw_outputs_from_machine[h]["response"] == ""
+        ):
             bad_count += 1
             print("!", end="", flush=True)
         else:
@@ -1224,7 +1166,9 @@ def flatten_and_fix_machine_outputs(
                 try:
                     json_response = json.loads(entry["response"])
                 except (json.JSONDecodeError, TypeError):
-                    json_response = fuzzy_load_of_json_from_string(entry["response"], notebook_mode=notebook_mode)
+                    json_response = fuzzy_load_of_json_from_string(
+                        entry["response"], notebook_mode=notebook_mode
+                    )
                 # The model can emit a malformed \uD8xx escape (half an emoji);
                 # json.loads keeps it as a lone surrogate, which would crash the
                 # parquet write downstream. Scrub all strings before flattening.
@@ -1234,9 +1178,13 @@ def flatten_and_fix_machine_outputs(
                 else:
                     flattened_response = None
             else:
-                json_response = scrub_surrogates_nested(fuzzy_load_of_json_from_string(entry['response'], notebook_mode = notebook_mode))
-                flattened_response = flatten_one_machine_response(json_response, verbose = False, notebook_mode = notebook_mode)
-            if type(flattened_response)==dict:
+                json_response = scrub_surrogates_nested(
+                    fuzzy_load_of_json_from_string(entry["response"], notebook_mode=notebook_mode)
+                )
+                flattened_response = flatten_one_machine_response(
+                    json_response, verbose=False, notebook_mode=notebook_mode
+                )
+            if type(flattened_response) == dict:
                 good_count += 1
                 print(".", end="", flush=True)
                 for rk in flattened_response:
@@ -1253,26 +1201,19 @@ def flatten_and_fix_machine_outputs(
     if (good_count + bad_count) % 100 != 0:
         print()
 
-    logger.info(f"...extracted {good_count} good responses from the file. Unable to use {bad_count} responses.")
+    logger.info(
+        f"...extracted {good_count} good responses from the file. Unable to use {bad_count} responses."
+    )
 
     if good_count == 0:
         return None
 
-    # convert the dict to a DF, reset the index and drop the old response structure 
+    # convert the dict to a DF, reset the index and drop the old response structure
     outputs_from_machine_df = pd.DataFrame(flattened_outputs_from_machine).T
     outputs_from_machine_df.reset_index(drop=True, inplace=True)
     outputs_from_machine_df.drop("response", axis=1, inplace=True)
 
-
     return outputs_from_machine_df
-
-
-
-
-
-
-
-
 
 
 # *********************************************************************************************************
@@ -1285,23 +1226,14 @@ def flatten_and_fix_machine_outputs(
 # *********************************************************************************************************
 
 
-
-
-
-
-
 def _check_repetitive_patterns(
-        text: str,
-        min_pattern_length: int = 5,
-        min_repetitions: int = 5,
-        max_text_length: int = 1000
-    ) -> str:
+    text: str, min_pattern_length: int = 5, min_repetitions: int = 5, max_text_length: int = 1000
+) -> str:
     """
     Check for repetitive patterns in a string
     """
 
-
-    if not isinstance(text,str):
+    if not isinstance(text, str):
         return "Not a string"
 
     if len(text) > max_text_length:
@@ -1309,17 +1241,17 @@ def _check_repetitive_patterns(
 
     words = text.split()
     n = len(words)
-    
+
     pattern_counts = collections.defaultdict(int)
-    
+
     # Check for all possible pattern lengths from min_pattern_length to half of the total number of words
     for length in range(min_pattern_length, n // 2 + 1):
         for i in range(n - length + 1):
-            pattern = tuple(words[i:i + length])
+            pattern = tuple(words[i : i + length])
             pattern_counts[pattern] += 1
-    
+
     repetitive_patterns = []
-    
+
     for pattern, count in pattern_counts.items():
         if count >= min_repetitions:
             repetitive_patterns.append((pattern, count))
@@ -1330,53 +1262,45 @@ def _check_repetitive_patterns(
         return ("Good string", repetitive_patterns)
 
 
-
-
-
-
-
-
 def _remove_repetitions(some_string):
     """
     I only use this for the transcriptions which often tend to be a bit repetitive
     """
 
-    new_string = deepcopy(some_string.replace("-"," "))
+    new_string = deepcopy(some_string.replace("-", " "))
 
     res = _check_repetitive_patterns(
-        new_string,
-        min_pattern_length = 4,
-        min_repetitions = 12,
-        max_text_length = 10000)
-    
-    if len(res[1])>0:
+        new_string, min_pattern_length=4, min_repetitions=12, max_text_length=10000
+    )
+
+    if len(res[1]) > 0:
         # sort the results with longest repeated pattern first
-        most_repeated = sorted(res[1], key = lambda x:len(x[0]), reverse=True)
+        most_repeated = sorted(res[1], key=lambda x: len(x[0]), reverse=True)
 
         # iterate over the patterns. Keep the first occurrence in the string and
         # and remove all other ones. Sometimes this screws things up but it works
         # ok most of the time
-        for i,mr in enumerate(most_repeated):
-            #print(mr)
+        for i, mr in enumerate(most_repeated):
+            # print(mr)
             the_phrase = " ".join(mr[0])
 
             # register the position of the first occurrence of the pattern
             first_occurance = new_string.find(the_phrase)
 
             # remove all occurrences of the pattern
-            new_string = deepcopy(new_string.replace(the_phrase,""))
+            new_string = deepcopy(new_string.replace(the_phrase, ""))
 
             # put back the pattern at the position of the first occurrence
-            new_string = new_string[:first_occurance] + the_phrase  + new_string[first_occurance:]
+            new_string = new_string[:first_occurance] + the_phrase + new_string[first_occurance:]
 
             # remove double spaces
-            new_string = " ".join([k for k in new_string.split(" ") if len(k)>0])
+            new_string = " ".join([k for k in new_string.split(" ") if len(k) > 0])
 
-        # split the string on spaces and remove repetitions of words 
+        # split the string on spaces and remove repetitions of words
         # again, this gives some probems, but is generally a good thing
         list_of_words = []
         for k in new_string.split(" "):
-            if len(list_of_words)==0 or list_of_words[-1] != k:
+            if len(list_of_words) == 0 or list_of_words[-1] != k:
                 list_of_words += [k]
 
         return new_string
@@ -1384,34 +1308,27 @@ def _remove_repetitions(some_string):
     return some_string
 
 
-
-
-
 def _prettify_string(a_string):
     new_string = deepcopy(a_string)
     things_to_remove = ["| |"]
     gh = 0
     while gh > -1:
-        new_string = " ".join([g for g in new_string.split(" ") if len(g)>0]).strip()
+        new_string = " ".join([g for g in new_string.split(" ") if len(g) > 0]).strip()
         for ttr in things_to_remove:
             gh = new_string.find(ttr)
             if gh > -1:
-                new_string = new_string.replace(ttr,"")
+                new_string = new_string.replace(ttr, "")
     return new_string
 
 
-
-
-
-
 def remove_repetitions_from_transcripts(
-    outputs_from_machine_df_in, # expecting a dataframe with a column called "transcript". Elements should be a pipe-separated stringified list.
-    verbose = False,
-    notebook_mode = False):
+    outputs_from_machine_df_in,  # expecting a dataframe with a column called "transcript". Elements should be a pipe-separated stringified list.
+    verbose=False,
+    notebook_mode=False,
+):
 
     if notebook_mode:
         verbose = True
-
 
     if verbose:
         logger.info("Removing repeated patterns in the transcripts - this may take a little while")
@@ -1420,7 +1337,7 @@ def remove_repetitions_from_transcripts(
 
     new_transcripts = []
     for transcript in outputs_from_machine_df["transcript"].tolist():
-        if type(transcript) != str or len(transcript)<50:
+        if type(transcript) != str or len(transcript) < 50:
             new_transcripts += [copy(transcript)]
         else:
             if " | " in transcript:
@@ -1435,49 +1352,41 @@ def remove_repetitions_from_transcripts(
             else:
                 new_transcript = copy(transcript)
 
-            if len(new_transcript)>=50:
+            if len(new_transcript) >= 50:
                 might_be_shorter = _remove_repetitions(new_transcript)
                 if len(might_be_shorter) < len(new_transcript):
                     new_transcript = copy(might_be_shorter)
-            
+
             new_transcripts += [copy(new_transcript)]
 
-
-    outputs_from_machine_df['transcript_no_repetitions'] = new_transcripts
+    outputs_from_machine_df["transcript_no_repetitions"] = new_transcripts
 
     if verbose:
         logger.info("Prettifying all strings")
-    outputs_from_machine_df = outputs_from_machine_df.map(lambda x:x if not isinstance(x,str) else _prettify_string(x)).copy()
+    outputs_from_machine_df = outputs_from_machine_df.map(
+        lambda x: x if not isinstance(x, str) else _prettify_string(x)
+    ).copy()
 
     return outputs_from_machine_df
 
 
-
-
-
-
-
-
-
-
-
-
-def clean_up_machine_annotations(some_events, verbose = False):
-    
-
-
+def clean_up_machine_annotations(some_events, verbose=False):
 
     some_cleaned_up_events = some_events.copy()
 
     # iterate over all object type columns in the events DF that starts w G_, i.e. are machine annotations
-    g_cols = [k for k in some_events.select_dtypes(exclude=["number"]).columns if k not in ["item_id","annotated_ok","annotated_fail"]]
-    
-    exclude_set = {_cf()['labels']['UNABLE_TO_DETECT'], "", _cf()['labels']['OTHER_THINGS']}
+    g_cols = [
+        k
+        for k in some_events.select_dtypes(exclude=["number"]).columns
+        if k not in ["item_id", "annotated_ok", "annotated_fail"]
+    ]
+
+    exclude_set = {_cf()["labels"]["UNABLE_TO_DETECT"], "", _cf()["labels"]["OTHER_THINGS"]}
 
     for c in g_cols:
         # Step 1: Flatten and filter efficiently
         series = some_events[c]
-        
+
         # explode lists to rows
         try:
             exploded = series.explode().dropna()
@@ -1489,20 +1398,27 @@ def clean_up_machine_annotations(some_events, verbose = False):
         if exploded.empty:
             continue
 
-
         # exclude set filtering
         # check against set is fast
         valid_mask = ~exploded.isin(exclude_set)
         valid_items = exploded[valid_mask]
-        
+
         if valid_items.empty:
             continue
 
-        accepted = _cf()['var_schema'].set_index('variable_name').loc[c,'accepted_labels']
+        accepted = _cf()["var_schema"].set_index("variable_name").loc[c, "accepted_labels"]
         accepted_labels = pd.NA
-        if pd.notna(accepted) and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
+        if (
+            pd.notna(accepted)
+            and accepted.lower() != "nan"
+            and accepted.startswith("[")
+            and accepted.endswith("]")
+        ):
             accepted = accepted[1:-1]
-            accepted_labels = [x.strip().replace("//", "").replace("&", " and ").replace("/", " or ") for x in accepted.split(',')]
+            accepted_labels = [
+                x.strip().replace("//", "").replace("&", " and ").replace("/", " or ")
+                for x in accepted.split(",")
+            ]
 
             pre_fuzzy_nunique = valid_items.nunique()
 
@@ -1553,9 +1469,9 @@ def clean_up_machine_annotations(some_events, verbose = False):
                 continue
 
             if verbose:
-                logger.info(f"    {c}: Recoded against accepted labels with fuzzy matching... {valid_items.nunique()} ({pre_fuzzy_nunique})")
-
-
+                logger.info(
+                    f"    {c}: Recoded against accepted labels with fuzzy matching... {valid_items.nunique()} ({pre_fuzzy_nunique})"
+                )
 
         # Check mean length
         # Vectorized string length based on a sample of 500 items.
@@ -1564,8 +1480,13 @@ def clean_up_machine_annotations(some_events, verbose = False):
         # Without it the whole refinement pipeline is non-deterministic.
 
         sample_size = min(500, len(valid_items))
-        avg_len = valid_items.sample(sample_size, replace=False, random_state=0).astype(str).str.len().mean()
-        
+        avg_len = (
+            valid_items.sample(sample_size, replace=False, random_state=0)
+            .astype(str)
+            .str.len()
+            .mean()
+        )
+
         if avg_len < 60:
             # Step 2: Cutoff logic
             # frequency of unique valid items
@@ -1578,10 +1499,10 @@ def clean_up_machine_annotations(some_events, verbose = False):
                 target = total_count * 1
             else:
                 target = total_count * 0.95
-            
+
             # cumulative sum
             cum_counts = counts.cumsum()
-            
+
             # find how many labels needed to cross target
             # we keep labels where cumsum < target, plus the one that crosses it
             cutoff_idx = cum_counts.searchsorted(target)
@@ -1590,22 +1511,21 @@ def clean_up_machine_annotations(some_events, verbose = False):
             # clamp to length
             num_keep = min(num_keep, len(counts))
 
-
-
-            # Heuristic: If we are keeping a huge portion of the labels to satisfy the coverage, 
+            # Heuristic: If we are keeping a huge portion of the labels to satisfy the coverage,
             # or the absolute number of kept labels is huge (e.g. 90k out of 100k), then consolidation is inefficient/useless.
             # User guideline: "if the sum of occurrences of top X labels constitute more than y% ... and there still are a lot of small labels" -> consolidate.
             # But "100k rare labels -> 90k" -> don't consolidate.
             # Logic: If num_keep is > 80% of len(counts) and len(counts) > 1000, skip.
-            
-            if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
-                 if verbose:
-                     logger.info(f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)}).")
-                 continue
 
-            
+            if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
+                if verbose:
+                    logger.info(
+                        f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)})."
+                    )
+                continue
+
             okay_list = counts.index[:num_keep].tolist()
-            
+
             # fast lookup set
             keep_set = set(okay_list).union(exclude_set)
 
@@ -1618,13 +1538,12 @@ def clean_up_machine_annotations(some_events, verbose = False):
             # keep_set consistent with how keep_set was built.
             def _fast_replace(x):
                 if isinstance(x, (list, np.ndarray)):
-                    return [y if y in keep_set else _cf()['labels']['OTHER_THINGS'] for y in x]
+                    return [y if y in keep_set else _cf()["labels"]["OTHER_THINGS"] for y in x]
                 if isinstance(x, str):
-                    return x if x in keep_set else _cf()['labels']['OTHER_THINGS']
-                return x # keep NA or other
+                    return x if x in keep_set else _cf()["labels"]["OTHER_THINGS"]
+                return x  # keep NA or other
 
             some_cleaned_up_events[c] = series.apply(_fast_replace)
-
 
             if verbose:
                 # approximated stats
@@ -1633,18 +1552,8 @@ def clean_up_machine_annotations(some_events, verbose = False):
         else:
             if verbose:
                 logger.info(f"    {c}: Avg string length > 60, not consolidating rare labels")
-        
-
-
-
 
     return some_cleaned_up_events
-
-
-
-
-
-
 
 
 # *********************************************************************************************************
@@ -1657,32 +1566,24 @@ def clean_up_machine_annotations(some_events, verbose = False):
 
 
 def refine_one_raw_annotation_batch(
-    raw_outputs_from_machine = None,
-    raw_json_filename = None,
-    verbose = False,
-    notebook_mode = False):
+    raw_outputs_from_machine=None, raw_json_filename=None, verbose=False, notebook_mode=False
+):
 
     if notebook_mode:
         verbose = True
 
-
     if raw_json_filename is None:
         raise ValueError("raw_json_filename cannot be None")
-
-
 
     if raw_outputs_from_machine is None:
         if verbose:
             logger.info(f"Loading raw annotations from {raw_json_filename}")
         raw_outputs_from_machine = data_io.load_json(
-            storage_location="machine_annotations_raw",
-            filename=raw_json_filename,
-            verbose=verbose
+            storage_location="machine_annotations_raw", filename=raw_json_filename, verbose=verbose
         )
 
     if raw_outputs_from_machine is None:
         raise ValueError("raw_outputs_from_machine cannot be None")
-
 
     logger.info(f"Refining {len(raw_outputs_from_machine):,} raw annotations in this file...")
 
@@ -1690,10 +1591,14 @@ def refine_one_raw_annotation_batch(
     # 1. Flatten the json to a dataframe. Using fuzzy json for this
     # ---------------------------------------------------------------
     logger.info("Transforming the messy json into a flat dataframe")
-    outputs_from_machine_df = flatten_and_fix_machine_outputs(raw_outputs_from_machine, verbose = verbose, notebook_mode = notebook_mode)
+    outputs_from_machine_df = flatten_and_fix_machine_outputs(
+        raw_outputs_from_machine, verbose=verbose, notebook_mode=notebook_mode
+    )
 
     if outputs_from_machine_df is None:
-        logger.warning("I was unable to extract a single good response from this file. Returning None.")
+        logger.warning(
+            "I was unable to extract a single good response from this file. Returning None."
+        )
         logger.warning("Consider deleting this raw file from the raw_annotations folder.")
         return None
 
@@ -1701,48 +1606,48 @@ def refine_one_raw_annotation_batch(
     # 2. Consolidate rare columns
     # ---------------------------------------------------------------
     logger.info("Consolidating rare columns from machine annotations.")
-    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
+    outputs_from_machine_df = consolidate_rare_columns_from_gemini_output(
+        outputs_from_machine_df, verbose=verbose, notebook_mode=notebook_mode
+    )
     logger.info("...done")
 
     # ---------------------------------------------------------------
     # 3. Remove repetitions from transcripts
     # ---------------------------------------------------------------
-    if 'transcript' in outputs_from_machine_df.columns:
+    if "transcript" in outputs_from_machine_df.columns:
         logger.info("Removing repetitions from machine annotation transcripts...")
-        outputs_from_machine_df = remove_repetitions_from_transcripts(outputs_from_machine_df, verbose = verbose, notebook_mode = notebook_mode)
+        outputs_from_machine_df = remove_repetitions_from_transcripts(
+            outputs_from_machine_df, verbose=verbose, notebook_mode=notebook_mode
+        )
         logger.info("...done")
-
-    
 
     # ---------------------------------------------------------------
     # implement the rules from the variable scheme - recoding lists, strings and other complex data
     # ---------------------------------------------------------------
     # (and a simple renaming of columns to make them easier to identify and read)
-    #outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
+    # outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
     outputs_from_machine_df = rename_columns(outputs_from_machine_df).copy()
     outputs_from_machine_df = recode_events_df(
-            study_dataset = outputs_from_machine_df,
-            drop_single_value_cols = False,
-            verbose = verbose
-            )
-
-
+        study_dataset=outputs_from_machine_df, drop_single_value_cols=False, verbose=verbose
+    )
 
     # ---------------------------------------------------------------
-    # consolidate some labels in non-numeric columns where that makes sense 
+    # consolidate some labels in non-numeric columns where that makes sense
     # ---------------------------------------------------------------
-    outputs_from_machine_df = clean_up_machine_annotations(some_events=outputs_from_machine_df, verbose=verbose)
-
-
-
+    outputs_from_machine_df = clean_up_machine_annotations(
+        some_events=outputs_from_machine_df, verbose=verbose
+    )
 
     # ---------------------------------------------------------------
     # add flags for annotated ok and fail
     # ---------------------------------------------------------------
-    outputs_from_machine_df["annotated_ok"] = ~outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
-    outputs_from_machine_df["annotated_fail"] = outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
-    #outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
-
+    outputs_from_machine_df["annotated_ok"] = ~outputs_from_machine_df[
+        "type_of_story"
+    ].isna().astype("bool[pyarrow]")
+    outputs_from_machine_df["annotated_fail"] = (
+        outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
+    )
+    # outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
 
     # ---------------------------------------------------------------
     # Stamp each row with its annotation_version. recode_events_df drops this
@@ -1763,14 +1668,18 @@ def refine_one_raw_annotation_batch(
             if entry.get("inference_ts") is not None:
                 ts_by_item[str(entry["item_id"])] = entry["inference_ts"]
     outputs_from_machine_df["annotation_version"] = (
-        outputs_from_machine_df["item_id"].astype(str).map(version_by_item)
+        outputs_from_machine_df["item_id"]
+        .astype(str)
+        .map(version_by_item)
         .fillna(annotation_versioning.LEGACY_VERSION)
     )
 
     # Stamp source_platform the same way (raw files predating multi-platform
     # annotation have no such key and default to the default platform).
     outputs_from_machine_df["source_platform"] = (
-        outputs_from_machine_df["item_id"].astype(str).map(platform_by_item)
+        outputs_from_machine_df["item_id"]
+        .astype(str)
+        .map(platform_by_item)
         .fillna(scrape_queues.default_platform())
     )
 
@@ -1781,13 +1690,11 @@ def refine_one_raw_annotation_batch(
         errors="coerce",
     ).astype("int64[pyarrow]")
 
-
     # ---------------------------------------------------------------
     # Convert dtypes to pyarrow and reset index
     # ---------------------------------------------------------------
     outputs_from_machine_df.reset_index(drop=True, inplace=True)
     outputs_from_machine_df = convert_dtypes_to_pyarrow(outputs_from_machine_df, verbose=verbose)
-
 
     if verbose:
         logger.info("Ready to save processed results")
@@ -1795,28 +1702,35 @@ def refine_one_raw_annotation_batch(
     parquet_filename = raw_json_filename.replace(".json", ".parquet")
 
     data_io.save_parquet(
-        df = outputs_from_machine_df,
+        df=outputs_from_machine_df,
         storage_location="machine_annotations_refined",
         filename=parquet_filename,
-        verbose=verbose
+        verbose=verbose,
     )
-    logger.info(f"Saved processed the df - shape {outputs_from_machine_df.shape} - results to '{parquet_filename}'")
-    logger.info("--"*60)
-    
+    logger.info(
+        f"Saved processed the df - shape {outputs_from_machine_df.shape} - results to '{parquet_filename}'"
+    )
+    logger.info("--" * 60)
+
     return outputs_from_machine_df
-    
 
 
-
-
-def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = False, force = False):
+def refine_and_save_all_raw_annotation_files(verbose=False, notebook_mode=False, force=False):
 
     result = {}
 
-    raw_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_raw") if fn.startswith(_machine_annotations_label()) and fn.endswith(".json")]
+    raw_annotation_files = [
+        fn
+        for fn in data_io.listdir(storage_location="machine_annotations_raw")
+        if fn.startswith(_machine_annotations_label()) and fn.endswith(".json")
+    ]
     result["raw_files"] = len(raw_annotation_files)
 
-    refined_annotation_files = [fn for fn in data_io.listdir(storage_location="machine_annotations_refined") if fn.startswith(_machine_annotations_label()) and fn.endswith(".parquet")]
+    refined_annotation_files = [
+        fn
+        for fn in data_io.listdir(storage_location="machine_annotations_refined")
+        if fn.startswith(_machine_annotations_label()) and fn.endswith(".parquet")
+    ]
     result["refined_files_before"] = len(refined_annotation_files)
 
     if force:
@@ -1825,40 +1739,39 @@ def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = Fa
         # invalidates the cached refined files.
         raw_files_up_for_refinement = list(raw_annotation_files)
     else:
-        raw_files_up_for_refinement = [g for g in raw_annotation_files if g.replace(".json",".parquet") not in refined_annotation_files]
+        raw_files_up_for_refinement = [
+            g
+            for g in raw_annotation_files
+            if g.replace(".json", ".parquet") not in refined_annotation_files
+        ]
     if verbose:
         if force:
-            logger.info(f"Force mode: re-refining all {len(raw_files_up_for_refinement)} raw files (ignoring {len(refined_annotation_files)} existing refined files)")
+            logger.info(
+                f"Force mode: re-refining all {len(raw_files_up_for_refinement)} raw files (ignoring {len(refined_annotation_files)} existing refined files)"
+            )
         else:
-            logger.info(f"{len(refined_annotation_files)} raw annotation files have already been refined")
+            logger.info(
+                f"{len(refined_annotation_files)} raw annotation files have already been refined"
+            )
             logger.info(f"{len(raw_files_up_for_refinement)} files are up for refinement")
 
-    for i,fn in enumerate(raw_files_up_for_refinement):
+    for i, fn in enumerate(raw_files_up_for_refinement):
         if verbose:
-            logger.info(f"\n{i+1}/{len(raw_files_up_for_refinement)} {fn}")
+            logger.info(f"\n{i + 1}/{len(raw_files_up_for_refinement)} {fn}")
         refine_one_raw_annotation_batch(
-            raw_outputs_from_machine = None,
-            raw_json_filename = fn,
-            verbose = verbose,
-            notebook_mode = notebook_mode
-            )
+            raw_outputs_from_machine=None,
+            raw_json_filename=fn,
+            verbose=verbose,
+            notebook_mode=notebook_mode,
+        )
 
     refined_annotation_files = data_io.listdir(
-        storage_location="machine_annotations_refined",
-        return_absolute_path=False,
-        verbose=False)
+        storage_location="machine_annotations_refined", return_absolute_path=False, verbose=False
+    )
     refined_annotation_files = [u for u in refined_annotation_files if u.endswith(".parquet")]
     result["refined_files_after"] = len(refined_annotation_files)
 
     return result
-
-
-
-
-
-
-
-
 
 
 def _normalize_annotation_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -1871,17 +1784,11 @@ def _normalize_annotation_frame(df: pd.DataFrame) -> pd.DataFrame:
     """
     if "annotation_version" not in df.columns:
         df["annotation_version"] = annotation_versioning.LEGACY_VERSION
-    df["annotation_version"] = (
-        df["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
-    )
+    df["annotation_version"] = df["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
     if "source_platform" not in df.columns:
         df["source_platform"] = scrape_queues.default_platform()
-    df["source_platform"] = (
-        df["source_platform"].fillna(scrape_queues.default_platform())
-    )
+    df["source_platform"] = df["source_platform"].fillna(scrape_queues.default_platform())
     return df
-
-
 
 
 def _preferred_view_from_history(history_df: pd.DataFrame) -> pd.DataFrame:
@@ -1901,8 +1808,6 @@ def _preferred_view_from_history(history_df: pd.DataFrame) -> pd.DataFrame:
     if preferred_version is None:
         return history_df.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
     return annotation_versioning.select_preferred_view(history_df, preferred_version)
-
-
 
 
 def _fold_annotation_batch(
@@ -1933,7 +1838,9 @@ def _fold_annotation_batch(
     if not data_io.exists(storage_location="recoded", filename=recoded_fn):
         return None
 
-    logger.info(f"Folding {len(new_files)} new refined annotation file(s) into the previous consolidation...")
+    logger.info(
+        f"Folding {len(new_files)} new refined annotation file(s) into the previous consolidation..."
+    )
     batch_dfs = []
     new_item_ids: set[str] = set()
     for fn in new_files:
@@ -1958,15 +1865,15 @@ def _fold_annotation_batch(
     _t_prev_load = time.perf_counter() - _t_mark
 
     _t_mark = time.perf_counter()
-    folded_archive = pd.concat([archive, batch], ignore_index=True).drop_duplicates(
-        subset=["source_platform", "item_id", "annotation_version"], keep="last"
-    ).reset_index(drop=True)
+    folded_archive = (
+        pd.concat([archive, batch], ignore_index=True)
+        .drop_duplicates(subset=["source_platform", "item_id", "annotation_version"], keep="last")
+        .reset_index(drop=True)
+    )
 
     key_cols = ["source_platform", "item_id"]
-    batch_keys = pd.MultiIndex.from_frame(
-        batch[key_cols].astype("string[pyarrow]")).unique()
-    archive_keys = pd.MultiIndex.from_frame(
-        folded_archive[key_cols].astype("string[pyarrow]"))
+    batch_keys = pd.MultiIndex.from_frame(batch[key_cols].astype("string[pyarrow]")).unique()
+    archive_keys = pd.MultiIndex.from_frame(folded_archive[key_cols].astype("string[pyarrow]"))
     history = folded_archive[archive_keys.isin(batch_keys)]
     new_view = _preferred_view_from_history(history)
 
@@ -1974,34 +1881,43 @@ def _fold_annotation_batch(
         added = sorted(set(new_view.columns) - set(existing_recoded.columns))
         removed = sorted(set(existing_recoded.columns) - set(new_view.columns))
         logger.info(
-            f"[CONSOLIDATE] annotation fold declined: column drift (+{added} / -{removed}).")
+            f"[CONSOLIDATE] annotation fold declined: column drift (+{added} / -{removed})."
+        )
         return None
 
-    recoded_keys = pd.MultiIndex.from_frame(
-        existing_recoded[key_cols].astype("string[pyarrow]"))
+    recoded_keys = pd.MultiIndex.from_frame(existing_recoded[key_cols].astype("string[pyarrow]"))
     consolidated_annotations = pd.concat(
-        [existing_recoded[~recoded_keys.isin(batch_keys)], new_view],
-        ignore_index=True)
+        [existing_recoded[~recoded_keys.isin(batch_keys)], new_view], ignore_index=True
+    )
     _t_fold = time.perf_counter() - _t_mark
 
-    logger.info(f"Shape: {consolidated_annotations.shape} | "
-                f"Memory usage: {consolidated_annotations.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
-    logger.info(f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s).")
+    logger.info(
+        f"Shape: {consolidated_annotations.shape} | "
+        f"Memory usage: {consolidated_annotations.memory_usage(deep=True).sum() / (1024**2):.2f} MB"
+    )
+    logger.info(
+        f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s)."
+    )
 
     # Archive first, then the view, then the ledger — a crash anywhere replays
     # this fold idempotently (the batch rows dedupe away on the second pass).
     logger.info("Saving consolidated annotations...")
     _t_mark = time.perf_counter()
-    data_io.save_parquet(df=folded_archive, storage_location="recoded",
-                         filename=archive_fn, verbose=verbose)
+    data_io.save_parquet(
+        df=folded_archive, storage_location="recoded", filename=archive_fn, verbose=verbose
+    )
     # The registry must see the WHOLE archive's version set — it feeds the
     # var_schema hash, and narrowing it to the batch would silently shrink the
     # hash and mark every study for rebuild (or worse, fail to).
     annotation_versioning.record_versions_in_data(
         folded_archive["annotation_version"].dropna().unique()
     )
-    data_io.save_parquet(df=consolidated_annotations, storage_location="recoded",
-                         filename=recoded_fn, verbose=verbose)
+    data_io.save_parquet(
+        df=consolidated_annotations,
+        storage_location="recoded",
+        filename=recoded_fn,
+        verbose=verbose,
+    )
     _t_save = time.perf_counter() - _t_mark
     logger.info("...done")
 
@@ -2009,9 +1925,11 @@ def _fold_annotation_batch(
         dataset_meta["machine_annotations"] = {}
     dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
     dataset_meta["machine_annotations"]["preferred_version"] = (
-        annotation_versioning.get_preferred_version())
-    _ = data_io.save_json(data=dataset_meta, storage_location="recoded",
-                          filename="consolidated_enrichment_files.json")
+        annotation_versioning.get_preferred_version()
+    )
+    _ = data_io.save_json(
+        data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json"
+    )
 
     logger.info(
         f"[CONSOLIDATE][TIMING] anno FOLD load={_t_load:.1f}s prev_load={_t_prev_load:.1f}s "
@@ -2022,19 +1940,16 @@ def _fold_annotation_batch(
     return True, consolidated_annotations, new_item_ids
 
 
-
-
 def consolidate_and_save_refined_annotations(
-    force_consolidation = False,
-    return_saved_data = True,
-    verbose = False,
-    incremental = False,
-    dry_run = False,
-    ):
+    force_consolidation=False,
+    return_saved_data=True,
+    verbose=False,
+    incremental=False,
+    dry_run=False,
+):
     # dry_run: run the full-rebuild reference path but persist NOTHING (no
     # archive/recoded save, no version-registry update, no ledger) — the
     # shadow verifier uses it to build what a full rebuild WOULD produce.
-
 
     top_verbose = True
 
@@ -2043,19 +1958,26 @@ def consolidate_and_save_refined_annotations(
     if top_verbose:
         logger.info("Checking for raw annotation batches that needs refining...")
     # check if there are any raw files that need refining and refine those
-    result = refine_and_save_all_raw_annotation_files(verbose = verbose, notebook_mode = False)
+    result = refine_and_save_all_raw_annotation_files(verbose=verbose, notebook_mode=False)
     _t_refine = time.perf_counter() - _t_start
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
             logger.info("    ...all files already refined.")
         else:
-            logger.info(f"    ...refined {result['refined_files_after'] - result['refined_files_before']} files.")
-
+            logger.info(
+                f"    ...refined {result['refined_files_after'] - result['refined_files_before']} files."
+            )
 
     # ---------------------------------------------------------------
-    # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
-        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
+    # check if there are any changes in the relevant folder compared to last time this process was run.
+    if data_io.exists(
+        storage_location="recoded", filename="consolidated_enrichment_files.json", verbose=verbose
+    ):
+        dataset_meta = data_io.load_json(
+            storage_location="recoded",
+            filename="consolidated_enrichment_files.json",
+            verbose=verbose,
+        )
         if verbose:
             logger.info("Dataset meta loaded")
     else:
@@ -2082,10 +2004,22 @@ def consolidate_and_save_refined_annotations(
             f"total={time.perf_counter() - _t_start:.1f}s files={len(files_to_concatenate)}"
         )
         if return_saved_data:
-            if data_io.exists(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"):
-                if verbose: logger.info("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"), set()
-            if verbose: logger.info("No existing consolidated file — returning empty.")
+            if data_io.exists(
+                storage_location="recoded",
+                filename=f"{_machine_annotations_label()}_recoded.parquet",
+            ):
+                if verbose:
+                    logger.info("Returning existing file.")
+                return (
+                    False,
+                    data_io.load_parquet(
+                        storage_location="recoded",
+                        filename=f"{_machine_annotations_label()}_recoded.parquet",
+                    ),
+                    set(),
+                )
+            if verbose:
+                logger.info("No existing consolidated file — returning empty.")
             return False, pd.DataFrame(), set()
         return False, None, set()
 
@@ -2107,14 +2041,17 @@ def consolidate_and_save_refined_annotations(
         # version (None ≠ the promoted one). That is the one-time bootstrap:
         # this full rebuild records the version, and the next batch folds.
         if not latest_filename_list:
-            logger.info("[CONSOLIDATE] annotation full rebuild: the ledger has no file list yet "
-                        "(first consolidation) — the fold needs one to know what is new.")
+            logger.info(
+                "[CONSOLIDATE] annotation full rebuild: the ledger has no file list yet "
+                "(first consolidation) — the fold needs one to know what is new."
+            )
         elif latest_preferred != current_preferred:
             logger.info(
                 "[CONSOLIDATE] annotation full rebuild: preferred version is "
                 f"{current_preferred!r} but the previous consolidation was built under "
                 f"{latest_preferred!r} — every item's view must be re-derived. The ledger "
-                "now records the current version, so the next batch can fold.")
+                "now records the current version, so the next batch can fold."
+            )
         else:
             folded = _fold_annotation_batch(
                 dataset_meta=dataset_meta,
@@ -2142,7 +2079,9 @@ def consolidate_and_save_refined_annotations(
     # ---------------------------------------------------------------
     _t_mark = time.perf_counter()
     if top_verbose:
-        logger.info(f"Consolidating {len(refined_annotation_dfs):,} refined files (keeping latest version of each item_id)...")
+        logger.info(
+            f"Consolidating {len(refined_annotation_dfs):,} refined files (keeping latest version of each item_id)..."
+        )
     consolidated_annotations = pd.concat(refined_annotation_dfs, ignore_index=True)
 
     # ---------------------------------------------------------------
@@ -2179,11 +2118,13 @@ def consolidate_and_save_refined_annotations(
     # historical, version-agnostic behaviour); else the promoted-version view.
     consolidated_annotations = _preferred_view_from_history(consolidated_annotations)
 
-    memory_per_column = consolidated_annotations.memory_usage(deep=True) 
+    memory_per_column = consolidated_annotations.memory_usage(deep=True)
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
     if top_verbose:
-        logger.info(f"Shape: {consolidated_annotations.shape} | Memory usage: {total_memory_mb:.2f} MB")
+        logger.info(
+            f"Shape: {consolidated_annotations.shape} | Memory usage: {total_memory_mb:.2f} MB"
+        )
 
     # ---------------------------------------------------------------
     # Compute changed item_ids: IDs from newly added files that were not in the
@@ -2194,7 +2135,9 @@ def consolidate_and_save_refined_annotations(
     if force_consolidation:
         new_item_ids = set(consolidated_annotations["item_id"])
         if top_verbose:
-            logger.info(f"Force consolidation: all {len(new_item_ids):,} item_ids treated as changed.")
+            logger.info(
+                f"Force consolidation: all {len(new_item_ids):,} item_ids treated as changed."
+            )
     else:
         new_files = set(files_to_concatenate) - set(latest_filename_list)
         if new_files:
@@ -2202,7 +2145,9 @@ def consolidate_and_save_refined_annotations(
                 if fn in new_files:
                     new_item_ids.update(df["item_id"].tolist())
         if top_verbose and new_item_ids:
-            logger.info(f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s).")
+            logger.info(
+                f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s)."
+            )
 
     _t_view = time.perf_counter() - _t_mark
 
@@ -2217,7 +2162,10 @@ def consolidate_and_save_refined_annotations(
         _t_mark = time.perf_counter()
         data_io.save_parquet(
             df=consolidated_annotations,
-            storage_location="recoded", filename=existing_recoded_fn, verbose=verbose)
+            storage_location="recoded",
+            filename=existing_recoded_fn,
+            verbose=verbose,
+        )
         _t_save = time.perf_counter() - _t_mark
         if top_verbose:
             logger.info("...done")
@@ -2237,13 +2185,15 @@ def consolidate_and_save_refined_annotations(
         # The preferred version this view was derived under — the fold is only
         # equal to a full rebuild while this matches the current promotion.
         dataset_meta["machine_annotations"]["preferred_version"] = (
-            annotation_versioning.get_preferred_version())
-        _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
+            annotation_versioning.get_preferred_version()
+        )
+        _ = data_io.save_json(
+            data=dataset_meta,
+            storage_location="recoded",
+            filename="consolidated_enrichment_files.json",
+        )
 
     return True, consolidated_annotations, new_item_ids
-
-
-
 
 
 def rebuild_preferred_annotations_from_archive(verbose: bool = False):
@@ -2276,7 +2226,9 @@ def rebuild_preferred_annotations_from_archive(verbose: bool = False):
         ["source_platform", "item_id"] if "source_platform" in archive.columns else ["item_id"]
     )
     if preferred_version is None:
-        preferred_df = archive.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
+        preferred_df = archive.drop_duplicates(subset=dedup_cols, keep="last").reset_index(
+            drop=True
+        )
     else:
         preferred_df = annotation_versioning.select_preferred_view(archive, preferred_version)
 
@@ -2284,10 +2236,6 @@ def rebuild_preferred_annotations_from_archive(verbose: bool = False):
         df=preferred_df, storage_location="recoded", filename=recoded_fn, verbose=verbose
     )
     return len(preferred_df)
-
-
-
-
 
 
 def platform_map_for(item_ids: list[str]) -> dict[str, str]:
@@ -2309,7 +2257,8 @@ def platform_map_for(item_ids: list[str]) -> dict[str, str]:
         if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
             return {}
         status_df = data_io.load_parquet_selective(
-            storage_location="recoded", filename="enrichment_status.parquet",
+            storage_location="recoded",
+            filename="enrichment_status.parquet",
             columns=["item_id", "source_platform"],
         )
         if "source_platform" not in status_df.columns:
@@ -2319,28 +2268,27 @@ def platform_map_for(item_ids: list[str]) -> dict[str, str]:
         mask = ids.isin(wanted) & status_df["source_platform"].notna()
         return dict(zip(ids[mask], status_df.loc[mask, "source_platform"].astype(str)))
     except Exception as e:
-        logger.warning(f"WARNING: platform map lookup failed ({e}); falling back to default platform.")
+        logger.warning(
+            f"WARNING: platform map lookup failed ({e}); falling back to default platform."
+        )
         return {}
 
 
-
-
-
-
 def annotate_from_video_id_list(
-    fine_list = None,
-    max_workers = 50,
-    refine_after_annotation = True,
-    verbose = False,
-    notebook_mode = False,
-    dry_run = False,
+    fine_list=None,
+    max_workers=50,
+    refine_after_annotation=True,
+    verbose=False,
+    notebook_mode=False,
+    dry_run=False,
     batch_label: str | None = None,
     cumulative_done: int = 0,
     cumulative_total: int = 0,
     cumulative_ok: int = 0,
     cumulative_fail: int = 0,
     reporter=None,
-    platform_by_id: dict[str, str] | None = None):
+    platform_by_id: dict[str, str] | None = None,
+):
 
     if notebook_mode:
         verbose = True
@@ -2351,17 +2299,23 @@ def annotate_from_video_id_list(
 
     initialize_machine()
 
-
     if dry_run:
-        logger.info("********* This is a dry run. It's all fake. No data io action at all. *********")
-
+        logger.info(
+            "********* This is a dry run. It's all fake. No data io action at all. *********"
+        )
 
     if isinstance(fine_list, list) and len(fine_list) > 0:
-
         # Sanity check against corrupt lists (NaN / paths / URLs) — id shapes
         # differ per platform (TikTok 19-digit numeric, Instagram shortcode,
         # YouTube 11-char [A-Za-z0-9_-]), so the check is deliberately permissive.
-        if not all(map(lambda video_id: type(video_id) == str and re.fullmatch(r"[A-Za-z0-9_-]{5,40}", video_id), fine_list)):
+        if not all(
+            map(
+                lambda video_id: (
+                    type(video_id) == str and re.fullmatch(r"[A-Za-z0-9_-]{5,40}", video_id)
+                ),
+                fine_list,
+            )
+        ):
             raise ValueError("Some videoIDs in the list were corrupt. Cannot process this list.")
 
         if platform_by_id is None and not dry_run:
@@ -2370,19 +2324,19 @@ def annotate_from_video_id_list(
         logger.info("Annotating videos...")
 
         raw_outputs_from_machine, raw_json_fn = call_machine_threads(
-                interesting_videos = fine_list,
-                max_workers=max_workers,
-                verbose = verbose,
-                notebook_mode = notebook_mode,
-                dry_run = dry_run,
-                batch_label=batch_label,
-                cumulative_done=cumulative_done,
-                cumulative_total=cumulative_total,
-                cumulative_ok=cumulative_ok,
-                cumulative_fail=cumulative_fail,
-                reporter=reporter,
-                platform_by_id=platform_by_id,
-            )
+            interesting_videos=fine_list,
+            max_workers=max_workers,
+            verbose=verbose,
+            notebook_mode=notebook_mode,
+            dry_run=dry_run,
+            batch_label=batch_label,
+            cumulative_done=cumulative_done,
+            cumulative_total=cumulative_total,
+            cumulative_ok=cumulative_ok,
+            cumulative_fail=cumulative_fail,
+            reporter=reporter,
+            platform_by_id=platform_by_id,
+        )
 
         logger.info("...video annotation completed.")
 
@@ -2392,9 +2346,11 @@ def annotate_from_video_id_list(
 
         if refine_after_annotation:
             refined_df = refine_one_raw_annotation_batch(
-                raw_outputs_from_machine = raw_outputs_from_machine,
-                raw_json_filename = raw_json_fn,
-                verbose = verbose, notebook_mode = notebook_mode)
+                raw_outputs_from_machine=raw_outputs_from_machine,
+                raw_json_filename=raw_json_fn,
+                verbose=verbose,
+                notebook_mode=notebook_mode,
+            )
 
             # Refinement can return None when flatten_and_fix_machine_outputs
             # fails for the entire batch. In that case we cannot tell which
@@ -2404,8 +2360,18 @@ def annotate_from_video_id_list(
                 return [], []
 
             if {"item_id", "annotated_ok", "annotated_fail"}.issubset(refined_df.columns):
-                ok_ids = refined_df.loc[refined_df["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
-                fail_ids = refined_df.loc[refined_df["annotated_fail"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
+                ok_ids = (
+                    refined_df.loc[refined_df["annotated_ok"].fillna(False).astype(bool), "item_id"]
+                    .astype(str)
+                    .tolist()
+                )
+                fail_ids = (
+                    refined_df.loc[
+                        refined_df["annotated_fail"].fillna(False).astype(bool), "item_id"
+                    ]
+                    .astype(str)
+                    .tolist()
+                )
                 return ok_ids, fail_ids
 
             return [], []
@@ -2418,36 +2384,27 @@ def annotate_from_video_id_list(
         return [], []
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def queue_annotation_loop(
-    batch_size = 500,
-    max_batches = None,
-    verbose = False,
-    dry_run = False,
+    batch_size=500,
+    max_batches=None,
+    verbose=False,
+    dry_run=False,
     reporter=None,
     cancellation_check=None,
 ):
 
     import fyp.core.data_io as data_io
+
     target_cache_file = "to_annotate.json"
-    
+
     if not data_io.exists(storage_location="cache", filename=target_cache_file):
-        logger.error(f"    ERROR: Could not find target file '{target_cache_file}' in cache. Make sure you calculated targets first.")
+        logger.error(
+            f"    ERROR: Could not find target file '{target_cache_file}' in cache. Make sure you calculated targets first."
+        )
         return None
 
     video_list = data_io.load_json(storage_location="cache", filename=target_cache_file)
-    
+
     if not video_list or len(video_list) == 0:
         logger.info(f"    No videos to annotate found in '{target_cache_file}'.")
         return None
@@ -2455,46 +2412,39 @@ def queue_annotation_loop(
     logger.info(f"    Loaded {len(video_list)} videos from queue '{target_cache_file}'")
 
     return annotate_videos_loop_from_list(
-        video_list = video_list,
-        batch_size = batch_size,
-        max_batches = max_batches,
-        verbose = verbose,
-        dry_run = dry_run,
-        reporter = reporter,
-        cancellation_check = cancellation_check,
+        video_list=video_list,
+        batch_size=batch_size,
+        max_batches=max_batches,
+        verbose=verbose,
+        dry_run=dry_run,
+        reporter=reporter,
+        cancellation_check=cancellation_check,
     )
 
 
-
-
-
-
-
-
-
 def annotate_videos_loop_from_list(
-    video_list = None,
-    batch_size = 500,
-    max_batches = None,
-    verbose = False,
-    dry_run = False,
+    video_list=None,
+    batch_size=500,
+    max_batches=None,
+    verbose=False,
+    dry_run=False,
     reporter=None,
     cancellation_check=None,
-    ):
-
-
+):
 
     max_batches = max_batches if max_batches is not None else np.inf
 
     if video_list is None:
-        logger.error("    ERROR: The annotation loop cannot run without a video list as input. Process failed.")
+        logger.error(
+            "    ERROR: The annotation loop cannot run without a video list as input. Process failed."
+        )
         return None
 
     initialize_machine()
-    
 
-
-    logger.info(f"    Annotating selected videos, batch size: {batch_size}, max batches: {max_batches}")
+    logger.info(
+        f"    Annotating selected videos, batch size: {batch_size}, max batches: {max_batches}"
+    )
     logger.info(f"    Now: {_dt.datetime.now()}")
 
     batch_number = 1
@@ -2505,19 +2455,20 @@ def annotate_videos_loop_from_list(
     batch_target = min(max_batches, len(video_list) // batch_size + 1)
     total_items = min(len(video_list), batch_target * batch_size)
 
-    logger.info(f"  Starting loop... There are {total_items:,} videos to process in {batch_target:,} batches")
+    logger.info(
+        f"  Starting loop... There are {total_items:,} videos to process in {batch_target:,} batches"
+    )
 
     target_cache_file = "to_annotate.json"
 
     for batch in fyp_utils.chunk_list(video_list, batch_size):
-
         batch_label = f"{batch_number}/{batch_target}"
         logger.info(f"  Batch {batch_label}")
 
         ok_ids, fail_ids = annotate_from_video_id_list(
-            fine_list = batch,
-            verbose = verbose,
-            dry_run = dry_run,
+            fine_list=batch,
+            verbose=verbose,
+            dry_run=dry_run,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=total_items,
@@ -2562,7 +2513,7 @@ def annotate_videos_loop_from_list(
         elif "WEB_INTERFACE" in os.environ:
             # STDOUT PROTOCOL — MUST stay print(). process_manager.enqueue_output()
             # parses subprocess stdout for the ::DATA:: marker; never convert to logging.
-            print(f"::DATA::{{\"annotate_queue_len\": {max(0, queue_remaining)}}}", flush=True)
+            print(f'::DATA::{{"annotate_queue_len": {max(0, queue_remaining)}}}', flush=True)
 
         if max_batches is not None and batch_number >= max_batches:
             break
@@ -2584,21 +2535,8 @@ def annotate_videos_loop_from_list(
     logger.info(f"Loop ended: {_dt.datetime.now()}")
 
 
-
-
-
-
-
-
-
-
-
-
-
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
-
-

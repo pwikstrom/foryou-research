@@ -39,13 +39,16 @@ PROBE = (
 def _run(prelude: str) -> dict:
     out = subprocess.run(
         [sys.executable, "-c", prelude + PROBE],
-        capture_output=True, text=True, cwd=ROOT,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
         env={"PYTHONPATH": str(ROOT), "PATH": "/usr/bin:/bin"},
     )
     assert out.returncode == 0, out.stderr[-2000:]
     values = dict(
-        line.split("=", 1) for line in out.stdout.splitlines() if "=" in line and
-        (line.startswith("ROLE") or line.startswith("HASH"))
+        line.split("=", 1)
+        for line in out.stdout.splitlines()
+        if "=" in line and (line.startswith("ROLE") or line.startswith("HASH"))
     )
     return values
 

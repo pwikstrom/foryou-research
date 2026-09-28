@@ -77,12 +77,25 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         # keyed by arm name ("live" for the live arm).
         arm_params = task_args.get("arm_params") or {}
         for name in names:
-            cand = ab_eval.load_candidate(name)   # raises on missing/invalid → fail fast
-            arms.append({"name": name, "source": "candidate", "text": cand["text"],
-                         "candidate": name, **arm_params.get(name, {})})
+            cand = ab_eval.load_candidate(name)  # raises on missing/invalid → fail fast
+            arms.append(
+                {
+                    "name": name,
+                    "source": "candidate",
+                    "text": cand["text"],
+                    "candidate": name,
+                    **arm_params.get(name, {}),
+                }
+            )
         if include_live:
-            arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text(),
-                         **arm_params.get("live", {})})
+            arms.append(
+                {
+                    "name": "live",
+                    "source": "live",
+                    "text": ac.effective_contract_text(),
+                    **arm_params.get("live", {}),
+                }
+            )
     if not arms:
         raise ValueError("no contracts selected (pass arms_spec, or candidate_names/include_live)")
 
@@ -97,8 +110,15 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         f"Run {run_id}: {len(arms)} contract(s) × {len(item_ids)} item(s) from set "
         f"'{eval_set}' = {n_calls} annotation calls."
     )
-    reporter.emit_data({"run_id": run_id, "n_arms": len(arms), "eval_set": eval_set,
-                        "n_items": len(item_ids), "n_calls": n_calls})
+    reporter.emit_data(
+        {
+            "run_id": run_id,
+            "n_arms": len(arms),
+            "eval_set": eval_set,
+            "n_items": len(item_ids),
+            "n_calls": n_calls,
+        }
+    )
 
     total_units = max(1, n_calls)
     done_units = {"n": 0}
@@ -125,16 +145,13 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         return None
 
     _t_total = time.perf_counter() - _t_start
-    reporter.emit_data({"run_id": run_id, "status": summary["status"],
-                        "costs": summary["costs"]})
+    reporter.emit_data({"run_id": run_id, "status": summary["status"], "costs": summary["costs"]})
     reporter.log(
         f"[TIMING] ab_eval total={_t_total:.2f}s run_id={run_id} "
         f"contracts={','.join(summary['arms'])} items={summary['n_items']}"
     )
     reporter.log("Done. Open the Annotation testing page to compare the contracts.")
     return None
-
-
 
 
 if __name__ == "__main__":
@@ -147,15 +164,22 @@ if __name__ == "__main__":
         "ab_eval",
         arg_specs=[
             (("--run-id",), {"default": None, "help": "pre-minted run id"}),
-            (("--candidates",), {"default": "",
-                                 "help": "comma-separated candidate names"}),
-            (("--include-live",), {"action": "store_true",
-                                   "help": "also run the live effective contract as an arm"}),
-            (("--eval-set",), {"default": None,
-                               "help": "named test set (default: the active one)"}),
-            (("--arms-spec",), {"default": None,
-                                "help": "explicit arm list as JSON "
-                                        "([{source, name?, label, backend?}, ...])"}),
+            (("--candidates",), {"default": "", "help": "comma-separated candidate names"}),
+            (
+                ("--include-live",),
+                {"action": "store_true", "help": "also run the live effective contract as an arm"},
+            ),
+            (
+                ("--eval-set",),
+                {"default": None, "help": "named test set (default: the active one)"},
+            ),
+            (
+                ("--arms-spec",),
+                {
+                    "default": None,
+                    "help": "explicit arm list as JSON ([{source, name?, label, backend?}, ...])",
+                },
+            ),
             (("--name",), {"default": None, "help": "run name (shown in run pickers)"}),
             (("--started-by",), {"default": None, "help": "audit actor for the manifest"}),
         ],

@@ -21,7 +21,7 @@ class _FakeBlob:
             self._record.append(("full", None))
             return self._payload
         self._record.append((start, end))
-        return self._payload[start:end + 1]  # end is inclusive
+        return self._payload[start : end + 1]  # end is inclusive
 
 
 class _FakeBucket:

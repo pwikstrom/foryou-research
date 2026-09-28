@@ -32,6 +32,7 @@ import fyp.annotation.machine_annotation as ma
 # _compress_embedded_repeats
 # ---------------------------------------------------------------------------
 
+
 def test_compress_repeats_multichar_unit() -> None:
     assert ma._compress_embedded_repeats("abcabcabc") == "[3]*[abc]"
     assert ma._compress_embedded_repeats("xabcabcabcy") == "x[3]*[abc]y"
@@ -53,6 +54,7 @@ def test_compress_repeats_single_char_run_collapses_to_one() -> None:
 # _decode_valid_unicode_escapes
 # ---------------------------------------------------------------------------
 
+
 def test_decode_valid_escape() -> None:
     assert ma._decode_valid_unicode_escapes(r"&") == "&"
     assert ma._decode_valid_unicode_escapes(r"plain A text") == "plain A text"
@@ -67,6 +69,7 @@ def test_decode_passthrough_and_invalid() -> None:
 # ---------------------------------------------------------------------------
 # fuzzy_load_of_json_from_string
 # ---------------------------------------------------------------------------
+
 
 def test_fuzzy_load_valid_object() -> None:
     assert ma.fuzzy_load_of_json_from_string('{"a": 1, "b": "x"}') == {"a": 1, "b": "x"}
@@ -86,6 +89,7 @@ def test_fuzzy_load_rejects_non_object_and_empty() -> None:
 # ---------------------------------------------------------------------------
 # flatten_one_machine_response
 # ---------------------------------------------------------------------------
+
 
 def _full_response() -> dict:
     return {
@@ -140,6 +144,7 @@ def test_flatten_non_dict_returned_as_is() -> None:
 # ---------------------------------------------------------------------------
 # _remove_repetitions
 # ---------------------------------------------------------------------------
+
 
 def test_remove_repetitions_shrinks_repeated_phrase() -> None:
     # Documented (lossy) behaviour: the de-duplicator substantially shortens a

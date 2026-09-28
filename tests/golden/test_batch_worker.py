@@ -110,11 +110,13 @@ def _refine_returns(ok_ids):
     """Stub refinement: every id in ``ok_ids`` comes back annotated."""
 
     def _fake_refine(raw_json_filename, verbose=False):
-        return pd.DataFrame({
-            "item_id": list(ok_ids),
-            "annotated_ok": [True] * len(ok_ids),
-            "annotated_fail": [False] * len(ok_ids),
-        })
+        return pd.DataFrame(
+            {
+                "item_id": list(ok_ids),
+                "annotated_ok": [True] * len(ok_ids),
+                "annotated_fail": [False] * len(ok_ids),
+            }
+        )
 
     orig = ma.refine_one_raw_annotation_batch
     ma.refine_one_raw_annotation_batch = _fake_refine
@@ -127,6 +129,7 @@ def _refine_returns(ok_ids):
 # ---------------------------------------------------------------------------
 # claim / restore helpers
 # ---------------------------------------------------------------------------
+
 
 def test_claim_removes_ids() -> None:
     with _isolated_cache():
@@ -147,6 +150,7 @@ def test_restore_adds_without_duplicates() -> None:
 # ---------------------------------------------------------------------------
 # submitting into the job table
 # ---------------------------------------------------------------------------
+
 
 def test_submit_claims_slice_and_chains() -> None:
     with _isolated_cache():
@@ -171,39 +175,50 @@ def test_submit_fills_every_free_slot() -> None:
         out = w._run_phase(_Reporter(), {"batch_size": 2}, _FakeBatch(), data_io)
         q = _queue()
     jobs = out["next_task_args"]["jobs"]
-    assert len(jobs) == w.MAX_CONCURRENT_JOBS          # cap respected
+    assert len(jobs) == w.MAX_CONCURRENT_JOBS  # cap respected
     claimed = [i for j in jobs for i in j["submitted_ids"]]
-    assert claimed == ids[:2 * w.MAX_CONCURRENT_JOBS]  # taken from the queue's head
-    assert q == ids[2 * w.MAX_CONCURRENT_JOBS:]        # the rest still queued
+    assert claimed == ids[: 2 * w.MAX_CONCURRENT_JOBS]  # taken from the queue's head
+    assert q == ids[2 * w.MAX_CONCURRENT_JOBS :]  # the rest still queued
 
 
 # ---------------------------------------------------------------------------
 # polling the job table
 # ---------------------------------------------------------------------------
 
+
 def test_poll_running_reschedules_and_leaves_queue() -> None:
     with _isolated_cache():
         _seed(["i3", "i4"])
-        args = {"phase": "run", "batch_size": 2, "chunk_index": 1,
-                "max_concurrent_jobs": 1, "jobs": [_job(["i1", "i2"])]}
+        args = {
+            "phase": "run",
+            "batch_size": 2,
+            "chunk_index": 1,
+            "max_concurrent_jobs": 1,
+            "jobs": [_job(["i1", "i2"])],
+        }
         out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_RUNNING"), data_io)
         q = _queue()
     assert out["chain"] is True
     assert out["next_task_args"]["phase"] == "run"
     assert [j["submitted_ids"] for j in out["next_task_args"]["jobs"]] == [["i1", "i2"]]
     assert out["next_dispatch_delay_seconds"] == w._POLL_DELAY_S
-    assert q == ["i3", "i4"]      # untouched
+    assert q == ["i3", "i4"]  # untouched
 
 
 def test_poll_failed_restores_claimed_items() -> None:
     with _isolated_cache():
-        _seed(["i3", "i4"])              # i1,i2 are claimed (in-flight)
-        args = {"phase": "run", "batch_size": 2, "chunk_index": 1,
-                "max_concurrent_jobs": 1, "jobs": [_job(["i1", "i2"])]}
+        _seed(["i3", "i4"])  # i1,i2 are claimed (in-flight)
+        args = {
+            "phase": "run",
+            "batch_size": 2,
+            "chunk_index": 1,
+            "max_concurrent_jobs": 1,
+            "jobs": [_job(["i1", "i2"])],
+        }
         out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_FAILED"), data_io)
         q = _queue()
-    assert out is None                   # stops, no chain
-    assert set(q) == {"i1", "i2", "i3", "i4"}   # claimed items restored
+    assert out is None  # stops, no chain
+    assert set(q) == {"i1", "i2", "i3", "i4"}  # claimed items restored
 
 
 def test_poll_success_requeues_only_unprocessed() -> None:
@@ -212,45 +227,62 @@ def test_poll_success_requeues_only_unprocessed() -> None:
     # the queue shows exactly what the finished job left behind.
     with _refine_returns(["i1"]):
         with _isolated_cache():
-            _seed(["i3", "i4"])          # i1,i2 claimed
-            args = {"phase": "run", "batch_size": 2, "chunk_index": 1,
-                    "max_batches": 1, "max_concurrent_jobs": 1,
-                    "jobs": [_job(["i1", "i2"])]}
+            _seed(["i3", "i4"])  # i1,i2 claimed
+            args = {
+                "phase": "run",
+                "batch_size": 2,
+                "chunk_index": 1,
+                "max_batches": 1,
+                "max_concurrent_jobs": 1,
+                "jobs": [_job(["i1", "i2"])],
+            }
             out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
             q = _queue()
-    assert out is None                                     # max-batches reached
-    assert "i1" not in q                                   # ok item stays claimed
-    assert set(q) == {"i2", "i3", "i4"}                    # unprocessed re-queued
+    assert out is None  # max-batches reached
+    assert "i1" not in q  # ok item stays claimed
+    assert set(q) == {"i2", "i3", "i4"}  # unprocessed re-queued
 
 
 def test_finished_job_frees_a_slot_for_the_next_batch() -> None:
     with _refine_returns(["i1", "i2"]):
         with _isolated_cache():
             _seed(["i3", "i4"])
-            args = {"phase": "run", "batch_size": 2, "chunk_index": 1,
-                    "max_batches": 2, "max_concurrent_jobs": 1,
-                    "jobs": [_job(["i1", "i2"])]}
+            args = {
+                "phase": "run",
+                "batch_size": 2,
+                "chunk_index": 1,
+                "max_batches": 2,
+                "max_concurrent_jobs": 1,
+                "jobs": [_job(["i1", "i2"])],
+            }
             out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
             q = _queue()
     assert out["chain"] is True
     jobs = out["next_task_args"]["jobs"]
-    assert [j["submitted_ids"] for j in jobs] == [["i3", "i4"]]   # slot refilled
+    assert [j["submitted_ids"] for j in jobs] == [["i3", "i4"]]  # slot refilled
     assert out["next_task_args"]["chunk_index"] == 2
-    assert q == []                                                # newly claimed
+    assert q == []  # newly claimed
 
 
 # ---------------------------------------------------------------------------
 # legacy chain links, live across the deploy
 # ---------------------------------------------------------------------------
 
+
 def test_legacy_poll_args_become_a_one_job_table() -> None:
-    run = w._legacy_args_to_run({
-        "phase": "poll", "job_name": "j", "output_uri": "gs://b/out/",
-        "submitted_ids": ["i1", "i2"], "chunk_index": 0, "batch_size": 2,
-    })
+    run = w._legacy_args_to_run(
+        {
+            "phase": "poll",
+            "job_name": "j",
+            "output_uri": "gs://b/out/",
+            "submitted_ids": ["i1", "i2"],
+            "chunk_index": 0,
+            "batch_size": 2,
+        }
+    )
     assert run["phase"] == "run"
     assert [j["submitted_ids"] for j in run["jobs"]] == [["i1", "i2"]]
-    assert run["chunk_index"] == 1          # the table counts submitted jobs
+    assert run["chunk_index"] == 1  # the table counts submitted jobs
     assert run["notified_submitted"] is True
 
 

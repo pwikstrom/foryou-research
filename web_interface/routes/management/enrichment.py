@@ -29,7 +29,6 @@ from ...services import collection_enrichment, refresh_pipeline, system_health
 from ...task_status import is_cloud_run
 
 
-
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
     _evaluate_version_promotion_staleness,
@@ -44,7 +43,6 @@ from ...services.worker_status import (
     consolidate_entry_view,
     refresh_run_view,
 )
-
 
 
 from ._blueprint import management_bp
@@ -90,10 +88,6 @@ def _consolidate_blockers() -> list[str]:
     return blocking
 
 
-
-
-
-
 def _log_dm(action: str, target: str = "", details: dict | None = None) -> None:
     """Record a Data-Management activity-log entry for the current user."""
     activity_log.record(
@@ -114,8 +108,7 @@ def _journal(kind: str, message: str, **fields) -> None:
     """
     from ...services import enrichment_journal as journal
 
-    journal.record(kind, message, actor=getattr(current_user, "username", "") or None,
-                   **fields)
+    journal.record(kind, message, actor=getattr(current_user, "username", "") or None, **fields)
 
 
 def _collection_display_ids() -> dict[str, str]:
@@ -123,6 +116,7 @@ def _collection_display_ids() -> dict[str, str]:
     itself where no display id is set."""
     try:
         from ...collection_accounts import _load_tags_fresh
+
         tags = _load_tags_fresh()
     except Exception:
         return {}
@@ -149,9 +143,11 @@ def _armed_queue_view(scrape_queues_by_platform: dict) -> tuple[dict, dict]:
             if not platform:
                 continue
             armed_by_platform.setdefault(platform, []).append(
-                {"collection_id": cid, "display_id": names.get(cid, cid)})
+                {"collection_id": cid, "display_id": names.get(cid, cid)}
+            )
             own_by_platform.setdefault(platform, set()).update(
-                str(i) for i in (entry.get("in_flight") or []))
+                str(i) for i in (entry.get("in_flight") or [])
+            )
         for platform, count in (scrape_queues_by_platform or {}).items():
             if not count or platform not in own_by_platform:
                 continue
@@ -160,10 +156,6 @@ def _armed_queue_view(scrape_queues_by_platform: dict) -> tuple[dict, dict]:
     except Exception as exc:
         print(f"[stats] armed-queue view failed: {exc}")
     return armed_by_platform, plan_items_by_platform
-
-
-
-
 
 
 def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict]:
@@ -191,12 +183,7 @@ def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict
     is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
     if is_admin or cap <= 0 or requested <= cap:
         return items, {"capped": False, "cap": cap or None, "requested": requested}
-    return sorted(str(v) for v in items)[:cap], {
-        "capped": True, "cap": cap, "requested": requested}
-
-
-
-
+    return sorted(str(v) for v in items)[:cap], {"capped": True, "cap": cap, "requested": requested}
 
 
 def _annotation_cost_estimate(n_items: int) -> dict | None:
@@ -222,16 +209,21 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
     machine_cf = fyp_cf.get("machine", {})
     est_in = float(machine_cf.get("est_input_tokens_per_annotation", 15000))
     est_out = float(machine_cf.get("est_output_tokens_per_annotation", 1500))
-    cost = n_items * (est_in * float(pricing.get("input", 0))
-                      + est_out * float(pricing.get("output", 0))) / 1e6
+    cost = (
+        n_items
+        * (est_in * float(pricing.get("input", 0)) + est_out * float(pricing.get("output", 0)))
+        / 1e6
+    )
 
     # The concrete model behind the selection, for cost lines in the UI —
     # a variant's override wins over its backend's configured model.
     try:
         spec = variants.resolve(selection)
-        model = (spec.overrides.get("model")
-                 or fyp_cf.get("machine", {}).get(spec.backend_id, {}).get("model")
-                 or selection)
+        model = (
+            spec.overrides.get("model")
+            or fyp_cf.get("machine", {}).get(spec.backend_id, {}).get("model")
+            or selection
+        )
     except Exception:
         model = selection
     return {
@@ -243,10 +235,6 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
     }
 
 
-
-
-
-
 # How long a refresh run may show no sign of life before the hub declares it
 # abandoned. Matches FORK_START_GRACE_SECONDS: the same worst case (a Cloud Run
 # 429 redelivered minutes later) applies to any step's dispatch, not only a
@@ -254,8 +242,10 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
 ABANDONED_RUN_SECONDS = 600
 
 
-@management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
-@permission_required('tab.data_management.scrape', 'tab.data_management.annotation', 'tab.data_management.refresh')
+@management_bp.route("/api/manage/enrichment/stats", methods=["GET"])
+@permission_required(
+    "tab.data_management.scrape", "tab.data_management.annotation", "tab.data_management.refresh"
+)
 @login_required
 def get_enrichment_stats():
     # Only admins can see enrichment stats
@@ -269,8 +259,10 @@ def get_enrichment_stats():
 
     # 1. Load Enrichment Status
     enrichment_status = None
-    if data_io.exists(storage_location="recoded", filename='enrichment_status.parquet'):
-        enrichment_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        enrichment_status = data_io.load_parquet(
+            storage_location="recoded", filename="enrichment_status.parquet"
+        )
 
     total_videos = 0
     scraped_videos = 0
@@ -279,21 +271,24 @@ def get_enrichment_stats():
 
     if enrichment_status is not None and not enrichment_status.empty:
         total_videos = len(enrichment_status)
-        if 'scraped_ok' in enrichment_status.columns:
-            scraped_videos = int(enrichment_status['scraped_ok'].sum())
-        if 'annotated_ok' in enrichment_status.columns:
-            annotated_videos = int(enrichment_status['annotated_ok'].sum())
+        if "scraped_ok" in enrichment_status.columns:
+            scraped_videos = int(enrichment_status["scraped_ok"].sum())
+        if "annotated_ok" in enrichment_status.columns:
+            annotated_videos = int(enrichment_status["annotated_ok"].sum())
 
     ddp_metadata = None
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"):
-        ddp_metadata = data_io.load_parquet(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet")
+        ddp_metadata = data_io.load_parquet(
+            storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"
+        )
     if ddp_metadata is not None and not ddp_metadata.empty:
-        if ('other', 'accepted') in ddp_metadata.columns:
-            unique_collections = int(ddp_metadata[ddp_metadata[('other','accepted')]].index.nunique())
+        if ("other", "accepted") in ddp_metadata.columns:
+            unique_collections = int(
+                ddp_metadata[ddp_metadata[("other", "accepted")]].index.nunique()
+            )
         else:
             unique_collections = int(ddp_metadata.index.nunique())
-        
-    
+
     # 2. Get Queue Lengths (per-platform scrape queues + their total)
     scrape_queues_by_platform: dict[str, int] = {}
     annotate_queue_len = 0
@@ -304,9 +299,10 @@ def get_enrichment_stats():
         pass
     scrape_queue_len = sum(scrape_queues_by_platform.values())
 
-    if data_io.exists(storage_location='cache', filename='to_annotate.json'):
-        q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
-        if isinstance(q, list): annotate_queue_len = len(q)
+    if data_io.exists(storage_location="cache", filename="to_annotate.json"):
+        q = data_io.load_json(storage_location="cache", filename="to_annotate.json")
+        if isinstance(q, list):
+            annotate_queue_len = len(q)
 
     # Videos reserved out of the queue by in-flight async batch jobs (claimed at
     # submit time, so they no longer count in annotate_queue_len). Gated on the
@@ -314,17 +310,19 @@ def get_enrichment_stats():
     # then reads 0. Format 2 holds a TABLE of concurrent jobs (sum their slices);
     # the legacy single-job shape kept the ids at the top level.
     annotate_claimed_len = 0
-    if _is_worker_running("queue_annotator_batch") and \
-       data_io.exists(storage_location='cache', filename='annotate_batch_job.json'):
-        job = data_io.load_json(storage_location='cache', filename='annotate_batch_job.json')
+    if _is_worker_running("queue_annotator_batch") and data_io.exists(
+        storage_location="cache", filename="annotate_batch_job.json"
+    ):
+        job = data_io.load_json(storage_location="cache", filename="annotate_batch_job.json")
         if isinstance(job, dict):
             jobs = job.get("jobs")
             if isinstance(jobs, list):
                 annotate_claimed_len = sum(
-                    len(j.get("submitted_ids") or []) for j in jobs if isinstance(j, dict))
+                    len(j.get("submitted_ids") or []) for j in jobs if isinstance(j, dict)
+                )
             else:
                 annotate_claimed_len = len(job.get("submitted_ids") or [])
-        
+
     # Backstop: resolve a forked fan-out (meta‖pca‖timelines) whose dropped leaf
     # left it un-finalized. The event-driven barrier may miss this if every
     # surviving leaf finished before the grace window; this poll-driven call
@@ -333,6 +331,7 @@ def get_enrichment_stats():
     if is_cloud_run():
         try:
             from ..process_routes import resolve_forked_pipeline
+
             resolve_forked_pipeline()
         except Exception as e:
             print(f"[status] resolve_forked_pipeline failed: {e}")
@@ -366,8 +365,11 @@ def get_enrichment_stats():
         # the record untouched while it runs, so the instant it completes the
         # run looks abandoned for the fraction of a second before the task
         # runner advances it. last_activity_ts counts step completions too.
-        touched = (refresh_pipeline.last_activity_ts(refresh_run)
-                   or refresh_run.get("updated_ts") or refresh_run.get("started_ts"))
+        touched = (
+            refresh_pipeline.last_activity_ts(refresh_run)
+            or refresh_run.get("updated_ts")
+            or refresh_run.get("started_ts")
+        )
         stale = False
         if touched:
             try:
@@ -385,9 +387,12 @@ def get_enrichment_stats():
             # predated another instance's write would put its stale entry back —
             # 2026-09-03 that erased a fresh `auto_armed` flag 47 s after it was
             # set, and the armed refresh never fired.
-            refresh_run = refresh_pipeline.finish_run(
-                partial=True, reason="abandoned",
-                run_id=refresh_run.get("run_id")) or {}
+            refresh_run = (
+                refresh_pipeline.finish_run(
+                    partial=True, reason="abandoned", run_id=refresh_run.get("run_id")
+                )
+                or {}
+            )
             consolidate_entry = process_stats.get("consolidate_enrichment", {})
             flag_in_flight = False
 
@@ -396,21 +401,20 @@ def get_enrichment_stats():
     # Which armed plans share each platform queue, and how much of the queue
     # is their own work — so the queue pages can say "an armed plan will drain
     # this on its next tick" before someone builds or empties a queue under it.
-    armed_plans_by_platform, queue_plan_items_by_platform = \
-        _armed_queue_view(scrape_queues_by_platform)
+    armed_plans_by_platform, queue_plan_items_by_platform = _armed_queue_view(
+        scrape_queues_by_platform
+    )
     # What the loop still owes with nothing armed (a consolidation for a job
     # it started, its deferred refresh) — the Dataset Assembly banner says the
     # loop has it in hand instead of asking for a manual Consolidate.
     try:
         from ..process_routes import loop_owes_work
+
         loop_owes = loop_owes_work()
     except Exception:
         loop_owes = {"settle": False, "refresh": False}
 
-    cookie_health = {
-        p: _cached_cookie_health(p)
-        for p in scrape_queues.registered_platforms()
-    }
+    cookie_health = {p: _cached_cookie_health(p) for p in scrape_queues.registered_platforms()}
 
     # Active scraper alerts (e.g. a permanent-failure storm raised by the
     # worker): shown as a banner on the platform's scraper card and folded
@@ -424,92 +428,106 @@ def get_enrichment_stats():
     try:
         from fyp.annotation.backends import active_backend_name
         from fyp.annotation.machine_annotation import annotation_configured
+
         annotation_ok, annotation_reason = annotation_configured()
         annotation_backend = active_backend_name()
     except Exception as exc:
-        annotation_ok, annotation_reason = False, (
-            f"Machine annotation is unavailable: the annotation backend could "
-            f"not be loaded ({exc})."
+        annotation_ok, annotation_reason = (
+            False,
+            (
+                f"Machine annotation is unavailable: the annotation backend could "
+                f"not be loaded ({exc})."
+            ),
         )
         annotation_backend = "gemini"
 
-    return jsonify({
-        "annotation_configured": annotation_ok,
-        "annotation_config_reason": annotation_reason,
-        "annotation_backend": annotation_backend,
-        "total_videos": total_videos,
-        "scraped_videos": scraped_videos,
-        "annotated_videos": annotated_videos,
-        "unique_collections": unique_collections,
-        "scrape_queue_len": scrape_queue_len,
-        "scrape_queues": scrape_queues_by_platform,
-        "cookie_health": cookie_health,
-        "scraper_alerts": active_alerts,
-        # Per-card health chips: combine the last system-health check (test
-        # scrape + media) with the fresh cookie status into one green/yellow/red
-        # per platform, plus an annotation chip. The live availability makes
-        # the annotation chip follow a backend switch immediately instead of
-        # waiting for the next health-check run.
-        "card_health": system_health.derive_card_health(
-            live_cookie=cookie_health, alerts=active_alerts,
-            annotation_live={"backend": annotation_backend,
-                             "ok": annotation_ok,
-                             "reason": annotation_reason}),
-        "annotate_queue_len": annotate_queue_len,
-        "annotate_claimed_len": annotate_claimed_len,
-        # {platform: [{collection_id, display_id}]} of RUNNING plans, and
-        # {platform: n} of the queue that is those plans' own slices.
-        "armed_plans_by_platform": armed_plans_by_platform,
-        "queue_plan_items_by_platform": queue_plan_items_by_platform,
-        "loop_owes": loop_owes,
-        # Fresh local-drain leases (laptop draining a queue against the shared
-        # bucket) — the matching scraper start and consolidation are blocked
-        # while one is held. {platform: {host, user, started_at, ...}}.
-        "local_drains": _active_drain_leases(),
-        # Same read rule as the step view: the in-memory ::DATA:: copy is the
-        # subprocess mirror and is only authoritative in local dev.
-        "consolidate_stats": consolidate_entry_view() or None,
-        "consolidate_auto_armed": bool(consolidate_entry.get("auto_armed")),
-        "consolidate_auto_armed_auto_refresh": bool(consolidate_entry.get("auto_armed_auto_refresh")),
-        "consolidate_pipeline_active": pipeline_active,
-        "pipeline_steps": _build_pipeline_step_view(pipeline_active),
-        # Where this run came from, who started it and how it ended — the chart
-        # header. None until a run has ever been recorded.
-        "refresh_run": refresh_run_view(),
-        "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
-        "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
-        # Includes fresh drain leases: the browser's armed auto-fire keys off
-        # this list, and a consolidate must defer while a drain writes scrapes.
-        "workers_blocking_consolidate": _consolidate_blockers(),
-        "scraper_last_success": max(
-            (
-                process_stats.get(f"queue_scraper_{p}", {}).get("last_success")
-                or process_stats.get("queue_scraper", {}).get("last_success")
-                or ""
-                for p in scrape_queues_by_platform or ["tiktok"]
+    return jsonify(
+        {
+            "annotation_configured": annotation_ok,
+            "annotation_config_reason": annotation_reason,
+            "annotation_backend": annotation_backend,
+            "total_videos": total_videos,
+            "scraped_videos": scraped_videos,
+            "annotated_videos": annotated_videos,
+            "unique_collections": unique_collections,
+            "scrape_queue_len": scrape_queue_len,
+            "scrape_queues": scrape_queues_by_platform,
+            "cookie_health": cookie_health,
+            "scraper_alerts": active_alerts,
+            # Per-card health chips: combine the last system-health check (test
+            # scrape + media) with the fresh cookie status into one green/yellow/red
+            # per platform, plus an annotation chip. The live availability makes
+            # the annotation chip follow a backend switch immediately instead of
+            # waiting for the next health-check run.
+            "card_health": system_health.derive_card_health(
+                live_cookie=cookie_health,
+                alerts=active_alerts,
+                annotation_live={
+                    "backend": annotation_backend,
+                    "ok": annotation_ok,
+                    "reason": annotation_reason,
+                },
             ),
-            default=None,
-        ) or None,
-        # Newest of the sync and async annotators, so a completed async batch run
-        # also triggers the "consolidation needed" prompt (ISO timestamps sort
-        # lexically). Without the batch key, an async run left no signal.
-        "annotator_last_success": max(
-            (
-                process_stats.get(k, {}).get("last_success") or ""
-                for k in ("queue_annotator", "queue_annotator_batch")
+            "annotate_queue_len": annotate_queue_len,
+            "annotate_claimed_len": annotate_claimed_len,
+            # {platform: [{collection_id, display_id}]} of RUNNING plans, and
+            # {platform: n} of the queue that is those plans' own slices.
+            "armed_plans_by_platform": armed_plans_by_platform,
+            "queue_plan_items_by_platform": queue_plan_items_by_platform,
+            "loop_owes": loop_owes,
+            # Fresh local-drain leases (laptop draining a queue against the shared
+            # bucket) — the matching scraper start and consolidation are blocked
+            # while one is held. {platform: {host, user, started_at, ...}}.
+            "local_drains": _active_drain_leases(),
+            # Same read rule as the step view: the in-memory ::DATA:: copy is the
+            # subprocess mirror and is only authoritative in local dev.
+            "consolidate_stats": consolidate_entry_view() or None,
+            "consolidate_auto_armed": bool(consolidate_entry.get("auto_armed")),
+            "consolidate_auto_armed_auto_refresh": bool(
+                consolidate_entry.get("auto_armed_auto_refresh")
             ),
-            default="",
-        ) or None,
-    })
+            "consolidate_pipeline_active": pipeline_active,
+            "pipeline_steps": _build_pipeline_step_view(pipeline_active),
+            # Where this run came from, who started it and how it ended — the chart
+            # header. None until a run has ever been recorded.
+            "refresh_run": refresh_run_view(),
+            "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
+            "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
+            # Includes fresh drain leases: the browser's armed auto-fire keys off
+            # this list, and a consolidate must defer while a drain writes scrapes.
+            "workers_blocking_consolidate": _consolidate_blockers(),
+            "scraper_last_success": max(
+                (
+                    process_stats.get(f"queue_scraper_{p}", {}).get("last_success")
+                    or process_stats.get("queue_scraper", {}).get("last_success")
+                    or ""
+                    for p in scrape_queues_by_platform or ["tiktok"]
+                ),
+                default=None,
+            )
+            or None,
+            # Newest of the sync and async annotators, so a completed async batch run
+            # also triggers the "consolidation needed" prompt (ISO timestamps sort
+            # lexically). Without the batch key, an async run left no signal.
+            "annotator_last_success": max(
+                (
+                    process_stats.get(k, {}).get("last_success") or ""
+                    for k in ("queue_annotator", "queue_annotator_batch")
+                ),
+                default="",
+            )
+            or None,
+        }
+    )
 
 
-
-
-
-
-@management_bp.route('/api/manage/enrichment/history', methods=['GET'])
-@permission_required('tab.data_management.edit_collections', 'tab.data_management.scrape',
-                     'tab.data_management.annotation', 'tab.data_management.refresh')
+@management_bp.route("/api/manage/enrichment/history", methods=["GET"])
+@permission_required(
+    "tab.data_management.edit_collections",
+    "tab.data_management.scrape",
+    "tab.data_management.annotation",
+    "tab.data_management.refresh",
+)
 @login_required
 def get_enrichment_history():
     """The enrichment history, newest first — all of it, or one collection's view.
@@ -538,15 +556,18 @@ def get_enrichment_history():
         tagged = event.get("collection_ids") or []
         event["display_ids"] = [names.get(c, c) for c in tagged[:12]]
         event["actor_label"] = journal.actor_label(event.get("actor"))
-    collections = [{"collection_id": c, "display_id": names.get(c, c)}
-                   for c in journal.collection_ids_present()]
+    collections = [
+        {"collection_id": c, "display_id": names.get(c, c)}
+        for c in journal.collection_ids_present()
+    ]
     collections.sort(key=lambda c: c["display_id"].lower())
-    return jsonify({"events": events, "collections": collections,
-                    "collection_id": cid, "platform": platform})
+    return jsonify(
+        {"events": events, "collections": collections, "collection_id": cid, "platform": platform}
+    )
 
 
-@management_bp.route('/api/manage/annotation/backends', methods=['GET'])
-@permission_required('tab.admin.backends')
+@management_bp.route("/api/manage/annotation/backends", methods=["GET"])
+@permission_required("tab.admin.backends")
 @login_required
 def get_annotation_backends():
     """Availability of every annotation backend, for the requirements panel.
@@ -569,42 +590,60 @@ def get_annotation_backends():
         # Effective model even for unimplemented backends: the variant's
         # override, else the backend block's configured model.
         block = get_config()["machine"].get(spec.backend_id, {}) or {}
-        model = (spec.overrides.get("model") or spec.overrides.get("model_id")
-                 or block.get("model") or block.get("model_id") or "")
-        entry = {"name": name, "backend": spec.backend_id,
-                 "label": spec.label or name, "model": model,
-                 "active": name == active}
+        model = (
+            spec.overrides.get("model")
+            or spec.overrides.get("model_id")
+            or block.get("model")
+            or block.get("model_id")
+            or ""
+        )
+        entry = {
+            "name": name,
+            "backend": spec.backend_id,
+            "label": spec.label or name,
+            "model": model,
+            "active": name == active,
+        }
         try:
             backend = get_backend(name)
             entry["model"] = backend.effective_model_id()
             result = backend.availability()
             entry["implemented"] = True
-            entry["availability"] = {"ok": result.ok, "reason": result.reason,
-                                     "checks": result.checks}
+            entry["availability"] = {
+                "ok": result.ok,
+                "reason": result.reason,
+                "checks": result.checks,
+            }
         except ValueError as exc:
             # Module import failed (e.g. mlx-vlm absent) — fall back to the
             # dependency checks so the panel still shows actionable fixes.
             entry["implemented"] = False
             if spec.backend_id == "qwen_local":
                 from fyp.annotation.backends import qwen_support
+
                 result = qwen_support.availability()
-                entry["availability"] = {"ok": False, "reason": result.reason,
-                                         "checks": result.checks}
+                entry["availability"] = {
+                    "ok": False,
+                    "reason": result.reason,
+                    "checks": result.checks,
+                }
             elif spec.backend_id == "minicpm_local":
                 from fyp.annotation.backends import minicpm_support
+
                 result = minicpm_support.availability()
-                entry["availability"] = {"ok": False, "reason": result.reason,
-                                         "checks": result.checks}
+                entry["availability"] = {
+                    "ok": False,
+                    "reason": result.reason,
+                    "checks": result.checks,
+                }
             else:
                 entry["availability"] = {"ok": False, "reason": str(exc), "checks": []}
         out.append(entry)
     return jsonify({"backends": out})
 
 
-
-
-@management_bp.route('/api/manage/embedding/backends', methods=['GET'])
-@permission_required('tab.admin.backends')
+@management_bp.route("/api/manage/embedding/backends", methods=["GET"])
+@permission_required("tab.admin.backends")
 @login_required
 def get_embedding_backends():
     """Availability of every embedding backend, for the requirements panel.
@@ -621,34 +660,38 @@ def get_embedding_backends():
     for name in BACKEND_IDS:
         # Config-derived fallback so the model shows even on import failure.
         block = get_config().get("embedding", {}).get(name, {}) or {}
-        entry = {"name": name, "model": block.get("model_id", ""),
-                 "active": name == active}
+        entry = {"name": name, "model": block.get("model_id", ""), "active": name == active}
         try:
             backend = get_backend(name)
             entry["model"] = backend.model_id()
             result = backend.availability()
             entry["implemented"] = True
-            entry["availability"] = {"ok": result.ok, "reason": result.reason,
-                                     "checks": result.checks}
+            entry["availability"] = {
+                "ok": result.ok,
+                "reason": result.reason,
+                "checks": result.checks,
+            }
         except ValueError as exc:
             # Module import failed — fall back to the dependency checks so the
             # panel still shows actionable fixes.
             entry["implemented"] = False
             if name == "qwen_local":
                 from fyp.analysis.embedding_backends import qwen_support
+
                 result = qwen_support.availability()
-                entry["availability"] = {"ok": False, "reason": result.reason,
-                                         "checks": result.checks}
+                entry["availability"] = {
+                    "ok": False,
+                    "reason": result.reason,
+                    "checks": result.checks,
+                }
             else:
                 entry["availability"] = {"ok": False, "reason": str(exc), "checks": []}
         out.append(entry)
     return jsonify({"backends": out})
 
 
-
-
-@management_bp.route('/api/manage/enrichment/empty_queue/<queue_type>', methods=['POST'])
-@permission_required('tab.data_management.scrape', 'tab.data_management.annotation')
+@management_bp.route("/api/manage/enrichment/empty_queue/<queue_type>", methods=["POST"])
+@permission_required("tab.data_management.scrape", "tab.data_management.annotation")
 @login_required
 def empty_enrichment_queue(queue_type):
     try:
@@ -663,11 +706,16 @@ def empty_enrichment_queue(queue_type):
                 scrape_queues.remove_scrape_queue(platform)
                 if dropped:
                     from ...services.enrichment_journal import platform_label
-                    _journal("queue.emptied",
-                             f"{platform_label(platform)} scrape queue emptied by {_actor()} — "
-                             f"{dropped:,} queued video(s) dropped",
-                             platform=platform, queue="scrape", dropped=dropped,
-                             reason=body.get("reason") or None)
+
+                    _journal(
+                        "queue.emptied",
+                        f"{platform_label(platform)} scrape queue emptied by {_actor()} — "
+                        f"{dropped:,} queued video(s) dropped",
+                        platform=platform,
+                        queue="scrape",
+                        dropped=dropped,
+                        reason=body.get("reason") or None,
+                    )
             load_process_stats()
             stats_changed = False
             for platform in targets:
@@ -682,17 +730,20 @@ def empty_enrichment_queue(queue_type):
             if stats_changed:
                 save_process_stats()
         elif queue_type == "annotate":
-            if data_io.exists(storage_location='cache', filename='to_annotate.json'):
-                queued = data_io.load_json(storage_location='cache', filename='to_annotate.json')
+            if data_io.exists(storage_location="cache", filename="to_annotate.json"):
+                queued = data_io.load_json(storage_location="cache", filename="to_annotate.json")
                 dropped = len(queued) if isinstance(queued, list) else 0
-                data_io.remove(storage_location='cache', filename='to_annotate.json')
+                data_io.remove(storage_location="cache", filename="to_annotate.json")
                 if dropped:
                     body = request.get_json(silent=True) or {}
-                    _journal("queue.emptied",
-                             f"Annotation queue emptied by {_actor()} — "
-                             f"{dropped:,} queued video(s) dropped",
-                             queue="annotate", dropped=dropped,
-                             reason=body.get("reason") or None)
+                    _journal(
+                        "queue.emptied",
+                        f"Annotation queue emptied by {_actor()} — "
+                        f"{dropped:,} queued video(s) dropped",
+                        queue="annotate",
+                        dropped=dropped,
+                        reason=body.get("reason") or None,
+                    )
             load_process_stats()
             if "annotate_queue_len" in process_stats.get("queue_annotator", {}):
                 process_stats["queue_annotator"]["annotate_queue_len"] = 0
@@ -701,12 +752,15 @@ def empty_enrichment_queue(queue_type):
             return jsonify({"error": "Invalid queue type"}), 400
 
         _log_dm("empty_queue", target=queue_type)
-        return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
+        return jsonify(
+            {"status": "success", "message": f"{queue_type.capitalize()} queue emptied."}
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@management_bp.route('/api/manage/enrichment/scraper_alert/dismiss', methods=['POST'])
-@permission_required('tab.data_management.scrape')
+
+@management_bp.route("/api/manage/enrichment/scraper_alert/dismiss", methods=["POST"])
+@permission_required("tab.data_management.scrape")
 @login_required
 def dismiss_scraper_alert():
     """Dismiss a platform's scraper alert ({"platform": ...} in the body).
@@ -723,15 +777,15 @@ def dismiss_scraper_alert():
     return jsonify({"status": "success"})
 
 
-@management_bp.route('/api/manage/enrichment/queue_voted', methods=['POST'])
-@permission_required('tab.data_management.scrape', 'tab.data_management.annotation')
+@management_bp.route("/api/manage/enrichment/queue_voted", methods=["POST"])
+@permission_required("tab.data_management.scrape", "tab.data_management.annotation")
 @login_required
 def queue_voted_videos():
     try:
         from web_interface.security import user_manager
-        
+
         # 1. Gather all votes across all users
-        all_votes = {} # dict of collection_id -> set of periods
+        all_votes = {}  # dict of collection_id -> set of periods
         for user in user_manager.get_all_users().values():
             if not user.machine_annotation_votes:
                 continue
@@ -739,56 +793,75 @@ def queue_voted_videos():
                 if coll_id not in all_votes:
                     all_votes[coll_id] = set()
                 all_votes[coll_id].update(periods)
-                
-        if not all_votes:
-            return jsonify({"status": "no_votes", "message": "No votes found for machine annotation."})
 
-        # 2. Map periods to item_ids 
+        if not all_votes:
+            return jsonify(
+                {"status": "no_votes", "message": "No votes found for machine annotation."}
+            )
+
+        # 2. Map periods to item_ids
         import pandas as pd
 
         from fyp.analysis.organize_datasets import create_collection_unified_dataset
+
         target_item_ids = set()
-        
+
         for coll_id, periods in all_votes.items():
             try:
                 # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
-                df_collection = create_collection_unified_dataset(collection_id=coll_id, verbose=False)
-                
-                if df_collection is not None and not df_collection.empty and 'item_id' in df_collection.columns and 'local_date' in df_collection.columns:
+                df_collection = create_collection_unified_dataset(
+                    collection_id=coll_id, verbose=False
+                )
+
+                if (
+                    df_collection is not None
+                    and not df_collection.empty
+                    and "item_id" in df_collection.columns
+                    and "local_date" in df_collection.columns
+                ):
                     # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
-                    ts_series = pd.to_datetime(df_collection['local_date'], errors='coerce')
-                    
+                    ts_series = pd.to_datetime(df_collection["local_date"], errors="coerce")
+
                     for p in periods:
                         # yyyy-mm-dd
-                        if len(p) == 10 and p.count('-') == 2:
-                            match_mask = ts_series.dt.strftime('%Y-%m-%d') == p
+                        if len(p) == 10 and p.count("-") == 2:
+                            match_mask = ts_series.dt.strftime("%Y-%m-%d") == p
                         # yyyy-mm
-                        elif len(p) == 7 and p.count('-') == 1:
-                            match_mask = ts_series.dt.strftime('%Y-%m') == p
+                        elif len(p) == 7 and p.count("-") == 1:
+                            match_mask = ts_series.dt.strftime("%Y-%m") == p
                         # yyyy-Wxx
-                        elif 'W' in p:
+                        elif "W" in p:
                             # pandas isocalendar week
                             def format_week(dt):
-                                if pd.isna(dt): return ""
+                                if pd.isna(dt):
+                                    return ""
                                 iso = dt.isocalendar()
                                 return f"{iso.year}-W{iso.week:02d}"
+
                             match_mask = ts_series.apply(format_week) == p
                         else:
-                            continue # Unknown format
-                        
-                        hits = df_collection.loc[match_mask, 'item_id'].dropna().unique().tolist()
+                            continue  # Unknown format
+
+                        hits = df_collection.loc[match_mask, "item_id"].dropna().unique().tolist()
                         target_item_ids.update(hits)
-                        
+
             except Exception as e:
                 print(f"Error processing timeline for collection {coll_id}: {e}")
 
         if not target_item_ids:
-             return jsonify({"status": "no_matches", "message": "No specific videos matched the voted time periods."})
+            return jsonify(
+                {
+                    "status": "no_matches",
+                    "message": "No specific videos matched the voted time periods.",
+                }
+            )
 
         # 3. Check Enrichment Status
         df_status = None
         if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-             df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+            df_status = data_io.load_parquet(
+                storage_location="recoded", filename="enrichment_status.parquet"
+            )
 
         default_platform = scrape_queues.default_platform()
         new_scrape = []
@@ -796,24 +869,26 @@ def queue_voted_videos():
         item_platform: dict[str, str] = {}
 
         if df_status is not None and not df_status.empty:
-            if 'item_id' not in df_status.columns:
+            if "item_id" not in df_status.columns:
                 df_status = df_status.reset_index()
-                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
-                     df_status = df_status.rename(columns={'index': 'item_id'})
+                if "index" in df_status.columns and "item_id" not in df_status.columns:
+                    df_status = df_status.rename(columns={"index": "item_id"})
 
             # Convert status ids to set for fast lookup
-            status_records = df_status.set_index('item_id').to_dict('index')
+            status_records = df_status.set_index("item_id").to_dict("index")
 
             for item in target_item_ids:
                 if item in status_records:
                     rec = status_records[item]
-                    is_scraped = rec.get('scraped_ok', False)
-                    is_annotated = rec.get('annotated_ok', False)
-                    scrape_fail = rec.get('scrape_fail', False)
-                    annotated_fail = rec.get('annotated_fail', False)
-                    has_media = rec.get('video_downloaded', False)
-                    plat = rec.get('source_platform')
-                    item_platform[item] = plat if isinstance(plat, str) and plat else default_platform
+                    is_scraped = rec.get("scraped_ok", False)
+                    is_annotated = rec.get("annotated_ok", False)
+                    scrape_fail = rec.get("scrape_fail", False)
+                    annotated_fail = rec.get("annotated_fail", False)
+                    has_media = rec.get("video_downloaded", False)
+                    plat = rec.get("source_platform")
+                    item_platform[item] = (
+                        plat if isinstance(plat, str) and plat else default_platform
+                    )
 
                     # Annotation needs an mp4: metadata-only items (e.g.
                     # YouTube long-form past the media duration cap) are not
@@ -846,7 +921,9 @@ def queue_voted_videos():
                 by_platform.setdefault(item_platform.get(item, default_platform), []).append(item)
             for platform, items in by_platform.items():
                 if platform not in scrapeable:
-                    print(f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet.")
+                    print(
+                        f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
+                    )
                     continue
                 scrape_queues.append_to_scrape_queue(platform, items)
                 added_to_scrape[platform] = len(items)
@@ -863,22 +940,24 @@ def queue_voted_videos():
                 default=[],
             )
 
-        return jsonify({
-            "status": "success",
-            "added_to_scrape": len(new_scrape),
-            "added_to_scrape_by_platform": added_to_scrape,
-            "added_to_annotate": len(new_annotate),
-            "scrape_capped": scrape_cap_info.get("capped", False),
-            "annotate_capped": annotate_cap_info.get("capped", False),
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "added_to_scrape": len(new_scrape),
+                "added_to_scrape_by_platform": added_to_scrape,
+                "added_to_annotate": len(new_annotate),
+                "scrape_capped": scrape_cap_info.get("capped", False),
+                "annotate_capped": annotate_cap_info.get("capped", False),
+            }
+        )
 
     except Exception as e:
         print(f"Error queueing voted videos: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-@management_bp.route('/api/manage/enrichment/calculate_to_scrape', methods=['POST'])
-@permission_required('tab.data_management.scrape')
+@management_bp.route("/api/manage/enrichment/calculate_to_scrape", methods=["POST"])
+@permission_required("tab.data_management.scrape")
 @login_required
 def calculate_to_scrape():
     data = request.json or {}
@@ -900,49 +979,61 @@ def calculate_to_scrape():
 
         if df_study is None or df_study.empty:
             # If not cached or empty, generate from scratch
-            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+            df_study = create_study_recoded_dataset(
+                study_name=study_name, save_to_cache=True, verbose=False
+            )
 
         if df_study is None or df_study.empty:
-            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+            return jsonify(
+                {"error": f"Dataset for study '{study_name}' could not be generated."}
+            ), 400
 
         # Load global enrichment status
         df_status = None
         if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-            df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+            df_status = data_io.load_parquet(
+                storage_location="recoded", filename="enrichment_status.parquet"
+            )
 
         unscraped_videos = []
         if df_status is not None and not df_status.empty:
             # item_id is usually the index in enrichment_status
-            if 'item_id' not in df_status.columns:
+            if "item_id" not in df_status.columns:
                 df_status = df_status.reset_index()
                 # If index was unnamed, it might become 'index'
-                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
-                    df_status = df_status.rename(columns={'index': 'item_id'})
+                if "index" in df_status.columns and "item_id" not in df_status.columns:
+                    df_status = df_status.rename(columns={"index": "item_id"})
 
             # Map enrichment_status to our study videos
-            study_videos = df_study[['item_id']].copy()
-            study_status = study_videos.merge(df_status, on='item_id', how='left')
+            study_videos = df_study[["item_id"]].copy()
+            study_status = study_videos.merge(df_status, on="item_id", how="left")
 
             # Find videos where scraped_ok is fundamentally False or NaN AND scrape_fail is fundamentally False or NaN
-            not_scraped = pd.isna(study_status['scraped_ok']) | (study_status['scraped_ok'] == False)
+            not_scraped = pd.isna(study_status["scraped_ok"]) | (
+                study_status["scraped_ok"] == False
+            )
 
             # When retry_failed is set, include items that previously failed
             # by dropping the scrape_fail filter — the user is asking us to
             # re-attempt them regardless of past outcome.
             if retry_failed:
                 unscraped_mask = not_scraped
-            elif 'scrape_fail' in study_status.columns:
-                not_failed = pd.isna(study_status['scrape_fail']) | (study_status['scrape_fail'] == False)
+            elif "scrape_fail" in study_status.columns:
+                not_failed = pd.isna(study_status["scrape_fail"]) | (
+                    study_status["scrape_fail"] == False
+                )
                 unscraped_mask = not_scraped & not_failed
-            elif 'scraped_fail' in study_status.columns:
-                not_failed = pd.isna(study_status['scraped_fail']) | (study_status['scraped_fail'] == False)
+            elif "scraped_fail" in study_status.columns:
+                not_failed = pd.isna(study_status["scraped_fail"]) | (
+                    study_status["scraped_fail"] == False
+                )
                 unscraped_mask = not_scraped & not_failed
             else:
                 unscraped_mask = not_scraped
 
-            unscraped_videos = study_status.loc[unscraped_mask, 'item_id'].dropna().tolist()
+            unscraped_videos = study_status.loc[unscraped_mask, "item_id"].dropna().tolist()
         else:
-            unscraped_videos = df_study['item_id'].dropna().tolist()
+            unscraped_videos = df_study["item_id"].dropna().tolist()
 
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unscraped_videos = list({str(v) for v in unscraped_videos})
@@ -952,16 +1043,17 @@ def calculate_to_scrape():
         # via scraped_ok — pick them straight from the study frame. Items over
         # the platform's media duration cap are metadata-only by design and
         # excluded; unknown durations pass (the media phase decides).
-        if retry_missing_media and {'scraped_ok', 'video_downloaded', 'item_id'} <= set(df_study.columns):
-            per_item = df_study.drop_duplicates(subset=['item_id'])
-            gap_mask = (
-                (per_item['scraped_ok'].fillna(False) == True)
-                & ~(per_item['video_downloaded'].fillna(False) == True)
+        if retry_missing_media and {"scraped_ok", "video_downloaded", "item_id"} <= set(
+            df_study.columns
+        ):
+            per_item = df_study.drop_duplicates(subset=["item_id"])
+            gap_mask = (per_item["scraped_ok"].fillna(False) == True) & ~(
+                per_item["video_downloaded"].fillna(False) == True
             )
             gap = per_item[gap_mask]
             gap_platforms = (
-                gap['source_platform'].fillna(scrape_queues.default_platform())
-                if 'source_platform' in gap.columns
+                gap["source_platform"].fillna(scrape_queues.default_platform())
+                if "source_platform" in gap.columns
                 else pd.Series(scrape_queues.default_platform(), index=gap.index)
             )
             media_gap_videos: set[str] = set()
@@ -970,13 +1062,15 @@ def calculate_to_scrape():
                     cap = get_scraper(str(gap_platform)).media_duration_cap()
                 except Exception:
                     continue  # no scraper registered for this platform
-                if 'duration' in grp.columns:
-                    dur = pd.to_numeric(grp['duration'], errors='coerce')
+                if "duration" in grp.columns:
+                    dur = pd.to_numeric(grp["duration"], errors="coerce")
                     grp = grp[dur.isna() | (dur <= cap)]
-                media_gap_videos |= {str(v) for v in grp['item_id'].dropna()}
+                media_gap_videos |= {str(v) for v in grp["item_id"].dropna()}
             if media_gap_videos:
-                print(f"Retry-missing-media: adding {len(media_gap_videos)} scraped-ok "
-                      f"items without media to the queue(s).")
+                print(
+                    f"Retry-missing-media: adding {len(media_gap_videos)} scraped-ok "
+                    f"items without media to the queue(s)."
+                )
             unscraped_videos = list(set(unscraped_videos) | media_gap_videos)
 
         unscraped_videos, cap_info = _apply_queue_cap(unscraped_videos, "scrape")
@@ -985,15 +1079,15 @@ def calculate_to_scrape():
         # source_platform per event row; an item never spans platforms.
         default_platform = scrape_queues.default_platform()
         item_platform: dict[str, str] = {}
-        if 'source_platform' in df_study.columns:
+        if "source_platform" in df_study.columns:
             plat_map = (
-                df_study[['item_id', 'source_platform']]
-                .dropna(subset=['item_id'])
-                .drop_duplicates(subset=['item_id'])
+                df_study[["item_id", "source_platform"]]
+                .dropna(subset=["item_id"])
+                .drop_duplicates(subset=["item_id"])
             )
             item_platform = {
                 str(i): (str(p) if isinstance(p, str) and p else default_platform)
-                for i, p in zip(plat_map['item_id'], plat_map['source_platform'])
+                for i, p in zip(plat_map["item_id"], plat_map["source_platform"])
             }
 
         by_platform: dict[str, list[str]] = {}
@@ -1006,55 +1100,72 @@ def calculate_to_scrape():
 
         # Dry run: report what WOULD be queued per platform without appending.
         if bool(data.get("dry_run", False)):
-            would_queue = {p: len(items) for p, items in by_platform.items()
-                           if p in scrapeable}
-            skipped = {p: len(items) for p, items in by_platform.items()
-                       if p not in scrapeable}
-            return jsonify({
-                "status": "success",
-                "dry_run": True,
-                "would_queue": sum(would_queue.values()),
-                "would_queue_by_platform": would_queue,
-                "skipped_unscrapeable_by_platform": skipped,
-                **cap_info,
-            })
+            would_queue = {p: len(items) for p, items in by_platform.items() if p in scrapeable}
+            skipped = {p: len(items) for p, items in by_platform.items() if p not in scrapeable}
+            return jsonify(
+                {
+                    "status": "success",
+                    "dry_run": True,
+                    "would_queue": sum(would_queue.values()),
+                    "would_queue_by_platform": would_queue,
+                    "skipped_unscrapeable_by_platform": skipped,
+                    **cap_info,
+                }
+            )
 
         queue_len_by_platform: dict[str, int] = {}
         skipped_by_platform: dict[str, int] = {}
         for platform, items in by_platform.items():
             if platform not in scrapeable:
                 skipped_by_platform[platform] = len(items)
-                print(f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet.")
+                print(
+                    f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
+                )
                 continue
             queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
 
-        _log_dm("build_scrape_queue", target=study_name,
-                details={"newly_queued": len(unscraped_videos),
-                         "retry_failed": retry_failed,
-                         "retry_missing_media": retry_missing_media,
-                         **cap_info})
+        _log_dm(
+            "build_scrape_queue",
+            target=study_name,
+            details={
+                "newly_queued": len(unscraped_videos),
+                "retry_failed": retry_failed,
+                "retry_missing_media": retry_missing_media,
+                **cap_info,
+            },
+        )
         for platform, n in sorted(queue_len_by_platform.items()):
             added = len(by_platform.get(platform) or [])
             if not added:
                 continue
             from ...services.enrichment_journal import platform_label
-            _journal("queue.built",
-                     f"Scrape queue built from study '{study_name}' by {_actor()} — "
-                     f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
-                     platform=platform, study=study_name, added=added, queued=n,
-                     retry_failed=retry_failed, retry_missing_media=retry_missing_media)
 
-        return jsonify({
-            "status": "success",
-            "videos_to_scrape": sum(queue_len_by_platform.values()),
-            "videos_to_scrape_by_platform": queue_len_by_platform,
-            "skipped_unscrapeable_by_platform": skipped_by_platform,
-            **cap_info,
-        })
+            _journal(
+                "queue.built",
+                f"Scrape queue built from study '{study_name}' by {_actor()} — "
+                f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
+                platform=platform,
+                study=study_name,
+                added=added,
+                queued=n,
+                retry_failed=retry_failed,
+                retry_missing_media=retry_missing_media,
+            )
+
+        return jsonify(
+            {
+                "status": "success",
+                "videos_to_scrape": sum(queue_len_by_platform.values()),
+                "videos_to_scrape_by_platform": queue_len_by_platform,
+                "skipped_unscrapeable_by_platform": skipped_by_platform,
+                **cap_info,
+            }
+        )
 
     except Exception as e:
         print(f"Error calculating scrape targets: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 def _select_annotated_item_ids(
     archive_df: pd.DataFrame,
@@ -1084,22 +1195,22 @@ def _select_annotated_item_ids(
     if archive_df is None or archive_df.empty:
         return [], 0
 
-    if 'annotated_ok' in archive_df.columns:
-        mask = archive_df['annotated_ok'].fillna(False) == True
+    if "annotated_ok" in archive_df.columns:
+        mask = archive_df["annotated_ok"].fillna(False) == True
     else:
         mask = pd.Series(True, index=archive_df.index)
 
-    item_ids_str = archive_df['item_id'].astype(str)
+    item_ids_str = archive_df["item_id"].astype(str)
     if study_item_ids is not None:
         mask = mask & item_ids_str.isin(study_item_ids)
 
     if version:
-        mask = mask & (archive_df['annotation_version'] == version)
+        mask = mask & (archive_df["annotation_version"] == version)
 
     skipped_no_ts = 0
     if ts_from is not None or ts_to is not None:
-        if 'inference_ts' in archive_df.columns:
-            ts = pd.to_numeric(archive_df['inference_ts'], errors='coerce')
+        if "inference_ts" in archive_df.columns:
+            ts = pd.to_numeric(archive_df["inference_ts"], errors="coerce")
             has_ts = ts.notna()
             skipped_no_ts = int((mask & ~has_ts).sum())
             mask = mask & has_ts
@@ -1123,8 +1234,8 @@ def _parse_selection_date(value: str) -> int:
     return int(dt.timestamp())
 
 
-@management_bp.route('/api/manage/enrichment/annotation_versions', methods=['GET'])
-@permission_required('tab.data_management.annotation')
+@management_bp.route("/api/manage/enrichment/annotation_versions", methods=["GET"])
+@permission_required("tab.data_management.annotation")
 @login_required
 def enrichment_annotation_versions():
     """List annotation versions for the Annotation page's selection dropdown.
@@ -1152,8 +1263,8 @@ def enrichment_annotation_versions():
         return jsonify({"error": str(e)}), 500
 
 
-@management_bp.route('/api/manage/enrichment/calculate_to_annotate', methods=['POST'])
-@permission_required('tab.data_management.annotation')
+@management_bp.route("/api/manage/enrichment/calculate_to_annotate", methods=["POST"])
+@permission_required("tab.data_management.annotation")
 @login_required
 def calculate_to_annotate():
     data = request.json or {}
@@ -1177,32 +1288,36 @@ def calculate_to_annotate():
             df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
 
         if df_study is None or df_study.empty:
-            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+            df_study = create_study_recoded_dataset(
+                study_name=study_name, save_to_cache=True, verbose=False
+            )
 
         if df_study is None or df_study.empty:
-            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+            return jsonify(
+                {"error": f"Dataset for study '{study_name}' could not be generated."}
+            ), 400
 
         # Load global enrichment status
         df_status = None
         if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-            df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+            df_status = data_io.load_parquet(
+                storage_location="recoded", filename="enrichment_status.parquet"
+            )
 
         if selection_mode in ("version", "timeframe"):
-            return _calculate_to_annotate_reannotation(
-                data, selection_mode, df_study, df_status
-            )
+            return _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status)
 
         # The scraped-and-annotatable predicate lives in one place only — see
         # collection_enrichment.annotation_eligible for why a second copy is
         # dangerous (an unscraped id in this queue is burnt permanently).
         durations = None
-        if 'duration' in df_study.columns:
-            dur = df_study[['item_id', 'duration']].dropna(subset=['item_id']).copy()
-            dur['item_id'] = dur['item_id'].astype(str)
-            dur = dur.drop_duplicates(subset=['item_id'])
-            durations = dict(zip(dur['item_id'], dur['duration']))
+        if "duration" in df_study.columns:
+            dur = df_study[["item_id", "duration"]].dropna(subset=["item_id"]).copy()
+            dur["item_id"] = dur["item_id"].astype(str)
+            dur = dur.drop_duplicates(subset=["item_id"])
+            durations = dict(zip(dur["item_id"], dur["duration"]))
         unannotated_videos = collection_enrichment.annotation_eligible(
-            df_study['item_id'].dropna().tolist(),
+            df_study["item_id"].dropna().tolist(),
             df_status,
             durations=durations,
             retry_failed=retry_failed,
@@ -1215,13 +1330,15 @@ def calculate_to_annotate():
         # Dry run: report what WOULD be queued (count, cap, cost) without
         # touching the queue — the UI uses it for its confirm step.
         if bool(data.get("dry_run", False)):
-            return jsonify({
-                "status": "success",
-                "dry_run": True,
-                "would_queue": len(unannotated_videos),
-                "cost_estimate": cost,
-                **cap_info,
-            })
+            return jsonify(
+                {
+                    "status": "success",
+                    "dry_run": True,
+                    "would_queue": len(unannotated_videos),
+                    "cost_estimate": cost,
+                    **cap_info,
+                }
+            )
 
         # Append target payload to global annotate queue (atomic — never
         # clobbers ids claimed/pruned meanwhile by an annotation worker).
@@ -1235,23 +1352,32 @@ def calculate_to_annotate():
             default=[],
         )
 
-        _log_dm("build_annotation_queue", target=study_name,
-                details={"newly_queued": len(unannotated_videos), **cap_info})
+        _log_dm(
+            "build_annotation_queue",
+            target=study_name,
+            details={"newly_queued": len(unannotated_videos), **cap_info},
+        )
         if unannotated_videos:
-            _journal("queue.built",
-                     f"Annotation queue built from study '{study_name}' by {_actor()} — "
-                     f"{len(unannotated_videos):,} video(s) added, "
-                     f"{len(current_queue):,} now queued",
-                     study=study_name, added=len(unannotated_videos),
-                     queued=len(current_queue), cost_estimate=cost)
+            _journal(
+                "queue.built",
+                f"Annotation queue built from study '{study_name}' by {_actor()} — "
+                f"{len(unannotated_videos):,} video(s) added, "
+                f"{len(current_queue):,} now queued",
+                study=study_name,
+                added=len(unannotated_videos),
+                queued=len(current_queue),
+                cost_estimate=cost,
+            )
 
-        return jsonify({
-            "status": "success",
-            "videos_to_annotate": len(current_queue),
-            "newly_queued": len(unannotated_videos),
-            "cost_estimate": cost,
-            **cap_info,
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "videos_to_annotate": len(current_queue),
+                "newly_queued": len(unannotated_videos),
+                "cost_estimate": cost,
+                **cap_info,
+            }
+        )
 
     except Exception as e:
         print(f"Error calculating annotate targets: {e}")
@@ -1293,12 +1419,14 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
     label = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
     archive_fn = f"{label}_all_versions.parquet"
     if not data_io.exists(storage_location="recoded", filename=archive_fn):
-        return jsonify({"error": "No annotation archive found — nothing has been annotated yet."}), 400
+        return jsonify(
+            {"error": "No annotation archive found — nothing has been annotated yet."}
+        ), 400
     df_archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
 
     study_item_ids = None
     if df_study is not None and not df_study.empty:
-        study_item_ids = {str(v) for v in df_study['item_id'].dropna().tolist()}
+        study_item_ids = {str(v) for v in df_study["item_id"].dropna().tolist()}
 
     selected_ids, skipped_no_ts = _select_annotated_item_ids(
         df_archive,
@@ -1311,28 +1439,32 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
     # Annotation needs an mp4: drop items whose media is not downloaded
     # (e.g. later purged). Without a status parquet the check is skipped.
     skipped_no_media = 0
-    if selected_ids and df_status is not None and not df_status.empty \
-            and 'video_downloaded' in df_status.columns:
+    if (
+        selected_ids
+        and df_status is not None
+        and not df_status.empty
+        and "video_downloaded" in df_status.columns
+    ):
         status = df_status
-        if 'item_id' not in status.columns:
+        if "item_id" not in status.columns:
             status = status.reset_index()
-            if 'index' in status.columns and 'item_id' not in status.columns:
-                status = status.rename(columns={'index': 'item_id'})
-        downloaded = status.loc[
-            status['video_downloaded'].fillna(False) == True, 'item_id'
-        ].astype(str)
+            if "index" in status.columns and "item_id" not in status.columns:
+                status = status.rename(columns={"index": "item_id"})
+        downloaded = status.loc[status["video_downloaded"].fillna(False) == True, "item_id"].astype(
+            str
+        )
         downloaded_set = set(downloaded.tolist())
         before = len(selected_ids)
         selected_ids = [v for v in selected_ids if v in downloaded_set]
         skipped_no_media = before - len(selected_ids)
 
     # Duration cap — only when a study frame carries duration.
-    if selected_ids and df_study is not None and 'duration' in getattr(df_study, 'columns', []):
+    if selected_ids and df_study is not None and "duration" in getattr(df_study, "columns", []):
         max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
-        durations = df_study[['item_id', 'duration']].copy()
-        durations['item_id'] = durations['item_id'].astype(str)
+        durations = df_study[["item_id", "duration"]].copy()
+        durations["item_id"] = durations["item_id"].astype(str)
         too_long = durations.loc[
-            durations['duration'].notna() & (durations['duration'] >= max_dur), 'item_id'
+            durations["duration"].notna() & (durations["duration"] >= max_dur), "item_id"
         ]
         too_long_set = set(too_long.tolist())
         selected_ids = [v for v in selected_ids if v not in too_long_set]
@@ -1342,15 +1474,17 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 
     # Dry run: report the selection without touching the queue.
     if bool(data.get("dry_run", False)):
-        return jsonify({
-            "status": "success",
-            "dry_run": True,
-            "would_queue": len(selected_ids),
-            "cost_estimate": cost,
-            "skipped_no_media": skipped_no_media,
-            "skipped_no_inference_ts": skipped_no_ts,
-            **cap_info,
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "dry_run": True,
+                "would_queue": len(selected_ids),
+                "cost_estimate": cost,
+                "skipped_no_media": skipped_no_media,
+                "skipped_no_inference_ts": skipped_no_ts,
+                **cap_info,
+            }
+        )
 
     # Append to the global annotate queue (atomic — never clobbers ids
     # claimed/pruned meanwhile by an annotation worker).
@@ -1358,36 +1492,44 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
         storage_location="cache",
         filename="to_annotate.json",
         mutate=lambda current: list(
-            {str(v) for v in (current if isinstance(current, list) else [])}
-            | set(selected_ids)
+            {str(v) for v in (current if isinstance(current, list) else [])} | set(selected_ids)
         ),
         default=[],
     )
 
-    _log_dm("build_annotation_queue", target=f"reannotation:{selection_mode}",
-            details={"newly_queued": len(selected_ids), **cap_info})
+    _log_dm(
+        "build_annotation_queue",
+        target=f"reannotation:{selection_mode}",
+        details={"newly_queued": len(selected_ids), **cap_info},
+    )
     if selected_ids:
-        _journal("queue.built",
-                 f"Annotation queue built for re-annotation ({selection_mode}) by "
-                 f"{_actor()} — {len(selected_ids):,} video(s) added, "
-                 f"{len(current_queue):,} now queued",
-                 mode=selection_mode, added=len(selected_ids),
-                 queued=len(current_queue), cost_estimate=cost)
+        _journal(
+            "queue.built",
+            f"Annotation queue built for re-annotation ({selection_mode}) by "
+            f"{_actor()} — {len(selected_ids):,} video(s) added, "
+            f"{len(current_queue):,} now queued",
+            mode=selection_mode,
+            added=len(selected_ids),
+            queued=len(current_queue),
+            cost_estimate=cost,
+        )
 
-    return jsonify({
-        "status": "success",
-        "videos_to_annotate": len(current_queue),
-        "selected": len(selected_ids) + skipped_no_media,
-        "newly_queued": len(selected_ids),
-        "skipped_no_media": skipped_no_media,
-        "skipped_no_inference_ts": skipped_no_ts,
-        "cost_estimate": cost,
-        **cap_info,
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "videos_to_annotate": len(current_queue),
+            "selected": len(selected_ids) + skipped_no_media,
+            "newly_queued": len(selected_ids),
+            "skipped_no_media": skipped_no_media,
+            "skipped_no_inference_ts": skipped_no_ts,
+            "cost_estimate": cost,
+            **cap_info,
+        }
+    )
 
 
-@management_bp.route('/api/manage/enrichment/consolidate', methods=['POST'])
-@permission_required('tab.data_management.refresh')
+@management_bp.route("/api/manage/enrichment/consolidate", methods=["POST"])
+@permission_required("tab.data_management.refresh")
 @login_required
 def api_consolidate_enrichment():
     from fyp.core.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
@@ -1405,19 +1547,25 @@ def api_consolidate_enrichment():
     if refresh_pipeline.run_in_flight():
         run = refresh_pipeline.load_run() or {}
         origin = run.get("origin_label") or run.get("origin") or "another step"
-        return jsonify({
-            "status": "busy",
-            "message": (f"A refresh run started from {origin} is still in "
-                        f"progress. Wait for it to finish."),
-        }), 423
+        return jsonify(
+            {
+                "status": "busy",
+                "message": (
+                    f"A refresh run started from {origin} is still in "
+                    f"progress. Wait for it to finish."
+                ),
+            }
+        ), 423
 
     blocking = _consolidate_blockers()
     if blocking:
         if force:
-            return jsonify({
-                "status": "error",
-                "message": f"Cannot run a full rebuild while {', '.join(blocking)} running.",
-            }), 409
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": f"Cannot run a full rebuild while {', '.join(blocking)} running.",
+                }
+            ), 409
 
         # Arm instead of firing — pipeline kicks off when workers go idle.
         load_process_stats()
@@ -1425,15 +1573,19 @@ def api_consolidate_enrichment():
         entry["auto_armed"] = True
         entry["auto_armed_force"] = False
         entry["auto_armed_auto_refresh"] = auto_refresh
-        print(f"[consolidate] armed (auto_refresh={auto_refresh}) — waiting for "
-              f"{', '.join(blocking)}.")
+        print(
+            f"[consolidate] armed (auto_refresh={auto_refresh}) — waiting for "
+            f"{', '.join(blocking)}."
+        )
         process_stats["consolidate_enrichment"] = entry
         save_process_stats()
-        return jsonify({
-            "status": "armed",
-            "message": f"Waiting for {', '.join(blocking)} to finish.",
-            "blocking": blocking,
-        })
+        return jsonify(
+            {
+                "status": "armed",
+                "message": f"Waiting for {', '.join(blocking)} to finish.",
+                "blocking": blocking,
+            }
+        )
 
     task_args: dict = {}
     if force:
@@ -1458,21 +1610,32 @@ def api_consolidate_enrichment():
     save_process_stats()
 
     record = refresh_pipeline.plan_run(
-        "consolidate_enrichment", kind="consolidate", started_by=_actor(),
+        "consolidate_enrichment",
+        kind="consolidate",
+        started_by=_actor(),
         mode="refresh" if auto_refresh else "consolidate_only",
-        origin_task_args=task_args, provisional=bool(auto_refresh))
+        origin_task_args=task_args,
+        provisional=bool(auto_refresh),
+    )
     refresh_pipeline.seed_run(record)
 
     success, msg = start_process(
-        "consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
+        "consolidate_enrichment",
+        CONSOLIDATE_ENRICHMENT_SCRIPT,
         task_args=task_args if task_args else None,
         started_by=_actor(),
-        extra_task_args={"pipeline_run_id": record["run_id"],
-                         "pipeline_stage_index": 1,
-                         "pipeline_stage_total": record["stage_total"]})
+        extra_task_args={
+            "pipeline_run_id": record["run_id"],
+            "pipeline_stage_index": 1,
+            "pipeline_stage_total": record["stage_total"],
+        },
+    )
     if success:
-        _log_dm("consolidate_enrichment", target="force" if force else "normal",
-                details={"auto_refresh": auto_refresh})
+        _log_dm(
+            "consolidate_enrichment",
+            target="force" if force else "normal",
+            details={"auto_refresh": auto_refresh},
+        )
         return jsonify({"status": "started", "message": msg})
     else:
         # Nothing started — don't leave a phantom run locking every card.
@@ -1480,8 +1643,8 @@ def api_consolidate_enrichment():
         return jsonify({"status": "error", "message": msg}), 409
 
 
-@management_bp.route('/api/manage/enrichment/consolidate/disarm', methods=['POST'])
-@permission_required('tab.data_management.refresh')
+@management_bp.route("/api/manage/enrichment/consolidate/disarm", methods=["POST"])
+@permission_required("tab.data_management.refresh")
 @login_required
 def api_consolidate_disarm():
     load_process_stats()
@@ -1495,8 +1658,8 @@ def api_consolidate_disarm():
     return jsonify({"status": "disarmed", "was_armed": was_armed})
 
 
-@management_bp.route('/api/manage/enrichment/refresh-downstream', methods=['POST'])
-@permission_required('tab.data_management.refresh')
+@management_bp.route("/api/manage/enrichment/refresh-downstream", methods=["POST"])
+@permission_required("tab.data_management.refresh")
 @login_required
 def api_refresh_downstream():
     """Start a refresh run for the stored consolidation impact.
@@ -1516,8 +1679,7 @@ def api_refresh_downstream():
 
     # The shared dispatcher folds in any deferred-refresh debt an enrichment
     # plan has accumulated, so the manual button also settles it.
-    status, message = downstream_refresh.dispatch_downstream_refresh(
-        impact, started_by=_actor())
+    status, message = downstream_refresh.dispatch_downstream_refresh(impact, started_by=_actor())
     if status == "busy":
         return jsonify({"status": "error", "message": message}), 409
     if status == "error":
@@ -1525,9 +1687,8 @@ def api_refresh_downstream():
     return jsonify({"status": status, "message": message})
 
 
-
-@management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
-@permission_required('tab.data_management.refresh', 'tab.admin.versions')
+@management_bp.route("/api/manage/refresh/staleness", methods=["GET"])
+@permission_required("tab.data_management.refresh", "tab.admin.versions")
 @login_required
 def api_refresh_staleness():
     """Check which downstream processes are stale relative to the last consolidation impact.
@@ -1541,11 +1702,11 @@ def api_refresh_staleness():
     if not status["has_impact"] and not status.get("impact"):
         return jsonify({"has_impact": False, "version_promotion": promotion})
 
-    return jsonify({
-        "has_impact": status["has_impact"],
-        "impact": status["impact"],
-        "processes": status["processes"],
-        "version_promotion": promotion,
-    })
-
-
+    return jsonify(
+        {
+            "has_impact": status["has_impact"],
+            "impact": status["impact"],
+            "processes": status["processes"],
+            "version_promotion": promotion,
+        }
+    )

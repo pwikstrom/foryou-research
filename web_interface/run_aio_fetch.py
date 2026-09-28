@@ -27,13 +27,14 @@ def run_aio_fetch(reporter: TaskStatusReporter, task_args: dict | None = None) -
 
     _t_start = time.perf_counter()
 
-    reporter.update_progress(
-        0, f"Fetching donations from last {hours_back} hour(s)..."
+    reporter.update_progress(0, f"Fetching donations from last {hours_back} hour(s)...")
+    fetch_result = (
+        get_recent_data_donations_from_aio_aws(
+            hours_back=hours_back,
+            storage_location="aio_raw",
+        )
+        or {}
     )
-    fetch_result = get_recent_data_donations_from_aio_aws(
-        hours_back=hours_back,
-        storage_location="aio_raw",
-    ) or {}
     donation_count = len(fetch_result.get("donation_ids", []))
     uploaded_count = fetch_result.get("uploaded_count", 0)
     _t_donations = time.perf_counter() - _t_start
@@ -48,15 +49,16 @@ def run_aio_fetch(reporter: TaskStatusReporter, task_args: dict | None = None) -
     _t_metadata = time.perf_counter() - _t_phase
 
     _t_total = time.perf_counter() - _t_start
-    reporter.emit_data({
-        "hours_back": hours_back,
-        "donations_found": donation_count,
-        "donations_uploaded": uploaded_count,
-    })
+    reporter.emit_data(
+        {
+            "hours_back": hours_back,
+            "donations_found": donation_count,
+            "donations_uploaded": uploaded_count,
+        }
+    )
     reporter.update_progress(
         100,
-        f"AIO fetch complete: {uploaded_count} donations uploaded "
-        f"({_t_total:.0f}s).",
+        f"AIO fetch complete: {uploaded_count} donations uploaded ({_t_total:.0f}s).",
     )
     reporter.log(
         f"[TIMING] aio_fetch donations={_t_donations:.1f}s "
@@ -67,8 +69,6 @@ def run_aio_fetch(reporter: TaskStatusReporter, task_args: dict | None = None) -
     return None
 
 
-
-
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
@@ -76,8 +76,14 @@ if __name__ == "__main__":
         run_aio_fetch,
         "aio_fetch",
         arg_specs=[
-            (('--hours-back',), {'type': int, 'default': 24,
-                                 'help': 'How many hours back to fetch donations from.'}),
+            (
+                ("--hours-back",),
+                {
+                    "type": int,
+                    "default": 24,
+                    "help": "How many hours back to fetch donations from.",
+                },
+            ),
         ],
         make_task_args=lambda args: {"hours_back": args.hours_back},
         description="Fetch AIO donations from AWS",

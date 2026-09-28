@@ -30,8 +30,6 @@ _N_ROWS = 2500
 _MARK_CAP = 500
 
 
-
-
 def _frame():
     """Chronological rows whose local clock is deliberately offset from UTC.
 
@@ -39,14 +37,14 @@ def _frame():
     ``local_timestamp`` rather than the ``utc_timestamp`` the route sorts on.
     """
     utc = pd.date_range("2026-01-01 00:00", periods=_N_ROWS, freq="h")
-    return pd.DataFrame({
-        "item_id": [f"v{i:05d}" for i in range(_N_ROWS)],
-        "utc_timestamp": utc,
-        "local_timestamp": utc + pd.Timedelta(hours=2),
-        "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers" for i in range(_N_ROWS)],
-    })
-
-
+    return pd.DataFrame(
+        {
+            "item_id": [f"v{i:05d}" for i in range(_N_ROWS)],
+            "utc_timestamp": utc,
+            "local_timestamp": utc + pd.Timedelta(hours=2),
+            "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers" for i in range(_N_ROWS)],
+        }
+    )
 
 
 @pytest.fixture
@@ -70,8 +68,6 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
 @pytest.fixture
 def viewer(client, monkeypatch):
     """Logged-in viewer with the tab permission and one accessible study."""
@@ -79,10 +75,13 @@ def viewer(client, monkeypatch):
     from web_interface.routes import api_viewer_routes as routes
 
     monkeypatch.setattr(
-        auth.role_manager, "get_role_permissions", lambda role: ["tab.video_analysis"],
+        auth.role_manager,
+        "get_role_permissions",
+        lambda role: ["tab.video_analysis"],
     )
     monkeypatch.setattr(
-        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: [_STUDY],
+        "web_interface.routes._access.get_accessible_studies",
+        lambda *a, **k: [_STUDY],
     )
 
     def _data(study, context=None, columns=None):
@@ -104,16 +103,12 @@ def viewer(client, monkeypatch):
     return client
 
 
-
-
 def _post(client, **extra):
     body = {"study": _STUDY, "filters": {}, "offset": 0, "limit": 1000}
     body.update(extra)
     res = client.post(_ENDPOINT, json=body)
     assert res.status_code == 200, res.data
     return res.get_json()
-
-
 
 
 def test_chunk_timestamps_align_with_the_returned_ids(viewer):
@@ -128,16 +123,12 @@ def test_chunk_timestamps_align_with_the_returned_ids(viewer):
     assert data["time_span"]["first"] == data["timestamps"][0]
 
 
-
-
 def test_chunk_timestamps_follow_pagination(viewer):
     """A paged request describes its own rows, not the first chunk's."""
     data = _post(viewer, offset=1000, limit=1000)
 
-    assert data["timestamps"][0] == "2026-02-11T18:00:00"   # row 1000
+    assert data["timestamps"][0] == "2026-02-11T18:00:00"  # row 1000
     assert len(data["timestamps"]) == 1000
-
-
 
 
 def test_time_marks_ladder_spans_the_whole_filtered_set(viewer):
@@ -150,8 +141,6 @@ def test_time_marks_ladder_spans_the_whole_filtered_set(viewer):
     assert marks["idx"][-1] == _N_ROWS - 1
     assert marks["ts"][0] == "2026-01-01T02:00:00"
     assert marks["ts"][-1] == "2026-04-15T05:00:00"
-
-
 
 
 def test_time_marks_are_exact_for_a_small_result_set(viewer, monkeypatch):
@@ -171,14 +160,10 @@ def test_time_marks_are_exact_for_a_small_result_set(viewer, monkeypatch):
     assert marks["idx"] == list(range(n_small))
 
 
-
-
 def test_time_marks_ride_only_on_the_first_chunk(viewer):
     """The client keeps the ladder; resending it per page would be waste."""
     assert "time_marks" in _post(viewer, offset=0)
     assert "time_marks" not in _post(viewer, offset=1000)
-
-
 
 
 def test_payload_survives_a_study_with_no_timestamp_column(viewer, monkeypatch):

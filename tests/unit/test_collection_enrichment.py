@@ -38,6 +38,7 @@ import web_interface.services.collection_enrichment as ce
 # Fixtures
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture(autouse=True)
 def no_slice_floor(monkeypatch):
     """The sizing tests pin the cutter's arithmetic on small numbers; the
@@ -57,8 +58,7 @@ def store(monkeypatch):
     def load_json(storage_location="cache", filename="", **kwargs):
         return files.get(filename)
 
-    def update_json(storage_location="cache", filename="", mutate=None,
-                    default=None, **kwargs):
+    def update_json(storage_location="cache", filename="", mutate=None, default=None, **kwargs):
         files[filename] = mutate(files.get(filename, default))
         return files[filename]
 
@@ -85,11 +85,15 @@ def _activity(days: dict, cid="c1", platform="tiktok") -> pd.DataFrame:
         i = 0
         for k, size in enumerate(sizes):
             for _ in range(size):
-                row = {"item_id": f"{day}#{i}", "day": pd.Timestamp(day),
-                       "source_platform": platform}
+                row = {
+                    "item_id": f"{day}#{i}",
+                    "day": pd.Timestamp(day),
+                    "source_platform": platform,
+                }
                 if with_sessions:
-                    row["session"] = (f"{day}T{8 + k:02d}:00:00"
-                                      if isinstance(n, (list, tuple)) else None)
+                    row["session"] = (
+                        f"{day}T{8 + k:02d}:00:00" if isinstance(n, (list, tuple)) else None
+                    )
                     row["session_plays"] = size if isinstance(n, (list, tuple)) else 0
                 rows.append(row)
                 i += 1
@@ -105,20 +109,23 @@ def _session_items(activity: pd.DataFrame, key: str) -> set[str]:
     return set(activity.loc[activity["session"] == key, "item_id"])
 
 
-def _status(item_ids, scraped=(), scrape_fail=(), downloaded=None,
-            annotated=(), annotated_fail=()) -> pd.DataFrame:
+def _status(
+    item_ids, scraped=(), scrape_fail=(), downloaded=None, annotated=(), annotated_fail=()
+) -> pd.DataFrame:
     """enrichment_status in load_status's indexed shape."""
     ids = [str(i) for i in item_ids]
     scraped = set(scraped)
     downloaded = scraped if downloaded is None else set(downloaded)
-    df = pd.DataFrame({
-        "item_id": ids,
-        "scraped_ok": [i in scraped for i in ids],
-        "scrape_fail": [i in set(scrape_fail) for i in ids],
-        "video_downloaded": [i in downloaded for i in ids],
-        "annotated_ok": [i in set(annotated) for i in ids],
-        "annotated_fail": [i in set(annotated_fail) for i in ids],
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": ids,
+            "scraped_ok": [i in scraped for i in ids],
+            "scrape_fail": [i in set(scrape_fail) for i in ids],
+            "video_downloaded": [i in downloaded for i in ids],
+            "annotated_ok": [i in set(annotated) for i in ids],
+            "annotated_fail": [i in set(annotated_fail) for i in ids],
+        }
+    )
     return df.set_index("item_id")
 
 
@@ -130,10 +137,16 @@ def _entry(**settings) -> dict:
     # path (now the shipped default) sizes the cycle from the target instead.
     # The spread's days per month is derived from the target in production;
     # the cutter tests pin it directly on the entry, as the supervisor stores it.
-    entry = {"state": ce.STATE_RUNNING,
-             "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
-                          "annotation_target": 1_000_000, **settings},
-             "spent_items": 0}
+    entry = {
+        "state": ce.STATE_RUNNING,
+        "settings": {
+            **ce.DEFAULT_SETTINGS,
+            "cycle_items_auto": False,
+            "annotation_target": 1_000_000,
+            **settings,
+        },
+        "spent_items": 0,
+    }
     if "a_days_per_month" in settings:
         entry["spread_days_per_month"] = entry["settings"].pop("a_days_per_month")
     return entry
@@ -142,6 +155,7 @@ def _entry(**settings) -> dict:
 # --------------------------------------------------------------------------- #
 # Process B — whole recent days
 # --------------------------------------------------------------------------- #
+
 
 def test_b_takes_whole_days_newest_first_and_never_splits_one():
     activity = _activity({"2026-08-25": 30, "2026-08-26": 30, "2026-08-27": 30})
@@ -152,7 +166,7 @@ def test_b_takes_whole_days_newest_first_and_never_splits_one():
 
     days = {i.split("#")[0] for i in out["item_ids"]}
     assert days == {"2026-08-27"}
-    assert len(out["item_ids"]) == 30          # the whole day, nothing more
+    assert len(out["item_ids"]) == 30  # the whole day, nothing more
     assert out["b_cursor"] == "2026-08-27"
     assert out["b"] == 30 and out["a"] == 0
 
@@ -171,8 +185,9 @@ def test_b_walks_on_with_the_spreads_unused_share():
     half of every cycle was thrown away and the deep dive took one day per
     cycle (155 of an allowed 391). The deep dive now spends what the spread
     cannot: 155 + 155 + 126 = 436 of 455."""
-    activity = _activity({"2026-05-06": 124, "2026-05-07": 126,
-                          "2026-05-08": 155, "2026-05-09": 155})
+    activity = _activity(
+        {"2026-05-06": 124, "2026-05-07": 126, "2026-05-08": 155, "2026-05-09": 155}
+    )
     entry = {**_entry(cycle_items=455, sample_share=0.5), "a_cursor": "2026-05"}
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
     days = {i.split("#")[0] for i in out["item_ids"]}
@@ -186,9 +201,10 @@ def test_a_spends_the_deep_dives_unused_share_when_b_is_exhausted():
     """The other direction: with the deep dive walked off the history, the
     spread gets the whole budget (its own per-day cap still applies)."""
     activity = _activity({"2026-06-05": 80, "2026-06-20": 80, "2026-07-10": 80})
-    entry = {**_entry(cycle_items=60, sample_share=0.5, a_days_per_month=2,
-                      a_day_cap=50),
-             "b_cursor": "2026-06-01"}                  # B has nothing left
+    entry = {
+        **_entry(cycle_items=60, sample_share=0.5, a_days_per_month=2, a_day_cap=50),
+        "b_cursor": "2026-06-01",
+    }  # B has nothing left
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
     assert out["b"] == 0
     # Its own 30 would stop after one 50-item day; the full 60 reaches a second.
@@ -213,14 +229,21 @@ def test_last_slice_buys_part_of_a_day_and_keeps_the_cursor_on_it():
     assert len(out["item_ids"]) == 23
     assert {i.split("#")[0] for i in out["item_ids"]} == {"2026-05-09"}
     assert out["last_slice"] is True and out["partial_day"] == "2026-05-09"
-    assert out["b_cursor"] is None                       # not walked past the day
+    assert out["b_cursor"] is None  # not walked past the day
 
     # The target is raised: the rest of that day comes first.
     done = out["item_ids"]
-    status = _status([f"2026-05-09#{n}" for n in range(155)] + [f"2026-05-08#{n}" for n in range(155)],
-                     scraped=done, annotated=done)
-    again = ce.plan_cycle("c1", _entry(annotation_target=400, cycle_items=2000, sample_share=0.0),
-                          activity=activity, status=status)
+    status = _status(
+        [f"2026-05-09#{n}" for n in range(155)] + [f"2026-05-08#{n}" for n in range(155)],
+        scraped=done,
+        annotated=done,
+    )
+    again = ce.plan_cycle(
+        "c1",
+        _entry(annotation_target=400, cycle_items=2000, sample_share=0.0),
+        activity=activity,
+        status=status,
+    )
     first_day = {i.split("#")[0] for i in again["item_ids"][:132]}
     assert first_day == {"2026-05-09"} and len(again["item_ids"]) == 132 + 155
     assert again["partial_day"] is None
@@ -262,15 +285,15 @@ def test_b_takes_quiet_days_below_the_correlations_floor_too():
 
 def test_a_sparse_collection_is_fully_reachable_by_the_deep_dive():
     # The prod shape: median one video per day, a handful of busier days.
-    days = {f"2026-0{m}-{d:02d}": (12 if d in (7, 10) else 1)
-            for m in (3, 4, 5) for d in range(1, 29)}
+    days = {
+        f"2026-0{m}-{d:02d}": (12 if d in (7, 10) else 1) for m in (3, 4, 5) for d in range(1, 29)
+    }
     activity = _activity(days)
     entry = _entry(cycle_items=400, sample_share=0.45)
     picked: set[str] = set()
     for _ in range(10):
         status = _status(activity["item_id"], scraped=picked, annotated=picked)
-        out = ce.plan_cycle("c1", entry, activity=activity, status=status,
-                            expected_yield=1.0)
+        out = ce.plan_cycle("c1", entry, activity=activity, status=status, expected_yield=1.0)
         if out["exhausted"]:
             break
         picked.update(out["item_ids"])
@@ -283,8 +306,9 @@ def test_a_sparse_collection_is_fully_reachable_by_the_deep_dive():
 
 def test_a_alone_still_skips_days_below_the_floor():
     activity = _activity({"2026-08-26": 3, "2026-08-27": 30})
-    entry = _entry(cycle_items=100, sample_share=1.0, a_days_per_month=5,
-                   a_day_cap=50, min_day_items=10)
+    entry = _entry(
+        cycle_items=100, sample_share=1.0, a_days_per_month=5, a_day_cap=50, min_day_items=10
+    )
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
     days = {i.split("#")[0] for i in out["item_ids"]}
     assert days == {"2026-08-27"}
@@ -305,12 +329,13 @@ def test_b_ignores_already_scraped_and_permanently_failed():
     status = _status(ids, scraped=ids[:5], scrape_fail=ids[5:8])
     entry = _entry(cycle_items=100, sample_share=0.0)
     out = ce.plan_cycle("c1", entry, activity=activity, status=status)
-    assert set(out["item_ids"]) == set(ids[8:])   # neither scraped nor failed
+    assert set(out["item_ids"]) == set(ids[8:])  # neither scraped nor failed
 
 
 # --------------------------------------------------------------------------- #
 # Process A — sampled whole days across history
 # --------------------------------------------------------------------------- #
+
 
 def test_a_samples_whole_days_capped_and_skips_b_days():
     # Two months of history; B (share 20) covers the newest day whole, then A
@@ -321,23 +346,26 @@ def test_a_samples_whole_days_capped_and_skips_b_days():
     days = {f"2026-08-{d:02d}": 20 for d in (10, 11, 12, 27)}
     days.update({f"2026-07-{d:02d}": 20 for d in (1, 2, 3)})
     activity = _activity(days)
-    entry = _entry(cycle_items=100, sample_share=0.8,
-                   a_days_per_month=2, a_day_cap=5)
+    entry = _entry(cycle_items=100, sample_share=0.8, a_days_per_month=2, a_day_cap=5)
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
 
-    b_days = {i.split("#")[0] for i in out["item_ids"][:out["b"]]}
-    a_items = out["item_ids"][out["b"]:]
+    b_days = {i.split("#")[0] for i in out["item_ids"][: out["b"]]}
+    a_items = out["item_ids"][out["b"] :]
     a_days = {}
     for iid in a_items:
         a_days.setdefault(iid.split("#")[0], []).append(iid)
 
-    assert "2026-08-27" in b_days and b_days <= {"2026-08-27", "2026-08-12",
-                                                 "2026-08-11", "2026-08-10"}
-    assert out["b"] == 80                            # B spent the spread's leftover
-    assert not (set(a_days) & b_days)              # A never re-buys B's day
+    assert "2026-08-27" in b_days and b_days <= {
+        "2026-08-27",
+        "2026-08-12",
+        "2026-08-11",
+        "2026-08-10",
+    }
+    assert out["b"] == 80  # B spent the spread's leftover
+    assert not (set(a_days) & b_days)  # A never re-buys B's day
     assert a_days and all(d.startswith("2026-07") for d in a_days)
     for day, items in a_days.items():
-        assert len(items) <= 5                     # a_day_cap respected
+        assert len(items) <= 5  # a_day_cap respected
     for month in {d[:7] for d in a_days}:
         assert len([d for d in a_days if d.startswith(month)]) <= 2
     assert len(out["item_ids"]) == 80 + sum(len(v) for v in a_days.values())
@@ -348,19 +376,17 @@ def test_a_keeps_its_share_when_it_can_spend_it():
     spare, the spread keeps its 80 and the deep dive its 20."""
     days = {f"2026-0{m}-{d:02d}": 40 for m in (3, 4, 5, 6, 7, 8) for d in (5, 15, 25)}
     activity = _activity(days)
-    entry = _entry(cycle_items=100, sample_share=0.8,
-                   a_days_per_month=2, a_day_cap=20)
+    entry = _entry(cycle_items=100, sample_share=0.8, a_days_per_month=2, a_day_cap=20)
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
-    assert out["b"] == 40                            # one 40-video day, B's oversized first
-    assert out["a"] == 80                            # 2 months x 2 days x 20
+    assert out["b"] == 40  # one 40-video day, B's oversized first
+    assert out["a"] == 80  # 2 months x 2 days x 20
 
 
 def test_a_quota_subtracts_already_scraped():
     activity = _activity({"2026-07-01": 20})
     ids = [f"2026-07-01#{i}" for i in range(20)]
     status = _status(ids, scraped=ids[:4])
-    entry = _entry(cycle_items=100, sample_share=1.0,
-                   a_days_per_month=2, a_day_cap=5)
+    entry = _entry(cycle_items=100, sample_share=1.0, a_days_per_month=2, a_day_cap=5)
     out = ce.plan_cycle("c1", entry, activity=activity, status=status)
     # Day already holds 4 scraped items; the cap of 5 leaves a quota of 1.
     assert len(out["item_ids"]) == 1
@@ -370,8 +396,9 @@ def test_sample_share_splits_the_budget():
     days = {f"2026-08-{d:02d}": 10 for d in range(1, 29)}
     days.update({f"2026-{m:02d}-15": 40 for m in range(1, 8)})
     activity = _activity(days)
-    entry = _entry(cycle_items=100, sample_share=0.2,
-                   a_days_per_month=1, a_day_cap=40, min_day_items=10)
+    entry = _entry(
+        cycle_items=100, sample_share=0.2, a_days_per_month=1, a_day_cap=40, min_day_items=10
+    )
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
     # b_budget = 80: whole 10-item August days, so exactly 80. a_budget = 20,
     # and A stops adding days once met — it may overshoot by at most the one
@@ -395,11 +422,12 @@ def test_replan_from_same_cursor_is_deterministic_and_order_independent():
 # Target and exhaustion
 # --------------------------------------------------------------------------- #
 
+
 def test_met_target_yields_exhausted_and_no_items():
     activity = _activity({"2026-08-27": 30})
     ids = list(activity["item_id"])
     status = _status(ids, scraped=ids[:10], annotated=ids[:10])
-    entry = _entry(annotation_target=10)          # already at the target
+    entry = _entry(annotation_target=10)  # already at the target
     out = ce.plan_cycle("c1", entry, activity=activity, status=status)
     assert out["item_ids"] == [] and out["exhausted"] is True
 
@@ -418,8 +446,7 @@ def test_a_target_below_current_annotation_stops_every_cycle():
 def test_no_target_means_nothing_to_do():
     # 0 = unset. An armed plan must state its goal, or it would run to 100%.
     activity = _activity({"2026-08-27": 30})
-    out = ce.plan_cycle("c1", _entry(annotation_target=0),
-                        activity=activity, status=None)
+    out = ce.plan_cycle("c1", _entry(annotation_target=0), activity=activity, status=None)
     assert out["item_ids"] == [] and out["exhausted"] is True
 
 
@@ -462,10 +489,16 @@ def test_earliest_date_floors_both_processes():
 # The shared annotation predicate
 # --------------------------------------------------------------------------- #
 
+
 def test_annotation_eligible_refuses_unscraped_and_undownloaded():
     ids = ["a", "b", "c", "d", "e"]
-    status = _status(ids, scraped=["a", "b", "c", "d"], downloaded=["a", "b", "c"],
-                     annotated=["b"], annotated_fail=["c"])
+    status = _status(
+        ids,
+        scraped=["a", "b", "c", "d"],
+        downloaded=["a", "b", "c"],
+        annotated=["b"],
+        annotated_fail=["c"],
+    )
     # a: fine. b: already annotated. c: failed. d: no media. e: unscraped.
     assert ce.annotation_eligible(ids, status) == ["a"]
 
@@ -473,10 +506,10 @@ def test_annotation_eligible_refuses_unscraped_and_undownloaded():
 def test_annotation_eligible_retry_failed_and_duration_guard():
     ids = ["a", "b"]
     status = _status(ids, scraped=ids, downloaded=ids, annotated_fail=["a"])
-    assert ce.annotation_eligible(ids, status, retry_failed=True,
-                                  max_duration=600) == ["a", "b"]
-    assert ce.annotation_eligible(ids, status, durations={"b": 900},
-                                  retry_failed=True, max_duration=600) == ["a"]
+    assert ce.annotation_eligible(ids, status, retry_failed=True, max_duration=600) == ["a", "b"]
+    assert ce.annotation_eligible(
+        ids, status, durations={"b": 900}, retry_failed=True, max_duration=600
+    ) == ["a"]
 
 
 def test_annotation_eligible_survives_pyarrow_missing_durations():
@@ -486,13 +519,12 @@ def test_annotation_eligible_survives_pyarrow_missing_durations():
     # string or a real number, not 'NAType'"). Unknown durations are kept.
     ids = ["a", "b", "c"]
     status = _status(ids, scraped=ids, downloaded=ids)
-    frame = pd.DataFrame(
-        {"item_id": ids, "duration": [30.0, None, 900.0]}
-    ).convert_dtypes(dtype_backend="pyarrow")
+    frame = pd.DataFrame({"item_id": ids, "duration": [30.0, None, 900.0]}).convert_dtypes(
+        dtype_backend="pyarrow"
+    )
     durations = dict(zip(frame["item_id"], frame["duration"]))
     assert durations["b"] is pd.NA
-    assert ce.annotation_eligible(ids, status, durations=durations,
-                                  max_duration=600) == ["a", "b"]
+    assert ce.annotation_eligible(ids, status, durations=durations, max_duration=600) == ["a", "b"]
 
 
 def test_annotation_eligible_accepts_column_and_unnamed_index_shapes():
@@ -540,7 +572,7 @@ def test_handoff_always_sweeps_the_scraped_backlog(monkeypatch):
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
 
-    entry = _entry()                                # no in_flight recorded
+    entry = _entry()  # no in_flight recorded
     assert ce.handoff_scraped("c1", entry)["ready"] == ids
 
     # The target still bounds the sweep.
@@ -548,8 +580,7 @@ def test_handoff_always_sweeps_the_scraped_backlog(monkeypatch):
     assert ce.handoff_scraped("c1", entry)["ready"] == ids[:4]
 
     # A stored annotate_existing key (pre-change ledger) changes nothing.
-    entry = {**_entry(), "settings": {**_entry()["settings"],
-                                      "annotate_existing": False}}
+    entry = {**_entry(), "settings": {**_entry()["settings"], "annotate_existing": False}}
     assert ce.handoff_scraped("c1", entry)["ready"] == ids
 
 
@@ -558,8 +589,9 @@ def test_handoff_prunes_resolved_ids_from_in_flight(monkeypatch):
     ids = list(activity["item_id"])
     # a0: annotatable now; a1: already annotated; a2: scrape permanently
     # failed; a3: still awaiting a scrape outcome.
-    status = _status(ids, scraped=ids[:2], downloaded=ids[:2],
-                     annotated=[ids[1]], scrape_fail=[ids[2]])
+    status = _status(
+        ids, scraped=ids[:2], downloaded=ids[:2], annotated=[ids[1]], scrape_fail=[ids[2]]
+    )
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
     entry = {**_entry(), "in_flight": ids[:4]}
@@ -572,14 +604,14 @@ def test_handoff_prunes_resolved_ids_from_in_flight(monkeypatch):
 # Ledger
 # --------------------------------------------------------------------------- #
 
+
 def test_save_plan_merges_settings_and_delete_drops(store):
-    ce.save_plan("c1", {"state": ce.STATE_RUNNING,
-                        "settings": {"annotation_target": 500}})
+    ce.save_plan("c1", {"state": ce.STATE_RUNNING, "settings": {"annotation_target": 500}})
     ce.save_plan("c1", {"settings": {"cycle_items": 100}})
     entry = store[ce.LEDGER_FILENAME]["c1"]
     assert entry["settings"]["annotation_target"] == 500  # survived the 2nd patch
     assert entry["settings"]["cycle_items"] == 100
-    assert entry["settings"]["a_day_cap"] == 50         # defaults filled in
+    assert entry["settings"]["a_day_cap"] == 50  # defaults filled in
 
     ce.save_plan("c1", {"__delete__": True})
     assert "c1" not in store[ce.LEDGER_FILENAME]
@@ -597,8 +629,14 @@ def test_the_spreads_density_is_derived_not_a_setting():
 
 
 def test_normalize_settings_clamps_nonsense():
-    out = ce.normalize_settings({"annotation_target": -5, "cycle_items": "junk",
-                                 "sample_share": 7, "earliest_date": "not-a-date"})
+    out = ce.normalize_settings(
+        {
+            "annotation_target": -5,
+            "cycle_items": "junk",
+            "sample_share": 7,
+            "earliest_date": "not-a-date",
+        }
+    )
     assert out["annotation_target"] == 0
     assert out["cycle_items"] == ce.DEFAULT_SETTINGS["cycle_items"]
     assert out["sample_share"] == 1.0
@@ -609,21 +647,31 @@ def test_normalize_settings_clamps_nonsense():
 # The supervisor tick — one action per tick, strict priority
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture
 def tick(monkeypatch, store):
     """A harness around run_enrichment_supervisor with the world stubbed out."""
     import web_interface.run_enrichment_supervisor as sup
 
     world = {
-        "enabled": True, "busy": [], "in_flight": False,
-        "scrape_queues": {}, "unconsolidated": None,
-        "started": [], "plans": {},
-        "handoff": {}, "cycle": None, "storm": None,
+        "enabled": True,
+        "busy": [],
+        "in_flight": False,
+        "scrape_queues": {},
+        "unconsolidated": None,
+        "started": [],
+        "plans": {},
+        "handoff": {},
+        "cycle": None,
+        "storm": None,
         # Per-lane state: platforms whose scraper runs, annotator running,
         # who blocks a consolidation, and the batch worker's claimed ids.
-        "scrape_busy": set(), "annotate_busy": False,
-        "consolidate_blockers": [], "claimed": set(),
-        "finalize": None, "backstop": None,
+        "scrape_busy": set(),
+        "annotate_busy": False,
+        "consolidate_blockers": [],
+        "claimed": set(),
+        "finalize": None,
+        "backstop": None,
     }
 
     monkeypatch.setattr(sup, "_admin_kill_switch", lambda: world["enabled"])
@@ -631,46 +679,63 @@ def tick(monkeypatch, store):
     monkeypatch.setattr(sup, "_pipeline_in_flight", lambda: world["in_flight"])
     monkeypatch.setattr(sup, "_unconsolidated", lambda: world["unconsolidated"])
     monkeypatch.setattr(sup, "_annotator_process", lambda: "queue_annotator")
-    monkeypatch.setattr(sup, "_scraper_blocked",
-                        lambda platform: world["storm"])
-    monkeypatch.setattr(sup, "_scrape_lane_busy",
-                        lambda platform: platform in world["scrape_busy"])
-    monkeypatch.setattr(sup, "_annotate_lane_busy",
-                        lambda: bool(world["annotate_busy"]))
-    monkeypatch.setattr(sup, "_in_flight_annotation_ids",
-                        lambda: set(world["claimed"]))
-    monkeypatch.setattr(sup, "_finalize",
-                        lambda reporter, require_backstop=False:
-                        world["backstop"] if require_backstop else world["finalize"])
+    monkeypatch.setattr(sup, "_scraper_blocked", lambda platform: world["storm"])
+    monkeypatch.setattr(sup, "_scrape_lane_busy", lambda platform: platform in world["scrape_busy"])
+    monkeypatch.setattr(sup, "_annotate_lane_busy", lambda: bool(world["annotate_busy"]))
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set(world["claimed"]))
+    monkeypatch.setattr(
+        sup,
+        "_finalize",
+        lambda reporter, require_backstop=False: (
+            world["backstop"] if require_backstop else world["finalize"]
+        ),
+    )
     import web_interface.services.worker_status as ws
-    monkeypatch.setattr(ws, "_workers_blocking_consolidate",
-                        lambda: list(world["consolidate_blockers"]))
+
+    monkeypatch.setattr(
+        ws, "_workers_blocking_consolidate", lambda: list(world["consolidate_blockers"])
+    )
     # The batch-size hold and the run-record seeding are exercised by their
     # own tests; every older tick test wants a 3-item handoff to start the
     # annotator at once, and the bare consolidate task_args it always asserted.
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 1)
     monkeypatch.setattr(sup, "_seed_consolidation_run", lambda task_args: None)
-    monkeypatch.setattr(sup, "_start",
-                        lambda name, task_args=None:
-                        (world["started"].append((name, task_args or {})), (True, "ok"))[1])
+    monkeypatch.setattr(
+        sup,
+        "_start",
+        lambda name, task_args=None: (
+            world["started"].append((name, task_args or {})),
+            (True, "ok"),
+        )[1],
+    )
 
     monkeypatch.setattr(ce, "armed_plans", lambda: dict(world["plans"]))
     monkeypatch.setattr(ce, "get_plan", lambda cid: world["plans"].get(cid))
-    monkeypatch.setattr(ce, "handoff_scraped",
-                        lambda cid, entry, **kw: {
-                            "ready": world["handoff"].get(cid, []),
-                            "in_flight": list(entry.get("in_flight") or [])})
-    monkeypatch.setattr(ce, "load_activity",
-                        lambda cid: _activity({"2026-08-27": 30}, cid=cid))
+    monkeypatch.setattr(
+        ce,
+        "handoff_scraped",
+        lambda cid, entry, **kw: {
+            "ready": world["handoff"].get(cid, []),
+            "in_flight": list(entry.get("in_flight") or []),
+        },
+    )
+    monkeypatch.setattr(ce, "load_activity", lambda cid: _activity({"2026-08-27": 30}, cid=cid))
     # The spread-density derivation reads enrichment status; none here.
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     if world["cycle"] is None:
-        monkeypatch.setattr(ce, "plan_cycle",
-                            lambda cid, entry, **kw: {
-                                "item_ids": [f"{cid}-i{n}" for n in range(5)],
-                                "a_cursor": "2026-07", "b_cursor": "2026-08-27",
-                                "a": 1, "b": 4, "exhausted": False,
-                                "platform": "tiktok"})
+        monkeypatch.setattr(
+            ce,
+            "plan_cycle",
+            lambda cid, entry, **kw: {
+                "item_ids": [f"{cid}-i{n}" for n in range(5)],
+                "a_cursor": "2026-07",
+                "b_cursor": "2026-08-27",
+                "a": 1,
+                "b": 4,
+                "exhausted": False,
+                "platform": "tiktok",
+            },
+        )
 
     class FakeQueues:
         @staticmethod
@@ -683,11 +748,11 @@ def tick(monkeypatch, store):
 
         @staticmethod
         def append_to_scrape_queue(platform, items):
-            world["scrape_queues"][platform] = \
-                world["scrape_queues"].get(platform, 0) + len(items)
+            world["scrape_queues"][platform] = world["scrape_queues"].get(platform, 0) + len(items)
             return len(items)
 
     import fyp.scrape.scrape_queues as sq
+
     for fn in ("queue_lengths", "registered_platforms", "append_to_scrape_queue"):
         monkeypatch.setattr(sq, fn, getattr(FakeQueues, fn))
 
@@ -761,7 +826,7 @@ def test_tick_waits_to_consolidate_while_a_lane_is_busy(tick):
     tick["plans"] = {"c1": _entry()}
     tick["unconsolidated"] = "annotate"
     tick["consolidate_blockers"] = ["queue_annotator_batch"]
-    tick["handoff"] = {"c1": ["x1"]}       # must NOT be reached
+    tick["handoff"] = {"c1": ["x1"]}  # must NOT be reached
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "waiting_consolidate"
     assert tick["started"] == []
@@ -771,7 +836,7 @@ def test_tick_waits_to_consolidate_while_a_lane_is_busy(tick):
 def test_tick_drains_scrape_queue_first(tick):
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["scrape_queues"] = {"tiktok": 12}
-    tick["unconsolidated"] = "scrape"     # would also match; drain must win
+    tick["unconsolidated"] = "scrape"  # would also match; drain must win
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "scrape"
     assert tick["started"] == [("queue_scraper_tiktok", {})]
@@ -779,9 +844,9 @@ def test_tick_drains_scrape_queue_first(tick):
 
 def test_tick_ignores_queues_of_unarmed_platforms(tick):
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
-    tick["scrape_queues"] = {"instagram": 40}    # manual admin work, not ours
+    tick["scrape_queues"] = {"instagram": 40}  # manual admin work, not ours
     rep = tick["run"]()
-    assert rep.data[-1]["action"] == "plan"      # fell through to planning
+    assert rep.data[-1]["action"] == "plan"  # fell through to planning
 
 
 def test_tick_storm_blocks_the_platform_plans(tick):
@@ -789,7 +854,7 @@ def test_tick_storm_blocks_the_platform_plans(tick):
     tick["scrape_queues"] = {"tiktok": 12}
     tick["storm"] = "permanent_storm"
     tick["run"]()
-    assert tick["started"] == []                 # scraper NOT restarted
+    assert tick["started"] == []  # scraper NOT restarted
     ledger = tick["store"][ce.LEDGER_FILENAME]
     assert ledger["c1"]["state"] == ce.STATE_BLOCKED
 
@@ -808,13 +873,15 @@ def test_tick_settles_core_only_after_either_worker(tick):
     tick["unconsolidated"] = "scrape"
     tick["run"]()
     assert tick["started"] == [
-        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})]
+        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})
+    ]
 
     tick["started"].clear()
     tick["unconsolidated"] = "annotate"
     tick["run"]()
     assert tick["started"] == [
-        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})]
+        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})
+    ]
 
 
 def test_tick_handoff_is_the_boundary_move(tick):
@@ -834,7 +901,7 @@ def test_tick_handoff_is_the_boundary_move(tick):
     assert started == ["queue_scraper_tiktok", "queue_annotator"]
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["spent_items"] == 13
-    assert entry["cycles"] == 1                    # the next slice was cut
+    assert entry["cycles"] == 1  # the next slice was cut
     assert set(tick["store"][ce.ANNOTATE_QUEUE_FILENAME]) == {"x1", "x2", "x3"}
 
 
@@ -848,14 +915,14 @@ def test_tick_handoff_skips_ids_claimed_by_inflight_jobs(tick):
     assert set(tick["store"][ce.ANNOTATE_QUEUE_FILENAME]) == {"x2"}
     assert rep.data[-1]["handoff_queued"] == 1
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
-    assert entry["spent_items"] == 1               # only the re-queued item charged
+    assert entry["spent_items"] == 1  # only the re-queued item charged
 
 
 def test_tick_plans_one_collection_and_advances_cursors(tick):
     tick["plans"] = {"c1": _entry(), "c2": _entry()}
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "plan"
-    assert tick["scrape_queues"] == {"tiktok": 5}   # ONE collection served
+    assert tick["scrape_queues"] == {"tiktok": 5}  # ONE collection served
     ledger = tick["store"][ce.LEDGER_FILENAME]
     served = [cid for cid in ("c1", "c2") if cid in ledger]
     assert len(served) == 1
@@ -866,12 +933,21 @@ def test_tick_plans_one_collection_and_advances_cursors(tick):
 
 def test_tick_completes_an_exhausted_plan(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup  # noqa: F401
+
     tick["plans"] = {"c1": _entry()}
-    monkeypatch.setattr(ce, "plan_cycle",
-                        lambda cid, entry, **kw: {
-                            "item_ids": [], "a_cursor": None, "b_cursor": None,
-                            "a": 0, "b": 0, "exhausted": True,
-                            "platform": "tiktok"})
+    monkeypatch.setattr(
+        ce,
+        "plan_cycle",
+        lambda cid, entry, **kw: {
+            "item_ids": [],
+            "a_cursor": None,
+            "b_cursor": None,
+            "a": 0,
+            "b": 0,
+            "exhausted": True,
+            "platform": "tiktok",
+        },
+    )
     tick["run"]()
     assert tick["store"][ce.LEDGER_FILENAME]["c1"]["state"] == ce.STATE_DONE
 
@@ -885,12 +961,12 @@ def test_tick_annotate_stall_guard_parks_plans(tick):
     """
     tick["plans"] = {"c1": _entry()}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
-    tick["scrape_busy"] = {"tiktok"}      # no new slice this tick: the annotator alone
+    tick["scrape_busy"] = {"tiktok"}  # no new slice this tick: the annotator alone
 
     rep = tick["run"]()
-    assert rep.data[-1]["action"] == "annotate"      # first run: fine
+    assert rep.data[-1]["action"] == "annotate"  # first run: fine
     rep = tick["run"]()
-    assert rep.data[-1]["action"] == "annotate"      # strike one, still tries
+    assert rep.data[-1]["action"] == "annotate"  # strike one, still tries
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "annotate_stalled"
     assert tick["started"] == [("queue_annotator", {}), ("queue_annotator", {})]
@@ -913,15 +989,20 @@ def test_tick_scrape_stall_guard_parks_platform_plans(tick):
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "scrape"
     rep = tick["run"]()
-    assert rep.data[-1]["action"] == "scrape"        # strike one, still tries
+    assert rep.data[-1]["action"] == "scrape"  # strike one, still tries
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "scrape_stalled"
     assert len(tick["started"]) == 2
     assert tick["store"][ce.LEDGER_FILENAME]["c1"]["state"] == ce.STATE_BLOCKED
 
     # A shrinking queue resets the guard.
-    tick["plans"] = {"c1": {**tick["store"][ce.LEDGER_FILENAME]["c1"],
-                            "state": ce.STATE_RUNNING, "platform": "tiktok"}}
+    tick["plans"] = {
+        "c1": {
+            **tick["store"][ce.LEDGER_FILENAME]["c1"],
+            "state": ce.STATE_RUNNING,
+            "platform": "tiktok",
+        }
+    }
     tick["scrape_queues"] = {"tiktok": 40}
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "scrape"
@@ -933,6 +1014,7 @@ def test_auto_cycle_items_formula(monkeypatch, store):
     job's turnaround only delays the first annotation."""
     import web_interface.run_enrichment_supervisor as sup
     from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+
     cap = DEFAULT_BATCH_SIZE
 
     activity = _activity({"2026-08-27": 30})
@@ -979,8 +1061,7 @@ def test_auto_cycle_items_is_sized_for_the_expected_yield(monkeypatch, store):
     # Nonsense yields fall back to the raw headroom rather than exploding the cut.
     assert sup._auto_cycle_items(small, activity, None, expected_yield=0) == 23
     # The safety margin (scrapes are cheap; a shortfall costs a whole cycle).
-    assert sup._auto_cycle_items(small, activity, None, expected_yield=0.85,
-                                 margin=0.05) == 29
+    assert sup._auto_cycle_items(small, activity, None, expected_yield=0.85, margin=0.05) == 29
     # Pending work counts toward the target when the caller passes it.
     assert sup._auto_cycle_items(small, activity, None, pending=20) == 3
 
@@ -994,7 +1075,7 @@ def test_handoff_allows_for_the_annotations_that_will_fail(monkeypatch):
     status = _status(ids, scraped=ids, downloaded=ids, annotated=ids[:30])
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
-    entry = _entry(annotation_target=35)                 # 5 short, 10 eligible
+    entry = _entry(annotation_target=35)  # 5 short, 10 eligible
     assert len(ce.handoff_scraped("c1", entry)["ready"]) == 5
     assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.98)["ready"]) == 6
     assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.5)["ready"]) == 10
@@ -1006,6 +1087,7 @@ def test_the_last_slice_is_never_smaller_than_the_floor(monkeypatch, store):
     each. While anything is still needed the cut is at least the floor; the
     plan may overshoot its target by that much and ends in one cycle."""
     import web_interface.run_enrichment_supervisor as sup
+
     monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 200)
 
     activity = _activity({"2026-05-01": 300, "2026-05-02": 300})
@@ -1015,17 +1097,30 @@ def test_the_last_slice_is_never_smaller_than_the_floor(monkeypatch, store):
     # The floor never turns "covered" into a cut.
     assert sup._auto_cycle_items(three_short, activity, None, pending=3) == 0
     # A manual plan keeps its own, smaller, cycle size as the ceiling.
-    out = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
-                        activity=activity, status=None, expected_yield=0.85)
+    out = ce.plan_cycle(
+        "c1",
+        _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
+        activity=activity,
+        status=None,
+        expected_yield=0.85,
+    )
     assert len(out["item_ids"]) == 200 and out["last_slice"] is True
     quarter_days = _activity({"2026-05-01": 25, "2026-05-02": 25, "2026-05-03": 25})
-    small = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=50, sample_share=0.0),
-                          activity=quarter_days, status=None)
+    small = ce.plan_cycle(
+        "c1",
+        _entry(annotation_target=3, cycle_items=50, sample_share=0.0),
+        activity=quarter_days,
+        status=None,
+    )
     assert len(small["item_ids"]) == 50
     # And the cut is still bounded by what the collection has left.
     activity = _activity({"2026-05-01": 40})
-    out = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
-                        activity=activity, status=None)
+    out = ce.plan_cycle(
+        "c1",
+        _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
+        activity=activity,
+        status=None,
+    )
     assert len(out["item_ids"]) == 40
 
 
@@ -1065,7 +1160,7 @@ def test_plan_cycle_counts_pending_annotations_toward_the_target():
     activity = _activity({"2026-05-01": 103, "2026-05-02": 120})
     entry = _entry(annotation_target=606, cycle_items=2000, sample_share=0.0)
     whole = ce.plan_cycle("c1", entry, activity=activity, status=None)
-    assert len(whole["item_ids"]) == 223 and whole["last_slice"] is True   # 606 > 223: everything
+    assert len(whole["item_ids"]) == 223 and whole["last_slice"] is True  # 606 > 223: everything
     tail = ce.plan_cycle("c1", entry, activity=activity, status=None, pending=581)
     assert len(tail["item_ids"]) == 25 and tail["partial_day"] == "2026-05-02"
     # And the margin inflates that cut a little.
@@ -1085,7 +1180,7 @@ def test_small_handoff_waits_for_the_next_scrape(tick, monkeypatch):
     tick["handoff"] = {"c1": ["x1", "x2", "x3"]}
     rep = tick["run"]()
     assert [n for n, _ in tick["started"]] == ["queue_scraper_tiktok"]
-    assert rep.data[-1]["action"] == "handoff"       # holding is a footnote, not the headline
+    assert rep.data[-1]["action"] == "handoff"  # holding is a footnote, not the headline
     assert "Holding 3" in rep.data[-1]["message"]
     assert ce.get_meta(sup.ANNOTATE_HELD_KEY)["queued"] == 3
     kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
@@ -1112,7 +1207,7 @@ def test_held_ticks_never_strike_the_stall_guard(tick, monkeypatch):
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
-    tick["scrape_queues"] = {"tiktok": 1}            # more is coming, one video at a time
+    tick["scrape_queues"] = {"tiktok": 1}  # more is coming, one video at a time
     tick["scrape_busy"] = {"tiktok"}
     for _ in range(4):
         rep = tick["run"]()
@@ -1126,14 +1221,23 @@ def test_held_ticks_never_strike_the_stall_guard(tick, monkeypatch):
     # the hold over (nothing more coming), the first run starts clean and the
     # guard needs two more identical runs before it parks.
     ce.set_meta("annotate_guard", {"len": 3, "strikes": 1})
-    tick["run"]()                                     # held again: clears the strikes
+    tick["run"]()  # held again: clears the strikes
     assert ce.get_meta("annotate_guard") is None
     tick["scrape_queues"] = {}
     tick["scrape_busy"] = set()
-    monkeypatch.setattr(ce, "plan_cycle",
-                        lambda cid, entry, **kw: {"item_ids": [], "a_cursor": None,
-                                                  "b_cursor": None, "a": 0, "b": 0,
-                                                  "exhausted": True, "platform": "tiktok"})
+    monkeypatch.setattr(
+        ce,
+        "plan_cycle",
+        lambda cid, entry, **kw: {
+            "item_ids": [],
+            "a_cursor": None,
+            "b_cursor": None,
+            "a": 0,
+            "b": 0,
+            "exhausted": True,
+            "platform": "tiktok",
+        },
+    )
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "annotate"
     assert [n for n, _ in tick["started"]] == ["queue_annotator"]
@@ -1144,10 +1248,19 @@ def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
-    monkeypatch.setattr(ce, "plan_cycle",
-                        lambda cid, entry, **kw: {"item_ids": [], "a_cursor": None,
-                                                  "b_cursor": None, "a": 0, "b": 0,
-                                                  "exhausted": True, "platform": "tiktok"})
+    monkeypatch.setattr(
+        ce,
+        "plan_cycle",
+        lambda cid, entry, **kw: {
+            "item_ids": [],
+            "a_cursor": None,
+            "b_cursor": None,
+            "a": 0,
+            "b": 0,
+            "exhausted": True,
+            "platform": "tiktok",
+        },
+    )
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
     rep = tick["run"]()
@@ -1161,11 +1274,13 @@ def test_held_queue_starts_after_the_maximum_hold(tick, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
-    stale = (datetime.now(timezone.utc) - timedelta(minutes=sup.MAX_ANNOTATE_HOLD_MIN + 5)).isoformat()
+    stale = (
+        datetime.now(timezone.utc) - timedelta(minutes=sup.MAX_ANNOTATE_HOLD_MIN + 5)
+    ).isoformat()
     ce.set_meta(sup.ANNOTATE_HELD_KEY, {"since": stale, "queued": 3})
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
-    tick["scrape_queues"] = {"tiktok": 12}            # more IS coming...
+    tick["scrape_queues"] = {"tiktok": 12}  # more IS coming...
     tick["run"]()
     assert ("queue_annotator", {}) in tick["started"]  # ...but it has waited long enough
     assert ce.get_meta(sup.ANNOTATE_HELD_KEY) is None
@@ -1182,8 +1297,11 @@ def test_loop_consolidations_get_a_run_record(monkeypatch):
     monkeypatch.setattr(rp, "seed_run", lambda record: seen.update(record) or record)
     monkeypatch.setattr(rp, "clear_run", lambda: seen.update({"cleared": True}))
     started = []
-    monkeypatch.setattr(sup, "_start",
-                        lambda name, task_args=None: (started.append((name, task_args)), (True, "ok"))[1])
+    monkeypatch.setattr(
+        sup,
+        "_start",
+        lambda name, task_args=None: (started.append((name, task_args)), (True, "ok"))[1],
+    )
 
     ok, _ = sup._start_consolidation({"auto_refresh": False, "plan_deferred": True})
     assert ok and seen["mode"] == "consolidate_only" and seen["origin"] == "consolidate_enrichment"
@@ -1219,21 +1337,28 @@ def test_expected_yield_is_measured_from_the_plans_history(store):
 
 def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup  # noqa: F401
+
     seen = {}
 
     def fake_cycle(cid, entry, **kw):
         seen["cycle_items"] = entry["settings"]["cycle_items"]
-        return {"item_ids": ["i1"], "a_cursor": None, "b_cursor": "2026-08-27",
-                "a": 0, "b": 1, "exhausted": False, "platform": "tiktok"}
+        return {
+            "item_ids": ["i1"],
+            "a_cursor": None,
+            "b_cursor": "2026-08-27",
+            "a": 0,
+            "b": 1,
+            "exhausted": False,
+            "platform": "tiktok",
+        }
 
     monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(sup, "_expected_yield", lambda cid, platform: 1.0)
-    monkeypatch.setattr(sup, "CUT_MARGIN", 0.0)   # the margin has its own test
-    tick["plans"] = {"c1": _entry(annotation_target=500, cycle_items_auto=True,
-                                  cycle_items=400)}
+    monkeypatch.setattr(sup, "CUT_MARGIN", 0.0)  # the margin has its own test
+    tick["plans"] = {"c1": _entry(annotation_target=500, cycle_items_auto=True, cycle_items=400)}
     tick["run"]()
-    assert seen["cycle_items"] == 500          # headroom, not the manual 400
+    assert seen["cycle_items"] == 500  # headroom, not the manual 400
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["last_auto_cycle_items"] == 500
 
@@ -1254,7 +1379,7 @@ def test_tick_parks_a_stalled_plan(tick):
     tick["run"]()
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["state"] == ce.STATE_BLOCKED
-    assert tick["scrape_queues"] == {}           # nothing enqueued
+    assert tick["scrape_queues"] == {}  # nothing enqueued
 
 
 def test_productive_handoff_clears_the_stall_counter_across_the_boundary_tick(tick, monkeypatch):
@@ -1268,19 +1393,20 @@ def test_productive_handoff_clears_the_stall_counter_across_the_boundary_tick(ti
     """
     # In prod get_plan reads the ledger the handoff just wrote; the fixture's
     # default stub returns the stale snapshot, which is exactly the bug's input.
-    monkeypatch.setattr(ce, "get_plan",
-                        lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid))
+    monkeypatch.setattr(
+        ce, "get_plan", lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid)
+    )
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok", "stall_count": 0}}
     for cycle in range(ce.MAX_STALLS + 2):
         # Each cycle's scrape and annotation drained, as prod's logs showed.
         tick["scrape_queues"] = {}
         tick["store"].pop(ce.ANNOTATE_QUEUE_FILENAME, None)
         (tick["store"].get(ce.LEDGER_FILENAME) or {}).pop("__meta__", None)
-        tick["handoff"] = {"c1": [f"ready-{cycle}-{n}" for n in range(3)]}   # productive
+        tick["handoff"] = {"c1": [f"ready-{cycle}-{n}" for n in range(3)]}  # productive
         rep = tick["run"]()
         entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
         assert entry.get("state") != ce.STATE_BLOCKED, f"parked on cycle {cycle + 1}: {entry}"
-        assert entry["stall_count"] <= 1, entry          # reset by the handoff, +1 by the slice
+        assert entry["stall_count"] <= 1, entry  # reset by the handoff, +1 by the slice
         assert rep.data[-1]["action"] == "annotate"
         tick["plans"] = {"c1": {**_entry(), **entry, "state": ce.STATE_RUNNING}}
 
@@ -1295,7 +1421,7 @@ def test_tick_settles_results_owed_after_the_plan_stopped(tick):
     tick["scrape_queues"] = {"tiktok": 12}
     tick["run"]()
     assert tick["started"] == [("queue_scraper_tiktok", {})]
-    assert ce.get_meta(sup.SETTLE_OWED_KEY)             # the loop now owes a consolidation
+    assert ce.get_meta(sup.SETTLE_OWED_KEY)  # the loop now owes a consolidation
 
     # The plan stops while the job runs; the job's results then await consolidation.
     tick["plans"] = {}
@@ -1304,9 +1430,10 @@ def test_tick_settles_results_owed_after_the_plan_stopped(tick):
     tick["started"].clear()
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "consolidate"
-    assert tick["started"] == [("consolidate_enrichment",
-                                {"auto_refresh": False, "plan_deferred": True})]
-    assert ce.get_meta(sup.SETTLE_OWED_KEY) is None      # debt paid
+    assert tick["started"] == [
+        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})
+    ]
+    assert ce.get_meta(sup.SETTLE_OWED_KEY) is None  # debt paid
 
     # Nothing left to fold in: a later no-plans tick is idle, not a second consolidation.
     tick["unconsolidated"] = None
@@ -1321,7 +1448,7 @@ def test_settle_owed_is_forgotten_when_someone_consolidated_by_hand(tick):
 
     ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
     tick["plans"] = {}
-    tick["unconsolidated"] = None                     # an operator's consolidation covered it
+    tick["unconsolidated"] = None  # an operator's consolidation covered it
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "idle"
     assert tick["started"] == []
@@ -1338,7 +1465,7 @@ def test_settle_owed_waits_for_a_busy_worker(tick):
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "waiting_consolidate"
     assert tick["started"] == []
-    assert ce.get_meta(sup.SETTLE_OWED_KEY)             # still owed
+    assert ce.get_meta(sup.SETTLE_OWED_KEY)  # still owed
 
 
 def test_tick_starts_the_scraper_right_after_cutting_a_slice(tick):
@@ -1359,8 +1486,9 @@ def test_auto_plan_goes_idle_when_its_target_is_met(tick, monkeypatch):
     ever; only plan_cycle's exhausted path marked plans done."""
     import web_interface.services.enrichment_journal as journal
 
-    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
-                            "platform": "tiktok"}}
+    tick["plans"] = {
+        "c1": {**_entry(annotation_target=100, cycle_items_auto=True), "platform": "tiktok"}
+    }
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
     rep = tick["run"]()
@@ -1375,11 +1503,12 @@ def test_auto_plan_goes_idle_when_its_target_is_met(tick, monkeypatch):
 def test_auto_plan_waits_while_pending_work_covers_the_target(tick, monkeypatch):
     """The other reason auto sizing returns 0 — queued/claimed annotations
     already reach the target — must NOT close the plan."""
-    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
-                            "platform": "tiktok"}}
+    tick["plans"] = {
+        "c1": {**_entry(annotation_target=100, cycle_items_auto=True), "platform": "tiktok"}
+    }
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 90)
-    tick["claimed"] = {f"2026-08-27#{n}" for n in range(10)}   # in-flight, covers the gap
+    tick["claimed"] = {f"2026-08-27#{n}" for n in range(10)}  # in-flight, covers the gap
     rep = tick["run"]()
     # Nothing to cut and nothing to close: the plan is left exactly as it was.
     entry = (tick["store"].get(ce.LEDGER_FILENAME) or {}).get("c1") or tick["plans"]["c1"]
@@ -1395,10 +1524,12 @@ def test_journal_drain_split_reads_the_ledger_not_the_snapshot(tick, monkeypatch
     import fyp.scrape.scrape_queues as sq
     import web_interface.services.enrichment_journal as journal
 
-    monkeypatch.setattr(ce, "get_plan",
-                        lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid))
-    monkeypatch.setattr(sq, "load_scrape_queue",
-                        lambda platform: [f"c1-i{n}" for n in range(5)])   # the fixture's slice
+    monkeypatch.setattr(
+        ce, "get_plan", lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid)
+    )
+    monkeypatch.setattr(
+        sq, "load_scrape_queue", lambda platform: [f"c1-i{n}" for n in range(5)]
+    )  # the fixture's slice
     plan = {**_entry(), "platform": "tiktok"}
     # The ledger holds the plan, as in prod: an entry the handoff's save had to
     # create from scratch would carry the server defaults (Auto, no target)
@@ -1407,8 +1538,11 @@ def test_journal_drain_split_reads_the_ledger_not_the_snapshot(tick, monkeypatch
     tick["plans"] = {"c1": plan}
     tick["handoff"] = {"c1": ["x1"]}
     tick["run"]()
-    drains = [e for e in tick["store"][journal.JOURNAL_FILENAME]["events"]
-              if e["kind"] == "queue.drained" and e.get("platform") == "tiktok"]
+    drains = [
+        e
+        for e in tick["store"][journal.JOURNAL_FILENAME]["events"]
+        if e["kind"] == "queue.drained" and e.get("platform") == "tiktok"
+    ]
     assert drains and drains[-1]["detail"]["plan_items"] == 5
     assert drains[-1]["detail"]["other_items"] == 0
     assert "queued elsewhere" not in drains[-1]["message"]
@@ -1424,22 +1558,27 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
     import web_interface.services.downstream_refresh as dr
 
     dispatched = []
-    monkeypatch.setattr("web_interface.process_manager._dispatch_cloud_task",
-                        lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1])
+    monkeypatch.setattr(
+        "web_interface.process_manager._dispatch_cloud_task",
+        lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1],
+    )
     monkeypatch.setattr(ce, "armed_plans", lambda: {})
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: None)
 
     pr._tick_enrichment_supervisor("queue_annotator_batch")
-    assert dispatched == []                              # nothing armed, nothing owed
+    assert dispatched == []  # nothing armed, nothing owed
 
     ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
     pr._tick_enrichment_supervisor("queue_annotator_batch")
-    assert dispatched == ["enrichment_supervisor"]      # owed a consolidation
+    assert dispatched == ["enrichment_supervisor"]  # owed a consolidation
     assert pr.loop_owes_work()["settle"] is True
 
     ce.set_meta(sup.SETTLE_OWED_KEY, None)
-    monkeypatch.setattr(dr, "get_deferred_impact",
-                        lambda: {"from_plan": True, "deferred_since": "2026-09-05T02:34:13+00:00"})
+    monkeypatch.setattr(
+        dr,
+        "get_deferred_impact",
+        lambda: {"from_plan": True, "deferred_since": "2026-09-05T02:34:13+00:00"},
+    )
     pr._tick_enrichment_supervisor("consolidate_enrichment")
     assert dispatched == ["enrichment_supervisor"] * 2  # owed its deferred refresh
     assert pr.loop_owes_work()["refresh"] is True
@@ -1461,7 +1600,7 @@ def test_tick_writes_the_enrichment_history(tick):
     events = (tick["store"].get(journal.JOURNAL_FILENAME) or {}).get("events") or []
     kinds = [e["kind"] for e in events]
     assert "handoff" in kinds and "slice.queued" in kinds
-    assert kinds.count("queue.drained") == 2          # the annotator, then the scraper
+    assert kinds.count("queue.drained") == 2  # the annotator, then the scraper
     handoff = next(e for e in events if e["kind"] == "handoff")
     assert handoff["collection_id"] == "c1" and handoff["detail"]["queued"] == 2
     parked = [e for e in events if e["kind"] == "plan.blocked"]
@@ -1471,6 +1610,7 @@ def test_tick_writes_the_enrichment_history(tick):
 # --------------------------------------------------------------------------- #
 # Tick reporting — a no-op tick has to be visible in the modal
 # --------------------------------------------------------------------------- #
+
 
 def test_last_tick_reports_the_supervisors_outcome(monkeypatch):
     """The panel's only window onto a Cloud Run tick.
@@ -1482,14 +1622,22 @@ def test_last_tick_reports_the_supervisors_outcome(monkeypatch):
     """
     import web_interface.task_status as ts
 
-    monkeypatch.setattr(ts, "read_task_status", lambda name: {
-        "state": "completed",
-        "start_time": "2026-08-31T05:26:50+00:00",
-        "updated_at": "2026-08-31T05:26:53+00:00",
-        "progress": {"percent": 100, "message": "Completed"},
-        "data": {"action": "nothing_to_do"},
-        "error": None,
-    } if name == ce.SUPERVISOR_TASK else None)
+    monkeypatch.setattr(
+        ts,
+        "read_task_status",
+        lambda name: (
+            {
+                "state": "completed",
+                "start_time": "2026-08-31T05:26:50+00:00",
+                "updated_at": "2026-08-31T05:26:53+00:00",
+                "progress": {"percent": 100, "message": "Completed"},
+                "data": {"action": "nothing_to_do"},
+                "error": None,
+            }
+            if name == ce.SUPERVISOR_TASK
+            else None
+        ),
+    )
 
     tick = ce.last_tick()
     assert tick["action"] == "nothing_to_do"
@@ -1514,25 +1662,29 @@ def test_last_tick_is_empty_and_never_raises_without_a_status_file(monkeypatch):
 # Progress — two denominators, and the budget window they imply
 # --------------------------------------------------------------------------- #
 
+
 def test_progress_counts_videos_and_video_days_separately(monkeypatch):
     """A video watched on three days is three video-days but ONE purchase.
 
     The panel quotes coverage per video, because that is what a budget buys;
     the day-shaped figures still need the per-(video, day) count.
     """
-    rows = [{"item_id": "v1", "day": pd.Timestamp(d), "source_platform": "tiktok"}
-            for d in ("2026-08-25", "2026-08-26", "2026-08-27")]
-    rows += [{"item_id": "v2", "day": pd.Timestamp("2026-08-27"),
-              "source_platform": "tiktok"}]
+    rows = [
+        {"item_id": "v1", "day": pd.Timestamp(d), "source_platform": "tiktok"}
+        for d in ("2026-08-25", "2026-08-26", "2026-08-27")
+    ]
+    rows += [{"item_id": "v2", "day": pd.Timestamp("2026-08-27"), "source_platform": "tiktok"}]
     activity = pd.DataFrame(rows)
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
-    monkeypatch.setattr(ce, "load_status",
-                        lambda ids=None: _status(["v1", "v2"], scraped=["v1", "v2"],
-                                                 annotated=["v1"]))
+    monkeypatch.setattr(
+        ce,
+        "load_status",
+        lambda ids=None: _status(["v1", "v2"], scraped=["v1", "v2"], annotated=["v1"]),
+    )
 
     out = ce.progress("c1", {**_entry(annotation_target=100), "spent_items": 10})
-    assert out["total_items"] == 4        # video-days
-    assert out["unique_items"] == 2       # videos
+    assert out["total_items"] == 4  # video-days
+    assert out["unique_items"] == 2  # videos
     assert out["scraped_items"] == 4 and out["unique_scraped"] == 2
     assert out["annotated_items"] == 3 and out["unique_annotated"] == 1
 
@@ -1551,28 +1703,29 @@ def test_progress_ceiling_excludes_the_permanently_failed(monkeypatch):
     failures and permanently failed scrapes are out of the arithmetic.
     """
     activity = _activity({"2026-08-27": 5})
-    ids = list(activity["item_id"])          # v0..v4
+    ids = list(activity["item_id"])  # v0..v4
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     # v0 annotated; v1 burnt (annotated_fail); v2 permanently unscrapeable;
     # v3, v4 still processable.
-    monkeypatch.setattr(ce, "load_status",
-                        lambda i=None: _status(ids, scraped=ids[:2],
-                                               scrape_fail=[ids[2]],
-                                               annotated=[ids[0]],
-                                               annotated_fail=[ids[1]]))
+    monkeypatch.setattr(
+        ce,
+        "load_status",
+        lambda i=None: _status(
+            ids, scraped=ids[:2], scrape_fail=[ids[2]], annotated=[ids[0]], annotated_fail=[ids[1]]
+        ),
+    )
 
     out = ce.progress("c1", {**_entry(annotation_target=100), "spent_items": 7})
     assert out["unique_annotated"] == 1
     assert out["unique_failed"] == 2
-    assert out["target_ceiling"] == 5 - 2    # everything that can still exist annotated
+    assert out["target_ceiling"] == 5 - 2  # everything that can still exist annotated
 
 
 def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
     activity = _activity({"2026-08-27": 3})
     ids = list(activity["item_id"])
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
-    monkeypatch.setattr(ce, "load_status",
-                        lambda i=None: _status(ids, scraped=ids, annotated=ids))
+    monkeypatch.setattr(ce, "load_status", lambda i=None: _status(ids, scraped=ids, annotated=ids))
 
     out = ce.progress("c1", {**_entry(), "spent_items": 4000})
     assert out["unique_annotated"] == 3
@@ -1585,8 +1738,7 @@ def test_progress_daily_series_stacks_per_active_day(monkeypatch):
     d26 = [i for i in ids if i.startswith("2026-08-26")]
     d27 = [i for i in ids if i.startswith("2026-08-27")]
     # Day 26: 2 annotated, 1 awaiting, 1 unscraped. Day 27: 1 failed, 2 unscraped.
-    status = _status(ids, scraped=d26[:3], annotated=d26[:2],
-                     scrape_fail=[d27[0]])
+    status = _status(ids, scraped=d26[:3], annotated=d26[:2], scrape_fail=[d27[0]])
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
 
@@ -1600,7 +1752,7 @@ def test_progress_daily_series_stacks_per_active_day(monkeypatch):
 
 def test_normalize_settings_bounds_the_spread_knobs():
     out = ce.normalize_settings({"a_day_cap": 3})
-    assert out["a_day_cap"] == 10          # never below the analysis floor
+    assert out["a_day_cap"] == 10  # never below the analysis floor
     assert ce.normalize_settings({"a_day_cap": 5000})["a_day_cap"] == 1000
     assert ce.DEFAULT_SETTINGS["sample_share"] == 0.5
 
@@ -1608,6 +1760,7 @@ def test_normalize_settings_bounds_the_spread_knobs():
 # --------------------------------------------------------------------------- #
 # The panel's buttons must stay wired
 # --------------------------------------------------------------------------- #
+
 
 def test_enrichment_panel_buttons_keep_their_handlers():
     """Regression pin for the 2026-08-31 prod incident: a tooltip rewrite
@@ -1618,8 +1771,14 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     import html.parser
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[2] / "web_interface" / "templates"
-           / "tabs" / "dm" / "edit_collections.html").read_text()
+    src = (
+        Path(__file__).resolve().parents[2]
+        / "web_interface"
+        / "templates"
+        / "tabs"
+        / "dm"
+        / "edit_collections.html"
+    ).read_text()
 
     class Buttons(html.parser.HTMLParser):
         def __init__(self):
@@ -1648,8 +1807,7 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     for element_id, handler in expected.items():
         attrs = parser.by_id.get(element_id)
         assert attrs is not None, f"{element_id} missing from the template"
-        assert handler in (attrs.get("onclick") or ""), \
-            f"{element_id} lost its onclick ({handler})"
+        assert handler in (attrs.get("onclick") or ""), f"{element_id} lost its onclick ({handler})"
 
     # The Arm/Run tooltips live on WRAPPER spans, not the buttons: a disabled
     # button eats its own hover tooltip in most browsers, and Run is disabled
@@ -1660,18 +1818,19 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         attrs = parser.by_id.get(wrap_id)
         assert attrs is not None, f"{wrap_id} missing from the template"
         assert attrs.get("data-tooltip"), f"{wrap_id} lost its data-tooltip"
-        assert "meta-tooltip" in (attrs.get("class") or ""), \
+        assert "meta-tooltip" in (attrs.get("class") or ""), (
             f"{wrap_id} lost the meta-tooltip class"
+        )
     for btn_id in ("dm-enrich-arm-btn", "dm-enrich-tick-btn"):
         attrs = parser.by_id[btn_id]
-        assert not attrs.get("data-tooltip"), \
+        assert not attrs.get("data-tooltip"), (
             f"{btn_id} must not carry the tooltip — it sits on the wrapper span"
+        )
 
     # Every plan setting is visible, always: the balance and the spread limits
     # decide what a run can ever reach, so a disclosure hid the one explanation
     # for a target the plan could not meet.
-    assert "dm-enrich-advanced" not in src, \
-        "the plan settings must not go back behind a disclosure"
+    assert "dm-enrich-advanced" not in src, "the plan settings must not go back behind a disclosure"
 
     # Display ID is the one field that cannot write on every keystroke, so it
     # commits on blur and on Enter. Losing either handler leaves an edit that
@@ -1681,62 +1840,87 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     assert "dmDisplayIdCommit" in (disp.get("onblur") or "")
     assert "Enter" in (disp.get("onkeydown") or "")
 
-    js = (Path(__file__).resolve().parents[2] / "web_interface" / "static" / "js"
-          / "data_management.js").read_text()
-    for fn in ("function dmDisplayIdInput", "function dmDisplayIdCommit",
-               "function _dmAutoSaveCollection", "function dmEnrichAutoSaveNow"):
+    js = (
+        Path(__file__).resolve().parents[2]
+        / "web_interface"
+        / "static"
+        / "js"
+        / "data_management.js"
+    ).read_text()
+    for fn in (
+        "function dmDisplayIdInput",
+        "function dmDisplayIdCommit",
+        "function _dmAutoSaveCollection",
+        "function dmEnrichAutoSaveNow",
+    ):
         assert fn in js, f"{fn} is gone — the modal has no Save button to fall back on"
 
     # A display ID names one collection. The commit checks the name against
     # the loaded table before it writes, and a name the endpoint refuses must
     # be rolled back: every autosave resends the whole record, so a rejected
     # ID left in place would ride along on the next tag tick and fail there.
-    assert "function _dmDisplayIdClash" in js, \
+    assert "function _dmDisplayIdClash" in js, (
         "the commit no longer checks the display ID against the other collections"
-    assert "_dmSavedDisplayId = rejected" in js, \
+    )
+    assert "_dmSavedDisplayId = rejected" in js, (
         "a refused display ID stays in the record the next autosave sends"
+    )
     # Both tables that show a collection BY NAME carry the flag: Edit
     # Collections, where the rename happens, and the study picker, where
     # picking the wrong one of two identical names is the actual damage.
-    assert js.count("idCell.appendChild(_dmDuplicateFlag(itemInfo))") == 2, \
+    assert js.count("idCell.appendChild(_dmDuplicateFlag(itemInfo))") == 2, (
         "a table that lists collections by name lost its duplicate flag"
+    )
 
     # Arming an Idle plan whose target is already met does nothing: the
     # supervisor closes it again on its first cycle, having reset both cursors
     # and moved the run's starting line on the way. The button therefore names
     # the operator's actual next step and goes disabled, and the wrapper
     # tooltip says why — "Arm again" only warned, and did not stop the click.
-    assert "'Raise the target to arm'" in js, \
+    assert "'Raise the target to arm'" in js, (
         "the Arm button no longer names the next step when the target is met"
-    assert "function dmEnrichArmTooltip" in js, \
+    )
+    assert "function dmEnrichArmTooltip" in js, (
         "a disabled Arm button with no reason on its wrapper is a dead end"
+    )
     # "again" is the warning word, and only Needs attention still earns it:
     # an Idle plan with headroom left restarts its walk from the newest day,
     # which is an Arm like any other.
-    assert "dmEnrichState === 'blocked' ? 'Arm again'" in js, \
+    assert "dmEnrichState === 'blocked' ? 'Arm again'" in js, (
         "Arm again must be the Needs-attention label alone"
+    )
 
     # The analysis-ready sessions figure: a span beside the ready days, the
     # estimate's whole-session day take, and the readout's third clause.
-    assert "dm-enrich-ready-sessions" in parser.by_id, \
+    assert "dm-enrich-ready-sessions" in parser.by_id, (
         "the headline lost its analysis-ready sessions span"
-    for needle in ("function _dmEnrichSessionsByDay", "function _dmEnrichDayTake",
-                   "'analysis-ready sessions'", "analysis-ready session${"):
+    )
+    for needle in (
+        "function _dmEnrichSessionsByDay",
+        "function _dmEnrichDayTake",
+        "'analysis-ready sessions'",
+        "analysis-ready session${",
+    ):
         assert needle in js, f"{needle} is gone from the modal script"
-    assert "no gap longer than 15 minutes" in src, \
+    assert "no gap longer than 15 minutes" in src, (
         "the headline tooltip no longer says what a viewing session is"
+    )
     # The estimate mirrors the planner: the server's draw ranks, the cap
     # charged with everything already scraped, the burnt-free backlog.
-    for needle in ("function _dmEnrichSampleMonths", "daily.draw", "unique_awaiting",
-                   "(daily.failed[i] || 0) + planned[i] - swept[i]"):
+    for needle in (
+        "function _dmEnrichSampleMonths",
+        "daily.draw",
+        "unique_awaiting",
+        "(daily.failed[i] || 0) + planned[i] - swept[i]",
+    ):
         assert needle in js, f"{needle} is gone — the estimate drifted from the planner again"
-    assert "Items per sampled day (random daily sample)" in src, \
-        "the cap control lost its label"
+    assert "Items per sampled day (random daily sample)" in src, "the cap control lost its label"
 
 
 # --------------------------------------------------------------------------- #
 # Live activity for the status strip
 # --------------------------------------------------------------------------- #
+
 
 def test_activity_reports_the_running_worker():
     """activity() answers "what is happening now" from the worker task
@@ -1746,16 +1930,20 @@ def test_activity_reports_the_running_worker():
 
     statuses = {
         "queue_annotator_batch": {
-            "state": "running", "start_time": "2026-09-01T00:00:00+00:00",
+            "state": "running",
+            "start_time": "2026-09-01T00:00:00+00:00",
             "progress": {"message": "Batch 1 of 2 (45%)"},
         },
         "queue_scraper_tiktok": {"state": "running", "progress": {}},
     }
     running = {"queue_annotator_batch"}
-    with patch("web_interface.services.worker_status._is_worker_running",
-               side_effect=lambda n: n in running), \
-         patch("web_interface.task_status.read_task_status",
-               side_effect=lambda n: statuses.get(n)):
+    with (
+        patch(
+            "web_interface.services.worker_status._is_worker_running",
+            side_effect=lambda n: n in running,
+        ),
+        patch("web_interface.task_status.read_task_status", side_effect=lambda n: statuses.get(n)),
+    ):
         out = ce.activity("tiktok")
         assert out["kind"] == "annotating"
         assert out["worker"] == "queue_annotator_batch"
@@ -1763,27 +1951,32 @@ def test_activity_reports_the_running_worker():
 
         running = {"queue_scraper_tiktok", "queue_annotator_batch"}
         out = ce.activity("tiktok")
-        assert out["kind"] == "scraping", \
-            "the plan's own scraper outranks the shared workers"
+        assert out["kind"] == "scraping", "the plan's own scraper outranks the shared workers"
         assert out["message"] is None
 
         # Without a platform (no plan yet) only shared workers are visible.
         running = {"queue_scraper_tiktok"}
         assert ce.activity(None)["kind"] == "waiting"
 
-    with patch("web_interface.services.worker_status._is_worker_running",
-               return_value=False):
+    with patch("web_interface.services.worker_status._is_worker_running", return_value=False):
         out = ce.activity("tiktok")
-    assert out == {"kind": "waiting", "worker": None, "message": None,
-                   "started_at": None}
+    assert out == {"kind": "waiting", "worker": None, "message": None, "started_at": None}
 
 
 def _exhausted(monkeypatch):
-    monkeypatch.setattr(ce, "plan_cycle",
-                        lambda cid, entry, **kw: {
-                            "item_ids": [], "a_cursor": "2026-03", "b_cursor": None,
-                            "a": 0, "b": 0, "exhausted": True,
-                            "platform": "tiktok"})
+    monkeypatch.setattr(
+        ce,
+        "plan_cycle",
+        lambda cid, entry, **kw: {
+            "item_ids": [],
+            "a_cursor": "2026-03",
+            "b_cursor": None,
+            "a": 0,
+            "b": 0,
+            "exhausted": True,
+            "platform": "tiktok",
+        },
+    )
 
 
 def test_an_exhausted_plan_stays_running_until_its_last_batch_settles(tick, monkeypatch):
@@ -1840,8 +2033,9 @@ def test_a_met_target_also_waits_for_the_videos_in_flight(tick, monkeypatch):
     the collection's videos are inside an annotation job."""
     import web_interface.run_enrichment_supervisor as sup
 
-    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
-                            "platform": "tiktok"}}
+    tick["plans"] = {
+        "c1": {**_entry(annotation_target=100, cycle_items_auto=True), "platform": "tiktok"}
+    }
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
     tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(tick["plans"]["c1"])}
@@ -1863,10 +2057,10 @@ def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup
     from datetime import datetime, timedelta, timezone
 
-    stale = (datetime.now(timezone.utc)
-             - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
-    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok",
-                            sup.FINISHING_KEY: {"since": stale, "pending": 2}}}
+    stale = (datetime.now(timezone.utc) - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
+    tick["plans"] = {
+        "c1": {**_entry(), "platform": "tiktok", sup.FINISHING_KEY: {"since": stale, "pending": 2}}
+    }
     tick["claimed"] = {"2026-08-27#0", "2026-08-27#1"}
     _exhausted(monkeypatch)
     tick["run"]()
@@ -1878,11 +2072,14 @@ def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
 def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup
 
-    plan = {**_entry(), "platform": "tiktok",
-            sup.FINISHING_KEY: {"since": ce.now_iso(), "pending": 2}}
+    plan = {
+        **_entry(),
+        "platform": "tiktok",
+        sup.FINISHING_KEY: {"since": ce.now_iso(), "pending": 2},
+    }
     tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
     tick["plans"] = {"c1": plan}
-    tick["run"]()                       # the fixture's plan_cycle cuts 5 items
+    tick["run"]()  # the fixture's plan_cycle cuts 5 items
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["state"] == ce.STATE_RUNNING and entry["cycles"] == 1
     assert entry.get(sup.FINISHING_KEY) is None
@@ -1891,6 +2088,7 @@ def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
 # --------------------------------------------------------------------------- #
 # The spread's density is derived from the target
 # --------------------------------------------------------------------------- #
+
 
 def _six_months(per_day=40, days=(3, 9, 17, 24, 28)):
     return _activity({f"2026-{m:02d}-{d:02d}": per_day for m in range(3, 9) for d in days})
@@ -1901,16 +2099,16 @@ def test_spread_days_is_the_fewest_uniform_density_that_covers_its_share():
     days a month (2 x 6 x 40 = 480 falls short; 3 x 6 x 40 = 720 covers it)."""
     entry = _entry(annotation_target=600, sample_share=1.0, a_day_cap=40)
     out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
-    assert out == {"days": 3, "videos": 600, "capacity": 720, "months": 6,
-                   "exhausted": False}
+    assert out == {"days": 3, "videos": 600, "capacity": 720, "months": 6, "exhausted": False}
 
 
 def test_spread_days_measures_only_its_own_share_and_the_cut_needed():
     """Half the balance and an 80% yield: 600 x 0.5 / 0.8 = 375 must be cut
     by the spread — two days a month (480) cover it."""
     entry = _entry(annotation_target=600, sample_share=0.5, a_day_cap=40)
-    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None,
-                                   expected_yield=0.8)
+    out = ce.spread_days_per_month(
+        "c1", entry, activity=_six_months(), status=None, expected_yield=0.8
+    )
     assert out["videos"] == 375 and out["days"] == 2
 
 
@@ -1922,17 +2120,24 @@ def test_spread_days_caps_at_the_history_and_says_so():
 
 def test_spread_days_is_zero_with_no_spread_share_or_no_target():
     activity = _six_months()
-    assert ce.spread_days_per_month("c1", _entry(sample_share=0.0), activity=activity,
-                                    status=None)["days"] == 0
-    assert ce.spread_days_per_month("c1", _entry(annotation_target=0), activity=activity,
-                                    status=None)["days"] == 0
+    assert (
+        ce.spread_days_per_month("c1", _entry(sample_share=0.0), activity=activity, status=None)[
+            "days"
+        ]
+        == 0
+    )
+    assert (
+        ce.spread_days_per_month("c1", _entry(annotation_target=0), activity=activity, status=None)[
+            "days"
+        ]
+        == 0
+    )
 
 
 def test_spread_days_looks_only_at_the_months_still_ahead_of_the_cursor():
     """Mid-walk (cursor at 2026-06) only March-May remain: 300 videos over
     three months need three days a month, not two over six."""
-    entry = {**_entry(annotation_target=300, sample_share=1.0, a_day_cap=40),
-             "a_cursor": "2026-06"}
+    entry = {**_entry(annotation_target=300, sample_share=1.0, a_day_cap=40), "a_cursor": "2026-06"}
     out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
     assert out["months"] == 3 and out["days"] == 3
 
@@ -1961,8 +2166,7 @@ def test_a_higher_density_is_a_superset_of_a_lower_one():
 def test_plan_cycle_derives_the_density_when_none_is_stored():
     """A direct call (or a plan cut before the supervisor stored a density)
     derives it from the same inputs and reports what it used."""
-    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
-                   a_day_cap=40)
+    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0, a_day_cap=40)
     out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
     assert out["spread_days"] == 3
     # 3 days x 40 in the newest month, walked until the 600-cut budget is met.
@@ -1970,8 +2174,9 @@ def test_plan_cycle_derives_the_density_when_none_is_stored():
 
 
 def test_plan_cycle_honours_a_stored_density():
-    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
-                   a_day_cap=40, a_days_per_month=1)
+    entry = _entry(
+        cycle_items=1_000, annotation_target=600, sample_share=1.0, a_day_cap=40, a_days_per_month=1
+    )
     out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
     assert out["spread_days"] == 1 and out["a"] == 6 * 40
 
@@ -1981,8 +2186,7 @@ def test_tick_stores_the_density_once_per_walk_and_rederives_on_a_new_target(tic
     changes; between those the stored density holds so the sampling stays
     uniform across the history."""
     monkeypatch.setattr(ce, "load_activity", lambda cid: _six_months(per_day=10))
-    plan = {**_entry(annotation_target=100, sample_share=0.5, a_day_cap=10),
-            "platform": "tiktok"}
+    plan = {**_entry(annotation_target=100, sample_share=0.5, a_day_cap=10), "platform": "tiktok"}
     tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
     tick["plans"] = {"c1": plan}
     tick["run"]()
@@ -1994,7 +2198,7 @@ def test_tick_stores_the_density_once_per_walk_and_rederives_on_a_new_target(tic
     # Mid-walk with the same inputs: nothing is re-derived. (The fake queue
     # keeps what the first tick cut; empty it so the tick reaches the planner.)
     entry["a_cursor"] = "2026-07"
-    entry["spread_days_per_month"] = 99          # a sentinel the derivation would never produce
+    entry["spread_days_per_month"] = 99  # a sentinel the derivation would never produce
     tick["plans"] = {"c1": entry}
     tick["scrape_queues"] = {}
     tick["run"]()
@@ -2022,12 +2226,18 @@ def test_the_supervisor_sizes_every_cycle_automatically(tick, monkeypatch):
 
     def fake_cycle(cid, entry, **kw):
         seen["cycle_items"] = entry["settings"]["cycle_items"]
-        return {"item_ids": ["x1"], "a_cursor": None, "b_cursor": "2026-08-27",
-                "a": 0, "b": 1, "exhausted": False, "platform": "tiktok"}
+        return {
+            "item_ids": ["x1"],
+            "a_cursor": None,
+            "b_cursor": "2026-08-27",
+            "a": 0,
+            "b": 1,
+            "exhausted": False,
+            "platform": "tiktok",
+        }
 
     monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
-    tick["plans"] = {"c1": {**_entry(annotation_target=150, cycle_items=7),
-                            "platform": "tiktok"}}
+    tick["plans"] = {"c1": {**_entry(annotation_target=150, cycle_items=7), "platform": "tiktok"}}
     tick["run"]()
     # 150 to annotate at the default 85% yield plus the 5% margin: 186 to cut.
     assert seen["cycle_items"] == 186
@@ -2037,8 +2247,10 @@ def test_the_supervisor_sizes_every_cycle_automatically(tick, monkeypatch):
 # The time estimate's measured timings, and a finished run's frozen meter
 # --------------------------------------------------------------------------- #
 
+
 def _journal_doc(events):
     import web_interface.services.enrichment_journal as journal
+
     return {"version": journal.VERSION, "events": events}
 
 
@@ -2053,43 +2265,90 @@ def test_expected_timing_is_measured_from_the_collections_runs(store):
     annotated in 20 min, consolidations of 1 and 2.5 min. The tiny 4-video
     retry batch is ignored (it says nothing about the rate)."""
     import web_interface.services.enrichment_journal as journal
+
     ev = [
-        {"ts": "2026-09-09T04:15:52+00:00", "kind": "queue.drained", "platform": "tiktok",
-         "detail": {"queued": 1289}},
-        {"ts": "2026-09-09T04:33:52+00:00", "kind": "scrape.finished", "platform": "tiktok",
-         "detail": {"worker": "queue_scraper_tiktok", "ok": 1056, "permanent": 228, "transient": 5}},
-        {"ts": "2026-09-09T04:33:55+00:00", "kind": "queue.drained", "platform": "tiktok",
-         "detail": {"queued": 4}},
-        {"ts": "2026-09-09T04:34:11+00:00", "kind": "scrape.finished", "platform": "tiktok",
-         "detail": {"worker": "queue_scraper_tiktok", "ok": 0, "permanent": 0, "transient": 4}},
-        {"ts": "2026-09-09T04:34:29+00:00", "kind": "refresh.finished",
-         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
-                    "started_ts": "2026-09-09T04:33:29+00:00"}},
-        {"ts": "2026-09-09T04:34:39+00:00", "kind": "queue.drained",
-         "detail": {"worker": "queue_annotator_batch", "queued": 1055}},
-        {"ts": "2026-09-09T04:54:39+00:00", "kind": "annotate.finished",
-         "detail": {"worker": "queue_annotator_batch", "ok": 1040, "fail": 15}},
-        {"ts": "2026-09-09T04:56:52+00:00", "kind": "refresh.finished",
-         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
-                    "started_ts": "2026-09-09T04:54:22+00:00"}},
+        {
+            "ts": "2026-09-09T04:15:52+00:00",
+            "kind": "queue.drained",
+            "platform": "tiktok",
+            "detail": {"queued": 1289},
+        },
+        {
+            "ts": "2026-09-09T04:33:52+00:00",
+            "kind": "scrape.finished",
+            "platform": "tiktok",
+            "detail": {
+                "worker": "queue_scraper_tiktok",
+                "ok": 1056,
+                "permanent": 228,
+                "transient": 5,
+            },
+        },
+        {
+            "ts": "2026-09-09T04:33:55+00:00",
+            "kind": "queue.drained",
+            "platform": "tiktok",
+            "detail": {"queued": 4},
+        },
+        {
+            "ts": "2026-09-09T04:34:11+00:00",
+            "kind": "scrape.finished",
+            "platform": "tiktok",
+            "detail": {"worker": "queue_scraper_tiktok", "ok": 0, "permanent": 0, "transient": 4},
+        },
+        {
+            "ts": "2026-09-09T04:34:29+00:00",
+            "kind": "refresh.finished",
+            "detail": {
+                "origin": "Consolidate enrichment data",
+                "studies": 0,
+                "started_ts": "2026-09-09T04:33:29+00:00",
+            },
+        },
+        {
+            "ts": "2026-09-09T04:34:39+00:00",
+            "kind": "queue.drained",
+            "detail": {"worker": "queue_annotator_batch", "queued": 1055},
+        },
+        {
+            "ts": "2026-09-09T04:54:39+00:00",
+            "kind": "annotate.finished",
+            "detail": {"worker": "queue_annotator_batch", "ok": 1040, "fail": 15},
+        },
+        {
+            "ts": "2026-09-09T04:56:52+00:00",
+            "kind": "refresh.finished",
+            "detail": {
+                "origin": "Consolidate enrichment data",
+                "studies": 0,
+                "started_ts": "2026-09-09T04:54:22+00:00",
+            },
+        },
         # The full downstream refresh is not a consolidation.
-        {"ts": "2026-09-09T05:09:00+00:00", "kind": "refresh.finished",
-         "detail": {"origin": "Consolidate enrichment data", "studies": 14,
-                    "started_ts": "2026-09-09T04:56:48+00:00"}},
+        {
+            "ts": "2026-09-09T05:09:00+00:00",
+            "kind": "refresh.finished",
+            "detail": {
+                "origin": "Consolidate enrichment data",
+                "studies": 14,
+                "started_ts": "2026-09-09T04:56:48+00:00",
+            },
+        },
     ]
     store[journal.JOURNAL_FILENAME] = _journal_doc(ev)
     out = ce.expected_timing("c1", "tiktok")
     assert out["measured"] == {"scrape": True, "annotate": True, "consolidate": True}
     assert out["scrape_per_min"] == round(1289 / 18, 1)
-    assert out["annotate_fixed_min"] == round(20 - 1055 * 0.01, 1)   # 9.5
-    assert out["consolidate_min"] == 2.5                               # median of 1.0, 2.5
+    assert out["annotate_fixed_min"] == round(20 - 1055 * 0.01, 1)  # 9.5
+    assert out["consolidate_min"] == 2.5  # median of 1.0, 2.5
 
 
 def test_closing_a_plan_stamps_where_the_run_ended(tick, monkeypatch):
     """The meter of a finished run must read the run's own target and end
     count — it used to slide with the target slider afterwards."""
-    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
-                            "platform": "tiktok"}}
+    tick["plans"] = {
+        "c1": {**_entry(annotation_target=100, cycle_items_auto=True), "platform": "tiktok"}
+    }
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
     tick["run"]()
@@ -2104,6 +2363,7 @@ def test_closing_a_plan_stamps_where_the_run_ended(tick, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Whole viewing sessions within a cut day
 # --------------------------------------------------------------------------- #
+
 
 def _a_only(**settings) -> dict:
     """A plan with only the random daily sample, one wide month, the cap
@@ -2150,8 +2410,9 @@ def test_sittings_under_the_floor_only_ever_fill_the_cap():
     assert not (set(out["item_ids"]) & small)
     assert out["sessions"] == 1
     # The floor itself is a parameter: at 5 the small sitting is a session.
-    out5 = ce.plan_cycle("c1", _a_only(a_day_cap=60), activity=activity, status=None,
-                         session_min_plays=5)
+    out5 = ce.plan_cycle(
+        "c1", _a_only(a_day_cap=60), activity=activity, status=None, session_min_plays=5
+    )
     assert out5["sessions"] == 3 and len(out5["item_ids"]) == 47
 
 
@@ -2181,8 +2442,12 @@ def test_rows_without_a_session_take_the_item_draw_as_before():
 def test_raising_the_cap_adds_sessions_and_never_swaps_them():
     day = "2026-05-09"
     activity = _activity({day: [15, 12, 20]})
-    low = set(ce.plan_cycle("c1", _a_only(a_day_cap=12), activity=activity, status=None)["item_ids"])
-    high = set(ce.plan_cycle("c1", _a_only(a_day_cap=30), activity=activity, status=None)["item_ids"])
+    low = set(
+        ce.plan_cycle("c1", _a_only(a_day_cap=12), activity=activity, status=None)["item_ids"]
+    )
+    high = set(
+        ce.plan_cycle("c1", _a_only(a_day_cap=30), activity=activity, status=None)["item_ids"]
+    )
     assert low < high
 
 
@@ -2194,14 +2459,35 @@ def test_a_sitting_past_midnight_is_taken_whole_from_the_day_it_started():
     key9, key10 = "2026-05-09T23:50:00", "2026-05-10T10:00:00"
     rows = []
     for i in range(12):
-        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-09"),
-                     "source_platform": "tiktok", "session": key9, "session_plays": 16})
+        rows.append(
+            {
+                "item_id": f"s9#{i}",
+                "day": pd.Timestamp("2026-05-09"),
+                "source_platform": "tiktok",
+                "session": key9,
+                "session_plays": 16,
+            }
+        )
     for i in range(12, 16):
-        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-10"),
-                     "source_platform": "tiktok", "session": key9, "session_plays": 16})
+        rows.append(
+            {
+                "item_id": f"s9#{i}",
+                "day": pd.Timestamp("2026-05-10"),
+                "source_platform": "tiktok",
+                "session": key9,
+                "session_plays": 16,
+            }
+        )
     for i in range(10):
-        rows.append({"item_id": f"s10#{i}", "day": pd.Timestamp("2026-05-10"),
-                     "source_platform": "tiktok", "session": key10, "session_plays": 10})
+        rows.append(
+            {
+                "item_id": f"s10#{i}",
+                "day": pd.Timestamp("2026-05-10"),
+                "source_platform": "tiktok",
+                "session": key10,
+                "session_plays": 10,
+            }
+        )
     activity = pd.DataFrame(rows)
     out = ce.plan_cycle("c1", _a_only(a_day_cap=10), activity=activity, status=None)
     ids = out["item_ids"]
@@ -2216,17 +2502,39 @@ def test_a_sitting_starting_before_the_earliest_date_is_not_a_candidate():
     key8, key9 = "2026-05-08T23:50:00", "2026-05-09T10:00:00"
     rows = []
     for i in range(6):
-        rows.append({"item_id": f"s8#{i}", "day": pd.Timestamp("2026-05-08"),
-                     "source_platform": "tiktok", "session": key8, "session_plays": 12})
+        rows.append(
+            {
+                "item_id": f"s8#{i}",
+                "day": pd.Timestamp("2026-05-08"),
+                "source_platform": "tiktok",
+                "session": key8,
+                "session_plays": 12,
+            }
+        )
     for i in range(6, 12):
-        rows.append({"item_id": f"s8#{i}", "day": pd.Timestamp("2026-05-09"),
-                     "source_platform": "tiktok", "session": key8, "session_plays": 12})
+        rows.append(
+            {
+                "item_id": f"s8#{i}",
+                "day": pd.Timestamp("2026-05-09"),
+                "source_platform": "tiktok",
+                "session": key8,
+                "session_plays": 12,
+            }
+        )
     for i in range(10):
-        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-09"),
-                     "source_platform": "tiktok", "session": key9, "session_plays": 10})
+        rows.append(
+            {
+                "item_id": f"s9#{i}",
+                "day": pd.Timestamp("2026-05-09"),
+                "source_platform": "tiktok",
+                "session": key9,
+                "session_plays": 10,
+            }
+        )
     activity = pd.DataFrame(rows)
-    out = ce.plan_cycle("c1", _a_only(a_day_cap=10, earliest_date="2026-05-09"),
-                        activity=activity, status=None)
+    out = ce.plan_cycle(
+        "c1", _a_only(a_day_cap=10, earliest_date="2026-05-09"), activity=activity, status=None
+    )
     assert set(out["item_ids"]) == {f"s9#{i}" for i in range(10)}
     assert out["sessions"] == 1
 
@@ -2247,8 +2555,9 @@ def test_deep_dive_partial_last_day_takes_the_newest_sitting_whole():
 def test_deep_dive_whole_days_count_their_sittings():
     day = "2026-05-09"
     activity = _activity({day: [12, 12, 3]})
-    out = ce.plan_cycle("c1", _entry(sample_share=0.0, cycle_items=100),
-                        activity=activity, status=None)
+    out = ce.plan_cycle(
+        "c1", _entry(sample_share=0.0, cycle_items=100), activity=activity, status=None
+    )
     assert len(out["item_ids"]) == 27 and out["sessions"] == 2
 
 
@@ -2267,15 +2576,25 @@ def test_activity_rows_collapse_to_item_days_with_their_sitting():
     the sitting's rows, an observe row counts toward the sitting but not its
     plays, a replay in a later sitting the same day is one row in the first,
     and a row without a session id carries none."""
-    rows = pd.DataFrame({
-        "item_id": ["a", "b", "a", "c", "d", "e"],
-        "day": pd.to_datetime(["2026-05-09"] * 5 + ["2026-05-10"]),
-        "source_platform": ["tiktok"] * 6,
-        "_ts": pd.to_datetime(["2026-05-09 10:00", "2026-05-09 10:01", "2026-05-09 22:00",
-                               "2026-05-09 23:50", "2026-05-09 23:55", "2026-05-10 00:05"]),
-        "_is_play": [True, True, True, True, False, True],
-        "_sid": ["c__0", "c__0", "c__1", "c__2", "c__2", None],
-    })
+    rows = pd.DataFrame(
+        {
+            "item_id": ["a", "b", "a", "c", "d", "e"],
+            "day": pd.to_datetime(["2026-05-09"] * 5 + ["2026-05-10"]),
+            "source_platform": ["tiktok"] * 6,
+            "_ts": pd.to_datetime(
+                [
+                    "2026-05-09 10:00",
+                    "2026-05-09 10:01",
+                    "2026-05-09 22:00",
+                    "2026-05-09 23:50",
+                    "2026-05-09 23:55",
+                    "2026-05-10 00:05",
+                ]
+            ),
+            "_is_play": [True, True, True, True, False, True],
+            "_sid": ["c__0", "c__0", "c__1", "c__2", "c__2", None],
+        }
+    )
     out = ce._collapse_to_item_days(rows.sample(frac=1.0, random_state=3))
     by_item = out.set_index(["item_id", "day"])
     assert len(out) == 5
@@ -2296,9 +2615,13 @@ def test_progress_reports_the_sessions_a_collection_can_offer(monkeypatch):
     activity = _activity({day: [12, 12, 4]})
     s0 = sorted(_session_items(activity, _session_key(day, 0)))
     s1 = sorted(_session_items(activity, _session_key(day, 1)))
-    status = _status(list(activity["item_id"]),
-                     scraped=s0[:11] + s1[:8], annotated=s0[:11] + s1[:5],
-                     scrape_fail=[s0[11]], annotated_fail=[s1[5]])
+    status = _status(
+        list(activity["item_id"]),
+        scraped=s0[:11] + s1[:8],
+        annotated=s0[:11] + s1[:5],
+        scrape_fail=[s0[11]],
+        annotated_fail=[s1[5]],
+    )
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
 
@@ -2320,19 +2643,32 @@ def test_progress_without_session_columns_reports_no_sessions(monkeypatch):
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: None)
     sessions = ce.progress("c1", _entry())["sessions"]
-    assert sessions == {"min_plays": ce.DEFAULT_SESSION_MIN_PLAYS, "total": 0,
-                        "candidates": 0, "ready": 0, "per": {"d": [], "n": [], "w": []}}
+    assert sessions == {
+        "min_plays": ce.DEFAULT_SESSION_MIN_PLAYS,
+        "total": 0,
+        "candidates": 0,
+        "ready": 0,
+        "per": {"d": [], "n": [], "w": []},
+    }
 
 
 def test_journal_names_the_sittings_a_batch_finishes(tick, monkeypatch):
     import web_interface.services.enrichment_journal as journal
 
-    monkeypatch.setattr(ce, "plan_cycle",
-                        lambda cid, entry, **kw: {
-                            "item_ids": [f"{cid}-i{n}" for n in range(5)],
-                            "a_cursor": "2026-07", "b_cursor": "2026-08-27",
-                            "a": 1, "b": 4, "exhausted": False,
-                            "platform": "tiktok", "sessions": 2})
+    monkeypatch.setattr(
+        ce,
+        "plan_cycle",
+        lambda cid, entry, **kw: {
+            "item_ids": [f"{cid}-i{n}" for n in range(5)],
+            "a_cursor": "2026-07",
+            "b_cursor": "2026-08-27",
+            "a": 1,
+            "b": 4,
+            "exhausted": False,
+            "platform": "tiktok",
+            "sessions": 2,
+        },
+    )
     tick["plans"] = {"c1": {**_entry(), "spent_items": 10, "platform": "tiktok"}}
     tick["run"]()
     events = (tick["store"].get(journal.JOURNAL_FILENAME) or {}).get("events") or []
@@ -2372,8 +2708,10 @@ def test_progress_ships_the_draw_ranks_the_planner_samples_by(monkeypatch):
         assert got == {_day_key(d): pos for pos, d in enumerate(ranked)}
     # The prefix the planner takes is the same prefix, whichever days qualify.
     eligible = [pd.Timestamp(d) for d in daily["dates"] if d.startswith("2026-08")][1:]
-    assert ce.stable_sample(eligible, 2, salt="c1:2026-08") == \
-        sorted(eligible, key=lambda d: daily["draw"][daily["dates"].index(_day_key(d))])[:2]
+    assert (
+        ce.stable_sample(eligible, 2, salt="c1:2026-08")
+        == sorted(eligible, key=lambda d: daily["draw"][daily["dates"].index(_day_key(d))])[:2]
+    )
 
 
 def _day_key(day):
@@ -2391,5 +2729,5 @@ def test_progress_carries_the_yield_and_the_burnt_free_backlog(monkeypatch):
     out = ce.progress("c1", {**_entry(), "last_yield": 0.82})
     assert out["last_yield"] == 0.82
     assert out["unique_scraped"] == 5 and out["unique_annotated"] == 2
-    assert out["unique_awaiting"] == 2          # ids 3 and 4; id 2 burnt
+    assert out["unique_awaiting"] == 2  # ids 3 and 4; id 2 burnt
     assert out["unique_failed"] == 1

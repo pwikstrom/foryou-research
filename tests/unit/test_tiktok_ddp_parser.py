@@ -39,9 +39,7 @@ def _flat_ddp_document(seed: int, n_plays: int = 20) -> dict:
                 ]
             },
             "Login History": {
-                "LoginHistoryList": [
-                    {"Date": "2026-05-02 09:00:00", "IP": "203.0.113.1"}
-                ]
+                "LoginHistoryList": [{"Date": "2026-05-02 09:00:00", "IP": "203.0.113.1"}]
             },
         }
     }
@@ -54,7 +52,8 @@ def collection():
 
 def _load(collection, monkeypatch, filename, doc):
     monkeypatch.setattr(
-        tiktok_mod.data_io, "load_json",
+        tiktok_mod.data_io,
+        "load_json",
         lambda storage_location=None, filename=None, _doc=doc, **kw: _doc,
     )
     df = collection.load_single_raw(filename)
@@ -75,7 +74,8 @@ def test_parses_after_multi_file_concat(collection, monkeypatch):
     assert "list" in str(stacked["value_list"].dtype)
 
     processed = stacked.groupby("raw_file", group_keys=False)[stacked.columns].apply(
-        collection.process_single)
+        collection.process_single
+    )
 
     assert len(processed) == len(stacked)
     assert set(processed["raw_file"].unique()) == {f"donor_{i}.json" for i in range(3)}
@@ -94,8 +94,10 @@ def _ddp_with_comments() -> dict:
         "Activity": {
             "Video Browsing History": {
                 "VideoList": [
-                    {"Date": f"2026-05-01 10:{i:02d}:00",
-                     "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/"}
+                    {
+                        "Date": f"2026-05-01 10:{i:02d}:00",
+                        "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/",
+                    }
                     for i in range(12)
                 ]
             },
@@ -179,18 +181,25 @@ def _ddp_with_off_tiktok_activity(n_off: int = 50) -> dict:
     doc["Ads and data"] = {
         "Off TikTok Activity": {
             "OffTikTokActivityDataList": [
-                {"TimeStamp": f"2026-05-01 10:{i % 60:02d}:00", "Source": "pixel", "Event": "PageView"}
+                {
+                    "TimeStamp": f"2026-05-01 10:{i % 60:02d}:00",
+                    "Source": "pixel",
+                    "Event": "PageView",
+                }
                 for i in range(n_off)
             ]
         }
     }
     # One play record with an unreadable date: the only genuine parse failure.
     doc["Activity"]["Video Browsing History"]["VideoList"].append(
-        {"Date": "not a date", "Link": "https://www.tiktokv.com/share/video/7000000000000000099/"})
+        {"Date": "not a date", "Link": "https://www.tiktokv.com/share/video/7000000000000000099/"}
+    )
     return doc
 
 
-def test_sections_outside_the_whitelist_are_counted_by_design_not_as_parse_failures(collection, monkeypatch):
+def test_sections_outside_the_whitelist_are_counted_by_design_not_as_parse_failures(
+    collection, monkeypatch
+):
     df = _load(collection, monkeypatch, "off.json", _ddp_with_off_tiktok_activity(n_off=50))
     collection.data = df
     collection.state = "raw"
@@ -232,7 +241,8 @@ def test_posted_videos_do_not_satisfy_the_viability_floor(collection, monkeypatc
     """
     doc = _posted_videos(80)
     monkeypatch.setattr(
-        tiktok_mod.data_io, "load_json",
+        tiktok_mod.data_io,
+        "load_json",
         lambda storage_location=None, filename=None, _doc=doc, **kw: _doc,
     )
 
@@ -266,52 +276,89 @@ def test_posted_videos_are_excluded_by_design_not_counted_as_plays(collection, m
 
 def _ddp_with_engagement() -> dict:
     plays = [
-        {"Date": f"2026-05-01 10:{i:02d}:00",
-         "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/"}
+        {
+            "Date": f"2026-05-01 10:{i:02d}:00",
+            "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/",
+        }
         for i in range(12)
     ]
     return {
         "Your Activity": {
             "Watch History": {"VideoList": plays},
-            "Share History": {"ShareHistoryList": [
-                {"Date": "2026-05-01 10:01:20", "SharedContent": "share_video",
-                 "Link": "https://www.tiktokv.com/share/video/7000000000000000001/",
-                 "Method": "copy_link"},
-                # A LIVE share names no video: kept as a share row without an item.
-                {"Date": "2026-05-01 10:02:10", "SharedContent": "share_live",
-                 "Link": "https://www.tiktok.com/@someone/live", "Method": "whatsapp"},
-            ]},
-            "Reposts": {"RepostList": [
-                {"Date": "2026-05-01 10:03:30",
-                 "Link": "https://www.tiktokv.com/share/video/7000000000000000003/"},
-            ]},
-            "Following": {"Following": [
-                {"Date": "2026-05-01 10:04:30", "UserName": "creator_a"},
-            ]},
+            "Share History": {
+                "ShareHistoryList": [
+                    {
+                        "Date": "2026-05-01 10:01:20",
+                        "SharedContent": "share_video",
+                        "Link": "https://www.tiktokv.com/share/video/7000000000000000001/",
+                        "Method": "copy_link",
+                    },
+                    # A LIVE share names no video: kept as a share row without an item.
+                    {
+                        "Date": "2026-05-01 10:02:10",
+                        "SharedContent": "share_live",
+                        "Link": "https://www.tiktok.com/@someone/live",
+                        "Method": "whatsapp",
+                    },
+                ]
+            },
+            "Reposts": {
+                "RepostList": [
+                    {
+                        "Date": "2026-05-01 10:03:30",
+                        "Link": "https://www.tiktokv.com/share/video/7000000000000000003/",
+                    },
+                ]
+            },
+            "Following": {
+                "Following": [
+                    {"Date": "2026-05-01 10:04:30", "UserName": "creator_a"},
+                ]
+            },
         },
         "Likes and Favorites": {
-            "Like List": {"ItemFavoriteList": [
-                {"date": "2026-05-01 10:05:30",
-                 "link": "https://www.tiktokv.com/share/video/7000000000000000005/"},
-            ]},
-            "Favorite Videos": {"FavoriteVideoList": [
-                {"Date": "2026-05-01 10:06:30",
-                 "Link": "https://www.tiktokv.com/share/video/7000000000000000006/"},
-            ]},
+            "Like List": {
+                "ItemFavoriteList": [
+                    {
+                        "date": "2026-05-01 10:05:30",
+                        "link": "https://www.tiktokv.com/share/video/7000000000000000005/",
+                    },
+                ]
+            },
+            "Favorite Videos": {
+                "FavoriteVideoList": [
+                    {
+                        "Date": "2026-05-01 10:06:30",
+                        "Link": "https://www.tiktokv.com/share/video/7000000000000000006/",
+                    },
+                ]
+            },
             # Not video items: stripped as outside the whitelist.
-            "Favorite Sounds": {"FavoriteSoundList": [
-                {"Date": "2026-05-01 10:07:00", "Link": "https://www.tiktok.com/music/x-1"},
-            ]},
+            "Favorite Sounds": {
+                "FavoriteSoundList": [
+                    {"Date": "2026-05-01 10:07:00", "Link": "https://www.tiktok.com/music/x-1"},
+                ]
+            },
         },
-        "Comment": {"Comments": {"CommentsList": [
-            # Newer vintage: the video is named, so no forward fill is needed
-            # and no link_method is set.
-            {"date": "2026-05-01 10:08:20", "comment": "seen it", "photo": "N/A",
-             "video": "N/A", "url": "", "originalPostUrl":
-             "https://www.tiktokv.com/share/video/7000000000000000008/", "original post link": ""},
-            # Older vintage: no video anywhere → forward fill.
-            {"date": "2026-05-01 10:09:40", "comment": "old style", "photo": "N/A"},
-        ]}},
+        "Comment": {
+            "Comments": {
+                "CommentsList": [
+                    # Newer vintage: the video is named, so no forward fill is needed
+                    # and no link_method is set.
+                    {
+                        "date": "2026-05-01 10:08:20",
+                        "comment": "seen it",
+                        "photo": "N/A",
+                        "video": "N/A",
+                        "url": "",
+                        "originalPostUrl": "https://www.tiktokv.com/share/video/7000000000000000008/",
+                        "original post link": "",
+                    },
+                    # Older vintage: no video anywhere → forward fill.
+                    {"date": "2026-05-01 10:09:40", "comment": "old style", "photo": "N/A"},
+                ]
+            }
+        },
     }
 
 
@@ -379,7 +426,12 @@ def test_comment_date_with_utc_suffix_is_read(collection, monkeypatch):
     assert len(comments) == 2
     assert comments.loc["seen it", "item_id"] == "7000000000000000008"
     assert str(comments.loc["seen it", "utc_timestamp"]) == "2026-05-01 10:08:20+00:00"
-    assert collection.file_stats_this_run.get("donor_e.json", {}).get("dropped", {}).get("not_parseable") is None
+    assert (
+        collection.file_stats_this_run.get("donor_e.json", {})
+        .get("dropped", {})
+        .get("not_parseable")
+        is None
+    )
 
 
 def test_too_small_export_reports_its_true_record_count(collection, monkeypatch):
@@ -390,11 +442,16 @@ def test_too_small_export_reports_its_true_record_count(collection, monkeypatch)
 
 def test_zeeschuimer_counts_pages_outside_the_feed_and_survives_an_empty_file(monkeypatch):
     zs = tiktok_mod.TikTokZeeschuimerCollection(verbose=False)
-    records = [{"source_platform_url": "https://www.tiktok.com/foryou", "id": "1"},
-               {"source_platform_url": "https://www.tiktok.com/search?q=x", "id": "2"},
-               {"source_platform_url": "https://www.tiktok.com/", "id": "3"}]
-    monkeypatch.setattr(tiktok_mod.data_io, "read_ndjson_file",
-                        lambda storage_location=None, filename=None: records if filename == "c.ndjson" else [])
+    records = [
+        {"source_platform_url": "https://www.tiktok.com/foryou", "id": "1"},
+        {"source_platform_url": "https://www.tiktok.com/search?q=x", "id": "2"},
+        {"source_platform_url": "https://www.tiktok.com/", "id": "3"},
+    ]
+    monkeypatch.setattr(
+        tiktok_mod.data_io,
+        "read_ndjson_file",
+        lambda storage_location=None, filename=None: records if filename == "c.ndjson" else [],
+    )
     df = zs.load_single_raw("c.ndjson")
     assert list(df["id"]) == ["1", "3"]
     assert zs.records_read_this_run["c.ndjson"] == 3
@@ -406,8 +463,9 @@ def test_non_item_favorites_are_outside_the_whitelist(collection, monkeypatch):
     df = _load(collection, monkeypatch, "donor_e.json", _ddp_with_engagement())
     assert "favoritesoundlist" in set(df["activity_type"])
     assert "favoritesoundlist" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP
-    assert "post" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP, \
+    assert "post" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP, (
         "posted videos are relabelled posted_videolist; a 'post' key is unreachable"
+    )
 
 
 # A video sent to several friends at once is exported as that many identical
@@ -417,11 +475,16 @@ def test_non_item_favorites_are_outside_the_whitelist(collection, monkeypatch):
 
 def _ddp_with_multi_recipient_share() -> dict:
     doc = _ddp_with_engagement()
-    send = {"Date": "2026-05-01 10:10:05", "SharedContent": "video",
-            "Link": "https://www.tiktokv.com/share/video/7000000000000000010/",
-            "Method": "chat_head"}
+    send = {
+        "Date": "2026-05-01 10:10:05",
+        "SharedContent": "video",
+        "Link": "https://www.tiktokv.com/share/video/7000000000000000010/",
+        "Method": "chat_head",
+    }
     doc["Your Activity"]["Share History"]["ShareHistoryList"] += [
-        dict(send), dict(send), dict(send),
+        dict(send),
+        dict(send),
+        dict(send),
         # Same video, same second, another method: a separate share.
         {**send, "Method": "copy"},
     ]

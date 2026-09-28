@@ -22,6 +22,7 @@ def is_email(value: str) -> bool:
 def _site() -> dict:
     """Return the [site] config section (instance branding), never raising."""
     from fyp.core.fyp_config import get_config
+
     try:
         return get_config().get("site", {}) or {}
     except Exception:
@@ -49,10 +50,13 @@ def _mail_credentials(context: str):
         return None
     sender = str(_site().get("mail_sender", "") or "").strip()
     if not sender:
-        logger.warning(f"Mail sender not configured ([site].mail_sender / "
-                       f"FYP_MAIL_SENDER). Cannot send {context}.")
+        logger.warning(
+            f"Mail sender not configured ([site].mail_sender / "
+            f"FYP_MAIL_SENDER). Cannot send {context}."
+        )
         return None
     return sender, password
+
 
 def mail_configured() -> bool:
     """True when outgoing mail can be sent (MAIL_PASSWORD + a sender).
@@ -102,6 +106,7 @@ def send_verification_email_async(to_email, verify_url, expires_hours, on_succes
         on_success: optional zero-arg callable invoked only when the send
             actually succeeded (used to stamp ``email_verification_sent_at``).
     """
+
     def _worker():
         if send_verification_email(to_email, verify_url, expires_hours) and on_success:
             try:
@@ -117,6 +122,7 @@ def send_welcome_email_async(to_email):
     """Sends a welcome email in a background thread."""
     thread = threading.Thread(target=send_welcome_email, args=(to_email,))
     thread.start()
+
 
 def send_welcome_email(to_email):
     """Sends a welcome email to the approved user."""
@@ -156,17 +162,21 @@ def send_welcome_email(to_email):
         return False
 
 
-def send_invitation_email_async(to_email, run_id, task_type, inviter,
-                                n_items, n_variables, on_success=None):
+def send_invitation_email_async(
+    to_email, run_id, task_type, inviter, n_items, n_variables, on_success=None
+):
     """Send a human-task invitation email in a background thread.
 
     Args:
         on_success: optional zero-arg callable invoked only when the send
             actually succeeded (used to persist the coder's ``notified`` flag).
     """
+
     def _worker():
-        if send_invitation_email(to_email, run_id, task_type, inviter,
-                                 n_items, n_variables) and on_success:
+        if (
+            send_invitation_email(to_email, run_id, task_type, inviter, n_items, n_variables)
+            and on_success
+        ):
             try:
                 on_success()
             except Exception as e:
@@ -176,8 +186,7 @@ def send_invitation_email_async(to_email, run_id, task_type, inviter,
     thread.start()
 
 
-def send_invitation_email(to_email, run_id, task_type, inviter,
-                          n_items, n_variables) -> bool:
+def send_invitation_email(to_email, run_id, task_type, inviter, n_items, n_variables) -> bool:
     """Send an invitation to contribute human input to an annotation test run.
 
     Returns:
@@ -189,7 +198,7 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
         return False
     sender, password = creds
 
-    task_label = ("preference-vote" if task_type == "vote" else "blind coding")
+    task_label = "preference-vote" if task_type == "vote" else "blind coding"
     try:
         msg = MIMEMultipart()
         msg["From"] = sender
@@ -258,8 +267,9 @@ def send_new_user_pending_email(to_email, new_user_email, new_user_display=None)
     return _send_html_email(to_email, subject, body)
 
 
-def send_new_user_pending_email_async(to_email, new_user_email,
-                                      new_user_display=None, on_success=None):
+def send_new_user_pending_email_async(
+    to_email, new_user_email, new_user_display=None, on_success=None
+):
     """Send a new-user pending-approval notification in a background thread.
 
     Args:
@@ -267,6 +277,7 @@ def send_new_user_pending_email_async(to_email, new_user_email,
             actually succeeded (used to persist the sent-at / sent-to marker on
             the pending user).
     """
+
     def _worker():
         if send_new_user_pending_email(to_email, new_user_email, new_user_display) and on_success:
             try:
@@ -308,8 +319,7 @@ def _send_html_email(to_email, subject, body_html) -> bool:
         return False
 
 
-def send_withdrawal_email_async(to_email, participant, collection_id,
-                                restorable_until) -> None:
+def send_withdrawal_email_async(to_email, participant, collection_id, restorable_until) -> None:
     """Notify an admin that a participant withdrew a collection (background)."""
     body = f"""
     <html>
@@ -325,8 +335,10 @@ def send_withdrawal_email_async(to_email, participant, collection_id,
       </body>
     </html>
     """
-    threading.Thread(target=_send_html_email, args=(
-        to_email, "Data Hub: a participant withdrew a collection", body)).start()
+    threading.Thread(
+        target=_send_html_email,
+        args=(to_email, "Data Hub: a participant withdrew a collection", body),
+    ).start()
 
 
 def _batch_annotation_email_content(kind: str, details: dict) -> tuple[str, str]:
@@ -348,29 +360,37 @@ def _batch_annotation_email_content(kind: str, details: dict) -> tuple[str, str]
 
     if kind == "submitted":
         subject = "Async annotation started"
-        detail = (f"<p><b>{n_items:,}</b> videos were submitted to Google's Gemini "
-                  f"batch service. Results typically arrive within a few hours; "
-                  f"you'll get another email when they're in.</p>")
+        detail = (
+            f"<p><b>{n_items:,}</b> videos were submitted to Google's Gemini "
+            f"batch service. Results typically arrive within a few hours; "
+            f"you'll get another email when they're in.</p>"
+        )
     elif kind == "batch_done":
         subject = "Async annotation — batch completed"
-        detail = (f"<p>Batch ingested: <b>{details.get('ok', 0):,}</b> annotated, "
-                  f"<b>{details.get('fail', 0):,}</b> failed, "
-                  f"<b>{details.get('requeued', 0):,}</b> re-queued. "
-                  f"<b>{remaining:,}</b> still queued.</p>"
-                  if remaining is not None else
-                  f"<p>Batch ingested: <b>{details.get('ok', 0):,}</b> annotated, "
-                  f"<b>{details.get('fail', 0):,}</b> failed.</p>")
+        detail = (
+            f"<p>Batch ingested: <b>{details.get('ok', 0):,}</b> annotated, "
+            f"<b>{details.get('fail', 0):,}</b> failed, "
+            f"<b>{details.get('requeued', 0):,}</b> re-queued. "
+            f"<b>{remaining:,}</b> still queued.</p>"
+            if remaining is not None
+            else f"<p>Batch ingested: <b>{details.get('ok', 0):,}</b> annotated, "
+            f"<b>{details.get('fail', 0):,}</b> failed.</p>"
+        )
     elif kind == "completed":
         subject = "Async annotation complete"
-        detail = (f"<p>All done. Total this run: "
-                  f"<b>{details.get('total_ok', 0):,}</b> annotated, "
-                  f"<b>{details.get('total_fail', 0):,}</b> failed.</p>")
+        detail = (
+            f"<p>All done. Total this run: "
+            f"<b>{details.get('total_ok', 0):,}</b> annotated, "
+            f"<b>{details.get('total_fail', 0):,}</b> failed.</p>"
+        )
     else:  # failed
         subject = "Async annotation failed"
         err = details.get("error", "unknown error")
-        detail = (f"<p>The job stopped before finishing: <code>{err}</code></p>"
-                  f"<p>Any reserved videos were returned to the queue and can be "
-                  f"re-run.</p>")
+        detail = (
+            f"<p>The job stopped before finishing: <code>{err}</code></p>"
+            f"<p>Any reserved videos were returned to the queue and can be "
+            f"re-run.</p>"
+        )
 
     body = f"""
     <html>
@@ -427,10 +447,11 @@ def send_first_batch_ready_email(to_email, collection_id, n_items) -> bool:
     if not is_email(to_email):
         return False
     app_url = str(_site().get("app_url", "") or "").strip()
-    link = f'{app_url}/participate/go-upload' if app_url else ""
+    link = f"{app_url}/participate/go-upload" if app_url else ""
     open_line = (
         f'<p><a href="{link}">Open your My Collections page</a> to explore it.</p>'
-        if link else f"<p>Log in to {_app_link()} and open My stuff &rarr; My Collections to explore it.</p>"
+        if link
+        else f"<p>Log in to {_app_link()} and open My stuff &rarr; My Collections to explore it.</p>"
     )
     body = f"""
     <html>

@@ -1,4 +1,5 @@
 """Back-compat alias for fyp.analysis.sequence_analysis — both paths are the same module object."""
+
 import sys
 
 from fyp.analysis import sequence_analysis as _real

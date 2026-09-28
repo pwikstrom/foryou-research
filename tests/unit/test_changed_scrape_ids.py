@@ -42,69 +42,141 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
 
 
 def test_rescrape_value_backfill_is_flagged() -> None:
-    existing = _frame([
-        {"item_id": "A", "source_platform": "instagram", "play_count": -1,
-         "video_downloaded": False, "scrape_ts": "2026-07-01", "desc": "cats"},
-        {"item_id": "B", "source_platform": "instagram", "play_count": 500,
-         "video_downloaded": True, "scrape_ts": "2026-07-01", "desc": "dogs"},
-    ])
-    new = _frame([
-        # A re-scraped: real play_count now, newer scrape_ts.
-        {"item_id": "A", "source_platform": "instagram", "play_count": 12345,
-         "video_downloaded": False, "scrape_ts": "2026-07-06", "desc": "cats"},
-        # B unchanged.
-        {"item_id": "B", "source_platform": "instagram", "play_count": 500,
-         "video_downloaded": True, "scrape_ts": "2026-07-01", "desc": "dogs"},
-        # C brand new.
-        {"item_id": "C", "source_platform": "instagram", "play_count": 9,
-         "video_downloaded": True, "scrape_ts": "2026-07-06", "desc": "birds"},
-    ])
+    existing = _frame(
+        [
+            {
+                "item_id": "A",
+                "source_platform": "instagram",
+                "play_count": -1,
+                "video_downloaded": False,
+                "scrape_ts": "2026-07-01",
+                "desc": "cats",
+            },
+            {
+                "item_id": "B",
+                "source_platform": "instagram",
+                "play_count": 500,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-01",
+                "desc": "dogs",
+            },
+        ]
+    )
+    new = _frame(
+        [
+            # A re-scraped: real play_count now, newer scrape_ts.
+            {
+                "item_id": "A",
+                "source_platform": "instagram",
+                "play_count": 12345,
+                "video_downloaded": False,
+                "scrape_ts": "2026-07-06",
+                "desc": "cats",
+            },
+            # B unchanged.
+            {
+                "item_id": "B",
+                "source_platform": "instagram",
+                "play_count": 500,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-01",
+                "desc": "dogs",
+            },
+            # C brand new.
+            {
+                "item_id": "C",
+                "source_platform": "instagram",
+                "play_count": 9,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-06",
+                "desc": "birds",
+            },
+        ]
+    )
     assert _compute_changed_scrape_ids(existing, new) == {"A", "C"}
 
 
 def test_provenance_only_change_is_ignored() -> None:
     # scrape_ts / scrape_contract_version / storage_link change on every scrape
     # without touching an analysis variable — they must not flag the item.
-    existing = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 100,
-         "video_downloaded": True, "scrape_ts": "2026-07-01",
-         "scrape_contract_version": "sv_old", "storage_link": "a.mp4", "desc": "x"},
-    ])
-    new = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 100,
-         "video_downloaded": True, "scrape_ts": "2026-07-06",
-         "scrape_contract_version": "sv_new", "storage_link": "tiktok/a.mp4", "desc": "x"},
-    ])
+    existing = _frame(
+        [
+            {
+                "item_id": "A",
+                "source_platform": "tiktok",
+                "play_count": 100,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-01",
+                "scrape_contract_version": "sv_old",
+                "storage_link": "a.mp4",
+                "desc": "x",
+            },
+        ]
+    )
+    new = _frame(
+        [
+            {
+                "item_id": "A",
+                "source_platform": "tiktok",
+                "play_count": 100,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-06",
+                "scrape_contract_version": "sv_new",
+                "storage_link": "tiktok/a.mp4",
+                "desc": "x",
+            },
+        ]
+    )
     assert _compute_changed_scrape_ids(existing, new) == set()
 
 
 def test_first_consolidation_flags_all() -> None:
-    new = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 1},
-        {"item_id": "B", "source_platform": "tiktok", "play_count": 2},
-    ])
+    new = _frame(
+        [
+            {"item_id": "A", "source_platform": "tiktok", "play_count": 1},
+            {"item_id": "B", "source_platform": "tiktok", "play_count": 2},
+        ]
+    )
     assert _compute_changed_scrape_ids(None, new) == {"A", "B"}
 
 
 def test_na_to_value_and_value_to_na_are_flagged() -> None:
-    existing = pd.DataFrame({
-        "item_id": pd.array(["A", "B"], dtype="string[pyarrow]"),
-        "play_count": pd.array([pd.NA, 5], dtype="int64[pyarrow]"),
-    })
-    new = pd.DataFrame({
-        "item_id": pd.array(["A", "B"], dtype="string[pyarrow]"),
-        "play_count": pd.array([777, pd.NA], dtype="int64[pyarrow]"),
-    })
+    existing = pd.DataFrame(
+        {
+            "item_id": pd.array(["A", "B"], dtype="string[pyarrow]"),
+            "play_count": pd.array([pd.NA, 5], dtype="int64[pyarrow]"),
+        }
+    )
+    new = pd.DataFrame(
+        {
+            "item_id": pd.array(["A", "B"], dtype="string[pyarrow]"),
+            "play_count": pd.array([777, pd.NA], dtype="int64[pyarrow]"),
+        }
+    )
     assert _compute_changed_scrape_ids(existing, new) == {"A", "B"}
 
 
 def test_identical_frame_flags_nothing() -> None:
-    df = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 100,
-         "video_downloaded": True, "scrape_ts": "2026-07-01", "desc": "x"},
-        {"item_id": "B", "source_platform": "youtube", "play_count": 9,
-         "video_downloaded": False, "scrape_ts": "2026-07-02", "desc": "y"},
-    ])
+    df = _frame(
+        [
+            {
+                "item_id": "A",
+                "source_platform": "tiktok",
+                "play_count": 100,
+                "video_downloaded": True,
+                "scrape_ts": "2026-07-01",
+                "desc": "x",
+            },
+            {
+                "item_id": "B",
+                "source_platform": "youtube",
+                "play_count": 9,
+                "video_downloaded": False,
+                "scrape_ts": "2026-07-02",
+                "desc": "y",
+            },
+        ]
+    )
     assert _compute_changed_scrape_ids(df, df.copy()) == set()
 
 
@@ -116,14 +188,19 @@ def test_column_set_change_flags_all():
     columns.
     """
     import pandas as pd
-    old = pd.DataFrame([
-        {"item_id": "A", "play_count": 5, "stats_diggCount": 2, "desc": "x"},
-        {"item_id": "B", "play_count": 9, "stats_diggCount": 4, "desc": "y"},
-    ])
-    new = pd.DataFrame([
-        {"item_id": "A", "play_count": 5, "fave_count": 2, "desc": "x"},
-        {"item_id": "B", "play_count": 9, "fave_count": 4, "desc": "y"},
-    ])
+
+    old = pd.DataFrame(
+        [
+            {"item_id": "A", "play_count": 5, "stats_diggCount": 2, "desc": "x"},
+            {"item_id": "B", "play_count": 9, "stats_diggCount": 4, "desc": "y"},
+        ]
+    )
+    new = pd.DataFrame(
+        [
+            {"item_id": "A", "play_count": 5, "fave_count": 2, "desc": "x"},
+            {"item_id": "B", "play_count": 9, "fave_count": 4, "desc": "y"},
+        ]
+    )
     assert _compute_changed_scrape_ids(old, new) == {"A", "B"}
     # A provenance-only column difference is NOT a schema change.
     with_prov = new.copy()
@@ -133,15 +210,19 @@ def test_column_set_change_flags_all():
 
 def test_candidate_scope_matches_full_diff_when_covering() -> None:
     """Batch-scoped diff equals the full diff when candidates cover the changes."""
-    existing = _frame([
-        {"item_id": "A", "source_platform": "instagram", "play_count": -1, "desc": "cats"},
-        {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
-    ])
-    new = _frame([
-        {"item_id": "A", "source_platform": "instagram", "play_count": 12345, "desc": "cats"},
-        {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
-        {"item_id": "C", "source_platform": "instagram", "play_count": 9, "desc": "birds"},
-    ])
+    existing = _frame(
+        [
+            {"item_id": "A", "source_platform": "instagram", "play_count": -1, "desc": "cats"},
+            {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
+        ]
+    )
+    new = _frame(
+        [
+            {"item_id": "A", "source_platform": "instagram", "play_count": 12345, "desc": "cats"},
+            {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
+            {"item_id": "C", "source_platform": "instagram", "play_count": 9, "desc": "birds"},
+        ]
+    )
     full = _compute_changed_scrape_ids(existing, new)
     scoped = _compute_changed_scrape_ids(existing, new, candidate_item_ids={"A", "C"})
     assert scoped == full == {"A", "C"}
@@ -154,28 +235,36 @@ def test_candidate_scope_limits_the_diff() -> None:
     values come from files already consolidated last run); a change smuggled in
     outside the candidate set is deliberately not seen.
     """
-    existing = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
-        {"item_id": "B", "source_platform": "tiktok", "play_count": 2, "desc": "y"},
-    ])
-    new = _frame([
-        {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
-        {"item_id": "B", "source_platform": "tiktok", "play_count": 999, "desc": "y"},
-    ])
+    existing = _frame(
+        [
+            {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
+            {"item_id": "B", "source_platform": "tiktok", "play_count": 2, "desc": "y"},
+        ]
+    )
+    new = _frame(
+        [
+            {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
+            {"item_id": "B", "source_platform": "tiktok", "play_count": 999, "desc": "y"},
+        ]
+    )
     assert _compute_changed_scrape_ids(existing, new, candidate_item_ids={"A"}) == set()
     assert _compute_changed_scrape_ids(existing, new) == {"B"}
 
 
 def test_candidate_scope_ignored_on_column_set_change() -> None:
     """A schema move flags ALL items even when a narrow candidate set is given."""
-    old = pd.DataFrame([
-        {"item_id": "A", "play_count": 5, "stats_diggCount": 2},
-        {"item_id": "B", "play_count": 9, "stats_diggCount": 4},
-    ])
-    new = pd.DataFrame([
-        {"item_id": "A", "play_count": 5, "fave_count": 2},
-        {"item_id": "B", "play_count": 9, "fave_count": 4},
-    ])
+    old = pd.DataFrame(
+        [
+            {"item_id": "A", "play_count": 5, "stats_diggCount": 2},
+            {"item_id": "B", "play_count": 9, "stats_diggCount": 4},
+        ]
+    )
+    new = pd.DataFrame(
+        [
+            {"item_id": "A", "play_count": 5, "fave_count": 2},
+            {"item_id": "B", "play_count": 9, "fave_count": 4},
+        ]
+    )
     assert _compute_changed_scrape_ids(old, new, candidate_item_ids={"A"}) == {"A", "B"}
 
 

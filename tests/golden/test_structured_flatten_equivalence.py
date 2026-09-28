@@ -64,6 +64,7 @@ def _to_structured_shape(nested: dict) -> dict:
 # Schema builder structure
 # ---------------------------------------------------------------------------
 
+
 def test_field_spec_and_schema_structure() -> None:
     # Field count is intentionally not hard-coded here (the contract is edited
     # often); the frozen-fixtures equivalence test is the tripwire for field-set
@@ -85,17 +86,19 @@ def test_field_spec_and_schema_structure() -> None:
 
 
 def test_object_unpack_rule() -> None:
-    flat = flatten_structured({
-        "faces": [
-            {"gender": "Male", "age_estimate": "20-30", "ethnicity": "Caucasian"},
-            {"gender": "Female", "age_estimate": "30-40", "ethnicity": "African"},
-        ],
-        "audio_summary": {
-            "speech_vs_music": "60% speech, 40% music",
-            "background_music": "upbeat",
-            "notable_sounds": ["laughter", "applause"],
-        },
-    })
+    flat = flatten_structured(
+        {
+            "faces": [
+                {"gender": "Male", "age_estimate": "20-30", "ethnicity": "Caucasian"},
+                {"gender": "Female", "age_estimate": "30-40", "ethnicity": "African"},
+            ],
+            "audio_summary": {
+                "speech_vs_music": "60% speech, 40% music",
+                "background_music": "upbeat",
+                "notable_sounds": ["laughter", "applause"],
+            },
+        }
+    )
     # Array of objects -> <field>_<key>, pipe-joined across elements.
     assert flat["faces_gender"] == "Male | Female"
     assert flat["faces_age_estimate"] == "20-30 | 30-40"
@@ -115,6 +118,7 @@ def test_scalar_score_rule() -> None:
 # ---------------------------------------------------------------------------
 # Equivalence on real saved responses
 # ---------------------------------------------------------------------------
+
 
 def test_structured_flatten_matches_legacy_on_real_data() -> None:
     raw = load_fixture()

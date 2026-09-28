@@ -39,8 +39,6 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-
-
 # Store layout in the "recoded" named location.
 STORE_LOCATION = "recoded"
 SHARD_PREFIX = "video_embeddings__"
@@ -56,9 +54,16 @@ SCRAPES_FILE = "scrapes_recoded.parquet"
 # yardstick for validating the map and a clean colour overlay, rather than a
 # circular input the embedding is partly built from.
 ANNO_DOC_COLS = [
-    "item_id", "annotated_ok", "video_story", "transcript_no_repetitions",
-    "objects", "text_overlays", "main_activity",
-    "type_of_story", "notable_sounds", "background_music",
+    "item_id",
+    "annotated_ok",
+    "video_story",
+    "transcript_no_repetitions",
+    "objects",
+    "text_overlays",
+    "main_activity",
+    "type_of_story",
+    "notable_sounds",
+    "background_music",
 ]
 SCRAPE_DOC_COLS = ["item_id", "music_title", "desc_hashtags"]
 
@@ -68,7 +73,9 @@ SCRAPE_DOC_COLS = ["item_id", "music_title", "desc_hashtags"]
 # line). docv2 is not wired into the live pipeline — it exists for the
 # side-by-side shard experiment driven by a local pilot script (unpublished).
 ANNO_DOC_COLS_V2 = ANNO_DOC_COLS + [
-    "symbols_and_brands", "main_gender", "main_ethnicity",
+    "symbols_and_brands",
+    "main_gender",
+    "main_ethnicity",
 ]
 SCRAPE_DOC_COLS_V2 = SCRAPE_DOC_COLS + ["desc_not_hashtags"]
 
@@ -90,10 +97,6 @@ _CAP_DESC_V2 = 300
 _CAP_SYMBOLS_V2 = 150
 
 
-
-
-
-
 def active_embedding_backend():
     """Return the admin-selected embedding backend instance.
 
@@ -101,10 +104,6 @@ def active_embedding_backend():
         The active :class:`fyp.analysis.embedding_backends.EmbeddingBackend`.
     """
     return get_backend(active_backend_name())
-
-
-
-
 
 
 def _text(value, cap: int) -> str:
@@ -119,19 +118,11 @@ def _text(value, cap: int) -> str:
     return str(value)[:cap]
 
 
-
-
-
-
 def _list(value, cap: int) -> str:
     """Flatten a list/array annotation cell to a capped space-joined string."""
     if value is None or not hasattr(value, "__len__") or isinstance(value, str):
         return _text(value, cap)
     return " ".join(str(v) for v in value if v is not None)[:cap]
-
-
-
-
 
 
 def build_document(row: pd.Series) -> str:
@@ -148,14 +139,14 @@ def build_document(row: pd.Series) -> str:
         The assembled document string.
     """
     story = _text(row.get("video_story"), _CAP_STORY)
-    activity = f'{_text(row.get("main_activity"), 40)}; {_text(row.get("type_of_story"), 40)}'
+    activity = f"{_text(row.get('main_activity'), 40)}; {_text(row.get('type_of_story'), 40)}"
     spoken = _text(row.get("transcript_no_repetitions"), _CAP_SPOKEN) or "(none)"
     overlays = _list(row.get("text_overlays"), _CAP_OVERLAYS) or "(none)"
     objects = _list(row.get("objects"), _CAP_OBJECTS)
     sounds = (
-        f'{_list(row.get("notable_sounds"), _CAP_SHORT)}; '
-        f'{_list(row.get("background_music"), 60)}; '
-        f'{_text(row.get("music_title"), 80)}'
+        f"{_list(row.get('notable_sounds'), _CAP_SHORT)}; "
+        f"{_list(row.get('background_music'), 60)}; "
+        f"{_text(row.get('music_title'), 80)}"
     )
     hashtags = _list(row.get("desc_hashtags"), _CAP_HASHTAGS)
     return (
@@ -163,10 +154,6 @@ def build_document(row: pd.Series) -> str:
         f"Spoken: {spoken}\nOn-screen text: {overlays}\nObjects: {objects}\n"
         f"Sounds/music: {sounds}\nHashtags: {hashtags}"
     )
-
-
-
-
 
 
 def build_document_v2(row: pd.Series) -> str:
@@ -195,16 +182,16 @@ def build_document_v2(row: pd.Series) -> str:
         The assembled document string.
     """
     story = _text(row.get("video_story"), _CAP_STORY)
-    activity = f'{_text(row.get("main_activity"), 40)}; {_text(row.get("type_of_story"), 40)}'
+    activity = f"{_text(row.get('main_activity'), 40)}; {_text(row.get('type_of_story'), 40)}"
     spoken = _text(row.get("transcript_no_repetitions"), _CAP_SPOKEN_V2) or "(none)"
     overlays = _list(row.get("text_overlays"), _CAP_OVERLAYS) or "(none)"
     objects = _list(row.get("objects"), _CAP_OBJECTS)
     symbols = _list(row.get("symbols_and_brands"), _CAP_SYMBOLS_V2) or "(none)"
-    people = f'{_text(row.get("main_gender"), 40)}; {_text(row.get("main_ethnicity"), 60)}'
+    people = f"{_text(row.get('main_gender'), 40)}; {_text(row.get('main_ethnicity'), 60)}"
     sounds = (
-        f'{_list(row.get("notable_sounds"), _CAP_SHORT)}; '
-        f'{_list(row.get("background_music"), 60)}; '
-        f'{_text(row.get("music_title"), 80)}'
+        f"{_list(row.get('notable_sounds'), _CAP_SHORT)}; "
+        f"{_list(row.get('background_music'), 60)}; "
+        f"{_text(row.get('music_title'), 80)}"
     )
     hashtags = _list(row.get("desc_hashtags"), _CAP_HASHTAGS)
     desc = _list(row.get("desc_not_hashtags"), _CAP_DESC_V2) or "(none)"
@@ -216,8 +203,6 @@ def build_document_v2(row: pd.Series) -> str:
     )
 
 
-
-
 # Document variants: name -> (builder, annotation columns, scrape columns).
 # "v1" is the live document; experimental variants embed under a
 # "<model>+doc<variant>" store key and never touch the live space.
@@ -225,8 +210,6 @@ DOC_VARIANTS = {
     "v1": (build_document, ANNO_DOC_COLS, SCRAPE_DOC_COLS),
     "v2": (build_document_v2, ANNO_DOC_COLS_V2, SCRAPE_DOC_COLS_V2),
 }
-
-
 
 
 def variant_store_model(model: str, variant: str) -> str:
@@ -237,8 +220,6 @@ def variant_store_model(model: str, variant: str) -> str:
     treats it as a separate corpus.
     """
     return model if variant == "v1" else f"{model}+doc{variant}"
-
-
 
 
 def build_documents(df: pd.DataFrame, variant: str = "v1") -> pd.Series:
@@ -255,18 +236,10 @@ def build_documents(df: pd.DataFrame, variant: str = "v1") -> pd.Series:
     return df.apply(builder, axis=1)
 
 
-
-
-
-
 def _encode_matrix(matrix: np.ndarray) -> list[bytes]:
     """Encode an ``(n, dim)`` float matrix to a list of float16 byte strings."""
     m16 = matrix.astype(np.float16)
     return [row.tobytes() for row in m16]
-
-
-
-
 
 
 def decode_embeddings(byte_values, dim: int | None = None) -> np.ndarray:
@@ -292,13 +265,9 @@ def decode_embeddings(byte_values, dim: int | None = None) -> np.ndarray:
     return out
 
 
-
-
-
-
-def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
-                            offset: int = 0,
-                            dtype=np.float32) -> np.ndarray:
+def decode_embeddings_arrow(
+    embedding_col, out: np.ndarray | None = None, offset: int = 0, dtype=np.float32
+) -> np.ndarray:
     """Decode a pyarrow-backed binary embedding column into float32 rows.
 
     Fast path: every real shard stores fixed-width float16 blobs, so the
@@ -331,19 +300,23 @@ def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
     buffers = arr.buffers()
     validity = buffers[0]
     offsets_dtype = np.int64 if pa.types.is_large_binary(arr.type) else np.int32
-    offs = np.frombuffer(buffers[1], dtype=offsets_dtype)[arr.offset:arr.offset + n + 1]
+    offs = np.frombuffer(buffers[1], dtype=offsets_dtype)[arr.offset : arr.offset + n + 1]
     row_bytes = int(offs[1] - offs[0]) if n else 0
-    uniform = (validity is None and row_bytes > 0 and row_bytes % 2 == 0
-               and bool(np.all(np.diff(offs) == row_bytes)))
+    uniform = (
+        validity is None
+        and row_bytes > 0
+        and row_bytes % 2 == 0
+        and bool(np.all(np.diff(offs) == row_bytes))
+    )
 
     if uniform:
         data = np.frombuffer(buffers[2], dtype=np.uint8)
-        flat = data[offs[0]:offs[-1]].view(np.float16).reshape(n, row_bytes // 2)
+        flat = data[offs[0] : offs[-1]].view(np.float16).reshape(n, row_bytes // 2)
         if out is None:
             # astype always copies here, so the result never aliases the
             # (refcounted, possibly short-lived) Arrow buffer.
             return flat.astype(dtype)
-        out[offset:offset + n] = flat  # implicit upcast to out's dtype
+        out[offset : offset + n] = flat  # implicit upcast to out's dtype
         return out
 
     # Fallback: per-row decode straight into the output.
@@ -357,20 +330,13 @@ def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
     return out
 
 
-
-
-
-
 def _list_shards() -> list[str]:
     """Return the filenames of all embedding shards in the store."""
     return [
-        fn for fn in data_io.listdir(storage_location=STORE_LOCATION)
+        fn
+        for fn in data_io.listdir(storage_location=STORE_LOCATION)
         if fn.startswith(SHARD_PREFIX) and fn.endswith(SHARD_SUFFIX)
     ]
-
-
-
-
 
 
 def _model_mask(df: pd.DataFrame, model: str) -> pd.Series:
@@ -392,10 +358,6 @@ def _model_mask(df: pd.DataFrame, model: str) -> pd.Series:
     return df["model"].astype("string") == model
 
 
-
-
-
-
 def embedded_item_ids(model: str | None = None) -> set[str]:
     """Return the item_ids already embedded **by the given model**.
 
@@ -412,7 +374,9 @@ def embedded_item_ids(model: str | None = None) -> set[str]:
     ids: set[str] = set()
     for shard in _list_shards():
         df = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=shard, columns=["item_id", "model"],
+            storage_location=STORE_LOCATION,
+            filename=shard,
+            columns=["item_id", "model"],
         )
         if df is None or len(df) == 0:
             continue
@@ -420,10 +384,6 @@ def embedded_item_ids(model: str | None = None) -> set[str]:
         if len(df) > 0:
             ids.update(df["item_id"].astype("string").tolist())
     return ids
-
-
-
-
 
 
 def annotated_ok_item_ids() -> list[str]:
@@ -435,7 +395,8 @@ def annotated_ok_item_ids() -> list[str]:
     if not data_io.exists(storage_location=STORE_LOCATION, filename=ANNOTATIONS_FILE):
         return []
     df = data_io.load_parquet_selective(
-        storage_location=STORE_LOCATION, filename=ANNOTATIONS_FILE,
+        storage_location=STORE_LOCATION,
+        filename=ANNOTATIONS_FILE,
         columns=["item_id", "annotated_ok"],
     )
     if df is None or "item_id" not in df.columns or "annotated_ok" not in df.columns:
@@ -443,10 +404,6 @@ def annotated_ok_item_ids() -> list[str]:
     ok = df[df["annotated_ok"] == True]
     ids = ok["item_id"].astype("string")
     return ids.tolist()
-
-
-
-
 
 
 def _write_shard(item_ids: list[str], matrix: np.ndarray, model: str, dim: int) -> str:
@@ -466,20 +423,20 @@ def _write_shard(item_ids: list[str], matrix: np.ndarray, model: str, dim: int) 
         The new shard's filename.
     """
     created = pd.Timestamp.now(tz="UTC")
-    df = pd.DataFrame({
-        "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
-        "embedding": pd.array(_encode_matrix(matrix), dtype=pd.ArrowDtype(pa.large_binary())),
-        "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
-        "dim": pd.array([dim] * len(item_ids), dtype="int32[pyarrow]"),
-        "created_at": pd.array([created] * len(item_ids), dtype=pd.ArrowDtype(pa.timestamp("ns", tz="UTC"))),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
+            "embedding": pd.array(_encode_matrix(matrix), dtype=pd.ArrowDtype(pa.large_binary())),
+            "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
+            "dim": pd.array([dim] * len(item_ids), dtype="int32[pyarrow]"),
+            "created_at": pd.array(
+                [created] * len(item_ids), dtype=pd.ArrowDtype(pa.timestamp("ns", tz="UTC"))
+            ),
+        }
+    )
     shard = f"{SHARD_PREFIX}{uuid.uuid4().hex}{SHARD_SUFFIX}"
     data_io.save_parquet(df=df, storage_location=STORE_LOCATION, filename=shard)
     return shard
-
-
-
-
 
 
 def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
@@ -498,6 +455,7 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
         Dict with ``embedded`` (count written), ``remaining`` (backlog left
         after this call), ``total`` (annotated_ok population), and ``shard``.
     """
+
     def _log(msg: str) -> None:
         if reporter is not None:
             reporter.log(msg)
@@ -511,7 +469,9 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
     all_ids = annotated_ok_item_ids()
     have = embedded_item_ids(model=model)
     todo = [i for i in all_ids if i not in have]
-    _log(f"Annotated={len(all_ids):,}  embedded={len(have):,}  pending={len(todo):,}  (model={model})")
+    _log(
+        f"Annotated={len(all_ids):,}  embedded={len(have):,}  pending={len(todo):,}  (model={model})"
+    )
 
     if not todo:
         return {"embedded": 0, "remaining": 0, "total": len(all_ids), "shard": None}
@@ -522,13 +482,17 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
     # Load just the document columns for the whole corpus, then filter to this
     # slice — cheaper than a huge pyarrow `in` filter on the item_id column.
     anno = data_io.load_parquet_selective(
-        storage_location=STORE_LOCATION, filename=ANNOTATIONS_FILE, columns=ANNO_DOC_COLS,
+        storage_location=STORE_LOCATION,
+        filename=ANNOTATIONS_FILE,
+        columns=ANNO_DOC_COLS,
     )
     anno["item_id"] = anno["item_id"].astype("string")
     anno = anno[anno["item_id"].isin(slice_set)]
 
     scrape = data_io.load_parquet_selective(
-        storage_location=STORE_LOCATION, filename=SCRAPES_FILE, columns=SCRAPE_DOC_COLS,
+        storage_location=STORE_LOCATION,
+        filename=SCRAPES_FILE,
+        columns=SCRAPE_DOC_COLS,
     )
     scrape["item_id"] = scrape["item_id"].astype("string")
     scrape = scrape.drop_duplicates("item_id")
@@ -558,9 +522,11 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
         fresh = [i not in have_now for i in kept_ids]
         n_overlap = len(kept_ids) - sum(fresh)
         if n_overlap:
-            _log(f"WARNING: {n_overlap:,} of this batch's items were embedded "
-                 f"by a concurrent run while this one worked; dropping them "
-                 f"from the shard.")
+            _log(
+                f"WARNING: {n_overlap:,} of this batch's items were embedded "
+                f"by a concurrent run while this one worked; dropping them "
+                f"from the shard."
+            )
             kept_ids = [i for i, f in zip(kept_ids, fresh) if f]
             kept_matrix = kept_matrix[np.asarray(fresh, dtype=bool)]
 
@@ -576,10 +542,6 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
         "total": len(all_ids),
         "shard": shard,
     }
-
-
-
-
 
 
 def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str], np.ndarray]:
@@ -622,7 +584,8 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
     dim: int | None = None
     for shard in shards:
         df = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=shard,
+            storage_location=STORE_LOCATION,
+            filename=shard,
             columns=["item_id", "model", "dim"],
         )
         if df is None or len(df) == 0:
@@ -640,7 +603,8 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
     if dim is None:
         # Hypothetical pre-`dim`-column shard: derive the width from one row.
         probe = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=plan[0][0],
+            storage_location=STORE_LOCATION,
+            filename=plan[0][0],
             columns=["embedding", "model"],
         )
         probe = probe[_model_mask(probe, model)]
@@ -667,18 +631,19 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
     wrote = 0
     for shard, n_rows in plan:
         df = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=shard,
+            storage_location=STORE_LOCATION,
+            filename=shard,
             columns=["embedding", "model"],
         )
         df = df[_model_mask(df, model)]
-        shard_keep = keep[row:row + n_rows]
+        shard_keep = keep[row : row + n_rows]
         n_kept = int(shard_keep.sum())
         if n_kept == n_rows:
             decode_embeddings_arrow(df["embedding"], out=out, offset=wrote)
         elif n_kept:
             tmp = np.empty((n_rows, dim), dtype=np.float32)
             decode_embeddings_arrow(df["embedding"], out=tmp, offset=0)
-            out[wrote:wrote + n_kept] = tmp[shard_keep]
+            out[wrote : wrote + n_kept] = tmp[shard_keep]
             del tmp
         row += n_rows
         wrote += n_kept

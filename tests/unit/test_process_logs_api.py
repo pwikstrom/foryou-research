@@ -38,8 +38,14 @@ def _fake_io(store: dict):
             del store[filename]
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             current = json.loads(store[filename]) if filename in store else default
             result = mutate(current)
             if result is not None:
@@ -59,11 +65,9 @@ def client(monkeypatch):
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
-            return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="",
-                        approved=True)
+            return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
         if uid == _TEST_VIEWER:
-            return User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="",
-                        approved=True)
+            return User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
@@ -93,10 +97,6 @@ def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-
 
 
 def test_returns_the_current_run_with_its_banner(client, store):
@@ -144,8 +144,7 @@ def test_since_cursor_returns_only_new_lines(client, store):
 
     run_logs.append("pca_refresh", "line two")
     run_logs.flush("pca_refresh")
-    second = client.get(
-        f"/api/logs/pca_refresh?since={first['next_since']}").get_json()
+    second = client.get(f"/api/logs/pca_refresh?since={first['next_since']}").get_json()
 
     assert "line two" in second["logs"]
     assert "line one" not in second["logs"]
@@ -219,10 +218,6 @@ def test_timestamps_are_present_on_every_line(client, store):
     lines = [ln for ln in body["logs"].split("\n") if ln.strip()]
     assert lines
     assert all(re.match(r"^\[\d\d:\d\d:\d\d\] ", ln) for ln in lines)
-
-
-
-
 
 
 def test_unknown_process_is_rejected(client, store):

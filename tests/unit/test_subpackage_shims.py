@@ -127,9 +127,6 @@ EXPECTED_RAW_LOCATIONS = (
 )
 
 
-
-
-
 def _run_probe(code: str) -> str:
     out = subprocess.run(
         [sys.executable, "-c", code],
@@ -140,9 +137,6 @@ def _run_probe(code: str) -> str:
     )
     assert out.returncode == 0, f"probe failed:\n{code}\n--- stderr ---\n{out.stderr[-3000:]}"
     return out.stdout
-
-
-
 
 
 def test_alias_identity() -> None:
@@ -163,9 +157,6 @@ def test_alias_identity() -> None:
     print(f"alias identity checked for {checked} moved module(s)")
 
 
-
-
-
 def test_scrape_bindings_survive_adversarial_import_orders() -> None:
     """No import order may leave a scrape-family binding poisoned."""
     for name, prelude in ADVERSARIAL_PRELUDES.items():
@@ -173,14 +164,10 @@ def test_scrape_bindings_survive_adversarial_import_orders() -> None:
         assert "PROBE_OK" in stdout, f"{name}: probe produced no PROBE_OK\n{stdout[-1000:]}"
 
 
-
-
-
 def test_ingest_registration_order_pinned() -> None:
     """Collection registry (and upload-location) order must not change."""
     stdout = _run_probe(
-        "import fyp.ingest as ing;"
-        "print('LOCS=' + ','.join(ing.registered_raw_locations()))"
+        "import fyp.ingest as ing;print('LOCS=' + ','.join(ing.registered_raw_locations()))"
     )
     line = next(ln for ln in stdout.splitlines() if ln.startswith("LOCS="))
     got = tuple(line.removeprefix("LOCS=").split(","))

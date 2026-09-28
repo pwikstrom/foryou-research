@@ -18,12 +18,12 @@ from ..permissions import permission_required
 from ..security import user_manager
 from ._access import collection_access_error
 
-timelines_bp = Blueprint('timelines_bp', __name__)
+timelines_bp = Blueprint("timelines_bp", __name__)
 
 
-@timelines_bp.route('/api/timelines/vote_annotation', methods=['POST'])
-@permission_required('tab.timelines')
-@permission_required('feature.annotation_votes')
+@timelines_bp.route("/api/timelines/vote_annotation", methods=["POST"])
+@permission_required("tab.timelines")
+@permission_required("feature.annotation_votes")
 def api_save_annotation_vote():
     data = request.json or {}
     collection_id = data.get("collection_id")
@@ -37,19 +37,21 @@ def api_save_annotation_vote():
         return denied
 
     username = current_user.username
-    print(f"[VOTES] Saving machine annotation vote for {username} on collection {collection_id} for period {period}")
+    print(
+        f"[VOTES] Saving machine annotation vote for {username} on collection {collection_id} for period {period}"
+    )
 
     # Use user_manager directly
     success, msg = user_manager.register_annotation_vote(username, collection_id, period)
 
     if success:
-         return jsonify({"status": "success", "message": msg})
+        return jsonify({"status": "success", "message": msg})
     else:
-         return jsonify({"error": msg}), 400
+        return jsonify({"error": msg}), 400
 
 
-@timelines_bp.route('/api/timelines/data', methods=['POST'])
-@permission_required('tab.timelines')
+@timelines_bp.route("/api/timelines/data", methods=["POST"])
+@permission_required("tab.timelines")
 def api_timeline_data():
     data = request.json or {}
     study = data.get("study")
@@ -62,9 +64,7 @@ def api_timeline_data():
     # --- ACCESS CONTROL ---
     # Verify user has access to this collection via at least one study
     studies = get_accessible_studies(
-        username=current_user.username,
-        role=current_user.role,
-        is_admin=current_user.is_admin()
+        username=current_user.username, role=current_user.role, is_admin=current_user.is_admin()
     )
 
     has_access = False
@@ -83,7 +83,7 @@ def api_timeline_data():
 
         # Let's just check the ids.
         for d in study_collections:
-            if str(d.get('collection_id')) == str(collection_id):
+            if str(d.get("collection_id")) == str(collection_id):
                 has_access = True
                 break
         if has_access:
@@ -102,33 +102,33 @@ def api_timeline_data():
         # Per-user variable preferences: includes beyond the global timeline set
         # are aggregated on demand (one-time cache regeneration with the union);
         # the returned variables_order is the user's composed effective list.
-        prefs = ((current_user.settings or {}).get('variable_prefs') or {}).get('timeline') or {}
-        extra_vars = [v for v in (prefs.get('include') or []) if isinstance(v, str)]
+        prefs = ((current_user.settings or {}).get("variable_prefs") or {}).get("timeline") or {}
+        extra_vars = [v for v in (prefs.get("include") or []) if isinstance(v, str)]
 
-        result = get_timeline_data(collection_id, interval=interval, study=study_for_filter,
-                                   extra_vars=extra_vars or None)
+        result = get_timeline_data(
+            collection_id, interval=interval, study=study_for_filter, extra_vars=extra_vars or None
+        )
         if result is None:
-             return jsonify({"error": "No data found"}), 404
+            return jsonify({"error": "No data found"}), 404
         if "error" in result:
-             return jsonify(result), 400
+            return jsonify(result), 400
 
         if prefs:
-            result['variables_order'] = compose_effective_variables(
-                result.get('variables_global', []),
+            result["variables_order"] = compose_effective_variables(
+                result.get("variables_global", []),
                 prefs,
-                result.get('variables_order', []),
-                available=set(result.get('variables', {}).keys()),
+                result.get("variables_order", []),
+                available=set(result.get("variables", {}).keys()),
             )
 
         return jsonify(make_serializable(result))
     except Exception as e:
-
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
-@timelines_bp.route('/api/timelines/collections', methods=['POST'])
-@permission_required('tab.timelines')
+@timelines_bp.route("/api/timelines/collections", methods=["POST"])
+@permission_required("tab.timelines")
 def api_timeline_collections():
     """
     Returns list of collections ({collection_id, ...}) that the current user
@@ -137,9 +137,7 @@ def api_timeline_collections():
 
     # 1. Get Accessible Studies
     studies = get_accessible_studies(
-        username=current_user.username,
-        role=current_user.role,
-        is_admin=current_user.is_admin()
+        username=current_user.username, role=current_user.role, is_admin=current_user.is_admin()
     )
 
     if not studies:
@@ -151,16 +149,16 @@ def api_timeline_collections():
 
     # Iterate studies and get collections (using optimized loader)
     for study in studies:
-        study_collections = get_study_collections(study) # returns list of dicts
-        #print(f"DEBUG TIMELINE: Study {study} returned {len(study_collections)} collections")
+        study_collections = get_study_collections(study)  # returns list of dicts
+        # print(f"DEBUG TIMELINE: Study {study} returned {len(study_collections)} collections")
         for d in study_collections:
             # d is {'collection_id': ..., }
-            if 'collection_id' in d:
-                cid = str(d['collection_id'])
+            if "collection_id" in d:
+                cid = str(d["collection_id"])
                 allowed_collection_ids.add(cid)
                 collection_studies_map.setdefault(cid, []).append(study)
 
-    #print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
+    # print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
     if not allowed_collection_ids:
         return jsonify([])
 
@@ -174,9 +172,8 @@ def api_timeline_collections():
     meta_df = data_io.load_parquet_selective(
         storage_location="recoded",
         filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
-        columns=["('other', 'accepted')", "accepted",
-                 "('personas', 'active_days')", "active_days"],
-        set_index='collection_id',
+        columns=["('other', 'accepted')", "accepted", "('personas', 'active_days')", "active_days"],
+        set_index="collection_id",
     )
 
     if meta_df is None or meta_df.empty:
@@ -191,28 +188,28 @@ def api_timeline_collections():
     accepted_col = None
     active_days_col = None
     cols_set = set(meta_df.columns)
-    if ('other', 'accepted') in cols_set:
-        accepted_col = ('other', 'accepted')
-    elif 'accepted' in cols_set:
-        accepted_col = 'accepted'
-    if ('personas', 'active_days') in cols_set:
-        active_days_col = ('personas', 'active_days')
-    elif 'active_days' in cols_set:
-        active_days_col = 'active_days'
+    if ("other", "accepted") in cols_set:
+        accepted_col = ("other", "accepted")
+    elif "accepted" in cols_set:
+        accepted_col = "accepted"
+    if ("personas", "active_days") in cols_set:
+        active_days_col = ("personas", "active_days")
+    elif "active_days" in cols_set:
+        active_days_col = "active_days"
 
     filtered = df_reset
     if accepted_col:
         try:
-             filtered = df_reset[df_reset[accepted_col] == True]
+            filtered = df_reset[df_reset[accepted_col] == True]
         except Exception:
-             pass
+            pass
 
-    target_id_col = 'collection_id'
+    target_id_col = "collection_id"
     if target_id_col not in filtered.columns:
-        if 'index' in filtered.columns:
-             target_id_col = 'index'
+        if "index" in filtered.columns:
+            target_id_col = "index"
         else:
-             return jsonify([])
+            return jsonify([])
 
     # FILTER BY ALLOWED IDS
     # Ensure target column is string for comparison
@@ -221,7 +218,7 @@ def api_timeline_collections():
         # If duplicated, take first
         s_ids = filtered[target_id_col]
         if isinstance(s_ids, pd.DataFrame):
-             s_ids = s_ids.iloc[:, 0]
+            s_ids = s_ids.iloc[:, 0]
 
         # Create mask
         # We need to ensure we align with the filtered DataFrame
@@ -250,7 +247,7 @@ def api_timeline_collections():
             don_ids_series = don_ids_series.iloc[:, 0]
 
         unique_ids = don_ids_series.unique().tolist()
-        #print(f"DEBUG TIMELINE: Total unique collections in metadata: {len(unique_ids)}")
+        # print(f"DEBUG TIMELINE: Total unique collections in metadata: {len(unique_ids)}")
 
         # Filter against allowed set
         # Only include if in allowed_collection_ids
@@ -283,39 +280,45 @@ def api_timeline_collections():
         annotations = {}
         try:
             if data_io.exists(storage_location="recoded", filename=da_filename):
-                annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
+                annotations = (
+                    data_io.load_json(storage_location="recoded", filename=da_filename) or {}
+                )
         except Exception:
             pass
 
         final_list = []
         for uid in final_valid_ids:
-            if pd.isna(uid): continue
+            if pd.isna(uid):
+                continue
             uid_str = str(uid)
-            item = {'collection_id': uid_str}
+            item = {"collection_id": uid_str}
 
             # All studies that include this collection. Used by the client to
             # filter the dropdown under the active study — a collection can
             # legitimately belong to multiple studies.
             if uid_str in collection_studies_map:
-                item['studies'] = collection_studies_map[uid_str]
+                item["studies"] = collection_studies_map[uid_str]
                 # `study` retained for backward-compat consumers; set to the
                 # first enclosing study.
-                item['study'] = collection_studies_map[uid_str][0]
+                item["study"] = collection_studies_map[uid_str][0]
 
             # Active days (timeline-length context for the dropdown).
             if uid_str in active_days_map:
-                item['active_days'] = active_days_map[uid_str]
+                item["active_days"] = active_days_map[uid_str]
 
             # Inject display ID and tags
             if uid_str in annotations:
-                 annot_data = annotations[uid_str]
-                 disp = annot_data.get('display_collection_id')
-                 tags = annot_data.get('annotation_tags')
-                 hidden = annot_data.get('hidden')
+                annot_data = annotations[uid_str]
+                disp = annot_data.get("display_collection_id")
+                tags = annot_data.get("annotation_tags")
+                hidden = annot_data.get("hidden")
 
-                 if disp: item['display_collection_id'] = disp
-                 if tags: item['annotation_tags'] = tags
-                 if hidden is not None: item['hidden'] = bool(hidden)
+                if disp:
+                    item["display_collection_id"] = disp
+                if tags:
+                    item["annotation_tags"] = tags
+                if hidden is not None:
+                    item["hidden"] = bool(hidden)
 
             final_list.append(item)
 

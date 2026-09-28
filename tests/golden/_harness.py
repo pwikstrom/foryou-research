@@ -209,9 +209,7 @@ def compare_refined(got: pd.DataFrame, golden: pd.DataFrame) -> list[str]:
         a = g.loc[common_idx, c].map(_normalize_cell).tolist()
         b = gold.loc[common_idx, c].map(_normalize_cell).tolist()
         mismatches = [
-            (idx, av, bv)
-            for idx, av, bv in zip(common_idx, a, b, strict=True)
-            if av != bv
+            (idx, av, bv) for idx, av, bv in zip(common_idx, a, b, strict=True) if av != bv
         ]
         if mismatches:
             sample = mismatches[:3]

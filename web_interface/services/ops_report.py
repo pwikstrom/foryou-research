@@ -30,8 +30,7 @@ logger = logging.getLogger(__name__)
 
 STATUS_RANK = {"green": 0, "blue": 1, "yellow": 2, "red": 3}
 STATUS_LABEL = {"green": "OK", "blue": "Info", "yellow": "Watch", "red": "Action"}
-SESSION_COOKIE = {"tiktok": "sessionid", "instagram": "sessionid",
-                  "youtube": "__Secure-3PSID"}
+SESSION_COOKIE = {"tiktok": "sessionid", "instagram": "sessionid", "youtube": "__Secure-3PSID"}
 REPORT_DIR = "ops_report"
 KEEP_DATED_REPORTS = 60
 # Scrape failures are ordinary: dead, private and removed posts are a standing
@@ -55,6 +54,7 @@ def _now():
 def _local_tz():
     from zoneinfo import ZoneInfo
     from fyp.core.fyp_config import fyp_cf
+
     try:
         return ZoneInfo(fyp_cf.get("misc", {}).get("TIME_ZONE", "UTC"))
     except Exception:
@@ -77,13 +77,15 @@ def _log_ts(entry):
     ``_parse_iso`` cannot: Logging stamps are RFC3339 with nanosecond
     precision (``...:26.603430292Z``), which ``fromisoformat`` rejects.
     """
-    m = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?",
-                 str(entry.get("timestamp") or ""))
+    m = re.match(
+        r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?", str(entry.get("timestamp") or "")
+    )
     if not m:
         return None
     frac = (m.group(2) or "")[:6].ljust(6, "0")
-    return datetime.strptime(f"{m.group(1)}.{frac}",
-                             "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
+    return datetime.strptime(f"{m.group(1)}.{frac}", "%Y-%m-%dT%H:%M:%S.%f").replace(
+        tzinfo=timezone.utc
+    )
 
 
 def _local(dt, tz):
@@ -126,8 +128,11 @@ def _active_users(users, action_times, now, since, tz):
         if login and login > since:
             parts.append(f"logged in {_local(login, tz)}")
         if acts:
-            span = (f"{_local(acts[0], tz)}–{acts[-1].astimezone(tz).strftime('%H:%M')}"
-                    if len(acts) > 1 else _local(acts[0], tz))
+            span = (
+                f"{_local(acts[0], tz)}–{acts[-1].astimezone(tz).strftime('%H:%M')}"
+                if len(acts) > 1
+                else _local(acts[0], tz)
+            )
             parts.append(f"{len(acts)} logged action(s) {span}")
         elif first != last:
             parts.append(f"first seen {_local(first, tz)}")
@@ -136,6 +141,7 @@ def _active_users(users, action_times, now, since, tz):
 
 
 # --------------------------------------------------------------- collection
+
 
 def collect_status(hours_back: int = 24) -> dict:
     """Gather every check into a status document. Never raises: a source that
@@ -154,8 +160,7 @@ def collect_status(hours_back: int = 24) -> dict:
         "stats": [],
         "sections": [],
     }
-    state = data_io.load_json(storage_location="cache",
-                              filename=f"{REPORT_DIR}/state.json") or {}
+    state = data_io.load_json(storage_location="cache", filename=f"{REPORT_DIR}/state.json") or {}
     prev_users = set(state.get("users", []))
     prev_collections = set(state.get("collections", []))
     prev_queues = state.get("queues", {})
@@ -168,12 +173,12 @@ def collect_status(hours_back: int = 24) -> dict:
         return s
 
     def check(sec, title, status, summary, details=None):
-        sec["checks"].append({"title": title, "status": status,
-                              "summary": summary, "details": details or []})
+        sec["checks"].append(
+            {"title": title, "status": status, "summary": summary, "details": details or []}
+        )
 
     def stat(label, value, status, sub=""):
-        doc["stats"].append({"label": label, "value": value,
-                             "status": status, "sub": sub})
+        doc["stats"].append({"label": label, "value": value, "status": status, "sub": sub})
 
     # ---- users & access -------------------------------------------------
     sec = section("Users & access")
@@ -181,35 +186,57 @@ def collect_status(hours_back: int = 24) -> dict:
     real = []
     try:
         from web_interface.security import user_manager
+
         all_users = user_manager.get_all_users()
         real = [u for u in all_users.values() if not getattr(u, "placeholder", False)]
         usernames = sorted(all_users.keys())
-        new_users = [u for u in real
-                     if (_parse_iso(u.created_at) or epoch) > day_ago
-                     or (prev_users and u.username not in prev_users)]
+        new_users = [
+            u
+            for u in real
+            if (_parse_iso(u.created_at) or epoch) > day_ago
+            or (prev_users and u.username not in prev_users)
+        ]
         pending = [u for u in real if not u.approved]
         logins_24h = sorted(
             [u for u in real if (_parse_iso(u.last_login) or epoch) > day_ago],
-            key=lambda u: str(u.last_login), reverse=True)
+            key=lambda u: str(u.last_login),
+            reverse=True,
+        )
         logins_7d = [u for u in real if (_parse_iso(u.last_login) or epoch) > week_ago]
         n_part = sum(1 for u in real if getattr(u, "account_kind", "") == "participant")
-        check(sec, "Accounts", "blue",
-              f"{len(real)} real accounts ({n_part} participants), "
-              f"{len(all_users) - len(real)} placeholders")
+        check(
+            sec,
+            "Accounts",
+            "blue",
+            f"{len(real)} real accounts ({n_part} participants), "
+            f"{len(all_users) - len(real)} placeholders",
+        )
         if new_users:
-            check(sec, "New registrations", "blue",
-                  f"{len(new_users)} new since last report",
-                  [f"{u.username} — role {u.role}, origin "
-                   f"{(getattr(u, 'origin', None) or {}).get('source', '?')}, "
-                   f"created {_local(_parse_iso(u.created_at), tz)}, approved={u.approved}"
-                   for u in new_users])
+            check(
+                sec,
+                "New registrations",
+                "blue",
+                f"{len(new_users)} new since last report",
+                [
+                    f"{u.username} — role {u.role}, origin "
+                    f"{(getattr(u, 'origin', None) or {}).get('source', '?')}, "
+                    f"created {_local(_parse_iso(u.created_at), tz)}, approved={u.approved}"
+                    for u in new_users
+                ],
+            )
         else:
             check(sec, "New registrations", "green", "None since last report")
         if pending:
-            check(sec, "Pending approval", "yellow",
-                  f"{len(pending)} account(s) awaiting approval",
-                  [u.username + ("" if u.email_verified() else " (email unverified)")
-                   for u in pending])
+            check(
+                sec,
+                "Pending approval",
+                "yellow",
+                f"{len(pending)} account(s) awaiting approval",
+                [
+                    u.username + ("" if u.email_verified() else " (email unverified)")
+                    for u in pending
+                ],
+            )
         else:
             check(sec, "Pending approval", "green", "No accounts waiting")
         # Signups that never opened their verification link. Self-service
@@ -221,20 +248,32 @@ def collect_status(hours_back: int = 24) -> dict:
         if unverified:
             oldest = min((_parse_iso(u.created_at) or now) for u in unverified)
             stale = (now - oldest).days >= 3
-            check(sec, "Unverified signups", "yellow" if stale else "blue",
-                  f"{len(unverified)} account(s) have not verified their email "
-                  f"({len(unv_claims)} claimed participant account(s); oldest "
-                  f"{_ago(oldest, now)})",
-                  [f"{u.username}: created {_local(_parse_iso(u.created_at), tz)}, "
-                   f"link sent {_local(_parse_iso(u.email_verification_sent_at), tz) if u.email_verification_sent_at else 'never'}"
-                   + (" (claimed participant account, not pruned)" if u in unv_claims else "")
-                   for u in unverified])
+            check(
+                sec,
+                "Unverified signups",
+                "yellow" if stale else "blue",
+                f"{len(unverified)} account(s) have not verified their email "
+                f"({len(unv_claims)} claimed participant account(s); oldest "
+                f"{_ago(oldest, now)})",
+                [
+                    f"{u.username}: created {_local(_parse_iso(u.created_at), tz)}, "
+                    f"link sent {_local(_parse_iso(u.email_verification_sent_at), tz) if u.email_verification_sent_at else 'never'}"
+                    + (" (claimed participant account, not pruned)" if u in unv_claims else "")
+                    for u in unverified
+                ],
+            )
         else:
             check(sec, "Unverified signups", "green", "None")
-        check(sec, "Logins", "blue",
-              f"{len(logins_24h)} in last 24h, {len(logins_7d)} in last 7d",
-              [f"{u.username} ({u.role}) — {_ago(_parse_iso(u.last_login), now)}"
-               for u in logins_24h])
+        check(
+            sec,
+            "Logins",
+            "blue",
+            f"{len(logins_24h)} in last 24h, {len(logins_7d)} in last 7d",
+            [
+                f"{u.username} ({u.role}) — {_ago(_parse_iso(u.last_login), now)}"
+                for u in logins_24h
+            ],
+        )
     except Exception as e:
         check(sec, "User store", "red", f"Could not read user accounts: {e}")
 
@@ -244,18 +283,17 @@ def collect_status(hours_back: int = 24) -> dict:
         for name in data_io.listdir(storage_location="users"):
             if not name.endswith("_log.json"):
                 continue
-            entries = (data_io.load_json(storage_location="users", filename=name)
-                       or {}).get("entries", [])
-            who = name[:-len("_log.json")]
+            entries = (data_io.load_json(storage_location="users", filename=name) or {}).get(
+                "entries", []
+            )
+            who = name[: -len("_log.json")]
             for e in entries[-40:]:
                 ts = _parse_iso(e.get("timestamp"))
                 if ts and ts > day_ago:
                     action_times.setdefault(who, []).append(ts)
-                    acts.append(f"{who}: {e.get('action')} → {e.get('target')} "
-                                f"({_local(ts, tz)})")
+                    acts.append(f"{who}: {e.get('action')} → {e.get('target')} ({_local(ts, tz)})")
         if acts:
-            check(sec, "Admin/user actions (24h)", "blue",
-                  f"{len(acts)} logged action(s)", acts)
+            check(sec, "Admin/user actions (24h)", "blue", f"{len(acts)} logged action(s)", acts)
         else:
             check(sec, "Admin/user actions (24h)", "green", "No logged admin actions")
     except Exception as e:
@@ -264,11 +302,15 @@ def collect_status(hours_back: int = 24) -> dict:
     try:
         active = _active_users(real, action_times, now, day_ago, tz)
         if active:
-            check(sec, "Active users (24h)", "blue",
-                  f"{len(active)} user(s) used the Hub in the last 24h", active)
+            check(
+                sec,
+                "Active users (24h)",
+                "blue",
+                f"{len(active)} user(s) used the Hub in the last 24h",
+                active,
+            )
         else:
-            check(sec, "Active users (24h)", "green",
-                  "Nobody has used the Hub in the last 24h")
+            check(sec, "Active users (24h)", "green", "Nobody has used the Hub in the last 24h")
     except Exception as e:
         check(sec, "Active users (24h)", "red", f"Could not read user activity: {e}")
 
@@ -277,6 +319,7 @@ def collect_status(hours_back: int = 24) -> dict:
     stats_doc = {}
     try:
         from web_interface.process_manager import load_process_stats, process_stats
+
         load_process_stats()
         stats_doc = dict(process_stats)
         stale_keys = _stale_study_refresh_keys(stats_doc)
@@ -287,56 +330,89 @@ def collect_status(hours_back: int = 24) -> dict:
             end = _parse_iso(s.get("last_run_end_time"))
             if end and end > day_ago:
                 recent.append((end, key, s))
-            if s.get("last_run_outcome") and s["last_run_outcome"] != "Success" \
-                    and end and end > week_ago and key not in stale_keys:
+            if (
+                s.get("last_run_outcome")
+                and s["last_run_outcome"] != "Success"
+                and end
+                and end > week_ago
+                and key not in stale_keys
+            ):
                 failed_last.append((key, s))
         if recent:
             bad = [k for _, k, s in recent if s.get("last_run_outcome") != "Success"]
-            check(sec, "Runs in last 24h", "red" if bad else "blue",
-                  f"{len(recent)} worker run(s)"
-                  + (f", {len(bad)} failed" if bad else ", all succeeded"),
-                  [f"{k}: {s.get('last_run_outcome')} at {_local(end, tz)} "
-                   f"({(s.get('last_run_duration') or 0):.0f}s)"
-                   for end, k, s in sorted(recent, reverse=True)])
+            check(
+                sec,
+                "Runs in last 24h",
+                "red" if bad else "blue",
+                f"{len(recent)} worker run(s)"
+                + (f", {len(bad)} failed" if bad else ", all succeeded"),
+                [
+                    f"{k}: {s.get('last_run_outcome')} at {_local(end, tz)} "
+                    f"({(s.get('last_run_duration') or 0):.0f}s)"
+                    for end, k, s in sorted(recent, reverse=True)
+                ],
+            )
         else:
             check(sec, "Runs in last 24h", "blue", "No worker runs recorded")
         if failed_last:
-            check(sec, "Workers whose last run failed", "red",
-                  f"{len(failed_last)} worker(s) sitting on a failure",
-                  [f"{k}: {s.get('last_run_outcome')} at "
-                   f"{_local(_parse_iso(s.get('last_run_end_time')), tz)}"
-                   for k, s in failed_last])
+            check(
+                sec,
+                "Workers whose last run failed",
+                "red",
+                f"{len(failed_last)} worker(s) sitting on a failure",
+                [
+                    f"{k}: {s.get('last_run_outcome')} at "
+                    f"{_local(_parse_iso(s.get('last_run_end_time')), tz)}"
+                    for k, s in failed_last
+                ],
+            )
         else:
-            check(sec, "Workers whose last run failed", "green",
-                  "Every worker's last run succeeded")
+            check(
+                sec, "Workers whose last run failed", "green", "Every worker's last run succeeded"
+            )
 
         stuck, recent_bad_runs = [], []
         for name in data_io.listdir(storage_location="cache"):
             if not name.startswith("proc_logs/") or not name.endswith(".json"):
                 continue
             pdoc = data_io.load_json(storage_location="cache", filename=name) or {}
-            for run in (pdoc.get("runs") or []):
+            for run in pdoc.get("runs") or []:
                 started = _parse_iso(run.get("started_at"))
                 ended = _parse_iso(run.get("ended_at"))
-                if run.get("state") == "running" and started \
-                        and started < now - timedelta(hours=6):
-                    stuck.append(f"{pdoc.get('key')} — started {_local(started, tz)} "
-                                 f"by {run.get('started_by')}")
-                if run.get("state") in ("failed", "interrupted", "cancelled") \
-                        and (ended or started) and (ended or started) > day_ago:
+                if run.get("state") == "running" and started and started < now - timedelta(hours=6):
+                    stuck.append(
+                        f"{pdoc.get('key')} — started {_local(started, tz)} "
+                        f"by {run.get('started_by')}"
+                    )
+                if (
+                    run.get("state") in ("failed", "interrupted", "cancelled")
+                    and (ended or started)
+                    and (ended or started) > day_ago
+                ):
                     tail = " | ".join((run.get("lines") or [])[-2:])
                     recent_bad_runs.append(
                         f"{pdoc.get('key')} {run.get('state')} "
-                        f"(started {_local(started, tz)}) {tail[:180]}")
+                        f"(started {_local(started, tz)}) {tail[:180]}"
+                    )
         if stuck:
-            check(sec, "Stuck 'running' states", "yellow",
-                  f"{len(stuck)} run(s) marked running >6h — likely an orphaned "
-                  "status from a dead container", stuck)
+            check(
+                sec,
+                "Stuck 'running' states",
+                "yellow",
+                f"{len(stuck)} run(s) marked running >6h — likely an orphaned "
+                "status from a dead container",
+                stuck,
+            )
         else:
             check(sec, "Stuck 'running' states", "green", "No orphaned running states")
         if recent_bad_runs:
-            check(sec, "Failed/interrupted runs (24h)", "red",
-                  f"{len(recent_bad_runs)} run(s)", recent_bad_runs)
+            check(
+                sec,
+                "Failed/interrupted runs (24h)",
+                "red",
+                f"{len(recent_bad_runs)} run(s)",
+                recent_bad_runs,
+            )
         else:
             check(sec, "Failed/interrupted runs (24h)", "green", "None")
     except Exception as e:
@@ -344,13 +420,20 @@ def collect_status(hours_back: int = 24) -> dict:
 
     try:
         from web_interface import task_failures
+
         unack = task_failures.unacknowledged_dead(within_hours=48)
         if unack:
-            check(sec, "Task failures (dead-letter)", "red",
-                  f"{len(unack)} unacknowledged dead task(s) in 48h",
-                  [f"{f.get('task')} at {_local(_parse_iso(f.get('ts')), tz)}: "
-                   f"{(f.get('error') or '').strip().splitlines()[0][:160]}"
-                   for f in unack])
+            check(
+                sec,
+                "Task failures (dead-letter)",
+                "red",
+                f"{len(unack)} unacknowledged dead task(s) in 48h",
+                [
+                    f"{f.get('task')} at {_local(_parse_iso(f.get('ts')), tz)}: "
+                    f"{(f.get('error') or '').strip().splitlines()[0][:160]}"
+                    for f in unack
+                ],
+            )
         else:
             check(sec, "Task failures (dead-letter)", "green", "None in the last 48h")
     except Exception as e:
@@ -361,59 +444,81 @@ def collect_status(hours_back: int = 24) -> dict:
     queue_now = {}
     try:
         from fyp.scrape import scrape_queues
+
         for platform, length in sorted(scrape_queues.queue_lengths().items()):
             queue_now[f"scrape_{platform}"] = length
             delta = length - prev_queues.get(f"scrape_{platform}", length)
-            stat(f"Scrape queue · {platform}", length,
-                 "blue" if length else "green",
-                 (f"{delta:+d} since last report" if delta else "unchanged")
-                 if prev_queues else "")
-        ann = data_io.load_json(storage_location="cache",
-                                filename="to_annotate.json") or []
+            stat(
+                f"Scrape queue · {platform}",
+                length,
+                "blue" if length else "green",
+                (f"{delta:+d} since last report" if delta else "unchanged") if prev_queues else "",
+            )
+        ann = data_io.load_json(storage_location="cache", filename="to_annotate.json") or []
         queue_now["annotate"] = len(ann)
         delta = len(ann) - prev_queues.get("annotate", len(ann))
-        stat("Annotation queue", len(ann), "blue" if ann else "green",
-             (f"{delta:+d} since last report" if delta else "unchanged")
-             if prev_queues else "")
-        batch = data_io.load_json(storage_location="cache",
-                                  filename="annotate_batch_job.json")
+        stat(
+            "Annotation queue",
+            len(ann),
+            "blue" if ann else "green",
+            (f"{delta:+d} since last report" if delta else "unchanged") if prev_queues else "",
+        )
+        batch = data_io.load_json(storage_location="cache", filename="annotate_batch_job.json")
         if isinstance(batch, dict) and isinstance(batch.get("jobs"), list):
             jobs = [j for j in batch["jobs"] if isinstance(j, dict)]
             claimed = sum(len(j.get("submitted_ids") or []) for j in jobs)
-            check(sec, "Annotation batch job", "blue",
-                  f"{len(jobs)} job(s) in flight, {claimed:,} video(s) claimed",
-                  [", ".join(str(j.get("job_name") or "?").rsplit("/", 1)[-1]
-                             for j in jobs)[:300]])
+            check(
+                sec,
+                "Annotation batch job",
+                "blue",
+                f"{len(jobs)} job(s) in flight, {claimed:,} video(s) claimed",
+                [", ".join(str(j.get("job_name") or "?").rsplit("/", 1)[-1] for j in jobs)[:300]],
+            )
         elif batch:
-            check(sec, "Annotation batch job", "blue", "Batch job in flight",
-                  [json.dumps(batch)[:300]])
+            check(
+                sec,
+                "Annotation batch job",
+                "blue",
+                "Batch job in flight",
+                [json.dumps(batch)[:300]],
+            )
         else:
             check(sec, "Annotation batch job", "green", "No batch job in flight")
-        grew = [k for k, v in queue_now.items()
-                if prev_queues and v > prev_queues.get(k, 0) + 100]
+        grew = [k for k, v in queue_now.items() if prev_queues and v > prev_queues.get(k, 0) + 100]
         if grew:
-            check(sec, "Queue growth", "yellow",
-                  "Queue(s) grew by >100 since last report: " + ", ".join(grew))
+            check(
+                sec,
+                "Queue growth",
+                "yellow",
+                "Queue(s) grew by >100 since last report: " + ", ".join(grew),
+            )
         else:
             check(sec, "Queue growth", "green", "No unusual queue growth")
 
         stalled = _stalled_queues(queue_now, stats_doc, now)
         if stalled:
-            check(sec, "Queue drain", "yellow",
-                  f"{len(stalled)} queue(s) waiting on a drain that has not run "
-                  f"in {STALE_QUEUE_DAYS}+ days", stalled)
+            check(
+                sec,
+                "Queue drain",
+                "yellow",
+                f"{len(stalled)} queue(s) waiting on a drain that has not run "
+                f"in {STALE_QUEUE_DAYS}+ days",
+                stalled,
+            )
         else:
-            check(sec, "Queue drain", "green",
-                  "No queue waiting on a stopped drain")
+            check(sec, "Queue drain", "green", "No queue waiting on a stopped drain")
 
         # Not "did any item fail" — dead, private and removed posts are a
         # standing share of every queue, and the failure files are rewritten
         # wholesale when the ledger re-consolidates, so their existence says
         # nothing. Grade the rate the scraper's own run journal reports.
         from web_interface.services import enrichment_journal as journal
-        runs = [e for e in journal.read(limit=journal.MAX_EVENTS)
-                if e.get("kind") == "scrape.finished"
-                and (_parse_iso(e.get("ts")) or epoch) > day_ago]
+
+        runs = [
+            e
+            for e in journal.read(limit=journal.MAX_EVENTS)
+            if e.get("kind") == "scrape.finished" and (_parse_iso(e.get("ts")) or epoch) > day_ago
+        ]
         check(sec, "Scrape failures (24h)", *_scrape_failure_check(runs))
     except Exception as e:
         check(sec, "Queues", "red", f"Could not read queues: {e}")
@@ -423,31 +528,38 @@ def collect_status(hours_back: int = 24) -> dict:
         last_cons = _parse_iso(cons.get("last_success"))
         pending_files = 0
         for name in data_io.listdir(storage_location="machine_annotations_raw"):
-            mtime = data_io.getmtime(storage_location="machine_annotations_raw",
-                                     filename=name)
+            mtime = data_io.getmtime(storage_location="machine_annotations_raw", filename=name)
             if mtime is None:
                 continue
             mdt = datetime.fromtimestamp(mtime, tz=timezone.utc)
             if last_cons is None or mdt > last_cons:
                 pending_files += 1
-        level = ("green" if pending_files == 0
-                 else ("blue" if pending_files < 50 else "yellow"))
-        stat("Pending consolidation", pending_files, level,
-             f"last consolidation {_ago(last_cons, now)}")
-        check(sec, "Enrichment consolidation", level,
-              f"{pending_files} raw annotation file(s) newer than the last "
-              f"consolidation ({_local(last_cons, tz)}, {_ago(last_cons, now)})")
+        level = "green" if pending_files == 0 else ("blue" if pending_files < 50 else "yellow")
+        stat(
+            "Pending consolidation",
+            pending_files,
+            level,
+            f"last consolidation {_ago(last_cons, now)}",
+        )
+        check(
+            sec,
+            "Enrichment consolidation",
+            level,
+            f"{pending_files} raw annotation file(s) newer than the last "
+            f"consolidation ({_local(last_cons, tz)}, {_ago(last_cons, now)})",
+        )
     except Exception as e:
         check(sec, "Consolidation", "red", f"Could not compute: {e}")
 
     pending_cids: set = set()
     try:
         pending_uploads = []
-        for loc in ("zeeschuimer_raw", "ddp_raw", "aio_raw",
-                    "instagram_raw", "youtube_raw"):
+        for loc in ("zeeschuimer_raw", "ddp_raw", "aio_raw", "instagram_raw", "youtube_raw"):
             try:
-                manifest = data_io.load_json(storage_location=loc,
-                                             filename="ingestion_manifest.json") or {}
+                manifest = (
+                    data_io.load_json(storage_location=loc, filename="ingestion_manifest.json")
+                    or {}
+                )
             except Exception:
                 manifest = {}
             for fn, meta in manifest.items():
@@ -457,17 +569,23 @@ def collect_status(hours_back: int = 24) -> dict:
                 # Stored names are generated; the name the participant knows
                 # is the original one.
                 original = meta.get("original_filename")
-                label = (f"{original} (stored as {fn})"
-                         if original and original != fn else fn)
+                label = f"{original} (stored as {fn})" if original and original != fn else fn
                 owner = f", {meta['user_id']}" if meta.get("user_id") else ""
                 pending_uploads.append(f"{loc}: {label}{owner}")
-        stat("Pending ingest", len(pending_uploads),
-             "green" if not pending_uploads else "yellow",
-             "uploads not yet ingested")
+        stat(
+            "Pending ingest",
+            len(pending_uploads),
+            "green" if not pending_uploads else "yellow",
+            "uploads not yet ingested",
+        )
         if pending_uploads:
-            check(sec, "Uploads awaiting ingest", "yellow",
-                  f"{len(pending_uploads)} file(s) uploaded but not ingested",
-                  pending_uploads)
+            check(
+                sec,
+                "Uploads awaiting ingest",
+                "yellow",
+                f"{len(pending_uploads)} file(s) uploaded but not ingested",
+                pending_uploads,
+            )
         else:
             check(sec, "Uploads awaiting ingest", "green", "None")
     except Exception as e:
@@ -478,22 +596,38 @@ def collect_status(hours_back: int = 24) -> dict:
     current_collections = set()
     try:
         from web_interface.services.study_data import get_collection_tags
+
         tags = get_collection_tags(force_reload=True) or {}
         current_collections = set(tags.keys())
         added = sorted(current_collections - prev_collections) if prev_collections else []
         removed = sorted(prev_collections - current_collections) if prev_collections else []
         check(sec, "Collections", "blue", f"{len(current_collections)} total")
         if added:
-            check(sec, "New collections", "blue",
-                  f"{len(added)} added since last report",
-                  [c + (f" (owner {tags[c].get('user_id')})"
+            check(
+                sec,
+                "New collections",
+                "blue",
+                f"{len(added)} added since last report",
+                [
+                    c
+                    + (
+                        f" (owner {tags[c].get('user_id')})"
                         if isinstance(tags.get(c), dict) and tags[c].get("user_id")
-                        else "") for c in added])
+                        else ""
+                    )
+                    for c in added
+                ],
+            )
         else:
             check(sec, "New collections", "green", "None since last report")
         if removed:
-            check(sec, "Removed collections", "yellow",
-                  f"{len(removed)} removed since last report", removed)
+            check(
+                sec,
+                "Removed collections",
+                "yellow",
+                f"{len(removed)} removed since last report",
+                removed,
+            )
         # An owned collection that is neither in the dataset nor waiting as
         # an upload nor inside a withdrawal window is an upload that fell
         # through the cracks (2026-09-06: a pending file was skipped on a
@@ -503,9 +637,14 @@ def collect_status(hours_back: int = 24) -> dict:
         withdrawn = _withdrawn_collection_ids()
         orphaned = _linked_collections_missing(tags, pending_cids, dataset_ids, withdrawn)
         if orphaned:
-            check(sec, "Linked collections missing from the dataset", "yellow",
-                  f"{len(orphaned)} owned collection(s) have no data, no pending "
-                  f"upload and no withdrawal record", orphaned)
+            check(
+                sec,
+                "Linked collections missing from the dataset",
+                "yellow",
+                f"{len(orphaned)} owned collection(s) have no data, no pending "
+                f"upload and no withdrawal record",
+                orphaned,
+            )
         else:
             check(sec, "Linked collections missing from the dataset", "green", "None")
         # The unowned counterpart: a tags entry with no owner, no data, no
@@ -515,11 +654,16 @@ def collect_status(hours_back: int = 24) -> dict:
         # never appear on a page — the delete endpoint is how they go.
         leftovers = _leftover_tag_entries(tags, pending_cids, dataset_ids, withdrawn)
         if leftovers:
-            check(sec, "Leftover collection entries", "yellow",
-                  f"{len(leftovers)} unowned collection entr"
-                  f"{'y' if len(leftovers) == 1 else 'ies'} with no data — not shown "
-                  f"in Edit Collections; delete by id "
-                  f"(POST /api/manage/collections/delete)", leftovers)
+            check(
+                sec,
+                "Leftover collection entries",
+                "yellow",
+                f"{len(leftovers)} unowned collection entr"
+                f"{'y' if len(leftovers) == 1 else 'ies'} with no data — not shown "
+                f"in Edit Collections; delete by id "
+                f"(POST /api/manage/collections/delete)",
+                leftovers,
+            )
         else:
             check(sec, "Leftover collection entries", "green", "None")
         # Writes have enforced unique display IDs since 2026-09-09, so a name
@@ -528,22 +672,32 @@ def collect_status(hours_back: int = 24) -> dict:
         # with no data is a leftover: it has no row in Edit Collections, so
         # renaming is not on offer for it — deleting it is the fix.
         from fyp.ingest.raw_names import duplicate_display_ids
+
         dupes = duplicate_display_ids(tags)
         if dupes:
-            check(sec, "Duplicate display IDs", "yellow",
-                  f"{len(dupes)} display ID(s) answer for more than one collection",
-                  [f"{label}: " + ", ".join(
-                      cid if cid in dataset_ids else f"{cid} (no data)"
-                      for cid in cids)
-                   for label, cids in dupes.items()])
+            check(
+                sec,
+                "Duplicate display IDs",
+                "yellow",
+                f"{len(dupes)} display ID(s) answer for more than one collection",
+                [
+                    f"{label}: "
+                    + ", ".join(cid if cid in dataset_ids else f"{cid} (no data)" for cid in cids)
+                    for label, cids in dupes.items()
+                ],
+            )
         else:
             check(sec, "Duplicate display IDs", "green", "Every display ID is unique")
-        meta_mtime = data_io.getmtime(storage_location="recoded",
-                                      filename="collections_metadata.parquet")
-        meta_dt = (datetime.fromtimestamp(meta_mtime, tz=timezone.utc)
-                   if meta_mtime else None)
-        check(sec, "Last ingest/metadata write", "blue",
-              f"{_local(meta_dt, tz)} ({_ago(meta_dt, now)})")
+        meta_mtime = data_io.getmtime(
+            storage_location="recoded", filename="collections_metadata.parquet"
+        )
+        meta_dt = datetime.fromtimestamp(meta_mtime, tz=timezone.utc) if meta_mtime else None
+        check(
+            sec,
+            "Last ingest/metadata write",
+            "blue",
+            f"{_local(meta_dt, tz)} ({_ago(meta_dt, now)})",
+        )
     except Exception as e:
         check(sec, "Collections", "red", f"Could not read: {e}")
 
@@ -556,6 +710,7 @@ def collect_status(hours_back: int = 24) -> dict:
         # two mornings). Quarantined files are held out of the activity data,
         # so they are the red; a warned file ingested and only wants a look.
         from fyp.core.structure_sentinel import review_queue
+
         check(sec, "Structure sentinel", *_structure_review_check(review_queue()))
     except Exception as e:
         check(sec, "Structure sentinel", "red", f"Could not read: {e}")
@@ -564,13 +719,21 @@ def collect_status(hours_back: int = 24) -> dict:
     sec = section("Scraping health")
     try:
         from fyp.scrape import scraper_alerts
+
         alerts = scraper_alerts.load_alerts() or {}
         if alerts:
-            check(sec, "Persistent scraper alerts", "red",
-                  f"{len(alerts)} platform(s) flagged",
-                  [f"{p}: {a.get('kind')} — {a.get('message')} "
-                   f"(raised {_local(_parse_iso(a.get('raised_at')), tz)}, "
-                   f"×{a.get('occurrences')})" for p, a in alerts.items()])
+            check(
+                sec,
+                "Persistent scraper alerts",
+                "red",
+                f"{len(alerts)} platform(s) flagged",
+                [
+                    f"{p}: {a.get('kind')} — {a.get('message')} "
+                    f"(raised {_local(_parse_iso(a.get('raised_at')), tz)}, "
+                    f"×{a.get('occurrences')})"
+                    for p, a in alerts.items()
+                ],
+            )
         else:
             check(sec, "Persistent scraper alerts", "green", "None")
     except Exception as e:
@@ -579,19 +742,26 @@ def collect_status(hours_back: int = 24) -> dict:
     for platform, cookie_name in SESSION_COOKIE.items():
         try:
             from fyp.scrape.scraper_cookies import cookie_health
+
             h = cookie_health(platform, session_cookie=cookie_name) or {}
             status = h.get("status")
             msg = h.get("message") or status or "unknown"
-            level = {"missing": "red", "expired": "red", "expiring_soon": "yellow",
-                     "stale": "yellow", "healthy": "green"}.get(status, "yellow")
+            level = {
+                "missing": "red",
+                "expired": "red",
+                "expiring_soon": "yellow",
+                "stale": "yellow",
+                "healthy": "green",
+            }.get(status, "yellow")
             days_left = h.get("session_days_left")
             # A stale *file* whose session cookie is still valid for weeks is
             # informational, not actionable — don't wake anyone up for it.
-            if status == "stale" and isinstance(days_left, (int, float)) \
-                    and days_left > 30:
+            if status == "stale" and isinstance(days_left, (int, float)) and days_left > 30:
                 level = "green"
-                msg = (f"File {h.get('file_age_days', 0):.0f}d old but session "
-                       f"valid {days_left:.0f} more days")
+                msg = (
+                    f"File {h.get('file_age_days', 0):.0f}d old but session "
+                    f"valid {days_left:.0f} more days"
+                )
             check(sec, f"Cookie · {platform}", level, msg)
         except Exception as e:
             check(sec, f"Cookie · {platform}", "red", f"Could not check: {e}")
@@ -602,12 +772,15 @@ def collect_status(hours_back: int = 24) -> dict:
         errors_by_service, fivexx, platform_notes = _cloud_run_log_summary(hours_back)
         for svc, lines in errors_by_service.items():
             if lines:
-                check(sec, f"ERROR logs (24h) · {svc}", "yellow",
-                      f"{len(lines)} ERROR-severity entr(ies) — review",
-                      [ln[:220] for ln in lines[:8]])
+                check(
+                    sec,
+                    f"ERROR logs (24h) · {svc}",
+                    "yellow",
+                    f"{len(lines)} ERROR-severity entr(ies) — review",
+                    [ln[:220] for ln in lines[:8]],
+                )
             else:
-                check(sec, f"ERROR logs (24h) · {svc}", "green",
-                      "Zero ERROR-severity entries")
+                check(sec, f"ERROR logs (24h) · {svc}", "green", "Zero ERROR-severity entries")
         if fivexx:
             # The platform notes lead the detail lines, ahead of the failed
             # URLs (which repeat one another anyway). Cloud Run drops an
@@ -615,27 +788,29 @@ def collect_status(hours_back: int = 24) -> dict:
             # the only record of *why* — there is no app traceback to find —
             # and both the email and the narrative's copy of the doc truncate
             # details from the front.
-            check(sec, "HTTP 5xx responses (24h)", "red",
-                  f"{len(fivexx)} failed request(s)",
-                  [ln[:220] for ln in platform_notes[:4]]
-                  + [ln[:220] for ln in fivexx[:8]])
+            check(
+                sec,
+                "HTTP 5xx responses (24h)",
+                "red",
+                f"{len(fivexx)} failed request(s)",
+                [ln[:220] for ln in platform_notes[:4]] + [ln[:220] for ln in fivexx[:8]],
+            )
         else:
-            check(sec, "HTTP 5xx responses (24h)", "green",
-                  "Zero 5xx responses, both services")
+            check(sec, "HTTP 5xx responses (24h)", "green", "Zero 5xx responses, both services")
     except Exception as e:
         check(sec, "Cloud Run logs", "yellow", f"Could not query Cloud Logging: {e}")
 
     try:
         import requests
         from web_interface.mail_utils import _site
+
         app_url = str(_site().get("app_url", "") or "").strip()
         if app_url:
             t0 = time.time()
             resp = requests.get(app_url, timeout=45)
             dt = time.time() - t0
             if resp.status_code == 200:
-                check(sec, "Public site", "green",
-                      f"{app_url} → 200 in {dt:.2f}s")
+                check(sec, "Public site", "green", f"{app_url} → 200 in {dt:.2f}s")
             else:
                 check(sec, "Public site", "red", f"{app_url} → {resp.status_code}")
         else:
@@ -646,22 +821,26 @@ def collect_status(hours_back: int = 24) -> dict:
     try:
         import requests
         from importlib.metadata import version as pkg_version
+
         installed = pkg_version("yt-dlp")
         latest = requests.get(
-            "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
-            timeout=30).json()
+            "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest", timeout=30
+        ).json()
         tag = latest.get("tag_name", "?")
 
         def norm(v):
             return [int(x) for x in re.findall(r"\d+", v or "")]
 
         if norm(tag) > norm(installed):
-            check(sec, "yt-dlp", "yellow",
-                  f"Update available: running {installed}, latest {tag} "
-                  f"(released {str(latest.get('published_at', '?'))[:10]})")
+            check(
+                sec,
+                "yt-dlp",
+                "yellow",
+                f"Update available: running {installed}, latest {tag} "
+                f"(released {str(latest.get('published_at', '?'))[:10]})",
+            )
         else:
-            check(sec, "yt-dlp", "green",
-                  f"Running {installed} = latest release {tag}")
+            check(sec, "yt-dlp", "green", f"Running {installed} = latest release {tag}")
     except Exception as e:
         check(sec, "yt-dlp", "yellow", f"Could not check releases: {e}")
 
@@ -718,28 +897,36 @@ def _scrape_failure_check(runs: list[dict]) -> tuple[str, str, list[str]]:
     for platform, (attempted, failed) in sorted(totals.items()):
         rate = failed / attempted if attempted else 0.0
         rated = attempted >= MIN_RATED_SCRAPE_ATTEMPTS
-        details.append(f"{platform}: {failed:,} of {attempted:,} attempt(s) "
-                       f"failed ({rate:.1%})"
-                       + ("" if rated else " — too few attempts to rate"))
+        details.append(
+            f"{platform}: {failed:,} of {attempted:,} attempt(s) "
+            f"failed ({rate:.1%})" + ("" if rated else " — too few attempts to rate")
+        )
         if rated and rate > HIGH_SCRAPE_FAILURE_RATE:
             high.append(f"{platform} {rate:.1%}")
 
     attempted = sum(v[0] for v in totals.values())
     failed = sum(v[1] for v in totals.values())
-    normal = (f"{failed:,} of {attempted:,} attempt(s) failed "
-              f"({failed / attempted if attempted else 0:.1%}) across "
-              f"{len(runs)} run(s)")
+    normal = (
+        f"{failed:,} of {attempted:,} attempt(s) failed "
+        f"({failed / attempted if attempted else 0:.1%}) across "
+        f"{len(runs)} run(s)"
+    )
     if high:
-        return ("yellow",
-                f"Unusually high failure rate over the day — {', '.join(high)} "
-                f"(a normal day runs well under "
-                f"{HIGH_SCRAPE_FAILURE_RATE:.0%})", details)
+        return (
+            "yellow",
+            f"Unusually high failure rate over the day — {', '.join(high)} "
+            f"(a normal day runs well under "
+            f"{HIGH_SCRAPE_FAILURE_RATE:.0%})",
+            details,
+        )
     if worst:
         rate, platform, ts, run_attempts = worst
-        return ("yellow",
-                f"{normal} — the day is normal, but one {platform} run "
-                f"({ts}) failed {rate:.1%} of {run_attempts:,} attempt(s)",
-                details)
+        return (
+            "yellow",
+            f"{normal} — the day is normal, but one {platform} run "
+            f"({ts}) failed {rate:.1%} of {run_attempts:,} attempt(s)",
+            details,
+        )
     return "blue", f"{normal} — the normal range", details
 
 
@@ -758,16 +945,19 @@ def _structure_review_check(queue: dict) -> tuple[str, str, list[str]]:
     n_q, n_w = queue.get("n_quarantined", 0), queue.get("n_warn", 0)
     if not rows:
         return "green", "No file waiting for structure review", []
-    return ("red" if n_q else "yellow",
-            f"{n_q} quarantined, {n_w} warned — review on "
-            f"Data Pipeline → Ingest Collections → Structure review",
-            [f"{r.get('filename')}: {r.get('status')}" for r in rows])
+    return (
+        "red" if n_q else "yellow",
+        f"{n_q} quarantined, {n_w} warned — review on "
+        f"Data Pipeline → Ingest Collections → Structure review",
+        [f"{r.get('filename')}: {r.get('status')}" for r in rows],
+    )
 
 
 def _dataset_collection_ids() -> set:
     """Collection ids with a metadata row — what Edit Collections lists."""
     import fyp.core.data_io as data_io
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+
     meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
     if not data_io.exists(storage_location="recoded", filename=meta_fn):
         return set()
@@ -781,14 +971,18 @@ def _dataset_collection_ids() -> set:
 
 def _withdrawn_collection_ids() -> set:
     import fyp.core.data_io as data_io
+
     if not data_io.exists(storage_location="recoded", filename="withdrawals.json"):
         return set()
-    return {str(k) for k in (data_io.load_json(
-        storage_location="recoded", filename="withdrawals.json") or {})}
+    return {
+        str(k)
+        for k in (data_io.load_json(storage_location="recoded", filename="withdrawals.json") or {})
+    }
 
 
-def _tag_entries_without_data(tags: dict, pending_cids: set, dataset_ids: set,
-                              withdrawn: set, owned: bool) -> list[tuple[str, dict]]:
+def _tag_entries_without_data(
+    tags: dict, pending_cids: set, dataset_ids: set, withdrawn: set, owned: bool
+) -> list[tuple[str, dict]]:
     """Tags entries with no metadata row, no pending manifest entry and no
     withdrawal record, split by whether they carry an owner."""
     out = []
@@ -803,9 +997,9 @@ def _tag_entries_without_data(tags: dict, pending_cids: set, dataset_ids: set,
     return out
 
 
-def _linked_collections_missing(tags: dict, pending_cids: set,
-                                dataset_ids: set | None = None,
-                                withdrawn: set | None = None) -> list[str]:
+def _linked_collections_missing(
+    tags: dict, pending_cids: set, dataset_ids: set | None = None, withdrawn: set | None = None
+) -> list[str]:
     """Owned collections (a truthy ``user_id`` in the tags sidecar) that have
     no metadata row, no pending manifest entry and no withdrawal record.
 
@@ -818,8 +1012,12 @@ def _linked_collections_missing(tags: dict, pending_cids: set,
         dataset_ids = _dataset_collection_ids()
     if withdrawn is None:
         withdrawn = _withdrawn_collection_ids()
-    return [f"{cid} (owner {entry['user_id']})" for cid, entry in
-            _tag_entries_without_data(tags, pending_cids, dataset_ids, withdrawn, owned=True)]
+    return [
+        f"{cid} (owner {entry['user_id']})"
+        for cid, entry in _tag_entries_without_data(
+            tags, pending_cids, dataset_ids, withdrawn, owned=True
+        )
+    ]
 
 
 def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -> set[str]:
@@ -841,21 +1039,18 @@ def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -
     if study_defs is None:
         from fyp.core.fyp_config import fyp_cf
         from fyp.analysis.studies import init_study_defs
+
         init_study_defs()
         study_defs = fyp_cf.get("study_defs") or {}
     prefix = "study_refresh__"
     return {
-        key for key in stats_doc
-        if key.startswith(prefix) and key[len(prefix):] not in study_defs
+        key for key in stats_doc if key.startswith(prefix) and key[len(prefix) :] not in study_defs
     }
 
 
-
-
-
-def _leftover_tag_entries(tags: dict, pending_cids: set,
-                          dataset_ids: set | None = None,
-                          withdrawn: set | None = None) -> list[str]:
+def _leftover_tag_entries(
+    tags: dict, pending_cids: set, dataset_ids: set | None = None, withdrawn: set | None = None
+) -> list[str]:
     """Unowned tags entries with no metadata row, no pending manifest entry
     and no withdrawal record — nothing claims them, nothing lists them, and
     the only thing they do is hold a display ID (2026-09-11: four names each
@@ -865,8 +1060,9 @@ def _leftover_tag_entries(tags: dict, pending_cids: set,
     if withdrawn is None:
         withdrawn = _withdrawn_collection_ids()
     out = []
-    for cid, entry in _tag_entries_without_data(tags, pending_cids, dataset_ids,
-                                                withdrawn, owned=False):
+    for cid, entry in _tag_entries_without_data(
+        tags, pending_cids, dataset_ids, withdrawn, owned=False
+    ):
         label = entry.get("display_collection_id")
         out.append(f"{cid} (display ID {label!r})" if label and label != cid else cid)
     return out
@@ -895,15 +1091,19 @@ def _stalled_queues(queue_now, stats_doc, now, max_age_days=STALE_QUEUE_DAYS):
             continue
         # The annotate queue has two possible drains (sync and async batch);
         # whichever ran most recently is the one that counts.
-        workers = (["queue_annotator", "queue_annotator_batch"] if key == "annotate"
-                   else [f"queue_scraper_{key[len('scrape_'):]}"])
+        workers = (
+            ["queue_annotator", "queue_annotator_batch"]
+            if key == "annotate"
+            else [f"queue_scraper_{key[len('scrape_') :]}"]
+        )
         lasts = [_parse_iso((stats_doc.get(w) or {}).get("last_success")) for w in workers]
         lasts = [t for t in lasts if t is not None]
         last = max(lasts) if lasts else None
         worker = "/".join(workers)
         if last is None or last < now - timedelta(days=max_age_days):
-            stalled.append(f"{key}: {length} item(s) waiting, {worker} "
-                           f"last succeeded {_ago(last, now)}")
+            stalled.append(
+                f"{key}: {length} item(s) waiting, {worker} last succeeded {_ago(last, now)}"
+            )
     return stalled
 
 
@@ -950,20 +1150,23 @@ def _cloud_run_log_summary(hours_back: int):
     project = os.environ.get("GCP_PROJECT_ID")
     if not project or not os.environ.get("K_SERVICE"):
         return {}, [], []
-    creds, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/logging.read"])
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/logging.read"])
     session = AuthorizedSession(creds)
     cutoff = (_now() - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    requests_log = f'projects/{project}/logs/run.googleapis.com%2Frequests'
-    system_log = f'projects/{project}/logs/run.googleapis.com%2Fvarlog%2Fsystem'
+    requests_log = f"projects/{project}/logs/run.googleapis.com%2Frequests"
+    system_log = f"projects/{project}/logs/run.googleapis.com%2Fvarlog%2Fsystem"
 
     def query(filter_str, limit=50):
         resp = session.post(
             "https://logging.googleapis.com/v2/entries:list",
-            json={"resourceNames": [f"projects/{project}"],
-                  "filter": filter_str, "orderBy": "timestamp desc",
-                  "pageSize": limit},
-            timeout=60)
+            json={
+                "resourceNames": [f"projects/{project}"],
+                "filter": filter_str,
+                "orderBy": "timestamp desc",
+                "pageSize": limit,
+            },
+            timeout=60,
+        )
         resp.raise_for_status()
         return resp.json().get("entries", [])
 
@@ -973,38 +1176,59 @@ def _cloud_run_log_summary(hours_back: int):
             f'resource.type="cloud_run_revision" '
             f'AND resource.labels.service_name="{svc}" '
             f'AND logName!="{requests_log}" '
-            f'AND severity>=ERROR AND timestamp>="{cutoff}"')
-        maybe_drain = any("Uncaught signal" in str(e.get("textPayload") or "")
-                          or "SIGABRT" in str(e.get("textPayload") or "")
-                          for e in entries)
-        drain_times = [t for t in (
-            _log_ts(e) for e in query(
-                f'resource.type="cloud_run_revision" '
-                f'AND resource.labels.service_name="{svc}" '
-                f'AND textPayload:"Handling signal: term" '
-                f'AND timestamp>="{cutoff}"', limit=25)) if t is not None
-        ] if maybe_drain else []
+            f'AND severity>=ERROR AND timestamp>="{cutoff}"'
+        )
+        maybe_drain = any(
+            "Uncaught signal" in str(e.get("textPayload") or "")
+            or "SIGABRT" in str(e.get("textPayload") or "")
+            for e in entries
+        )
+        drain_times = (
+            [
+                t
+                for t in (
+                    _log_ts(e)
+                    for e in query(
+                        f'resource.type="cloud_run_revision" '
+                        f'AND resource.labels.service_name="{svc}" '
+                        f'AND textPayload:"Handling signal: term" '
+                        f'AND timestamp>="{cutoff}"',
+                        limit=25,
+                    )
+                )
+                if t is not None
+            ]
+            if maybe_drain
+            else []
+        )
         errors_by_service[svc] = [
             f"{e.get('timestamp', '')} {e.get('textPayload') or json.dumps(e.get('jsonPayload', {}))[:160]}"
-            for e in entries if not _is_instance_drain(e, drain_times)]
+            for e in entries
+            if not _is_instance_drain(e, drain_times)
+        ]
     fivexx_entries = query(
-        f'resource.type="cloud_run_revision" AND httpRequest.status>=500 '
-        f'AND timestamp>="{cutoff}"')
-    fivexx = [f"{e.get('timestamp', '')} {e.get('httpRequest', {}).get('status')} "
-              f"{e.get('httpRequest', {}).get('requestUrl', '')}"
-              for e in fivexx_entries]
+        f'resource.type="cloud_run_revision" AND httpRequest.status>=500 AND timestamp>="{cutoff}"'
+    )
+    fivexx = [
+        f"{e.get('timestamp', '')} {e.get('httpRequest', {}).get('status')} "
+        f"{e.get('httpRequest', {}).get('requestUrl', '')}"
+        for e in fivexx_entries
+    ]
     platform_notes = []
     if fivexx_entries:
         notes = query(
             f'resource.type="cloud_run_revision" AND logName="{system_log}" '
-            f'AND severity>=WARNING AND timestamp>="{cutoff}"', limit=25)
+            f'AND severity>=WARNING AND timestamp>="{cutoff}"',
+            limit=25,
+        )
         seen = {}
         for e in notes:
             text = str(e.get("textPayload") or "").strip()
             if text:
                 seen[text] = seen.get(text, 0) + 1
-        platform_notes = [f"platform: {text}" + (f" (x{n})" if n > 1 else "")
-                          for text, n in seen.items()]
+        platform_notes = [
+            f"platform: {text}" + (f" (x{n})" if n > 1 else "") for text, n in seen.items()
+        ]
     return errors_by_service, fivexx, platform_notes
 
 
@@ -1053,38 +1277,55 @@ def build_narrative(doc: dict) -> tuple[str, str]:
         "counts": doc.get("counts"),
         "stats": doc.get("stats"),
         "sections": [
-            {"title": s["title"],
-             "checks": [{"title": c["title"], "status": c["status"],
-                         "summary": c["summary"],
-                         "details": c["details"][:6]}
-                        for c in s["checks"]]}
-            for s in doc.get("sections", [])],
+            {
+                "title": s["title"],
+                "checks": [
+                    {
+                        "title": c["title"],
+                        "status": c["status"],
+                        "summary": c["summary"],
+                        "details": c["details"][:6],
+                    }
+                    for c in s["checks"]
+                ],
+            }
+            for s in doc.get("sections", [])
+        ],
     }
     try:
         from fyp.core import gemini_client
         from fyp.core.fyp_config import fyp_cf
+
         mode, _reason = gemini_client.gemini_mode()
         if mode is None:
             raise RuntimeError("Gemini not configured")
-        client = gemini_client.make_client(
-            location=fyp_cf["machine"]["gemini"].get("location"))
+        client = gemini_client.make_client(location=fyp_cf["machine"]["gemini"].get("location"))
         model = fyp_cf["machine"]["gemini"]["model"]
-        prompt = (_NARRATIVE_INSTRUCTIONS + "\n\nStatus document:\n```json\n"
-                  + json.dumps(compact, default=str) + "\n```")
+        prompt = (
+            _NARRATIVE_INSTRUCTIONS
+            + "\n\nStatus document:\n```json\n"
+            + json.dumps(compact, default=str)
+            + "\n```"
+        )
         resp = client.models.generate_content(model=model, contents=prompt)
         text = (resp.text or "").strip()
         if text:
             return text, "gemini"
         raise RuntimeError("empty Gemini response")
     except Exception as e:
-        logger.warning(f"ops_report: Gemini narrative unavailable ({e}); "
-                       "using deterministic fallback")
+        logger.warning(
+            f"ops_report: Gemini narrative unavailable ({e}); using deterministic fallback"
+        )
         return _fallback_narrative(doc), "fallback"
 
 
 def _fallback_narrative(doc: dict) -> str:
-    flagged = [(s["title"], c) for s in doc.get("sections", [])
-               for c in s["checks"] if c["status"] in ("yellow", "red")]
+    flagged = [
+        (s["title"], c)
+        for s in doc.get("sections", [])
+        for c in s["checks"]
+        if c["status"] in ("yellow", "red")
+    ]
     lines = ["## Action needed"]
     reds = [c for _, c in flagged if c["status"] == "red"]
     if reds:
@@ -1098,15 +1339,19 @@ def _fallback_narrative(doc: dict) -> str:
         for title, c in flagged:
             lines.append(f"- **{c['title']}** ({title}): {c['summary']}")
     counts = doc.get("counts", {})
-    lines += ["", "## What's fine",
-              f"{counts.get('green', 0)} checks are green and "
-              f"{counts.get('blue', 0)} informational; see the board below for "
-              "the full detail. (This summary was generated without Gemini — "
-              "the model was unavailable or not configured.)"]
+    lines += [
+        "",
+        "## What's fine",
+        f"{counts.get('green', 0)} checks are green and "
+        f"{counts.get('blue', 0)} informational; see the board below for "
+        "the full detail. (This summary was generated without Gemini — "
+        "the model was unavailable or not configured.)",
+    ]
     return "\n".join(lines)
 
 
 # ------------------------------------------------------------------ render
+
 
 def _esc(s):
     return html.escape(str(s), quote=True)
@@ -1130,11 +1375,13 @@ def _md_to_html(md: str) -> str:
             continue
         if line.startswith("### "):
             if in_list:
-                out.append("</ul>"); in_list = False
+                out.append("</ul>")
+                in_list = False
             out.append(f"<h4>{_inline_md(line[4:])}</h4>")
         elif line.startswith("## "):
             if in_list:
-                out.append("</ul>"); in_list = False
+                out.append("</ul>")
+                in_list = False
             out.append(f"<h3>{_inline_md(line[3:])}</h3>")
         elif line.lstrip().startswith(("- ", "* ")):
             if not in_list:
@@ -1143,7 +1390,8 @@ def _md_to_html(md: str) -> str:
             out.append(f"<li>{_inline_md(line.lstrip()[2:])}</li>")
         else:
             if in_list:
-                out.append("</ul>"); in_list = False
+                out.append("</ul>")
+                in_list = False
             out.append(f"<p>{_inline_md(line)}</p>")
     if in_list:
         out.append("</ul>")
@@ -1256,23 +1504,29 @@ def render_html(doc: dict, narrative_md: str) -> str:
     Every dynamic value passes through HTML escaping."""
 
     def lamp(status, big=False):
-        return (f'<span class="lamp lamp-{status}{" lamp-big" if big else ""}" '
-                f'aria-hidden="true"></span>')
+        return (
+            f'<span class="lamp lamp-{status}{" lamp-big" if big else ""}" '
+            f'aria-hidden="true"></span>'
+        )
 
     def render_check(c):
         details = ""
         if c.get("details"):
             rows = "".join(f"<li>{_inline_md(d)}</li>" for d in c["details"])
-            details = (f'<details><summary>{len(c["details"])} detail line(s)'
-                       f"</summary><ul>{rows}</ul></details>")
-        return (f'<div class="check">{lamp(c["status"])}'
-                f'<div class="check-body">'
-                f'<div class="check-head">'
-                f'<span class="check-title">{_esc(c["title"])}</span>'
-                f'<span class="tag tag-{c["status"]}">'
-                f'{STATUS_LABEL[c["status"]]}</span></div>'
-                f'<div class="check-summary">{_inline_md(c["summary"])}</div>'
-                f"{details}</div></div>")
+            details = (
+                f"<details><summary>{len(c['details'])} detail line(s)"
+                f"</summary><ul>{rows}</ul></details>"
+            )
+        return (
+            f'<div class="check">{lamp(c["status"])}'
+            f'<div class="check-body">'
+            f'<div class="check-head">'
+            f'<span class="check-title">{_esc(c["title"])}</span>'
+            f'<span class="tag tag-{c["status"]}">'
+            f"{STATUS_LABEL[c['status']]}</span></div>"
+            f'<div class="check-summary">{_inline_md(c["summary"])}</div>'
+            f"{details}</div></div>"
+        )
 
     sections_html = ""
     for s in doc.get("sections", []):
@@ -1281,33 +1535,44 @@ def render_html(doc: dict, narrative_md: str) -> str:
             if STATUS_RANK[c["status"]] > STATUS_RANK[worst]:
                 worst = c["status"]
         checks = "\n".join(render_check(c) for c in s["checks"])
-        sections_html += (f'<section class="card"><header class="card-head">'
-                          f'{lamp(worst)}<h2>{_esc(s["title"])}</h2></header>'
-                          f"{checks}</section>\n")
+        sections_html += (
+            f'<section class="card"><header class="card-head">'
+            f"{lamp(worst)}<h2>{_esc(s['title'])}</h2></header>"
+            f"{checks}</section>\n"
+        )
 
     stats_html = ""
     for t in doc.get("stats", []):
         sub = f'<div class="stat-sub">{_inline_md(t["sub"])}</div>' if t.get("sub") else ""
-        stats_html += (f'<div class="stat"><div class="stat-top">{lamp(t["status"])}'
-                       f'<span class="stat-label">{_esc(t["label"])}</span></div>'
-                       f'<div class="stat-value">{_esc(t["value"])}</div>{sub}</div>\n')
+        stats_html += (
+            f'<div class="stat"><div class="stat-top">{lamp(t["status"])}'
+            f'<span class="stat-label">{_esc(t["label"])}</span></div>'
+            f'<div class="stat-value">{_esc(t["value"])}</div>{sub}</div>\n'
+        )
 
     counts = doc.get("counts", {})
     overall = doc.get("overall", "blue")
-    overall_word = {"green": "All clear", "blue": "Normal activity",
-                    "yellow": "Needs a look", "red": "Action needed"}[overall]
-    tally = "".join(f'<span class="tally">{lamp(k)}<span>{counts.get(k, 0)}'
-                    f"</span></span>" for k in ("red", "yellow", "blue", "green"))
+    overall_word = {
+        "green": "All clear",
+        "blue": "Normal activity",
+        "yellow": "Needs a look",
+        "red": "Action needed",
+    }[overall]
+    tally = "".join(
+        f'<span class="tally">{lamp(k)}<span>{counts.get(k, 0)}</span></span>'
+        for k in ("red", "yellow", "blue", "green")
+    )
 
     narrative_html = ""
     if narrative_md.strip():
-        narrative_html = (f'<section class="card narrative"><header '
-                          f'class="card-head"><h2>Morning assessment</h2></header>'
-                          f"{_md_to_html(narrative_md)}</section>")
+        narrative_html = (
+            f'<section class="card narrative"><header '
+            f'class="card-head"><h2>Morning assessment</h2></header>'
+            f"{_md_to_html(narrative_md)}</section>"
+        )
 
     prev = doc.get("previous_run_at")
-    prev_html = (f'<span class="meta-dim">diffs vs {_esc(prev)}</span>'
-                 if prev else "")
+    prev_html = f'<span class="meta-dim">diffs vs {_esc(prev)}</span>' if prev else ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -1346,12 +1611,19 @@ def render_html(doc: dict, narrative_md: str) -> str:
 # it does not understand, so the emailed report inlines hardcoded colours on
 # every element and uses no classes at all. Light theme only.
 _EMAIL_COLORS = {
-    "ink": "#1c2427", "dim": "#5b6a70", "line": "#dde4e6",
-    "bg": "#f2f5f6", "surface": "#ffffff",
-    "green": "#2f9e63", "yellow": "#b97d0a", "red": "#d64550",
+    "ink": "#1c2427",
+    "dim": "#5b6a70",
+    "line": "#dde4e6",
+    "bg": "#f2f5f6",
+    "surface": "#ffffff",
+    "green": "#2f9e63",
+    "yellow": "#b97d0a",
+    "red": "#d64550",
     "blue": "#3f7fd6",
-    "green_soft": "#e2f2e9", "yellow_soft": "#f7edd6",
-    "red_soft": "#f9e3e5", "blue_soft": "#e3edf9",
+    "green_soft": "#e2f2e9",
+    "yellow_soft": "#f7edd6",
+    "red_soft": "#f9e3e5",
+    "blue_soft": "#e3edf9",
 }
 _EMAIL_DETAIL_CAP = 6
 
@@ -1363,62 +1635,71 @@ def render_email_html(doc: dict, narrative_md: str) -> str:
     mono = "font-family:'SF Mono',Menlo,Consolas,monospace;"
 
     def dot(status, size=12):
-        return (f'<span style="color:{c[status]};font-size:{size}px;'
-                f'line-height:1;">&#9679;</span>')
+        return f'<span style="color:{c[status]};font-size:{size}px;line-height:1;">&#9679;</span>'
 
     def tag(status):
-        return (f'<span style="background:{c[status + "_soft"]};'
-                f'color:{c[status]};font-size:10px;font-weight:bold;'
-                f'letter-spacing:0.08em;text-transform:uppercase;'
-                f'padding:1px 7px;border-radius:999px;">'
-                f'{STATUS_LABEL[status]}</span>')
+        return (
+            f'<span style="background:{c[status + "_soft"]};'
+            f"color:{c[status]};font-size:10px;font-weight:bold;"
+            f"letter-spacing:0.08em;text-transform:uppercase;"
+            f'padding:1px 7px;border-radius:999px;">'
+            f"{STATUS_LABEL[status]}</span>"
+        )
 
     def styled_md(md):
         frag = _md_to_html(md)
         frag = frag.replace(
-            "<h3>", f'<h3 style="font-size:14px;color:{c["ink"]};'
-                    'margin:14px 0 6px;">')
+            "<h3>", f'<h3 style="font-size:14px;color:{c["ink"]};margin:14px 0 6px;">'
+        )
         frag = frag.replace(
-            "<h4>", f'<h4 style="font-size:13px;color:{c["ink"]};'
-                    'margin:12px 0 4px;">')
+            "<h4>", f'<h4 style="font-size:13px;color:{c["ink"]};margin:12px 0 4px;">'
+        )
+        frag = frag.replace("<p>", f'<p style="margin:6px 0;color:{c["ink"]};">')
+        frag = frag.replace("<ul>", '<ul style="margin:6px 0;padding-left:20px;">')
+        frag = frag.replace("<li>", f'<li style="margin:4px 0;color:{c["ink"]};">')
         frag = frag.replace(
-            "<p>", f'<p style="margin:6px 0;color:{c["ink"]};">')
-        frag = frag.replace(
-            "<ul>", '<ul style="margin:6px 0;padding-left:20px;">')
-        frag = frag.replace(
-            "<li>", f'<li style="margin:4px 0;color:{c["ink"]};">')
-        frag = frag.replace(
-            "<code>", f'<code style="{mono}font-size:0.88em;'
-                      f'background:#eaeff1;padding:1px 4px;'
-                      'border-radius:4px;">')
+            "<code>",
+            f'<code style="{mono}font-size:0.88em;'
+            f"background:#eaeff1;padding:1px 4px;"
+            'border-radius:4px;">',
+        )
         return frag
 
     counts = doc.get("counts", {})
     overall = doc.get("overall", "blue")
-    overall_word = {"green": "All clear", "blue": "Normal activity",
-                    "yellow": "Needs a look", "red": "Action needed"}[overall]
+    overall_word = {
+        "green": "All clear",
+        "blue": "Normal activity",
+        "yellow": "Needs a look",
+        "red": "Action needed",
+    }[overall]
 
     tally = " &nbsp; ".join(
         f'{dot(k, 11)} <span style="{mono}font-size:13px;'
         f'color:{c["dim"]};">{counts.get(k, 0)}</span>'
-        for k in ("red", "yellow", "blue", "green"))
+        for k in ("red", "yellow", "blue", "green")
+    )
 
     stats_cells = ""
     for t in doc.get("stats", []):
-        sub = (f'<div style="font-size:11px;color:{c["dim"]};'
-               f'margin-top:2px;">{_inline_md(t["sub"])}</div>'
-               if t.get("sub") else "")
+        sub = (
+            f'<div style="font-size:11px;color:{c["dim"]};'
+            f'margin-top:2px;">{_inline_md(t["sub"])}</div>'
+            if t.get("sub")
+            else ""
+        )
         stats_cells += (
             f'<td style="background:{c["surface"]};border:1px solid '
-            f'{c["line"]};border-radius:8px;padding:10px 12px;'
+            f"{c['line']};border-radius:8px;padding:10px 12px;"
             'vertical-align:top;">'
             f'<div style="font-size:10.5px;font-weight:bold;'
-            f'text-transform:uppercase;letter-spacing:0.06em;'
+            f"text-transform:uppercase;letter-spacing:0.06em;"
             f'color:{c["dim"]};">{dot(t["status"], 10)} '
-            f'{_esc(t["label"])}</div>'
+            f"{_esc(t['label'])}</div>"
             f'<div style="{mono}font-size:24px;color:{c["ink"]};'
             f'margin-top:2px;">{_esc(t["value"])}</div>{sub}</td>'
-            '<td style="width:8px;"></td>')
+            '<td style="width:8px;"></td>'
+        )
 
     sections_html = ""
     for s in doc.get("sections", []):
@@ -1434,67 +1715,80 @@ def render_email_html(doc: dict, narrative_md: str) -> str:
                 extra = len(chk["details"]) - len(shown)
                 items = "".join(
                     f'<li style="{mono}font-size:11px;color:{c["dim"]};'
-                    f'margin:2px 0;">{_inline_md(d)}</li>' for d in shown)
+                    f'margin:2px 0;">{_inline_md(d)}</li>'
+                    for d in shown
+                )
                 if extra > 0:
-                    items += (f'<li style="font-size:11px;color:{c["dim"]};">'
-                              f'&#8230; and {extra} more (see the Hub)</li>')
-                details = (f'<ul style="margin:4px 0 2px;'
-                           f'padding-left:18px;">{items}</ul>')
+                    items += (
+                        f'<li style="font-size:11px;color:{c["dim"]};">'
+                        f"&#8230; and {extra} more (see the Hub)</li>"
+                    )
+                details = f'<ul style="margin:4px 0 2px;padding-left:18px;">{items}</ul>'
             rows += (
                 f'<div style="padding:8px 0;border-bottom:1px solid '
                 f'{c["line"]};">'
                 f'<div style="font-size:13.5px;color:{c["ink"]};">'
-                f'{dot(chk["status"])} <strong>{_esc(chk["title"])}</strong> '
-                f'{tag(chk["status"])}</div>'
+                f"{dot(chk['status'])} <strong>{_esc(chk['title'])}</strong> "
+                f"{tag(chk['status'])}</div>"
                 f'<div style="font-size:13px;color:{c["ink"]};'
                 f'margin:2px 0 0 18px;">{_inline_md(chk["summary"])}</div>'
-                f'<div style="margin-left:18px;">{details}</div></div>')
+                f'<div style="margin-left:18px;">{details}</div></div>'
+            )
         sections_html += (
             f'<div style="background:{c["surface"]};border:1px solid '
-            f'{c["line"]};border-radius:10px;padding:14px 16px;'
+            f"{c['line']};border-radius:10px;padding:14px 16px;"
             'margin:0 0 14px;">'
             f'<div style="font-size:15px;font-weight:bold;'
-            f'color:{c["ink"]};padding-bottom:8px;border-bottom:1px solid '
+            f"color:{c['ink']};padding-bottom:8px;border-bottom:1px solid "
             f'{c["line"]};">{dot(worst)} {_esc(s["title"])}</div>'
-            f'{rows}</div>')
+            f"{rows}</div>"
+        )
 
     narrative_html = ""
     if narrative_md.strip():
         narrative_html = (
             f'<div style="background:{c["surface"]};border:1px solid '
-            f'{c["line"]};border-radius:10px;padding:14px 16px;'
+            f"{c['line']};border-radius:10px;padding:14px 16px;"
             'margin:0 0 14px;">'
             f'<div style="font-size:15px;font-weight:bold;color:{c["ink"]};'
             f'padding-bottom:8px;border-bottom:1px solid {c["line"]};">'
-            'Morning assessment</div>'
-            f'{styled_md(narrative_md)}</div>')
+            "Morning assessment</div>"
+            f"{styled_md(narrative_md)}</div>"
+        )
 
     prev = doc.get("previous_run_at")
-    prev_html = (f'<div style="{mono}font-size:12px;color:{c["dim"]};">'
-                 f'diffs vs {_esc(prev)}</div>' if prev else "")
+    prev_html = (
+        f'<div style="{mono}font-size:12px;color:{c["dim"]};">diffs vs {_esc(prev)}</div>'
+        if prev
+        else ""
+    )
 
     legend = " &nbsp;&nbsp; ".join(
-        f'{dot(k, 10)} <span style="font-size:11.5px;color:{c["dim"]};">'
-        f"{label}</span>"
-        for k, label in (("red", "Action needed"), ("yellow", "Watch"),
-                         ("blue", "Informational"), ("green", "Healthy")))
+        f'{dot(k, 10)} <span style="font-size:11.5px;color:{c["dim"]};">{label}</span>'
+        for k, label in (
+            ("red", "Action needed"),
+            ("yellow", "Watch"),
+            ("blue", "Informational"),
+            ("green", "Healthy"),
+        )
+    )
 
     return f"""<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Hub Ops Report</title></head>
-<body style="margin:0;padding:0;background:{c['bg']};">
+<body style="margin:0;padding:0;background:{c["bg"]};">
 <div style="max-width:720px;margin:0 auto;padding:20px 16px 40px;
-font-family:Arial,'Helvetica Neue',sans-serif;color:{c['ink']};">
-  <div style="padding-bottom:14px;border-bottom:2px solid {c['line']};
+font-family:Arial,'Helvetica Neue',sans-serif;color:{c["ink"]};">
+  <div style="padding-bottom:14px;border-bottom:2px solid {c["line"]};
   margin-bottom:16px;">
     <div style="font-size:20px;font-weight:bold;">{dot(overall, 14)}
     Hub Ops Report &nbsp;
-    <span style="background:{c[overall + '_soft']};color:{c[overall]};
+    <span style="background:{c[overall + "_soft"]};color:{c[overall]};
     font-size:13px;padding:3px 10px;border-radius:999px;">{overall_word}</span>
     </div>
     <div style="margin-top:6px;">{tally}</div>
-    <div style="{mono}font-size:12px;color:{c['dim']};margin-top:6px;">
-    {_esc(doc.get('generated_at_local', ''))}</div>
+    <div style="{mono}font-size:12px;color:{c["dim"]};margin-top:6px;">
+    {_esc(doc.get("generated_at_local", ""))}</div>
     {prev_html}
   </div>
   <table role="presentation" cellpadding="0" cellspacing="0"
@@ -1503,7 +1797,7 @@ font-family:Arial,'Helvetica Neue',sans-serif;color:{c['ink']};">
   {narrative_html}
   {sections_html}
   <div style="margin-top:16px;">{legend}</div>
-  <div style="font-size:11.5px;color:{c['dim']};margin-top:10px;">
+  <div style="font-size:11.5px;color:{c["dim"]};margin-top:10px;">
   The interactive version lives in the Hub under
   Admin &#8594; System &#8594; Daily Ops Report.</div>
 </div>
@@ -1514,8 +1808,8 @@ font-family:Arial,'Helvetica Neue',sans-serif;color:{c['ink']};">
 
 # ------------------------------------------------------------- orchestrate
 
-def generate_ops_report(reporter=None, hours_back: int = 24,
-                        send_email: bool = True) -> dict:
+
+def generate_ops_report(reporter=None, hours_back: int = 24, send_email: bool = True) -> dict:
     """Collect, narrate, render, store, and email the daily ops report.
 
     Returns a summary dict (also merged into process_stats via the caller's
@@ -1536,12 +1830,16 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
     if pruned:
         for sec in doc.get("sections", []):
             if sec.get("title") == "Users & access":
-                sec["checks"].append({
-                    "title": "Pruned unverified signups", "status": "yellow",
-                    "summary": f"{len(pruned)} account(s) deleted: signed up more than "
-                               f"{UNVERIFIED_PRUNE_DAYS} days ago and never verified "
-                               f"their email",
-                    "details": pruned})
+                sec["checks"].append(
+                    {
+                        "title": "Pruned unverified signups",
+                        "status": "yellow",
+                        "summary": f"{len(pruned)} account(s) deleted: signed up more than "
+                        f"{UNVERIFIED_PRUNE_DAYS} days ago and never verified "
+                        f"their email",
+                        "details": pruned,
+                    }
+                )
                 break
 
     progress(55, "Writing the assessment...")
@@ -1553,19 +1851,23 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
     progress(85, "Storing the report...")
     tz = _local_tz()
     day = _now().astimezone(tz).strftime("%Y-%m-%d")
-    data_io.save_text(data=page, storage_location="cache",
-                      filename=f"{REPORT_DIR}/latest.html")
-    data_io.save_text(data=page, storage_location="cache",
-                      filename=f"{REPORT_DIR}/report_{day}.html")
-    meta = {"generated_at": doc["generated_at"],
-            "generated_at_local": doc["generated_at_local"],
-            "overall": doc["overall"], "counts": doc["counts"],
-            "narrative_source": narrative_source, "narrative": narrative_md}
-    data_io.save_json(data=meta, storage_location="cache",
-                      filename=f"{REPORT_DIR}/latest.json")
+    data_io.save_text(data=page, storage_location="cache", filename=f"{REPORT_DIR}/latest.html")
+    data_io.save_text(
+        data=page, storage_location="cache", filename=f"{REPORT_DIR}/report_{day}.html"
+    )
+    meta = {
+        "generated_at": doc["generated_at"],
+        "generated_at_local": doc["generated_at_local"],
+        "overall": doc["overall"],
+        "counts": doc["counts"],
+        "narrative_source": narrative_source,
+        "narrative": narrative_md,
+    }
+    data_io.save_json(data=meta, storage_location="cache", filename=f"{REPORT_DIR}/latest.json")
     if new_state:
-        data_io.save_json(data=new_state, storage_location="cache",
-                          filename=f"{REPORT_DIR}/state.json")
+        data_io.save_json(
+            data=new_state, storage_location="cache", filename=f"{REPORT_DIR}/state.json"
+        )
     _prune_dated_reports(data_io)
 
     email_sent = False
@@ -1573,10 +1875,17 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
         progress(92, "Emailing the report...")
         email_sent = _email_report(render_email_html(doc, narrative_md), doc)
 
-    progress(100, f"Ops report done — overall {doc['overall']}, "
-                  f"email {'sent' if email_sent else 'not sent'}.")
-    return {"overall": doc["overall"], "counts": doc["counts"],
-            "narrative_source": narrative_source, "email_sent": email_sent}
+    progress(
+        100,
+        f"Ops report done — overall {doc['overall']}, "
+        f"email {'sent' if email_sent else 'not sent'}.",
+    )
+    return {
+        "overall": doc["overall"],
+        "counts": doc["counts"],
+        "narrative_source": narrative_source,
+        "email_sent": email_sent,
+    }
 
 
 # Self-service signups that never verify their address are deleted after
@@ -1589,6 +1898,7 @@ def _prune_unverified_signups() -> list[str]:
     """Delete stale unverified signups; returns the usernames removed."""
     try:
         from web_interface.security import user_manager
+
         removed = user_manager.prune_unverified_signups(max_age_days=UNVERIFIED_PRUNE_DAYS)
     except Exception as e:
         logger.warning(f"ops_report: unverified-signup prune failed: {e}")
@@ -1600,9 +1910,11 @@ def _prune_unverified_signups() -> list[str]:
 
 def _prune_dated_reports(data_io):
     try:
-        dated = sorted(n for n in data_io.listdir(storage_location="cache")
-                       if n.startswith(f"{REPORT_DIR}/report_")
-                       and n.endswith(".html"))
+        dated = sorted(
+            n
+            for n in data_io.listdir(storage_location="cache")
+            if n.startswith(f"{REPORT_DIR}/report_") and n.endswith(".html")
+        )
         for name in dated[:-KEEP_DATED_REPORTS]:
             data_io.remove(storage_location="cache", filename=name)
     except Exception as e:
@@ -1611,19 +1923,26 @@ def _prune_dated_reports(data_io):
 
 def _email_report(page: str, doc: dict) -> bool:
     from web_interface.mail_utils import _send_html_email, _site
+
     site = _site()
-    recipient = str(site.get("ops_report_email", "")
-                    or site.get("mail_sender", "") or "").strip()
+    recipient = str(site.get("ops_report_email", "") or site.get("mail_sender", "") or "").strip()
     if not recipient:
-        logger.warning("ops_report: no recipient configured "
-                       "([site].ops_report_email / [site].mail_sender); "
-                       "skipping email")
+        logger.warning(
+            "ops_report: no recipient configured "
+            "([site].ops_report_email / [site].mail_sender); "
+            "skipping email"
+        )
         return False
-    overall_word = {"green": "all clear", "blue": "normal activity",
-                    "yellow": "needs a look",
-                    "red": "ACTION NEEDED"}.get(doc.get("overall"), "")
+    overall_word = {
+        "green": "all clear",
+        "blue": "normal activity",
+        "yellow": "needs a look",
+        "red": "ACTION NEEDED",
+    }.get(doc.get("overall"), "")
     counts = doc.get("counts", {})
-    subject = (f"Hub ops report {_now().astimezone(_local_tz()).strftime('%Y-%m-%d')}"
-               f" — {overall_word} ({counts.get('red', 0)} red, "
-               f"{counts.get('yellow', 0)} yellow)")
+    subject = (
+        f"Hub ops report {_now().astimezone(_local_tz()).strftime('%Y-%m-%d')}"
+        f" — {overall_word} ({counts.get('red', 0)} red, "
+        f"{counts.get('yellow', 0)} yellow)"
+    )
     return _send_html_email(recipient, subject, page)

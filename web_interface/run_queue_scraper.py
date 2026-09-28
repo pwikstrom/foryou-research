@@ -36,15 +36,26 @@ MAX_BATCH_SIZE = 1000
 _DISPATCH_DEADLINE = 1800
 
 
-def _journal_scrape_finished(*, platform: str, reason: str, ok: int, permanent: int,
-                             transient: int, given_up: int, queue_remaining: int,
-                             batches: int, started_by: str | None) -> None:
+def _journal_scrape_finished(
+    *,
+    platform: str,
+    reason: str,
+    ok: int,
+    permanent: int,
+    transient: int,
+    given_up: int,
+    queue_remaining: int,
+    batches: int,
+    started_by: str | None,
+) -> None:
     """One history line per finished scraper run. Never raises."""
     try:
         from web_interface.services import enrichment_journal as journal
 
-        message = (f"{journal.platform_label(platform)} scrape finished — "
-                   f"{ok:,} OK, {permanent:,} failed for good")
+        message = (
+            f"{journal.platform_label(platform)} scrape finished — "
+            f"{ok:,} OK, {permanent:,} failed for good"
+        )
         if transient:
             message += f", {transient:,} to be retried"
         if given_up:
@@ -52,11 +63,20 @@ def _journal_scrape_finished(*, platform: str, reason: str, ok: int, permanent: 
         message += f"; {queue_remaining:,} still queued" if queue_remaining else "; queue empty"
         if reason:
             message += f" ({reason})"
-        journal.record("scrape.finished", message, platform=platform,
-                       actor=started_by or None, worker=f"queue_scraper_{platform}",
-                       ok=ok, permanent=permanent, transient=transient,
-                       given_up=given_up, queue_remaining=queue_remaining,
-                       batches=batches, reason=reason or None)
+        journal.record(
+            "scrape.finished",
+            message,
+            platform=platform,
+            actor=started_by or None,
+            worker=f"queue_scraper_{platform}",
+            ok=ok,
+            permanent=permanent,
+            transient=transient,
+            given_up=given_up,
+            queue_remaining=queue_remaining,
+            batches=batches,
+            reason=reason or None,
+        )
     except Exception:
         pass
 
@@ -136,12 +156,12 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # platform's bot wall. Platforms with nothing to report return None.
     health = get_scraper(platform).health_check()
     if health is not None:
-        status = health.get('status')
-        message = health.get('message')
-        if status in ('expired', 'missing'):
+        status = health.get("status")
+        message = health.get("message")
+        if status in ("expired", "missing"):
             reporter.log(f"WARNING: {platform} auth/health {status} — {message}")
             reporter.log("Continuing without authentication. Expect elevated failure rate.")
-        elif status in ('expiring_soon', 'stale'):
+        elif status in ("expiring_soon", "stale"):
             reporter.log(f"NOTE: {platform} auth/health {status} — {message}")
         else:
             reporter.log(f"{platform} health: {message}")
@@ -175,8 +195,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     )
 
     pct_before = int(already_done / overall_total * 100) if overall_total else 0
-    reporter.update_progress(pct_before,
-        f"Batch {batch_label}: scraping {len(batch):,} videos")
+    reporter.update_progress(pct_before, f"Batch {batch_label}: scraping {len(batch):,} videos")
     reporter.emit_data({"threads": 4})
 
     def _on_threads_change(n: int) -> None:
@@ -206,7 +225,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # deferred items stay queued and are picked up by the next chain, which
     # runs in a freshly recycled worker with reset memory. This is NOT a
     # circuit-breaker abort — chaining continues normally.
-    if results_df.attrs.get('memory_stop'):
+    if results_df.attrs.get("memory_stop"):
         reporter.log(
             "Batch stopped early by the memory safety valve — completed items "
             "saved; remaining items deferred to the next (fresh) batch."
@@ -217,9 +236,11 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         good_ids = results_df["item_id"].to_list()
 
     pct_after = int((already_done + len(batch)) / overall_total * 100) if overall_total else 100
-    reporter.update_progress(pct_after,
+    reporter.update_progress(
+        pct_after,
         f"Batch {batch_label} done: {len(good_ids)} OK, "
-        f"{len(permanent_failed)} permanent fail, {len(transient_failed)} transient")
+        f"{len(permanent_failed)} permanent fail, {len(transient_failed)} transient",
+    )
 
     # ---- Update queue: remove successful + permanently failed items ----
     # prune_scrape_queue reloads fresh to avoid clobbering concurrent writes.
@@ -250,9 +271,17 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # progress clears only the strikes of the items it pruned. Storm /
     # circuit-breaker / memory aborts never charge strikes — those verdicts
     # implicate the scraper, not the items.
-    batch_aborted = any(results_df.attrs.get(k) for k in (
-        'circuit_breaker_tripped', 'permanent_storm_tripped',
-        'transient_storm_tripped', 'memory_stop', 'session_expired', 'offline'))
+    batch_aborted = any(
+        results_df.attrs.get(k)
+        for k in (
+            "circuit_breaker_tripped",
+            "permanent_storm_tripped",
+            "transient_storm_tripped",
+            "memory_stop",
+            "session_expired",
+            "offline",
+        )
+    )
     given_up: list[str] = []
     if pruned_this_batch > 0:
         scrape_queues.clear_zero_progress(platform, items_to_remove)
@@ -261,10 +290,9 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         if exhausted:
             given_up = list(exhausted)
             record_failed_scrapes(
-                [{"item_id": v, "category": "permanent:retry_exhausted"}
-                 for v in exhausted])
-            gave_up, queue_remaining = scrape_queues.prune_scrape_queue(
-                platform, set(exhausted))
+                [{"item_id": v, "category": "permanent:retry_exhausted"} for v in exhausted]
+            )
+            gave_up, queue_remaining = scrape_queues.prune_scrape_queue(platform, set(exhausted))
             pruned_this_batch += gave_up
             reporter.emit_data({"scrape_queue_len": queue_remaining})
             reporter.log(
@@ -281,13 +309,15 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # item is pruned and its metadata-only row stands (no ledger entry — the
     # metadata did scrape). An aborted batch never charges, but every id that
     # left the queue drops its strikes either way.
-    media_retry = list(results_df.attrs.get('media_retry_ids') or [])
+    media_retry = list(results_df.attrs.get("media_retry_ids") or [])
     if media_retry or items_to_remove:
         media_exhausted = scrape_queues.charge_media_retry(
-            platform, [] if batch_aborted else media_retry, items_to_remove)
+            platform, [] if batch_aborted else media_retry, items_to_remove
+        )
         if media_exhausted:
             gave_up, queue_remaining = scrape_queues.prune_scrape_queue(
-                platform, set(media_exhausted))
+                platform, set(media_exhausted)
+            )
             pruned_this_batch += gave_up
             reporter.emit_data({"scrape_queue_len": queue_remaining})
             reporter.log(
@@ -297,9 +327,11 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
                 f"{queue_remaining:,} remaining."
             )
 
-    if results_df.attrs.get('batch_deadline_hit'):
-        reporter.log("Batch deadline hit — completed rows saved; unfinished items "
-                     "stay queued for the next batch.")
+    if results_df.attrs.get("batch_deadline_hit"):
+        reporter.log(
+            "Batch deadline hit — completed rows saved; unfinished items "
+            "stay queued for the next batch."
+        )
 
     def _finish(reason: str) -> None:
         """The run's one history line, whichever exit the chain takes.
@@ -308,16 +340,20 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         totals (carried in ``cumulative_*``) and how the queue was left.
         """
         _journal_scrape_finished(
-            platform=platform, reason=reason,
+            platform=platform,
+            reason=reason,
             ok=cumulative_ok + len(good_ids),
             permanent=cumulative_fail + len(permanent_failed),
-            transient=len(transient_failed), given_up=len(given_up),
-            queue_remaining=queue_remaining, batches=chunk_index + 1,
-            started_by=task_args.get("started_by"))
+            transient=len(transient_failed),
+            given_up=len(given_up),
+            queue_remaining=queue_remaining,
+            batches=chunk_index + 1,
+            started_by=task_args.get("started_by"),
+        )
         return None
 
     # ---- Check whether to chain ----
-    if results_df.attrs.get('offline'):
+    if results_df.attrs.get("offline"):
         reporter.log(
             "The network stayed offline past the wait. Stopping the chain; "
             "unfinished items stay queued, uncharged, and no scraper alert was "
@@ -326,7 +362,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"offline": True})
         return _finish("stopped — the network was offline")
 
-    if results_df.attrs.get('session_expired'):
+    if results_df.attrs.get("session_expired"):
         reporter.log(
             f"The platform logged the {platform} scraper's session out. Stopping the "
             f"chain; items that need the login stay queued, uncharged. Log in again, "
@@ -335,7 +371,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"session_expired": True})
         return _finish("stopped — the platform logged the session out")
 
-    if results_df.attrs.get('circuit_breaker_tripped'):
+    if results_df.attrs.get("circuit_breaker_tripped"):
         reporter.log(
             "Rate-limit circuit breaker tripped — the platform is throttling "
             "this session. Stopping the chain; unfinished items stay in the "
@@ -345,7 +381,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"circuit_breaker_tripped": True})
         return _finish("stopped by the rate-limit circuit breaker")
 
-    if results_df.attrs.get('permanent_storm_tripped'):
+    if results_df.attrs.get("permanent_storm_tripped"):
         reporter.log(
             f"Permanent-failure storm detected "
             f"({results_df.attrs.get('permanent_storm_category')}): every item is "
@@ -357,7 +393,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"permanent_storm_tripped": True})
         return _finish("stopped by a permanent-failure storm")
 
-    if results_df.attrs.get('transient_storm_tripped'):
+    if results_df.attrs.get("transient_storm_tripped"):
         reporter.log(
             f"Transient-failure storm detected "
             f"({results_df.attrs.get('transient_storm_category')}): every item is "
@@ -411,8 +447,6 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     }
 
 
-
-
 if __name__ == "__main__":
     import argparse
 
@@ -423,8 +457,15 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run queue scraper")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
-    parser.add_argument("--max-batches", type=int, default=None, help="Max batches (default: unlimited)")
-    parser.add_argument("--platform", type=str, default=None, help="Platform queue to drain (default: contract default)")
+    parser.add_argument(
+        "--max-batches", type=int, default=None, help="Max batches (default: unlimited)"
+    )
+    parser.add_argument(
+        "--platform",
+        type=str,
+        default=None,
+        help="Platform queue to drain (default: contract default)",
+    )
 
     args = parser.parse_args()
 
@@ -457,5 +498,6 @@ if __name__ == "__main__":
         reporter.fail(str(e))
         print(f"Queue scraping process failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

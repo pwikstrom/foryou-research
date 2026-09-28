@@ -52,23 +52,29 @@ def _make_corpus(seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             day = start + pd.Timedelta(days=d)
             n = max(1, per_day + int(rng.randint(-5, 6)))
             for _ in range(n):
-                rows.append({
-                    "collection_id": cid,
-                    "local_timestamp": day + pd.Timedelta(minutes=int(rng.randint(0, 1440))),
-                    "activity_type": rng.choice(["play", "observe", "like", "search"], p=[0.6, 0.25, 0.1, 0.05]),
-                    "item_id": items[int(rng.randint(0, n_items))],
-                })
+                rows.append(
+                    {
+                        "collection_id": cid,
+                        "local_timestamp": day + pd.Timedelta(minutes=int(rng.randint(0, 1440))),
+                        "activity_type": rng.choice(
+                            ["play", "observe", "like", "search"], p=[0.6, 0.25, 0.1, 0.05]
+                        ),
+                        "item_id": items[int(rng.randint(0, n_items))],
+                    }
+                )
     raw = pd.DataFrame(rows)
     raw["local_date"] = raw["local_timestamp"].dt.normalize()
 
     all_items = sorted(raw["item_id"].unique())
-    scraped = {i for i in all_items if hash(i) % 10 < 7}          # ~70% scraped
-    annotated = {i for i in scraped if hash(i) % 10 < 3}          # annotated subset of scraped
-    status = pd.DataFrame({
-        "item_id": all_items,
-        "scraped_ok": [i in scraped for i in all_items],
-        "annotated_ok": [i in annotated for i in all_items],
-    })
+    scraped = {i for i in all_items if hash(i) % 10 < 7}  # ~70% scraped
+    annotated = {i for i in scraped if hash(i) % 10 < 3}  # annotated subset of scraped
+    status = pd.DataFrame(
+        {
+            "item_id": all_items,
+            "scraped_ok": [i in scraped for i in all_items],
+            "annotated_ok": [i in annotated for i in all_items],
+        }
+    )
 
     windows = {
         "c1": (pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-30")),
@@ -157,8 +163,12 @@ def test_frame_off_full_range(corpus):
 def test_frame_off_date_window(corpus):
     selected = ["c1", "c3"]
     cells, coll, frame = _both_paths(corpus, selected)
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME="off",
-               START_DATE="2026-01-05", END_DATE="2026-02-20")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME="off",
+        START_DATE="2026-01-05",
+        END_DATE="2026-02-20",
+    )
     _assert_estimates_match(cells, coll, frame, cfg)
 
 
@@ -168,9 +178,14 @@ def test_sampling_uncapped(corpus, frame_setting):
 
     selected = ["c1", "c2", "c3", "c4"]
     cells, coll, frame = _both_paths(corpus, selected)
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME=frame_setting,
-               MIN_ACTIVITY_COUNT_PER_GROUP=10, MAX_ACTIVITY_COUNT_PER_GROUP="",
-               MIN_GROUP_COUNT_PER_COLLECTION=5, MAX_GROUP_COUNT_PER_COLLECTION="")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME=frame_setting,
+        MIN_ACTIVITY_COUNT_PER_GROUP=10,
+        MAX_ACTIVITY_COUNT_PER_GROUP="",
+        MIN_GROUP_COUNT_PER_COLLECTION=5,
+        MAX_GROUP_COUNT_PER_COLLECTION="",
+    )
     _assert_estimates_match(cells, coll, frame, cfg)
 
 
@@ -178,9 +193,14 @@ def test_sampling_min_filters_exclude_collections(corpus):
     selected = ["c1", "c2", "c3", "c4"]
     cells, coll, frame = _both_paths(corpus, selected)
     # c2 (~8 rows/day) fails min_events=15; c4 (5 days) fails min_cells=8.
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME="activities",
-               MIN_ACTIVITY_COUNT_PER_GROUP=15, MAX_ACTIVITY_COUNT_PER_GROUP="",
-               MIN_GROUP_COUNT_PER_COLLECTION=8, MAX_GROUP_COUNT_PER_COLLECTION="")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME="activities",
+        MIN_ACTIVITY_COUNT_PER_GROUP=15,
+        MAX_ACTIVITY_COUNT_PER_GROUP="",
+        MIN_GROUP_COUNT_PER_COLLECTION=8,
+        MAX_GROUP_COUNT_PER_COLLECTION="",
+    )
     s_new, _ = _assert_estimates_match(cells, coll, frame, cfg)
     assert s_new["unique_collections"] == 2  # c1 + c3 survive
 
@@ -192,9 +212,14 @@ def test_sampling_capped_events(corpus):
 
     selected = ["c1", "c3"]
     cells, coll, frame = _both_paths(corpus, selected)
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME="activities",
-               MIN_ACTIVITY_COUNT_PER_GROUP=10, MAX_ACTIVITY_COUNT_PER_GROUP=15,
-               MIN_GROUP_COUNT_PER_COLLECTION=0, MAX_GROUP_COUNT_PER_COLLECTION="")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME="activities",
+        MIN_ACTIVITY_COUNT_PER_GROUP=10,
+        MAX_ACTIVITY_COUNT_PER_GROUP=15,
+        MIN_GROUP_COUNT_PER_COLLECTION=0,
+        MAX_GROUP_COUNT_PER_COLLECTION="",
+    )
     s_new, days_new, sparse_new, cells_new, rep_new = ss._estimate_from_cells(cells, coll, cfg)
     s_old, days_old, sparse_old, cells_old, rep_old = ss._estimate_from_prepared(frame, cfg)
     for k in EXACT_KEYS:
@@ -212,25 +237,36 @@ def test_sampling_stage2_downsampling(corpus):
 
     selected = ["c1", "c3"]
     cells, coll, frame = _both_paths(corpus, selected)
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME="activities",
-               MIN_ACTIVITY_COUNT_PER_GROUP=10, MAX_ACTIVITY_COUNT_PER_GROUP="",
-               MIN_GROUP_COUNT_PER_COLLECTION=0, MAX_GROUP_COUNT_PER_COLLECTION=20)
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME="activities",
+        MIN_ACTIVITY_COUNT_PER_GROUP=10,
+        MAX_ACTIVITY_COUNT_PER_GROUP="",
+        MIN_GROUP_COUNT_PER_COLLECTION=0,
+        MAX_GROUP_COUNT_PER_COLLECTION=20,
+    )
     s_new, days_new, _sp, cells_new, rep_new = ss._estimate_from_cells(cells, coll, cfg)
     s_old, days_old, _sp2, cells_old, rep_old = ss._estimate_from_prepared(frame, cfg)
     assert rep_new == rep_old
-    assert cells_new == cells_old            # both keep exactly max_cells per big collection
+    assert cells_new == cells_old  # both keep exactly max_cells per big collection
     assert s_new["unique_collections"] == s_old["unique_collections"]
     # Totals differ only by which cells were drawn; sizes are same order.
-    assert abs(s_new["total_activities"] - s_old["total_activities"]) \
-        <= 0.35 * max(s_old["total_activities"], 1)
+    assert abs(s_new["total_activities"] - s_old["total_activities"]) <= 0.35 * max(
+        s_old["total_activities"], 1
+    )
 
 
 def test_empty_after_min_events(corpus):
     selected = ["c2"]
     cells, coll, frame = _both_paths(corpus, selected)
-    cfg = _cfg(SELECTED_COLLECTIONS=selected, SAMPLE_FRAME="activities",
-               MIN_ACTIVITY_COUNT_PER_GROUP=10_000, MAX_ACTIVITY_COUNT_PER_GROUP="",
-               MIN_GROUP_COUNT_PER_COLLECTION=0, MAX_GROUP_COUNT_PER_COLLECTION="")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=selected,
+        SAMPLE_FRAME="activities",
+        MIN_ACTIVITY_COUNT_PER_GROUP=10_000,
+        MAX_ACTIVITY_COUNT_PER_GROUP="",
+        MIN_GROUP_COUNT_PER_COLLECTION=0,
+        MAX_GROUP_COUNT_PER_COLLECTION="",
+    )
     s_new, days_new, _s, _c, rep_new = ss._estimate_from_cells(cells, coll, cfg)
     s_old, days_old, _s2, _c2, rep_old = ss._estimate_from_prepared(frame, cfg)
     assert s_new == s_old
@@ -242,8 +278,12 @@ def test_no_selection_and_empty_window(corpus):
     cells, coll, frame = _both_paths(corpus, ["c1"])
     cfg = _cfg(SELECTED_COLLECTIONS=[], SAMPLE_FRAME="off")
     assert ss._estimate_from_cells(cells, coll, cfg)[0]["total_activities"] == 0
-    cfg = _cfg(SELECTED_COLLECTIONS=["c1"], SAMPLE_FRAME="off",
-               START_DATE="2030-01-01", END_DATE="2030-01-02")
+    cfg = _cfg(
+        SELECTED_COLLECTIONS=["c1"],
+        SAMPLE_FRAME="off",
+        START_DATE="2030-01-01",
+        END_DATE="2030-01-02",
+    )
     s_new, *_ = ss._estimate_from_cells(cells, coll, cfg)
     s_old, *_ = ss._estimate_from_prepared(frame, cfg)
     assert s_new == s_old
@@ -266,8 +306,12 @@ def test_universe_parity(corpus, window):
 
 def test_universe_no_selection(corpus):
     cells, coll, _ = _both_paths(corpus, ["c1"])
-    assert ss._universe_from_cells(cells, _cfg(SELECTED_COLLECTIONS=[])) == \
-        (0, 0, {"activities": 0, "scraped": 0, "annotated": 0}, False)
+    assert ss._universe_from_cells(cells, _cfg(SELECTED_COLLECTIONS=[])) == (
+        0,
+        0,
+        {"activities": 0, "scraped": 0, "annotated": 0},
+        False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +330,9 @@ def test_daily_counts_parity(corpus):
     sel = cells[cells["collection_id"].isin(selected)]
     win = sel[sel["n_act_inwin"] > 0]
     day_counts = win.groupby("day")["n_act_inwin"].sum().sort_index()
-    new = [{"date": pd.Timestamp(d).date().isoformat(), "count": int(c)} for d, c in day_counts.items()]
+    new = [
+        {"date": pd.Timestamp(d).date().isoformat(), "count": int(c)} for d, c in day_counts.items()
+    ]
     assert new == old
     assert int(win["n_act_inwin"].sum()) == len(df)
 
@@ -300,10 +346,12 @@ def test_daily_counts_parity(corpus):
 
 
 def _huge_cells() -> pd.DataFrame:
-    cells = pd.DataFrame({
-        "collection_id": ["c1", "c1", "c1"],
-        "day": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
-    })
+    cells = pd.DataFrame(
+        {
+            "collection_id": ["c1", "c1", "c1"],
+            "day": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+        }
+    )
     for col in pc._CELLS_INT_COLS:
         cells[col] = 300_000
     return cells
@@ -311,9 +359,15 @@ def _huge_cells() -> pd.DataFrame:
 
 def test_issues_severity_around_cap():
     cap = ss.get_study_activity_cap()
-    base = {"unique_videos": 0, "scraped_videos": 0, "annotated_videos": 0,
-            "activities_scraped": 0, "activities_annotated": 0,
-            "unique_collections": 1, "active_days": 1}
+    base = {
+        "unique_videos": 0,
+        "scraped_videos": 0,
+        "annotated_videos": 0,
+        "activities_scraped": 0,
+        "activities_annotated": 0,
+        "unique_collections": 1,
+        "active_days": 1,
+    }
 
     over = ss._derive_study_issues({**base, "total_activities": cap + 1}, 0, 10, True)
     assert any(i["severity"] == "error" and i["code"] == "too_big" for i in over)
@@ -343,8 +397,9 @@ def _study_client(monkeypatch, study_defs):
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.data_management.studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+    )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
     monkeypatch.setattr(studies_mod, "save_study_defs", lambda: None)
     monkeypatch.setitem(fyp_cf, "study_defs", study_defs)
@@ -361,10 +416,15 @@ def _study_client(monkeypatch, study_defs):
 
 def test_save_study_rejects_over_cap(monkeypatch):
     client = _study_client(monkeypatch, {})
-    res = client.post("/api/manage/studies/save", json={
-        "STUDY_NAME": "huge", "SELECTED_COLLECTIONS": ["c1"],
-        "SAMPLE_FRAME": "off", "definition_only": True,
-    })
+    res = client.post(
+        "/api/manage/studies/save",
+        json={
+            "STUDY_NAME": "huge",
+            "SELECTED_COLLECTIONS": ["c1"],
+            "SAMPLE_FRAME": "off",
+            "definition_only": True,
+        },
+    )
     assert res.status_code == 400
     body = res.get_json()
     assert "cap" in body and body["cap"]["exceeded"] is True
@@ -374,25 +434,39 @@ def test_save_study_rejects_over_cap(monkeypatch):
 def test_save_study_grandfathers_unchanged_shaping(monkeypatch):
     existing = {
         "huge": {
-            "SELECTED_COLLECTIONS": ["c1"], "SAMPLE_FRAME": "off",
-            "START_DATE": "", "END_DATE": "",
+            "SELECTED_COLLECTIONS": ["c1"],
+            "SAMPLE_FRAME": "off",
+            "START_DATE": "",
+            "END_DATE": "",
         },
     }
     client = _study_client(monkeypatch, existing)
     # Same shaping fields -> the (over-cap) study can still be saved untouched.
-    res = client.post("/api/manage/studies/save", json={
-        "STUDY_NAME": "huge", "SELECTED_COLLECTIONS": ["c1"],
-        "SAMPLE_FRAME": "off", "START_DATE": "", "END_DATE": "",
-        "definition_only": True,
-    })
+    res = client.post(
+        "/api/manage/studies/save",
+        json={
+            "STUDY_NAME": "huge",
+            "SELECTED_COLLECTIONS": ["c1"],
+            "SAMPLE_FRAME": "off",
+            "START_DATE": "",
+            "END_DATE": "",
+            "definition_only": True,
+        },
+    )
     assert res.status_code == 200, res.data
 
     # But changing a shaping field re-triggers the check.
-    res = client.post("/api/manage/studies/save", json={
-        "STUDY_NAME": "huge", "SELECTED_COLLECTIONS": ["c1"],
-        "SAMPLE_FRAME": "off", "START_DATE": "2026-01-01", "END_DATE": "2026-01-03",
-        "definition_only": True,
-    })
+    res = client.post(
+        "/api/manage/studies/save",
+        json={
+            "STUDY_NAME": "huge",
+            "SELECTED_COLLECTIONS": ["c1"],
+            "SAMPLE_FRAME": "off",
+            "START_DATE": "2026-01-01",
+            "END_DATE": "2026-01-03",
+            "definition_only": True,
+        },
+    )
     assert res.status_code == 400
 
 
@@ -403,10 +477,15 @@ def test_calculate_stats_returns_cap(monkeypatch, corpus):
     cells, coll = pc._build_preview_cells()
     client = _study_client(monkeypatch, {})
     monkeypatch.setattr(studies_mod, "get_preview_cells", lambda: (cells, coll))
-    res = client.post("/api/manage/studies/calculate_stats", json={
-        "STUDY_NAME": "__preview__", "PREVIEW_ONLY": True,
-        "SELECTED_COLLECTIONS": ["c1", "c3"], "SAMPLE_FRAME": "off",
-    })
+    res = client.post(
+        "/api/manage/studies/calculate_stats",
+        json={
+            "STUDY_NAME": "__preview__",
+            "PREVIEW_ONLY": True,
+            "SELECTED_COLLECTIONS": ["c1", "c3"],
+            "SAMPLE_FRAME": "off",
+        },
+    )
     assert res.status_code == 200
     body = res.get_json()
     assert body["status"] == "success"
@@ -456,12 +535,14 @@ def test_cross_collection_item_overlap(monkeypatch):
         for d in range(20):
             day = pd.Timestamp(start) + pd.Timedelta(days=d)
             for _ in range(30):
-                rows.append({
-                    "collection_id": cid,
-                    "local_timestamp": day + pd.Timedelta(minutes=int(rng.randint(0, 1440))),
-                    "activity_type": "play",
-                    "item_id": shared[int(rng.randint(0, 50))],   # every item shared
-                })
+                rows.append(
+                    {
+                        "collection_id": cid,
+                        "local_timestamp": day + pd.Timedelta(minutes=int(rng.randint(0, 1440))),
+                        "activity_type": "play",
+                        "item_id": shared[int(rng.randint(0, 50))],  # every item shared
+                    }
+                )
     raw = pd.DataFrame(rows)
     raw["local_date"] = raw["local_timestamp"].dt.normalize()
     status = pd.DataFrame({"item_id": shared, "scraped_ok": True, "annotated_ok": False})

@@ -16,10 +16,6 @@ SETTINGS_FILENAME = "admin_settings.json"
 ANNOTATION_BACKEND_KEY = "annotation_backend"
 
 
-
-
-
-
 def _load_settings() -> dict:
     """Load the admin settings JSON; empty dict on any failure."""
     try:
@@ -31,10 +27,6 @@ def _load_settings() -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-
-
 
 
 def get_annotation_backend() -> str:

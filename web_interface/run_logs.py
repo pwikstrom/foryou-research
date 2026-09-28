@@ -83,9 +83,17 @@ STATE_INTERRUPTED = "interrupted"
 # task_args keys that are plumbing rather than user intent — they would only
 # clutter the "Args:" banner line.
 _ARG_SKIP_KEYS = {
-    "log_run_id", "started_by", "launched_by", "phase", "chunk_index",
-    "next_task", "pipeline_remaining", "pipeline_stage_index",
-    "pipeline_stage_total", "pipeline_fanout", "pipeline_leaves",
+    "log_run_id",
+    "started_by",
+    "launched_by",
+    "phase",
+    "chunk_index",
+    "next_task",
+    "pipeline_remaining",
+    "pipeline_stage_index",
+    "pipeline_stage_total",
+    "pipeline_fanout",
+    "pipeline_leaves",
     "pipeline_fork_ts",
 }
 
@@ -98,15 +106,11 @@ _ARG_SUMMARISE_KEYS = {"arms_spec", "item_ids"}
 _guard = threading.local()
 
 
-
-
 def _cf() -> dict:
     """Lazy fyp_config accessor (keeps importing this module config-free)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
-
-
 
 
 def now_stamp() -> str:
@@ -116,8 +120,6 @@ def now_stamp() -> str:
         return datetime.now(tz=ZoneInfo(tz_name)).strftime("%H:%M:%S")
     except Exception:
         return datetime.now(UTC).strftime("%H:%M:%S")
-
-
 
 
 def _now_iso() -> str:
@@ -130,20 +132,14 @@ def _now_iso() -> str:
     return datetime.now(tz=tz).isoformat(timespec="seconds")
 
 
-
-
 def new_run_id() -> str:
     """Return a fresh run identifier: compact UTC timestamp plus a random tail."""
     return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
-
-
 def valid_key(key: str) -> bool:
     """Return True when ``key`` is safe to use as a log filename."""
     return bool(key) and bool(_KEY_RE.match(key))
-
-
 
 
 def log_filename(key: str) -> str:
@@ -163,8 +159,6 @@ def log_filename(key: str) -> str:
     return f"{LOG_PREFIX}/{key}.json"
 
 
-
-
 class _KeyState:
     """In-memory buffer and flusher thread for one status key."""
 
@@ -181,8 +175,6 @@ _states: dict[str, _KeyState] = {}
 _states_lock = threading.Lock()
 
 
-
-
 def _state(key: str) -> _KeyState:
     """Return (creating if needed) the buffer state for a status key."""
     with _states_lock:
@@ -193,13 +185,9 @@ def _state(key: str) -> _KeyState:
         return state
 
 
-
-
 def _empty_doc(key: str) -> dict:
     """Return an empty store document for a status key."""
     return {"version": 1, "key": key, "runs": []}
-
-
 
 
 def _coerce(doc, key: str) -> dict:
@@ -211,16 +199,12 @@ def _coerce(doc, key: str) -> dict:
     return doc
 
 
-
-
 def _find_run(doc: dict, run_id: str) -> dict | None:
     """Return the run record with ``run_id``, or None."""
     for run in doc.get("runs", []):
         if isinstance(run, dict) and run.get("run_id") == run_id:
             return run
     return None
-
-
 
 
 def _trim_run(run: dict, cap: int) -> None:
@@ -233,8 +217,6 @@ def _trim_run(run: dict, cap: int) -> None:
     if excess > 0:
         run["dropped"] = int(run.get("dropped", 0)) + excess
         run["lines"] = lines[-cap:]
-
-
 
 
 def _summarise_args(task_args: dict | None) -> str:
@@ -261,8 +243,6 @@ def _summarise_args(task_args: dict | None) -> str:
     return ", ".join(parts)
 
 
-
-
 def _banner(started_by: str, task_args: dict | None, mode: str) -> list[str]:
     """Return the opening lines written at the top of every run."""
     lines = [
@@ -275,20 +255,18 @@ def _banner(started_by: str, task_args: dict | None, mode: str) -> list[str]:
     return lines
 
 
-
-
 def _start_flusher(state: _KeyState) -> None:
     """Start the background flusher thread for a key (idempotent)."""
     if state.thread and state.thread.is_alive():
         return
     state.stop.clear()
     state.thread = threading.Thread(
-        target=_flush_loop, args=(state,), daemon=True,
+        target=_flush_loop,
+        args=(state,),
+        daemon=True,
         name=f"run-log-flush-{state.key}",
     )
     state.thread.start()
-
-
 
 
 def _stop_flusher(state: _KeyState) -> None:
@@ -300,18 +278,19 @@ def _stop_flusher(state: _KeyState) -> None:
         thread.join(timeout=5)
 
 
-
-
 def _flush_loop(state: _KeyState) -> None:
     """Flush a key's pending lines on a fixed interval until stopped."""
     while not state.stop.wait(FLUSH_INTERVAL):
         flush(state.key)
 
 
-
-
-def open_run(key: str, run_id: str = "", started_by: str = "",
-             task_args: dict | None = None, mode: str = "cloud") -> str:
+def open_run(
+    key: str,
+    run_id: str = "",
+    started_by: str = "",
+    task_args: dict | None = None,
+    mode: str = "cloud",
+) -> str:
     """Begin a new run for a process, archiving whatever came before it.
 
     Args:
@@ -337,8 +316,7 @@ def open_run(key: str, run_id: str = "", started_by: str = "",
         "state": STATE_RUNNING,
         "ended_at": None,
         "dropped": 0,
-        "lines": [f"[{now_stamp()}] {line}"
-                  for line in _banner(started_by, task_args, mode)],
+        "lines": [f"[{now_stamp()}] {line}" for line in _banner(started_by, task_args, mode)],
     }
 
     def _mutate(doc):
@@ -360,8 +338,12 @@ def open_run(key: str, run_id: str = "", started_by: str = "",
         state.run_id = run_id
         state.pending = []
     try:
-        data_io.update_json(storage_location=LOG_LOCATION, filename=log_filename(key),
-                            mutate=_mutate, default=_empty_doc(key))
+        data_io.update_json(
+            storage_location=LOG_LOCATION,
+            filename=log_filename(key),
+            mutate=_mutate,
+            default=_empty_doc(key),
+        )
     except Exception as e:
         logger.warning(f"Could not open process log for '{key}': {e}")
         return ""
@@ -369,10 +351,13 @@ def open_run(key: str, run_id: str = "", started_by: str = "",
     return run_id
 
 
-
-
-def attach_run(key: str, run_id: str = "", started_by: str = "",
-               task_args: dict | None = None, mode: str = "cloud") -> str:
+def attach_run(
+    key: str,
+    run_id: str = "",
+    started_by: str = "",
+    task_args: dict | None = None,
+    mode: str = "cloud",
+) -> str:
     """Adopt an already-open run, or open a new one.
 
     The Cloud Tasks path opens a run at dispatch time (in the web service, which
@@ -399,8 +384,11 @@ def attach_run(key: str, run_id: str = "", started_by: str = "",
             doc = _load(key)
             runs = doc.get("runs", [])
             newest = runs[-1] if runs else None
-            if (isinstance(newest, dict) and newest.get("run_id") == run_id
-                    and newest.get("state") == STATE_RUNNING):
+            if (
+                isinstance(newest, dict)
+                and newest.get("run_id") == run_id
+                and newest.get("state") == STATE_RUNNING
+            ):
                 state = _state(key)
                 with state.lock:
                     state.run_id = run_id
@@ -408,10 +396,7 @@ def attach_run(key: str, run_id: str = "", started_by: str = "",
                 return run_id
         except Exception as e:
             logger.warning(f"Could not attach to process log for '{key}': {e}")
-    return open_run(key, run_id=run_id, started_by=started_by,
-                    task_args=task_args, mode=mode)
-
-
+    return open_run(key, run_id=run_id, started_by=started_by, task_args=task_args, mode=mode)
 
 
 def append(key: str, message: str) -> None:
@@ -449,8 +434,6 @@ def append(key: str, message: str) -> None:
         logger.warning(f"Could not append to process log for '{key}': {e}")
 
 
-
-
 def flush(key: str) -> None:
     """Write a key's buffered lines to storage. Never raises.
 
@@ -477,19 +460,20 @@ def flush(key: str) -> None:
 
         _guard.writing = True
         try:
-            data_io.update_json(storage_location=LOG_LOCATION,
-                                filename=log_filename(key), mutate=_mutate,
-                                default=_empty_doc(key))
+            data_io.update_json(
+                storage_location=LOG_LOCATION,
+                filename=log_filename(key),
+                mutate=_mutate,
+                default=_empty_doc(key),
+            )
         finally:
             _guard.writing = False
 
         # Drop exactly what was persisted; anything appended meanwhile stays.
         with state.lock:
-            state.pending = state.pending[len(pending):]
+            state.pending = state.pending[len(pending) :]
     except Exception as e:
         logger.warning(f"Could not flush process log for '{key}': {e}")
-
-
 
 
 def detach(key: str) -> None:
@@ -507,8 +491,6 @@ def detach(key: str) -> None:
         _stop_flusher(_state(key))
     except Exception as e:
         logger.warning(f"Could not detach process log for '{key}': {e}")
-
-
 
 
 def finalize(key: str, state_name: str = STATE_COMPLETED) -> None:
@@ -553,14 +535,18 @@ def finalize(key: str, state_name: str = STATE_COMPLETED) -> None:
             if not local:
                 # No local buffer to append the footer through.
                 run.setdefault("lines", []).append(
-                    f"[{now_stamp()}] {'═' * 8} Run {state_name} · {ended_at} {'═' * 8}")
+                    f"[{now_stamp()}] {'═' * 8} Run {state_name} · {ended_at} {'═' * 8}"
+                )
             return doc
 
         _guard.writing = True
         try:
-            data_io.update_json(storage_location=LOG_LOCATION,
-                                filename=log_filename(key), mutate=_mutate,
-                                default=_empty_doc(key))
+            data_io.update_json(
+                storage_location=LOG_LOCATION,
+                filename=log_filename(key),
+                mutate=_mutate,
+                default=_empty_doc(key),
+            )
         finally:
             _guard.writing = False
 
@@ -570,8 +556,6 @@ def finalize(key: str, state_name: str = STATE_COMPLETED) -> None:
     except Exception as e:
         _guard.writing = False
         logger.warning(f"Could not finalize process log for '{key}': {e}")
-
-
 
 
 def abort_run(key: str, reason: str) -> None:
@@ -593,10 +577,7 @@ def _load(key: str) -> dict:
     filename = log_filename(key)
     if not data_io.exists(storage_location=LOG_LOCATION, filename=filename):
         return _empty_doc(key)
-    return _coerce(data_io.load_json(storage_location=LOG_LOCATION,
-                                     filename=filename), key)
-
-
+    return _coerce(data_io.load_json(storage_location=LOG_LOCATION, filename=filename), key)
 
 
 def _run_meta(run: dict) -> dict:
@@ -611,8 +592,6 @@ def _run_meta(run: dict) -> dict:
         "ended_at": run.get("ended_at"),
         "line_count": len(lines) + int(run.get("dropped", 0)),
     }
-
-
 
 
 def read(key: str, run_id: str = "", since: int = 0) -> dict:
@@ -672,8 +651,6 @@ def read(key: str, run_id: str = "", since: int = 0) -> dict:
         return empty
 
 
-
-
 def clear(key: str) -> bool:
     """Delete a process's whole run history. Never raises.
 
@@ -698,8 +675,6 @@ def clear(key: str) -> bool:
     except Exception as e:
         logger.warning(f"Could not clear process log for '{key}': {e}")
         return False
-
-
 
 
 class ReporterLogHandler(logging.Handler):

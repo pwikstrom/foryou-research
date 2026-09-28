@@ -62,25 +62,25 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         ("playlists/Favorites videos.csv", "save", "Playlist video creation timestamp"),
     ]
     _VIDEO_ID_RE = re.compile(r"^[\w-]{11}$")
-    _BODY_RE = re.compile(r'body-1[^>]*>(.*?)</div>', re.S)
+    _BODY_RE = re.compile(r"body-1[^>]*>(.*?)</div>", re.S)
     _CAPTION_RE = re.compile(r'mdl-typography--caption">(.*?)</div>', re.S)
-    _VIDEO_RE = re.compile(r'watch\?v=([\w-]{11})')
+    _VIDEO_RE = re.compile(r"watch\?v=([\w-]{11})")
     _TITLE_RE = re.compile(r'watch\?v=[\w-]{11}[^"]*">(.*?)</a>', re.S)
     _CHANNEL_RE = re.compile(r'/channel/([\w-]+)"[^>]*>(.*?)</a>', re.S)
-    _CHANNEL_ID_RE = re.compile(r'/channel/([\w-]+)')
+    _CHANNEL_ID_RE = re.compile(r"/channel/([\w-]+)")
     # Takeout renders timestamps in the account's display locale. Supported:
     # day-first ("29 Jun 2026, 21:43:42 AEST", September as "Sept", June/July in
     # full) and US month-first 12-hour ("Apr 4, 2024, 5:36:02 PM PDT"), with an
     # abbreviated zone or a "GMT+05:30"-style offset. AM/PM may be preceded by
     # a narrow/regular no-break space in newer exports.
     _TS_RE = re.compile(
-        r'(\d{1,2} [A-Za-z]{3,9} \d{4}|[A-Za-z]{3,9} \d{1,2}, \d{4}), '
-        r'(\d{1,2}:\d{2}:\d{2})'
-        r'(?:[\s\u202f\u00a0]*([APap][Mm]))?'
-        r'[\s\u202f\u00a0]+([A-Z]{2,5}(?:[+-]\d{1,2}:?\d{2})?)'
+        r"(\d{1,2} [A-Za-z]{3,9} \d{4}|[A-Za-z]{3,9} \d{1,2}, \d{4}), "
+        r"(\d{1,2}:\d{2}:\d{2})"
+        r"(?:[\s\u202f\u00a0]*([APap][Mm]))?"
+        r"[\s\u202f\u00a0]+([A-Z]{2,5}(?:[+-]\d{1,2}:?\d{2})?)"
     )
-    _GMT_OFFSET_RE = re.compile(r'^(?:GMT|UTC)([+-])(\d{1,2}):?(\d{2})$')
-    _MONTH_NORM_RE = re.compile(r'([A-Za-z]{3})[A-Za-z]*')
+    _GMT_OFFSET_RE = re.compile(r"^(?:GMT|UTC)([+-])(\d{1,2}):?(\d{2})$")
+    _MONTH_NORM_RE = re.compile(r"([A-Za-z]{3})[A-Za-z]*")
 
     # Timezone abbreviation -> UTC offset (hours). Some abbreviations are
     # ambiguous across regions; those get the interpretation most common in
@@ -88,17 +88,37 @@ class YouTubeDDPCollection(ForYouBaseCollection):
     # reported per file so mislabelled donations stay auditable. Unknown
     # abbreviations fall back to the project timezone's offset.
     _TZ_OFFSETS = {
-        "AEST": 10, "AEDT": 11, "ACST": 9.5, "ACDT": 10.5, "AWST": 8,
-        "NZST": 12, "NZDT": 13, "GMT": 0, "UTC": 0, "BST": 1, "IST": 5.5,
-        "CET": 1, "CEST": 2, "EET": 2, "EEST": 3, "WET": 0, "WEST": 1,
-        "EST": -5, "EDT": -4, "CST": -6, "CDT": -5, "MST": -7, "MDT": -6,
-        "PST": -8, "PDT": -7, "HKT": 8, "JST": 9, "KST": 9, "SGT": 8,
+        "AEST": 10,
+        "AEDT": 11,
+        "ACST": 9.5,
+        "ACDT": 10.5,
+        "AWST": 8,
+        "NZST": 12,
+        "NZDT": 13,
+        "GMT": 0,
+        "UTC": 0,
+        "BST": 1,
+        "IST": 5.5,
+        "CET": 1,
+        "CEST": 2,
+        "EET": 2,
+        "EEST": 3,
+        "WET": 0,
+        "WEST": 1,
+        "EST": -5,
+        "EDT": -4,
+        "CST": -6,
+        "CDT": -5,
+        "MST": -7,
+        "MDT": -6,
+        "PST": -8,
+        "PDT": -7,
+        "HKT": 8,
+        "JST": 9,
+        "KST": 9,
+        "SGT": 8,
     }
     _AMBIGUOUS_TZ = {"IST", "CST", "BST", "EST"}
-
-
-
-
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         super().__init__(collection_id, verbose)
@@ -106,16 +126,9 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         self.data_source = "ddp"
         self.min_required_rows_per_raw_file = 10
 
-
-
-
-
     @classmethod
     def accepted_upload_suffixes(cls) -> list[str]:
         return [".zip"]
-
-
-
 
     @classmethod
     def zip_member_suffixes(cls) -> list[str]:
@@ -123,9 +136,6 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         return [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML] + [
             suffix for suffix, _, _ in cls._ENGAGEMENT_MEMBERS
         ]
-
-
-
 
     # Participant-facing card titles for the pre-upload review UI.
     _REVIEW_CSV_TITLES = {
@@ -145,14 +155,27 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         member from the upload, matching load_single_raw's JSON preference.
         """
         sections = [
-            {"id": cls._MEMBER_SUFFIX_JSON, "title": "Videos you watched",
-             "parser": "youtube_watch_json", "row_delete": True},
-            {"id": cls._MEMBER_SUFFIX_HTML, "title": "Videos you watched (HTML export)",
-             "parser": "opaque", "row_delete": False, "toggle_only": True,
-             "note": "This export format can only be included or excluded as a whole."},
+            {
+                "id": cls._MEMBER_SUFFIX_JSON,
+                "title": "Videos you watched",
+                "parser": "youtube_watch_json",
+                "row_delete": True,
+            },
+            {
+                "id": cls._MEMBER_SUFFIX_HTML,
+                "title": "Videos you watched (HTML export)",
+                "parser": "opaque",
+                "row_delete": False,
+                "toggle_only": True,
+                "note": "This export format can only be included or excluded as a whole.",
+            },
         ] + [
-            {"id": suffix, "title": cls._REVIEW_CSV_TITLES.get(suffix, suffix),
-             "parser": "csv", "row_delete": True}
+            {
+                "id": suffix,
+                "title": cls._REVIEW_CSV_TITLES.get(suffix, suffix),
+                "parser": "csv",
+                "row_delete": True,
+            }
             for suffix, _, _ in cls._ENGAGEMENT_MEMBERS
         ]
         return {
@@ -170,10 +193,6 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             },
             "sections": sections,
         }
-
-
-
-
 
     @classmethod
     def _parse_history(cls, html_text: str) -> list[dict]:
@@ -208,22 +227,20 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             caption = caption_match.group(1) if caption_match else ""
 
             ts_match = cls._TS_RE.search(body)
-            rows.append({
-                "item_id": item_id,
-                "is_ad": "From Google Ads" in caption,
-                "yt_date": ts_match.group(1) if ts_match else None,
-                "yt_time": ts_match.group(2) if ts_match else None,
-                "yt_ampm": ts_match.group(3) if ts_match else None,
-                "yt_tz": ts_match.group(4) if ts_match else None,
-                "seed_desc": title if title else pd.NA,
-                "seed_author_id": channel_id if channel_id else pd.NA,
-                "seed_author_name": channel_name if channel_name else pd.NA,
-            })
+            rows.append(
+                {
+                    "item_id": item_id,
+                    "is_ad": "From Google Ads" in caption,
+                    "yt_date": ts_match.group(1) if ts_match else None,
+                    "yt_time": ts_match.group(2) if ts_match else None,
+                    "yt_ampm": ts_match.group(3) if ts_match else None,
+                    "yt_tz": ts_match.group(4) if ts_match else None,
+                    "seed_desc": title if title else pd.NA,
+                    "seed_author_id": channel_id if channel_id else pd.NA,
+                    "seed_author_name": channel_name if channel_name else pd.NA,
+                }
+            )
         return rows
-
-
-
-
 
     @classmethod
     def _parse_history_json(cls, payload: list) -> list[dict]:
@@ -258,19 +275,17 @@ class YouTubeDDPCollection(ForYouBaseCollection):
                 for detail in details
             )
 
-            rows.append({
-                "item_id": video_match.group(1),
-                "is_ad": is_ad,
-                "yt_json_time": record.get("time"),
-                "seed_desc": title if title else pd.NA,
-                "seed_author_id": channel_match.group(1) if channel_match else pd.NA,
-                "seed_author_name": channel.get("name") or pd.NA,
-            })
+            rows.append(
+                {
+                    "item_id": video_match.group(1),
+                    "is_ad": is_ad,
+                    "yt_json_time": record.get("time"),
+                    "seed_desc": title if title else pd.NA,
+                    "seed_author_id": channel_match.group(1) if channel_match else pd.NA,
+                    "seed_author_name": channel.get("name") or pd.NA,
+                }
+            )
         return rows
-
-
-
-
 
     @classmethod
     def _parse_engagement(cls, members: dict[str, bytes | None], filename: str) -> pd.DataFrame:
@@ -301,19 +316,23 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             try:
                 csv_df = pd.read_csv(io.BytesIO(raw))
             except Exception as exc:
-                raise ValueError(f"'{filename}' member '{suffix}' is not parseable CSV: {exc}") from exc
+                raise ValueError(
+                    f"'{filename}' member '{suffix}' is not parseable CSV: {exc}"
+                ) from exc
             if "Video ID" not in csv_df.columns or ts_column not in csv_df.columns:
                 raise ValueError(
                     f"'{filename}' member '{suffix}' lacks the expected "
                     f"'Video ID' / '{ts_column}' columns"
                 )
-            part = pd.DataFrame({
-                "item_id": csv_df["Video ID"].astype("string").str.strip(),
-                "utc_timestamp": pd.to_datetime(
-                    csv_df[ts_column], utc=True, format="ISO8601", errors="coerce"
-                ),
-                "activity_type": activity_type,
-            })
+            part = pd.DataFrame(
+                {
+                    "item_id": csv_df["Video ID"].astype("string").str.strip(),
+                    "utc_timestamp": pd.to_datetime(
+                        csv_df[ts_column], utc=True, format="ISO8601", errors="coerce"
+                    ),
+                    "activity_type": activity_type,
+                }
+            )
             if activity_type == "comment" and "Comment text" in csv_df.columns:
                 part["extra_data"] = csv_df["Comment text"].astype("string").map(cls._comment_text)
             part = part[
@@ -326,9 +345,6 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         if not frames:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
-
-
-
 
     @staticmethod
     def _comment_text(cell) -> object:
@@ -343,11 +359,10 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             pass
         return cell
 
-
-
-
     @classmethod
-    def _convert_timestamps(cls, df: pd.DataFrame, donor_tz=None, notes: list[str] | None = None) -> pd.Series:
+    def _convert_timestamps(
+        cls, df: pd.DataFrame, donor_tz=None, notes: list[str] | None = None
+    ) -> pd.Series:
         """Vectorised conversion of the parsed timestamp components to UTC.
 
         Normalises the month token to its 3-letter form (Takeout renders
@@ -367,7 +382,9 @@ class YouTubeDDPCollection(ForYouBaseCollection):
                 (an ambiguous abbreviation, an unrecognised label), so the
                 caller can put it on the file's ledger entry.
         """
-        dates_raw = df["yt_date"].astype("string").str.replace(cls._MONTH_NORM_RE, r"\1", regex=True)
+        dates_raw = (
+            df["yt_date"].astype("string").str.replace(cls._MONTH_NORM_RE, r"\1", regex=True)
+        )
         dates = pd.to_datetime(dates_raw, format="%d %b %Y", errors="coerce")
         dates = dates.fillna(pd.to_datetime(dates_raw, format="%b %d, %Y", errors="coerce"))
 
@@ -395,7 +412,9 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         gmt_hours = pd.to_numeric(gmt_parts[1], errors="coerce").fillna(0)
         gmt_minutes = pd.to_numeric(gmt_parts[2], errors="coerce").fillna(0)
         gmt_offsets = gmt_sign * (gmt_hours + gmt_minutes / 60)
-        offsets = offsets.where(~(offsets.isna() & gmt_known), pd.Series(gmt_offsets, index=df.index))
+        offsets = offsets.where(
+            ~(offsets.isna() & gmt_known), pd.Series(gmt_offsets, index=df.index)
+        )
 
         unknown = offsets.isna() & (tz != "")
         ambiguous = tz.isin(cls._AMBIGUOUS_TZ)
@@ -428,10 +447,6 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         offsets = offsets.fillna(_config_timezone_offset())
 
         return (naive - pd.to_timedelta(offsets, unit="h")).dt.tz_localize("UTC")
-
-
-
-
 
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Extract the watch-history member from the Takeout zip and parse it.
@@ -496,7 +511,8 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             for note in tz_notes:
                 self.note_file(filename, note)
             hint = (
-                "" if donor_tz is not None
+                ""
+                if donor_tz is not None
                 else " — probably an unsupported display locale; set a donor "
                 "timezone in the upload form to bypass the label."
             )
@@ -525,10 +541,6 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             df = pd.concat([df, engagement], ignore_index=True)
         return df
 
-
-
-
-
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         """Flag ads vs organic watches and finalize the frame.
 
@@ -544,8 +556,3 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             df.loc[history, "is_ad"].eq(True), "ad_play", "play"
         )
         return derive_play_duration(self._finalize_activity_frame(df))
-
-
-
-
-

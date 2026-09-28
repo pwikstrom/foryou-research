@@ -58,9 +58,9 @@ def test_shims_were_actually_detected():
 
 def test_pool_worker_imports_no_alias_shim():
     offenders = sorted(
-        mod for mod in _imported_modules(_function("process_one_collection"))
-        if mod.startswith("fyp.") and mod.split(".")[1] in SHIMS
-        and len(mod.split(".")) == 2
+        mod
+        for mod in _imported_modules(_function("process_one_collection"))
+        if mod.startswith("fyp.") and mod.split(".")[1] in SHIMS and len(mod.split(".")) == 2
     )
     assert not offenders, (
         "process_one_collection runs in a ThreadPoolExecutor; these flat imports "
@@ -72,14 +72,15 @@ def test_pool_worker_imports_no_alias_shim():
 def test_warm_up_covers_every_lazy_import_the_pool_worker_makes():
     warmed = _imported_modules(_function("_warm_worker_imports"))
     # from fyp.analysis import timeline_analysis  ->  covers fyp.analysis.timeline_analysis
-    warmed |= {f"{m}.{a.name}"
-               for node in ast.walk(_function("_warm_worker_imports"))
-               if isinstance(node, ast.ImportFrom) and (m := node.module)
-               for a in node.names}
+    warmed |= {
+        f"{m}.{a.name}"
+        for node in ast.walk(_function("_warm_worker_imports"))
+        if isinstance(node, ast.ImportFrom) and (m := node.module)
+        for a in node.names
+    }
 
     missing = sorted(
-        mod for mod in _imported_modules(_function("process_one_collection"))
-        if mod not in warmed
+        mod for mod in _imported_modules(_function("process_one_collection")) if mod not in warmed
     )
     assert not missing, (
         "these modules are first resolved inside a pool thread and are not "
@@ -113,6 +114,7 @@ def test_the_real_import_trio_survives_a_thread_barrier(_run):
         barrier.wait()
         import fyp.data_io  # noqa: F401
         from fyp.analysis.timeline_analysis import analyse_timeline  # noqa: F401
+
         return True
 
     with ThreadPoolExecutor(max_workers=9) as pool:

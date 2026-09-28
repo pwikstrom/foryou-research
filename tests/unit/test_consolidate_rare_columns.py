@@ -31,12 +31,14 @@ def _mostly_failed_batch(n_total: int = 100, n_good: int = 5) -> pd.DataFrame:
     rows = []
     for i in range(n_total):
         good = i < n_good
-        rows.append({
-            "item_id": f"id_{i}",
-            "type_of_story": "descriptive" if good else None,
-            "objects": "['cat']" if good else None,
-            "main_gender": "female" if good else None,
-        })
+        rows.append(
+            {
+                "item_id": f"id_{i}",
+                "type_of_story": "descriptive" if good else None,
+                "objects": "['cat']" if good else None,
+                "main_gender": "female" if good else None,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -63,8 +65,8 @@ def test_similar_stray_key_is_consumed_but_dissimilar_is_retained():
     for i in range(100):
         row = {"item_id": f"id_{i}", "type_of_story": "descriptive"}
         if i < 3:
-            row["type_of_stroy"] = "human-interest"   # similar -> should merge
-            row["objects"] = "['cat']"                 # dissimilar -> should stay
+            row["type_of_stroy"] = "human-interest"  # similar -> should merge
+            row["objects"] = "['cat']"  # dissimilar -> should stay
         rows.append(row)
     df = pd.DataFrame(rows)
     out = ma.consolidate_rare_columns_from_gemini_output(df)
@@ -85,11 +87,13 @@ def test_similarity_threshold_separates_real_from_unrelated():
 
 def test_normal_batch_unchanged():
     """A healthy batch (all columns well populated) is returned intact."""
-    df = pd.DataFrame({
-        "item_id": [f"id_{i}" for i in range(50)],
-        "type_of_story": ["descriptive"] * 50,
-        "objects": ["['cat']"] * 50,
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": [f"id_{i}" for i in range(50)],
+            "type_of_story": ["descriptive"] * 50,
+            "objects": ["['cat']"] * 50,
+        }
+    )
     out = ma.consolidate_rare_columns_from_gemini_output(df)
     assert set(out.columns) == {"item_id", "type_of_story", "objects"}
     assert len(out) == 50

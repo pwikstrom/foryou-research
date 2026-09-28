@@ -19,8 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from fyp.scrape import scraper_alerts
 
 
-
-
 class FakeDataIO:
     """In-memory stand-in for data_io's load_json/update_json pair."""
 
@@ -34,8 +32,7 @@ class FakeDataIO:
     def load_json(self, storage_location="", filename="", **kwargs):
         return self.files.get(filename)
 
-    def update_json(self, storage_location="", filename="", mutate=None,
-                    default=None, **kwargs):
+    def update_json(self, storage_location="", filename="", mutate=None, default=None, **kwargs):
         current = self.files.get(filename, default)
         new = mutate(current)
         if new is not None:
@@ -43,14 +40,16 @@ class FakeDataIO:
             self.writes += 1
 
 
-
-
 def test_raise_load_clear_roundtrip():
     fake = FakeDataIO()
     with patch.object(scraper_alerts, "data_io", fake):
         scraper_alerts.raise_alert(
-            "instagram", scraper_alerts.KIND_PERMANENT_STORM,
-            category="permanent:removed", count=15, message="storm")
+            "instagram",
+            scraper_alerts.KIND_PERMANENT_STORM,
+            category="permanent:removed",
+            count=15,
+            message="storm",
+        )
 
         alerts = scraper_alerts.load_alerts()
         assert set(alerts) == {"instagram"}
@@ -66,23 +65,21 @@ def test_raise_load_clear_roundtrip():
     print("PASS: raise/load/clear roundtrip")
 
 
-
-
 def test_reraise_same_kind_keeps_raised_at_and_counts():
     fake = FakeDataIO()
     with patch.object(scraper_alerts, "data_io", fake):
-        scraper_alerts.raise_alert("youtube", scraper_alerts.KIND_PERMANENT_STORM,
-                                   category="permanent:removed")
+        scraper_alerts.raise_alert(
+            "youtube", scraper_alerts.KIND_PERMANENT_STORM, category="permanent:removed"
+        )
         first = scraper_alerts.load_alerts()["youtube"]["raised_at"]
-        scraper_alerts.raise_alert("youtube", scraper_alerts.KIND_PERMANENT_STORM,
-                                   category="permanent:removed")
+        scraper_alerts.raise_alert(
+            "youtube", scraper_alerts.KIND_PERMANENT_STORM, category="permanent:removed"
+        )
 
         entry = scraper_alerts.load_alerts()["youtube"]
         assert entry["occurrences"] == 2
         assert entry["raised_at"] == first, "re-raise must keep the original raised_at"
     print("PASS: re-raise keeps raised_at and bumps occurrences")
-
-
 
 
 def test_alerts_are_per_platform():
@@ -95,16 +92,12 @@ def test_alerts_are_per_platform():
     print("PASS: alerts are per-platform")
 
 
-
-
 def test_clear_without_active_alert_writes_nothing():
     fake = FakeDataIO()
     with patch.object(scraper_alerts, "data_io", fake):
         scraper_alerts.clear_alert("instagram")
         assert fake.writes == 0, "clearing a non-existent alert must not write"
     print("PASS: no-op clear writes nothing")
-
-
 
 
 def test_never_raises_on_storage_failure():
@@ -120,8 +113,6 @@ def test_never_raises_on_storage_failure():
         scraper_alerts.raise_alert("instagram", scraper_alerts.KIND_PERMANENT_STORM)
         scraper_alerts.clear_alert("instagram")
     print("PASS: storage failures never raise")
-
-
 
 
 if __name__ == "__main__":

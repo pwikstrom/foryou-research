@@ -17,23 +17,21 @@ import web_interface.routes.api_sessions_routes as mod
 @pytest.fixture
 def cached_index(monkeypatch):
     """Install a frame as THE cached index (fingerprint set) and return it."""
-    df = pd.DataFrame({
-        "collection_id": pd.array(["c1", "c2"], dtype="string"),
-        "session_id": pd.array(["s1", "s2"], dtype="string"),
-        "start_ts": ["2026-01-01T10:00:00", "2026-01-02T10:00:00"],
-        "duration_min": [10.0, 20.0],
-        "n_plays": [5, 8],
-        "coverage_embedded": [0.5, 0.9],
-        "min_window_cosdist": [0.3, 0.6],
-        "n_episodes": [1, 2],
-    })
+    df = pd.DataFrame(
+        {
+            "collection_id": pd.array(["c1", "c2"], dtype="string"),
+            "session_id": pd.array(["s1", "s2"], dtype="string"),
+            "start_ts": ["2026-01-01T10:00:00", "2026-01-02T10:00:00"],
+            "duration_min": [10.0, 20.0],
+            "n_plays": [5, 8],
+            "coverage_embedded": [0.5, 0.9],
+            "min_window_cosdist": [0.3, 0.6],
+            "n_episodes": [1, 2],
+        }
+    )
     df["_start_dt"] = pd.to_datetime(df["start_ts"])
     mod._INDEX_CACHE.update({"df": df, "search": None, "fingerprint": "fp1"})
     return df
-
-
-
-
 
 
 def test_filter_ranges_cache_hits_and_invalidation(cached_index, monkeypatch):
@@ -66,8 +64,6 @@ def test_filter_ranges_cache_hits_and_invalidation(cached_index, monkeypatch):
     assert calls["n"] == 4
 
 
-
-
 def test_filter_ranges_uncached_for_an_injected_frame(cached_index):
     """A frame that is not the cached index computes directly (test stubs)."""
     other = cached_index.copy()
@@ -76,8 +72,6 @@ def test_filter_ranges_uncached_for_an_injected_frame(cached_index):
     out = mod._cached_filter_ranges(other, pop, "studyA", (1,))
     assert out["duration_min"] == [10.0, 20.0]
     assert mod._RANGES_CACHE == before
-
-
 
 
 def test_search_blob_serves_cached_or_inline_column(cached_index):
@@ -93,17 +87,17 @@ def test_search_blob_serves_cached_or_inline_column(cached_index):
     assert mod._search_blob(cached_index.copy()) is None
 
 
-
-
 def test_load_index_splits_search_text_and_parses_start(monkeypatch):
-    raw = pd.DataFrame({
-        "collection_id": ["c1"], "session_id": ["s1"],
-        "start_ts": ["2026-01-01T10:00:00"],
-        "search_text": ["recipes pasta"],
-    })
+    raw = pd.DataFrame(
+        {
+            "collection_id": ["c1"],
+            "session_id": ["s1"],
+            "start_ts": ["2026-01-01T10:00:00"],
+            "search_text": ["recipes pasta"],
+        }
+    )
     monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: "fpX")
-    monkeypatch.setattr(mod.data_io, "load_parquet_selective",
-                        lambda **kw: raw.copy())
+    monkeypatch.setattr(mod.data_io, "load_parquet_selective", lambda **kw: raw.copy())
     df = mod._load_index()
     assert "search_text" not in df.columns
     assert "_start_dt" in df.columns
@@ -113,13 +107,13 @@ def test_load_index_splits_search_text_and_parses_start(monkeypatch):
     assert mod._search_blob(df) is mod._INDEX_CACHE["search"]
 
 
-
-
 def test_artifact_frame_reloads_on_fingerprint_change(monkeypatch):
-    frames = iter([
-        pd.DataFrame({"collection_id": ["c1"], "session_id": ["s1"], "v": [1]}),
-        pd.DataFrame({"collection_id": ["c2"], "session_id": ["s2"], "v": [2]}),
-    ])
+    frames = iter(
+        [
+            pd.DataFrame({"collection_id": ["c1"], "session_id": ["s1"], "v": [1]}),
+            pd.DataFrame({"collection_id": ["c2"], "session_id": ["s2"], "v": [2]}),
+        ]
+    )
     loads = {"n": 0}
 
     def fake_load(**kw):
@@ -132,6 +126,7 @@ def test_artifact_frame_reloads_on_fingerprint_change(monkeypatch):
 
     cache = {"fingerprint": None, "df": None}
     import threading
+
     lock = threading.Lock()
     f1 = mod._artifact_frame("whatever.parquet", cache, lock)
     f2 = mod._artifact_frame("whatever.parquet", cache, lock)
@@ -140,8 +135,6 @@ def test_artifact_frame_reloads_on_fingerprint_change(monkeypatch):
     f3 = mod._artifact_frame("whatever.parquet", cache, lock)
     assert loads["n"] == 2
     assert list(f3["collection_id"].astype(str)) == ["c2"]
-
-
 
 
 def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
@@ -153,6 +146,7 @@ def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
     class FakeIndex:
         def lookup(self, ids):
             import numpy as np
+
             found = np.array([i == "a" for i in ids])
             return None, found
 
@@ -165,8 +159,6 @@ def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
     assert mod._embedded_ids({"a"}, {"embedded": set()}) == set()
 
 
-
-
 def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
     """_features reloads only when video_map/scrapes actually change — never
     on a timer (the rebuild is a corpus-scale read)."""
@@ -174,8 +166,7 @@ def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
 
     def fake_load(extra_map_cols=None, **kw):
         loads["n"] += 1
-        return pd.DataFrame({"author": ["a"]},
-                            index=pd.Index(["v1"], name="item_id"))
+        return pd.DataFrame({"author": ["a"]}, index=pd.Index(["v1"], name="item_id"))
 
     monkeypatch.setattr(mod.session_explorer, "load_video_features", fake_load)
     monkeypatch.setattr(mod.session_explorer, "trend_numeric_columns", lambda: [])
@@ -193,23 +184,19 @@ def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
     assert loads["n"] == 3
 
 
-
-
 def test_flag_sets_cache_invalidates_on_source_fingerprints(monkeypatch):
     builds = {"n": 0}
 
     def fake_sets(model, item_ids=None, include_embedded=True):
         builds["n"] += 1
-        return {"scraped": set(), "downloaded": set(),
-                "annotated": {"v1"}, "embedded": set()}
+        return {"scraped": set(), "downloaded": set(), "annotated": {"v1"}, "embedded": set()}
 
     class FakeBackend:
         def model_id(self):
             return "model-x"
 
     monkeypatch.setattr(mod.session_explorer, "enrichment_id_sets", fake_sets)
-    monkeypatch.setattr(mod.embeddings, "active_embedding_backend",
-                        lambda: FakeBackend())
+    monkeypatch.setattr(mod.embeddings, "active_embedding_backend", lambda: FakeBackend())
     monkeypatch.setattr(mod.embedding_store, "load_index", lambda model: None)
     fps = {"fp": "A"}
     monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps["fp"])
@@ -222,18 +209,14 @@ def test_flag_sets_cache_invalidates_on_source_fingerprints(monkeypatch):
     assert builds["n"] == 2
 
 
-
-
 def test_admin_settings_cache_invalidated_by_save(monkeypatch, tmp_path):
     from web_interface import admin_settings
 
     store = {"value": {"sessions_min_plays": 4}}
     monkeypatch.setattr(admin_settings.data_io, "exists", lambda **kw: True)
-    monkeypatch.setattr(admin_settings.data_io, "load_json",
-                        lambda **kw: dict(store["value"]))
+    monkeypatch.setattr(admin_settings.data_io, "load_json", lambda **kw: dict(store["value"]))
     saved = {}
-    monkeypatch.setattr(admin_settings.data_io, "save_json",
-                        lambda **kw: saved.update(kw))
+    monkeypatch.setattr(admin_settings.data_io, "save_json", lambda **kw: saved.update(kw))
 
     assert admin_settings.load_admin_settings()["sessions_min_plays"] == 4
     # A store change WITHOUT a save is invisible inside the TTL...

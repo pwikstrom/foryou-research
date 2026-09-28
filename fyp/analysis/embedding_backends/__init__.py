@@ -36,10 +36,6 @@ __all__ = [
 ]
 
 
-
-
-
-
 def get_backend(name: str) -> EmbeddingBackend:
     """Return the (cached) backend instance for ``name``.
 
@@ -68,10 +64,6 @@ def get_backend(name: str) -> EmbeddingBackend:
     return _instances[name]
 
 
-
-
-
-
 def implemented_backend_ids() -> tuple:
     """Backend ids whose modules import cleanly on this machine.
 
@@ -86,10 +78,6 @@ def implemented_backend_ids() -> tuple:
         except ValueError:
             continue
     return tuple(out)
-
-
-
-
 
 
 def active_backend_name() -> str:

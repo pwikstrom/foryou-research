@@ -1,4 +1,3 @@
-
 import json
 import math
 from typing import Any
@@ -105,8 +104,6 @@ _PERIODS_PER_MONTH: dict[str, float] = {
 }
 
 
-
-
 def compute_linreg(vals: list[float]) -> dict[str, float]:
     """Compute linear regression (trend) on a time series.
 
@@ -126,9 +123,9 @@ def compute_linreg(vals: list[float]) -> dict[str, float]:
     }
 
 
-
-
-def compute_anomalies(vals: list[float], threshold: float = ANOMALY_Z_THRESHOLD) -> list[dict[str, Any]]:
+def compute_anomalies(
+    vals: list[float], threshold: float = ANOMALY_Z_THRESHOLD
+) -> list[dict[str, Any]]:
     """Detect anomalies via robust MAD-based z-scores.
 
     Uses median absolute deviation rather than std because daily category
@@ -168,21 +165,23 @@ def compute_anomalies(vals: list[float], threshold: float = ANOMALY_Z_THRESHOLD)
     results = []
     for i, z in enumerate(z_scores):
         if abs(z) > threshold:
-            results.append({
-                "index": int(i),
-                "value": round(float(arr[i]), 1),
-                "z": round(float(z), 2),
-                "mean": round(mean_val, 1),
-            })
+            results.append(
+                {
+                    "index": int(i),
+                    "value": round(float(arr[i]), 1),
+                    "z": round(float(z), 2),
+                    "mean": round(mean_val, 1),
+                }
+            )
     return sorted(results, key=lambda r: abs(r["z"]), reverse=True)
 
 
-
-
-def cluster_anomalies(anomalies: list[dict],
-                      dates: list[str] | None = None,
-                      gap: int = ANOMALY_CLUSTER_GAP_DAYS,
-                      max_span: int = ANOMALY_CLUSTER_MAX_DAYS) -> list[dict]:
+def cluster_anomalies(
+    anomalies: list[dict],
+    dates: list[str] | None = None,
+    gap: int = ANOMALY_CLUSTER_GAP_DAYS,
+    max_span: int = ANOMALY_CLUSTER_MAX_DAYS,
+) -> list[dict]:
     """Collapse same-direction anomalies on adjacent periods into single events.
 
     Walks the input in date order; each anomaly joins the current cluster
@@ -258,17 +257,17 @@ def cluster_anomalies(anomalies: list[dict],
     for cluster in clusters:
         peak = max(cluster, key=lambda a: abs(a.get("z", 0)))
         span_days = int(_coord(cluster[-1]["index"]) - _coord(cluster[0]["index"])) + 1
-        out.append({
-            **peak,
-            "span_start_index": cluster[0]["index"],
-            "span_end_index": cluster[-1]["index"],
-            "n_days": len(cluster),
-            "span_days": span_days,
-        })
+        out.append(
+            {
+                **peak,
+                "span_start_index": cluster[0]["index"],
+                "span_end_index": cluster[-1]["index"],
+                "n_days": len(cluster),
+                "span_days": span_days,
+            }
+        )
     out.sort(key=lambda a: abs(a.get("z", 0)), reverse=True)
     return out
-
-
 
 
 def compute_break(vals: list[float]) -> dict[str, Any] | None:
@@ -314,8 +313,6 @@ def compute_break(vals: list[float]) -> dict[str, Any] | None:
     }
 
 
-
-
 def compute_volatility(vals: list[float]) -> dict[str, float]:
     """Compute volatility metrics including detrended residual std.
 
@@ -339,8 +336,6 @@ def compute_volatility(vals: list[float]) -> dict[str, float]:
         "residual_std": round(float(np.std(residuals)), 2),
         "mean": round(float(np.mean(vals)), 2),
     }
-
-
 
 
 def compute_interestingness(metrics: dict) -> float:
@@ -387,7 +382,7 @@ def compute_interestingness(metrics: dict) -> float:
     if trend_change > 0 and break_delta > 0:
         overlap_ratio = min(break_delta / trend_change, 1.0)
         if overlap_ratio > 0.5:
-            trend_score *= (1.0 - overlap_ratio * 0.6)
+            trend_score *= 1.0 - overlap_ratio * 0.6
 
     # --- 3. Anomaly score (sum of top-3 z-scores) ---
     anomaly_z_vals = sorted([abs(a["z"]) for a in metrics["anomalies"]], reverse=True)
@@ -409,15 +404,11 @@ def compute_interestingness(metrics: dict) -> float:
     return round(raw_score * volume_multiplier, 1)
 
 
-
-
 def moving_average(vals: list[float], window: int = 7) -> list[float]:
     """Compute a centred moving average matching the frontend."""
     s = pd.Series(vals)
     smoothed = s.rolling(window, center=True, min_periods=1).mean()
     return [round(v, 2) for v in smoothed.tolist()]
-
-
 
 
 def _parse_daily_counts(sliced_counts: list) -> list[dict]:
@@ -436,8 +427,6 @@ def _parse_daily_counts(sliced_counts: list) -> list[dict]:
     return parsed
 
 
-
-
 def _tally_per_category(parsed_counts: list[dict]) -> tuple[dict[str, float], dict[str, int]]:
     """Return (total_counts, non_zero_days) per category over the window."""
     totals: dict[str, float] = {}
@@ -450,11 +439,9 @@ def _tally_per_category(parsed_counts: list[dict]) -> tuple[dict[str, float], di
     return totals, nonzero_days
 
 
-
-
-def _build_denominator(n_periods: int,
-                       sliced_valid: list | None,
-                       sliced_video: list | None) -> np.ndarray:
+def _build_denominator(
+    n_periods: int, sliced_valid: list | None, sliced_video: list | None
+) -> np.ndarray:
     """Pick a per-day denominator (valid annotations → videos → 1)."""
     denom = np.ones(n_periods, dtype=np.float64)
     for i in range(n_periods):
@@ -470,11 +457,9 @@ def _build_denominator(n_periods: int,
     return denom
 
 
-
-
-def _is_zero_variance_variable(per_cat_totals: dict[str, float],
-                               parsed_counts: list[dict],
-                               denom_arr: np.ndarray) -> bool:
+def _is_zero_variance_variable(
+    per_cat_totals: dict[str, float], parsed_counts: list[dict], denom_arr: np.ndarray
+) -> bool:
     """True when a single category's share exceeds DOMINANCE_SHARE on most days.
 
     Such variables are structurally incapable of producing interesting
@@ -496,9 +481,9 @@ def _is_zero_variance_variable(per_cat_totals: dict[str, float],
     return days_dominant / n_periods > DOMINANCE_DAY_FRACTION
 
 
-
-
-def _vectorised_breaks(smoothed_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool]:
+def _vectorised_breaks(
+    smoothed_matrix: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool]:
     """Locate each category's strongest break in a single broadcasted pass.
 
     Applies the same break-on-edge rejection as the scalar compute_break().
@@ -535,10 +520,9 @@ def _vectorised_breaks(smoothed_matrix: np.ndarray) -> tuple[np.ndarray, np.ndar
     return best_idx, best_deltas, mean_before, mean_after, True
 
 
-
-
-def _vectorised_anomalies(smoothed_matrix: np.ndarray,
-                          threshold: float = ANOMALY_Z_THRESHOLD) -> np.ndarray:
+def _vectorised_anomalies(
+    smoothed_matrix: np.ndarray, threshold: float = ANOMALY_Z_THRESHOLD
+) -> np.ndarray:
     """Compute MAD-based |z| > threshold mask for every category at once.
 
     Falls back to std-based z-scores when MAD collapses (series dominated by
@@ -562,14 +546,15 @@ def _vectorised_anomalies(smoothed_matrix: np.ndarray,
         z_mad[mask_mad] = 0.6745 * (smoothed_matrix[mask_mad] - medians[mask_mad]) / mads[mask_mad]
     mask_std_only = (~mask_mad) & (stds[:, 0] > 0)
     if np.any(mask_std_only):
-        z_mad[mask_std_only] = (smoothed_matrix[mask_std_only] - means[mask_std_only]) / stds[mask_std_only]
+        z_mad[mask_std_only] = (smoothed_matrix[mask_std_only] - means[mask_std_only]) / stds[
+            mask_std_only
+        ]
     return z_mad
 
 
-
-
-def analyse_timeline(timeline_data: dict, interval: str = "day",
-                     first_activity_date: str | None = None) -> dict:
+def analyse_timeline(
+    timeline_data: dict, interval: str = "day", first_activity_date: str | None = None
+) -> dict:
     """Analyse a timeline payload and produce per-variable analysis results.
 
     Takes the JSON output of get_timeline_data() and computes trend, anomaly,
@@ -636,13 +621,9 @@ def analyse_timeline(timeline_data: dict, interval: str = "day",
     return result
 
 
-
-
-def _analyse_variable(var_data: dict,
-                      dates: list[str],
-                      date_labels: list[str],
-                      start_offset: int,
-                      interval: str) -> dict | None:
+def _analyse_variable(
+    var_data: dict, dates: list[str], date_labels: list[str], start_offset: int, interval: str
+) -> dict | None:
     """Produce the analysis entry for a single categorical variable.
 
     Returns None when the variable should be omitted (wrong type, too short,
@@ -678,8 +659,7 @@ def _analyse_variable(var_data: dict,
         return None
 
     # (#3) Apply occurrence floors BEFORE building matrices.
-    min_total_count = max(MIN_TOTAL_COUNT_ABS,
-                          int(n_periods * MIN_TOTAL_COUNT_FRACTION_OF_PERIODS))
+    min_total_count = max(MIN_TOTAL_COUNT_ABS, int(n_periods * MIN_TOTAL_COUNT_FRACTION_OF_PERIODS))
     kept_cats: list[str] = []
     dropped_cats: list[str] = []
     for cat, total in per_cat_totals.items():
@@ -693,8 +673,7 @@ def _analyse_variable(var_data: dict,
 
     # (#11) Fold dropped categories into a synthetic "Other" series when
     # there's something to fold and the label doesn't clash with a real cat.
-    include_other = (bool(dropped_cats)
-                     and OTHER_BUCKET_LABEL not in per_cat_totals)
+    include_other = bool(dropped_cats) and OTHER_BUCKET_LABEL not in per_cat_totals
 
     analysis_cats = sorted(kept_cats)
     if include_other:
@@ -722,15 +701,18 @@ def _analyse_variable(var_data: dict,
                 df_shares[OTHER_BUCKET_LABEL] = df_shares[existing_dropped].sum(axis=1)
             else:
                 df_shares[OTHER_BUCKET_LABEL] = 0.0
-        share_matrix = df_shares.reindex(columns=analysis_cats,
-                                         fill_value=0).values.T.astype(np.float64)
+        share_matrix = df_shares.reindex(columns=analysis_cats, fill_value=0).values.T.astype(
+            np.float64
+        )
     else:
         # Legacy fallback for callers that pass a result without share_series
         # (e.g. old fixtures, external callers).  Keeps the function from
         # crashing but warns so we notice the cache mismatch.
         if share_series_raw:
-            logger.warning(f"WARN: share_series/counts length mismatch "
-                  f"({len(parsed_shares)} vs {n_periods}); recomputing from counts.")
+            logger.warning(
+                f"WARN: share_series/counts length mismatch "
+                f"({len(parsed_shares)} vs {n_periods}); recomputing from counts."
+            )
         df_counts = pd.DataFrame(parsed_counts).fillna(0)
         if include_other:
             existing_dropped = [c for c in dropped_cats if c in df_counts.columns]
@@ -738,16 +720,16 @@ def _analyse_variable(var_data: dict,
                 df_counts[OTHER_BUCKET_LABEL] = df_counts[existing_dropped].sum(axis=1)
             else:
                 df_counts[OTHER_BUCKET_LABEL] = 0.0
-        counts_matrix = df_counts.reindex(columns=analysis_cats,
-                                          fill_value=0).values.T.astype(np.float64)
+        counts_matrix = df_counts.reindex(columns=analysis_cats, fill_value=0).values.T.astype(
+            np.float64
+        )
         share_matrix = (counts_matrix / denom_arr[np.newaxis, :]) * 100.0
 
     n_cats = share_matrix.shape[0]
 
     # 7-day centred moving average — preserves the smoothing semantics used
     # by all downstream metrics (slope, breaks, anomalies, volatility).
-    smoothed_df = pd.DataFrame(share_matrix.T).rolling(
-        7, center=True, min_periods=1).mean()
+    smoothed_df = pd.DataFrame(share_matrix.T).rolling(7, center=True, min_periods=1).mean()
     smoothed_matrix = np.round(smoothed_df.values.T, 2)
 
     # --- Vectorised per-category metrics (#1) ---
@@ -756,16 +738,16 @@ def _analyse_variable(var_data: dict,
     x_var = float(np.sum((x - x_mean) ** 2))
     y_means = smoothed_matrix.mean(axis=1)
     if x_var > 0:
-        slopes = ((smoothed_matrix - y_means[:, np.newaxis])
-                  * (x - x_mean)[np.newaxis, :]).sum(axis=1) / x_var
+        slopes = ((smoothed_matrix - y_means[:, np.newaxis]) * (x - x_mean)[np.newaxis, :]).sum(
+            axis=1
+        ) / x_var
     else:
         slopes = np.zeros(n_cats)
     intercepts = y_means - slopes * x_mean
     total_changes = slopes * (n_periods - 1)
 
     # Volatility (raw std + residual std after removing linear trend).
-    trend_lines = (slopes[:, np.newaxis] * x[np.newaxis, :]
-                   + intercepts[:, np.newaxis])
+    trend_lines = slopes[:, np.newaxis] * x[np.newaxis, :] + intercepts[:, np.newaxis]
     residuals = smoothed_matrix - trend_lines
     residual_stds = residuals.std(axis=1)
     stds = smoothed_matrix.std(axis=1)
@@ -794,20 +776,21 @@ def _analyse_variable(var_data: dict,
         # driving them) and letting it compete for interestingness crowds
         # out real categories.  Emit a minimal marker entry without stats.
         if include_other and cat == OTHER_BUCKET_LABEL:
-            reported_count = int(sum(per_cat_totals.get(c, 0)
-                                     for c in dropped_cats))
-            category_results.append({
-                "id": cat,
-                "label": cat,
-                "count": reported_count,
-                "score": None,
-                "trend": None,
-                "anomalies": [],
-                "break": None,
-                "volatility": None,
-                "render_worthy": False,
-                "is_other": True,
-            })
+            reported_count = int(sum(per_cat_totals.get(c, 0) for c in dropped_cats))
+            category_results.append(
+                {
+                    "id": cat,
+                    "label": cat,
+                    "count": reported_count,
+                    "score": None,
+                    "trend": None,
+                    "anomalies": [],
+                    "break": None,
+                    "volatility": None,
+                    "render_worthy": False,
+                    "is_other": True,
+                }
+            )
             continue
 
         slope = float(slopes[cat_idx])
@@ -823,11 +806,9 @@ def _analyse_variable(var_data: dict,
         rate_pp_per_month = abs(slope) * _PERIODS_PER_MONTH.get(interval, 30.0)
         rate_ok = rate_pp_per_month >= TREND_RATE_PP_PER_MONTH
         magnitude_ok = abs(total_change) >= TREND_TOTAL_PP_FLOOR
-        relative_ok = (mean_val > 0
-                       and abs(total_change) / mean_val >= TREND_RELATIVE_FLOOR)
-        is_meaningful_trend = (
-            abs(total_change) >= trend_floor
-            and ((rate_ok and magnitude_ok) or relative_ok)
+        relative_ok = mean_val > 0 and abs(total_change) / mean_val >= TREND_RELATIVE_FLOOR
+        is_meaningful_trend = abs(total_change) >= trend_floor and (
+            (rate_ok and magnitude_ok) or relative_ok
         )
         if not is_meaningful_trend:
             trend = {
@@ -863,12 +844,14 @@ def _analyse_variable(var_data: dict,
                 else:
                     if value > mean_val / ANOMALY_RELATIVE_RATIO:
                         continue
-                anomalies.append({
-                    "index": int(i),
-                    "value": round(value, 1),
-                    "z": round(float(z_matrix[cat_idx, i]), 2),
-                    "mean": round(mean_val, 1),
-                })
+                anomalies.append(
+                    {
+                        "index": int(i),
+                        "value": round(value, 1),
+                        "z": round(float(z_matrix[cat_idx, i]), 2),
+                        "mean": round(mean_val, 1),
+                    }
+                )
             anomalies = cluster_anomalies(anomalies, dates=sliced_dates)
 
         # (#5) Break: None when the window is too short for detection.
@@ -888,8 +871,7 @@ def _analyse_variable(var_data: dict,
             "mean": round(mean_val, 2),
         }
 
-        metrics = {"trend": trend, "anomalies": anomalies,
-                   "break": brk, "volatility": vol}
+        metrics = {"trend": trend, "anomalies": anomalies, "break": brk, "volatility": vol}
         score = compute_interestingness(metrics)
 
         # Offset anomaly and break indices to full-timeline positions —
@@ -904,8 +886,7 @@ def _analyse_variable(var_data: dict,
             brk["index"] = brk["index"] + start_offset
 
         # Offset trend intercept to be relative to full timeline index 0.
-        trend["intercept"] = round(trend["intercept"]
-                                   - trend["slope"] * start_offset, 2)
+        trend["intercept"] = round(trend["intercept"] - trend["slope"] * start_offset, 2)
 
         # (#9) render_worthy: does this category have ANY feature strong
         # enough to surface a chip in the UI?  Pre-computing this avoids
@@ -919,18 +900,20 @@ def _analyse_variable(var_data: dict,
 
         reported_count = int(per_cat_totals.get(cat, 0))
 
-        category_results.append({
-            "id": cat,
-            "label": cat,
-            "count": reported_count,
-            "score": score,
-            "trend": trend,
-            "anomalies": anomalies[:3],
-            "break": brk,
-            "volatility": vol,
-            "render_worthy": bool(render_worthy),
-            "is_other": False,
-        })
+        category_results.append(
+            {
+                "id": cat,
+                "label": cat,
+                "count": reported_count,
+                "score": score,
+                "trend": trend,
+                "anomalies": anomalies[:3],
+                "break": brk,
+                "volatility": vol,
+                "render_worthy": bool(render_worthy),
+                "is_other": False,
+            }
+        )
 
     # (#8) Variable-level cull post-filter.
     if len(category_results) < 2:
@@ -939,8 +922,8 @@ def _analyse_variable(var_data: dict,
     # Sort by score descending, but pin the "Other" bucket to the end
     # regardless of its (null) score so it doesn't crowd out real cats.
     category_results.sort(
-        key=lambda r: (r.get("is_other", False),
-                       -(r["score"] if r["score"] is not None else 0)))
+        key=lambda r: (r.get("is_other", False), -(r["score"] if r["score"] is not None else 0))
+    )
 
     # (#4) Cap the response at TOP_K_CATEGORIES. "Other" is exempt from
     # the cap — it's a residual bucket, not a competing category.

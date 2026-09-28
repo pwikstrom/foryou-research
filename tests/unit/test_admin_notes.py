@@ -59,13 +59,17 @@ def test_add_read_delete_lifecycle() -> None:
     try:
         assert admin_notes.read("bob@example.com") == []
 
-        first, err = admin_notes.add("bob@example.com", author="admin@admin.net", text="  called re consent  ")
+        first, err = admin_notes.add(
+            "bob@example.com", author="admin@admin.net", text="  called re consent  "
+        )
         assert err is None and first["text"] == "called re consent"
         assert first["author"] == "admin@admin.net"
         assert first["timestamp"] and first["id"]
         assert "bob@example.com_notes.json" in store.files
 
-        second, err = admin_notes.add("bob@example.com", author="other@admin.net", text="second donation due")
+        second, err = admin_notes.add(
+            "bob@example.com", author="other@admin.net", text="second donation due"
+        )
         assert err is None
 
         notes = admin_notes.read("bob@example.com")
@@ -95,7 +99,9 @@ def test_validation() -> None:
         assert admin_notes.add("bob", "admin", "   ")[1] == "Note text is empty"
         assert admin_notes.add("bob", "", "x")[1] == "Missing author"
         assert admin_notes.add("", "admin", "x")[1] == "Missing username"
-        assert "too long" in admin_notes.add("bob", "admin", "x" * (admin_notes.MAX_NOTE_CHARS + 1))[1]
+        assert (
+            "too long" in admin_notes.add("bob", "admin", "x" * (admin_notes.MAX_NOTE_CHARS + 1))[1]
+        )
         assert store.files == {}, "rejected notes must not touch storage"
     finally:
         for p in patches:
@@ -118,7 +124,9 @@ def test_delete_user_removes_notes_sidecar() -> None:
         um = auth.UserManager(storage_location="users", bootstrap=True)
         ok, _ = um.add_user("alice", "pw", "viewer", approved=True)
         assert ok
-        store.files["alice_notes.json"] = {"notes": [{"id": "1", "author": "a", "timestamp": "t", "text": "x"}]}
+        store.files["alice_notes.json"] = {
+            "notes": [{"id": "1", "author": "a", "timestamp": "t", "text": "x"}]
+        }
         ok, _ = um.delete_user("alice")
         assert ok
         assert "alice.json" not in store.files

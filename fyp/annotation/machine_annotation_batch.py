@@ -36,8 +36,6 @@ from fyp.annotation.annotation_schema import build_response_schema
 from fyp.annotation.machine_annotation import initialize_machine, platform_map_for
 
 
-
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
@@ -45,15 +43,11 @@ def _cf():
     return fyp_cf
 
 
-
-
 def _machine_annotations_label() -> str:
     """Lazy accessor for the config-derived machine-annotations label."""
     from fyp.annotation.machine_annotation import MACHINE_ANNOTATIONS_LABEL
 
     return MACHINE_ANNOTATIONS_LABEL
-
-
 
 
 # Prefixes (relative to the GCS data prefix) for batch input/output.
@@ -72,8 +66,6 @@ _TERMINAL_PARTIAL = "JOB_STATE_PARTIALLY_SUCCEEDED"
 _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"}
 
 
-
-
 def current_batch_gen_params() -> dict:
     """Return the output-affecting generation params from config for batch."""
     machine = _cf()["machine"]["gemini"]
@@ -81,10 +73,10 @@ def current_batch_gen_params() -> dict:
         "temperature": machine.get("temperature"),
         "max_output_tokens": machine.get("max_output_tokens"),
         "thinking_budget": machine.get("thinking_budget"),
-        "media_resolution": (str(machine.get("media_resolution", "") or "").strip().upper() or None),
+        "media_resolution": (
+            str(machine.get("media_resolution", "") or "").strip().upper() or None
+        ),
     }
-
-
 
 
 def build_request_dict(
@@ -143,7 +135,8 @@ def build_request_dict(
                         {"text": "Analyze this video"},
                         {
                             "fileData": {
-                                "fileUri": file_uri or f"gs://{bucket}/{media_prefix}/{video_id}.mp4",
+                                "fileUri": file_uri
+                                or f"gs://{bucket}/{media_prefix}/{video_id}.mp4",
                                 "mimeType": "video/mp4",
                             }
                         },
@@ -154,8 +147,6 @@ def build_request_dict(
             "generationConfig": generation_config,
         }
     }
-
-
 
 
 def _find_file_uri(obj) -> str | None:
@@ -176,16 +167,12 @@ def _find_file_uri(obj) -> str | None:
     return None
 
 
-
-
 def item_id_from_uri(file_uri: str | None) -> str | None:
     """Extract the ``<id>`` from a ``gs://.../<id>.mp4`` URI."""
     if not file_uri:
         return None
     base = os.path.basename(file_uri)
     return base[:-4] if base.endswith(".mp4") else base
-
-
 
 
 def _dig(obj, *path, default=None):
@@ -202,8 +189,6 @@ def _dig(obj, *path, default=None):
         else:
             return default
     return cur
-
-
 
 
 def ingest_output_record(
@@ -260,15 +245,17 @@ def ingest_output_record(
         return out
 
     text = _dig(response, "candidates", 0, "content", "parts", 0, "text", default="")
-    finish_reason = _dig(response, "candidates", 0, "finishReason", default=None) or \
-        _dig(response, "candidates", 0, "finish_reason", default="STOP")
+    finish_reason = _dig(response, "candidates", 0, "finishReason", default=None) or _dig(
+        response, "candidates", 0, "finish_reason", default="STOP"
+    )
     usage = response.get("usageMetadata") or response.get("usage_metadata") or {}
 
     out["response"] = text or ""
     out["finish_reason"] = str(finish_reason)
     out["usage"] = {
         "prompt_tokens": usage.get("promptTokenCount") or usage.get("prompt_token_count"),
-        "candidates_tokens": usage.get("candidatesTokenCount") or usage.get("candidates_token_count"),
+        "candidates_tokens": usage.get("candidatesTokenCount")
+        or usage.get("candidates_token_count"),
         "thoughts_tokens": usage.get("thoughtsTokenCount") or usage.get("thoughts_token_count"),
         "total_tokens": usage.get("totalTokenCount") or usage.get("total_token_count"),
     }
@@ -276,8 +263,6 @@ def ingest_output_record(
         out["error"] = "empty candidate text"
         out["finish_reason"] = f"DNF - {out['finish_reason']}"
     return out
-
-
 
 
 def ingest_records_to_raw(
@@ -303,8 +288,11 @@ def ingest_records_to_raw(
     by_item: dict[str, dict] = {}
     for record in records:
         mapped = ingest_output_record(
-            record, model=model, prompt_fn=prompt_fn,
-            annotation_version=annotation_version, inference_ts=now_ts,
+            record,
+            model=model,
+            prompt_fn=prompt_fn,
+            annotation_version=annotation_version,
+            inference_ts=now_ts,
         )
         if mapped.get("item_id"):
             by_item[str(mapped["item_id"])] = mapped
@@ -336,8 +324,6 @@ def ingest_records_to_raw(
     return raw
 
 
-
-
 # ---------------------------------------------------------------------------
 # Thin GCS / batch-API wrappers (SPIKE-GATED — confirm casing/shape live first).
 # ---------------------------------------------------------------------------
@@ -352,8 +338,6 @@ def _gcs_bucket():
             "(set FYP_GCS_BUCKET_NAME and use_gcs_for_media=true)."
         )
     return bucket
-
-
 
 
 def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
@@ -374,7 +358,11 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
     # and the recode pipeline tolerates free strings. (Live-spike-confirmed Vertex
     # quirk; the synchronous structured path keeps the enums.)
     for _prop in schema_json.get("properties", {}).values():
-        if isinstance(_prop, dict) and isinstance(_prop.get("enum"), list) and len(_prop["enum"]) == 2:
+        if (
+            isinstance(_prop, dict)
+            and isinstance(_prop.get("enum"), list)
+            and len(_prop["enum"]) == 2
+        ):
             _prop.pop("enum", None)
     gen_params = current_batch_gen_params()
 
@@ -394,18 +382,24 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
             if resolved and resolved.get("kind") == "gcs"
             else None
         )
-        lines.append(json.dumps(build_request_dict(
-            video_id, bucket=bucket_name, media_prefix=media_prefix,
-            system_instruction=system_instruction, schema_json=schema_json,
-            gen_params=gen_params, file_uri=file_uri,
-        )))
+        lines.append(
+            json.dumps(
+                build_request_dict(
+                    video_id,
+                    bucket=bucket_name,
+                    media_prefix=media_prefix,
+                    system_instruction=system_instruction,
+                    schema_json=schema_json,
+                    gen_params=gen_params,
+                    file_uri=file_uri,
+                )
+            )
+        )
         submitted_ids.append(str(video_id))
 
     blob_path = f"{data_prefix}/{BATCH_INPUT_PREFIX}/{ts_label}.jsonl"
     _gcs_bucket().blob(blob_path).upload_from_string("\n".join(lines))
     return f"gs://{bucket_name}/{blob_path}", submitted_ids
-
-
 
 
 def _require_client():
@@ -425,10 +419,6 @@ def _require_client():
     return client
 
 
-
-
-
-
 def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
     """Submit a batch prediction job. Returns (job_name, output_uri)."""
     client = _require_client()
@@ -443,14 +433,10 @@ def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
     return job.name, output_uri
 
 
-
-
 def poll_batch_job(job_name: str) -> str:
     """Return the current ``JobState`` name of a batch job."""
     job = _require_client().batches.get(name=job_name)
     return str(getattr(job.state, "name", job.state))
-
-
 
 
 def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
@@ -471,7 +457,8 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
                 records.append(json.loads(line))
 
     raw = ingest_records_to_raw(
-        records, submitted_ids,
+        records,
+        submitted_ids,
         model=_cf()["machine"]["gemini"]["model"],
         prompt_fn=annotation_versioning.active_prompt_label(),
         annotation_version=annotation_versioning.active_annotation_version(),

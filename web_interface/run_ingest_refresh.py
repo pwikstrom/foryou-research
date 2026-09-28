@@ -22,8 +22,6 @@ from fyp.analysis.sequence_analysis import VIEWING_ACTIVITY_TYPES
 LEDGER_SKIP_OUTCOMES_FOR_UI = LEDGER_SKIP_OUTCOMES
 
 
-
-
 def _dataset_collection_ids() -> set[str]:
     """Collection ids in the saved metadata parquet (the dataset's roster).
 
@@ -60,8 +58,6 @@ def _per_file_counts(sub_collections) -> dict[str, dict]:
     return out
 
 
-
-
 def _withheld_note(stats: dict) -> str | None:
     """Ledger note for an accepted file: the sections the donation leaves
     out, and anything the parser had to resolve while reading it. None when
@@ -74,9 +70,6 @@ def _withheld_note(stats: dict) -> str | None:
     if not parts:
         return None
     return " | ".join(parts)
-
-
-
 
 
 def _build_per_file_summary(
@@ -124,8 +117,9 @@ def _build_per_file_summary(
     pre_cids = pre_cids or {}
     cid_remap = cid_remap or {}
     final_df = main_collection.data
-    candidate_files = (set(raw_counts) | discarded_at_load | set(quarantined)
-                       | set(load_failed) | set(blocked))
+    candidate_files = (
+        set(raw_counts) | discarded_at_load | set(quarantined) | set(load_failed) | set(blocked)
+    )
     summary: list[dict] = []
 
     for rf in sorted(candidate_files):
@@ -141,72 +135,80 @@ def _build_per_file_summary(
 
         if rf in blocked:
             block = blocked[rf]
-            summary.append({
-                "filename": rf,
-                "platform": platform or block.get("platform"),
-                "source": source or block.get("source"),
-                "raw_rows": 0,
-                "processed_rows": 0,
-                "final_rows": 0,
-                "outcome": BLOCKED_OUTCOME,
-                "canonical_collection_id": block.get("collection_id"),
-                "merged_with_siblings": [],
-                "deduped_rows": 0,
-                "dropped": {},
-                "notes": block.get("reason"),
-            })
+            summary.append(
+                {
+                    "filename": rf,
+                    "platform": platform or block.get("platform"),
+                    "source": source or block.get("source"),
+                    "raw_rows": 0,
+                    "processed_rows": 0,
+                    "final_rows": 0,
+                    "outcome": BLOCKED_OUTCOME,
+                    "canonical_collection_id": block.get("collection_id"),
+                    "merged_with_siblings": [],
+                    "deduped_rows": 0,
+                    "dropped": {},
+                    "notes": block.get("reason"),
+                }
+            )
             continue
 
         if rf in load_failed:
             fail = load_failed[rf]
-            summary.append({
-                "filename": rf,
-                "platform": platform or fail.get("platform"),
-                "source": source or fail.get("source"),
-                "raw_rows": 0,
-                "processed_rows": 0,
-                "final_rows": 0,
-                "outcome": "load_failed",
-                "canonical_collection_id": None,
-                "merged_with_siblings": [],
-                "deduped_rows": 0,
-                "dropped": {},
-                "notes": fail.get("error"),
-            })
+            summary.append(
+                {
+                    "filename": rf,
+                    "platform": platform or fail.get("platform"),
+                    "source": source or fail.get("source"),
+                    "raw_rows": 0,
+                    "processed_rows": 0,
+                    "final_rows": 0,
+                    "outcome": "load_failed",
+                    "canonical_collection_id": None,
+                    "merged_with_siblings": [],
+                    "deduped_rows": 0,
+                    "dropped": {},
+                    "notes": fail.get("error"),
+                }
+            )
             continue
 
         if rf in quarantined:
             verdict = quarantined[rf]
-            summary.append({
-                "filename": rf,
-                "platform": platform or verdict.get("platform"),
-                "source": source or verdict.get("source"),
-                "raw_rows": raw_rows or int(verdict.get("raw_stats", {}).get("raw_rows") or 0),
-                "processed_rows": processed_rows,
-                "final_rows": 0,
-                "outcome": "quarantined_structure",
-                "canonical_collection_id": None,
-                "merged_with_siblings": [],
-                "deduped_rows": 0,
-                "dropped": dropped,
-                "notes": findings_digest(verdict.get("findings") or []),
-            })
+            summary.append(
+                {
+                    "filename": rf,
+                    "platform": platform or verdict.get("platform"),
+                    "source": source or verdict.get("source"),
+                    "raw_rows": raw_rows or int(verdict.get("raw_stats", {}).get("raw_rows") or 0),
+                    "processed_rows": processed_rows,
+                    "final_rows": 0,
+                    "outcome": "quarantined_structure",
+                    "canonical_collection_id": None,
+                    "merged_with_siblings": [],
+                    "deduped_rows": 0,
+                    "dropped": dropped,
+                    "notes": findings_digest(verdict.get("findings") or []),
+                }
+            )
             continue
 
         if rf in discarded_at_load:
-            summary.append({
-                "filename": rf,
-                "platform": platform,
-                "source": source,
-                "raw_rows": raw_rows,
-                "processed_rows": 0,
-                "final_rows": 0,
-                "outcome": "discarded_at_load",
-                "canonical_collection_id": None,
-                "merged_with_siblings": [],
-                "deduped_rows": 0,
-                "dropped": dropped,
-            })
+            summary.append(
+                {
+                    "filename": rf,
+                    "platform": platform,
+                    "source": source,
+                    "raw_rows": raw_rows,
+                    "processed_rows": 0,
+                    "final_rows": 0,
+                    "outcome": "discarded_at_load",
+                    "canonical_collection_id": None,
+                    "merged_with_siblings": [],
+                    "deduped_rows": 0,
+                    "dropped": dropped,
+                }
+            )
             continue
 
         sub_df = final_df[final_df["raw_file"] == rf]
@@ -218,7 +220,9 @@ def _build_per_file_summary(
         # counting 'play' alone would report every one of them as zero.
         # YouTube's 'ad_play' is deliberately left out: ad impressions are
         # filtered out of every downstream study too (organize_datasets).
-        play_rows = int(sub_df["activity_type"].isin(VIEWING_ACTIVITY_TYPES).sum()) if final_rows else 0
+        play_rows = (
+            int(sub_df["activity_type"].isin(VIEWING_ACTIVITY_TYPES).sum()) if final_rows else 0
+        )
 
         if final_rows == 0:
             outcome = "fully_deduped"
@@ -228,12 +232,14 @@ def _build_per_file_summary(
             canonical_cid = str(sub_df["collection_id"].iloc[0])
             cluster_df = final_df[final_df["collection_id"] == canonical_cid]
             sibling_files = [
-                str(s) for s in cluster_df["raw_file"].dropna().unique().tolist()
-                if s != rf
+                str(s) for s in cluster_df["raw_file"].dropna().unique().tolist() if s != rf
             ]
             absorbed = [
-                f for f, cid in sorted(pre_cids.items())
-                if f != rf and f in existing_raw_files and f not in sibling_files
+                f
+                for f, cid in sorted(pre_cids.items())
+                if f != rf
+                and f in existing_raw_files
+                and f not in sibling_files
                 and cid_remap.get(cid, cid) == canonical_cid
             ]
             sibling_files += absorbed
@@ -244,25 +250,25 @@ def _build_per_file_summary(
             else:
                 outcome = "added_as_new"
 
-        summary.append({
-            "filename": rf,
-            "platform": platform,
-            "source": source,
-            "raw_rows": raw_rows,
-            "processed_rows": processed_rows,
-            "final_rows": final_rows,
-            "play_rows": play_rows,
-            "outcome": outcome,
-            "canonical_collection_id": canonical_cid,
-            "merged_with_siblings": siblings,
-            "deduped_rows": max(processed_rows - final_rows, 0),
-            "dropped": dropped,
-            "notes": _withheld_note(stats),
-        })
+        summary.append(
+            {
+                "filename": rf,
+                "platform": platform,
+                "source": source,
+                "raw_rows": raw_rows,
+                "processed_rows": processed_rows,
+                "final_rows": final_rows,
+                "play_rows": play_rows,
+                "outcome": outcome,
+                "canonical_collection_id": canonical_cid,
+                "merged_with_siblings": siblings,
+                "deduped_rows": max(processed_rows - final_rows, 0),
+                "dropped": dropped,
+                "notes": _withheld_note(stats),
+            }
+        )
 
     return summary
-
-
 
 
 def _removed_rows_breakdown(
@@ -283,13 +289,13 @@ def _removed_rows_breakdown(
     Returns ``(replaced_by_this_run, {collection_id: rows_removed})``.
     """
     touched = {
-        str(e["canonical_collection_id"]) for e in per_file_summary
+        str(e["canonical_collection_id"])
+        for e in per_file_summary
         if e.get("canonical_collection_id")
         and e.get("outcome") in ("added_as_new", "merged_with_existing")
     }
     post_counts = (
-        final_df.groupby("raw_file", observed=True).size().to_dict()
-        if len(final_df) else {}
+        final_df.groupby("raw_file", observed=True).size().to_dict() if len(final_df) else {}
     )
     replaced = 0
     elsewhere: dict[str, int] = {}
@@ -332,7 +338,8 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     rows_before = len(main_collection.data)
     existing_raw_files = (
         set(str(rf) for rf in main_collection.data["raw_file"].dropna().unique().tolist())
-        if rows_before > 0 else set()
+        if rows_before > 0
+        else set()
     )
     # Per-file row counts and collection of the data already stored, so the
     # reconciliation can tell rows a new donation replaced from duplicates
@@ -370,7 +377,9 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         try:
             sub.save_enrichment_seed()
         except Exception as exc:
-            reporter.log(f"Enrichment-seed capture failed for {sub.source_platform}_{sub.data_source}: {exc}")
+            reporter.log(
+                f"Enrichment-seed capture failed for {sub.source_platform}_{sub.data_source}: {exc}"
+            )
 
     reporter.update_progress(40, "Processing raw activities...")
     _t_phase = time.perf_counter()
@@ -394,7 +403,9 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
                     drop_files.append(str(rf))
                     sub.quarantined_this_run[str(rf)] = verdict
         except Exception as exc:
-            reporter.log(f"Structure Phase-B check failed for {sub.source_platform}_{sub.data_source}: {exc}")
+            reporter.log(
+                f"Structure Phase-B check failed for {sub.source_platform}_{sub.data_source}: {exc}"
+            )
         if drop_files:
             sub.data = sub.data[~sub.data["raw_file"].isin(drop_files)].copy()
             reporter.log(
@@ -469,6 +480,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # Record the active activity-contract version once per ingest run (idempotent,
     # non-raising) so the registry captures the schema that stamped these rows.
     from fyp.core import activity_versioning
+
     activity_versioning.ensure_active_version_registered()
 
     reporter.update_progress(75, "Adding local time features...")
@@ -492,10 +504,13 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # Learn the ingested files' fingerprints/stats into the baselines and
     # persist every verdict for the review UI. Never blocks the refresh.
     try:
-        sentinel.commit(ingested_filenames={
-            e["filename"] for e in per_file_summary
-            if e.get("outcome") in ("added_as_new", "merged_with_existing")
-        })
+        sentinel.commit(
+            ingested_filenames={
+                e["filename"]
+                for e in per_file_summary
+                if e.get("outcome") in ("added_as_new", "merged_with_existing")
+            }
+        )
     except Exception as exc:
         reporter.log(f"Structure-sentinel commit failed: {exc}")
 
@@ -532,11 +547,14 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     try:
         from web_interface.services.participant_enrichment import enqueue_first_batches
 
-        ingested_cids = sorted({
-            str(e["canonical_collection_id"]) for e in per_file_summary
-            if e.get("canonical_collection_id")
-            and e.get("outcome") in ("added_as_new", "merged_with_existing")
-        })
+        ingested_cids = sorted(
+            {
+                str(e["canonical_collection_id"])
+                for e in per_file_summary
+                if e.get("canonical_collection_id")
+                and e.get("outcome") in ("added_as_new", "merged_with_existing")
+            }
+        )
         if ingested_cids:
             enqueue_first_batches(ingested_cids, log=reporter.log)
     except Exception as exc:
@@ -552,11 +570,14 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
         # Recomputed rather than reusing ingested_cids: that name is local to
         # the previous try block and unbound if it failed before assignment.
-        _owner_sync_cids = sorted({
-            str(e["canonical_collection_id"]) for e in per_file_summary
-            if e.get("canonical_collection_id")
-            and e.get("outcome") in ("added_as_new", "merged_with_existing")
-        })
+        _owner_sync_cids = sorted(
+            {
+                str(e["canonical_collection_id"])
+                for e in per_file_summary
+                if e.get("canonical_collection_id")
+                and e.get("outcome") in ("added_as_new", "merged_with_existing")
+            }
+        )
         if _owner_sync_cids:
             affected_users = sync_for_cids(_owner_sync_cids, wait=True, log=reporter.log)
             if affected_users:
@@ -575,22 +596,24 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         outcome = (meta or {}).get("outcome")
         if outcome not in LEDGER_SKIP_OUTCOMES_FOR_UI:
             continue
-        skipped_previously.append({
-            "filename": fn,
-            "outcome": outcome,
-            "platform": meta.get("platform"),
-            "source": meta.get("source"),
-            # Preserved as None where the ledger never recorded a count (the
-            # legacy-migrated entries) — the UI renders that as an em-dash
-            # rather than an invented zero.
-            "raw_rows": meta.get("raw_rows"),
-            "kept_rows": meta.get("kept_rows"),
-            "collection_id": meta.get("collection_id"),
-            "merged_with_siblings": meta.get("merged_with_siblings") or [],
-            "ts_first_seen": meta.get("ts_first_seen"),
-            "ts_last_seen": meta.get("ts_last_seen"),
-            "notes": meta.get("notes"),
-        })
+        skipped_previously.append(
+            {
+                "filename": fn,
+                "outcome": outcome,
+                "platform": meta.get("platform"),
+                "source": meta.get("source"),
+                # Preserved as None where the ledger never recorded a count (the
+                # legacy-migrated entries) — the UI renders that as an em-dash
+                # rather than an invented zero.
+                "raw_rows": meta.get("raw_rows"),
+                "kept_rows": meta.get("kept_rows"),
+                "collection_id": meta.get("collection_id"),
+                "merged_with_siblings": meta.get("merged_with_siblings") or [],
+                "ts_first_seen": meta.get("ts_first_seen"),
+                "ts_last_seen": meta.get("ts_last_seen"),
+                "notes": meta.get("notes"),
+            }
+        )
     skipped_previously.sort(key=lambda r: r["filename"])
 
     # Reconciliation: when newer rows from this run supersede older rows in
@@ -598,39 +621,56 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # net row delta is smaller than the sum of "Added"/"Merged" final_rows.
     # Compute the difference so the UI can explain why.
     contributed_rows = sum(
-        int(e.get("final_rows") or 0) for e in per_file_summary
+        int(e.get("final_rows") or 0)
+        for e in per_file_summary
         if e.get("outcome") in ("added_as_new", "merged_with_existing")
     )
     rows_added_net = rows_after - rows_before
     rows_superseded = max(contributed_rows - rows_added_net, 0)
     rows_replaced, rows_removed_elsewhere = _removed_rows_breakdown(
-        main_collection.data, pre_counts, pre_cids,
-        getattr(main_collection, "last_cid_remap", {}) or {}, per_file_summary,
+        main_collection.data,
+        pre_counts,
+        pre_cids,
+        getattr(main_collection, "last_cid_remap", {}) or {},
+        per_file_summary,
     )
 
     _t_total = time.perf_counter() - _t_start
-    reporter.emit_data({
-        "rows_before": rows_before,
-        "rows_after": rows_after,
-        "rows_added": rows_added_net,
-        "rows_contributed_by_new_files": contributed_rows,
-        "rows_superseded_in_existing_collections": rows_superseded,
-        "rows_replaced_by_this_run": rows_replaced,
-        "rows_removed_elsewhere": sum(rows_removed_elsewhere.values()),
-        "rows_removed_elsewhere_by_collection": dict(sorted(
-            rows_removed_elsewhere.items(), key=lambda kv: -kv[1])[:20]),
-        "files_scanned_this_run": len(per_file_summary),
-        "files_added": sum(1 for e in per_file_summary if e.get("outcome") == "added_as_new"),
-        "files_merged_with_existing": sum(1 for e in per_file_summary if e.get("outcome") == "merged_with_existing"),
-        "files_fully_deduped": sum(1 for e in per_file_summary if e.get("outcome") == "fully_deduped"),
-        "files_discarded_at_load": sum(1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"),
-        "files_quarantined": sum(1 for e in per_file_summary if e.get("outcome") == "quarantined_structure"),
-        "files_load_failed": sum(1 for e in per_file_summary if e.get("outcome") == "load_failed"),
-        "files_blocked_name_collision": len(blocked_files),
-        "files_skipped_previously": len(skipped_previously),
-        "per_file_summary": per_file_summary,
-        "skipped_previously": skipped_previously,
-    })
+    reporter.emit_data(
+        {
+            "rows_before": rows_before,
+            "rows_after": rows_after,
+            "rows_added": rows_added_net,
+            "rows_contributed_by_new_files": contributed_rows,
+            "rows_superseded_in_existing_collections": rows_superseded,
+            "rows_replaced_by_this_run": rows_replaced,
+            "rows_removed_elsewhere": sum(rows_removed_elsewhere.values()),
+            "rows_removed_elsewhere_by_collection": dict(
+                sorted(rows_removed_elsewhere.items(), key=lambda kv: -kv[1])[:20]
+            ),
+            "files_scanned_this_run": len(per_file_summary),
+            "files_added": sum(1 for e in per_file_summary if e.get("outcome") == "added_as_new"),
+            "files_merged_with_existing": sum(
+                1 for e in per_file_summary if e.get("outcome") == "merged_with_existing"
+            ),
+            "files_fully_deduped": sum(
+                1 for e in per_file_summary if e.get("outcome") == "fully_deduped"
+            ),
+            "files_discarded_at_load": sum(
+                1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"
+            ),
+            "files_quarantined": sum(
+                1 for e in per_file_summary if e.get("outcome") == "quarantined_structure"
+            ),
+            "files_load_failed": sum(
+                1 for e in per_file_summary if e.get("outcome") == "load_failed"
+            ),
+            "files_blocked_name_collision": len(blocked_files),
+            "files_skipped_previously": len(skipped_previously),
+            "per_file_summary": per_file_summary,
+            "skipped_previously": skipped_previously,
+        }
+    )
     reporter.update_progress(100, f"Ingestion refresh complete ({_t_total:.0f}s).")
     reporter.log(
         f"[TIMING] ingest_refresh load={_t_load:.1f}s raw={_t_raw:.1f}s "
@@ -639,8 +679,6 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     )
 
     return None
-
-
 
 
 if __name__ == "__main__":

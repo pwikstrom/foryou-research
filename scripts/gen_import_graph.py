@@ -27,24 +27,15 @@ IMPORT_RE = re.compile(
 )
 
 
-
-
-
 def fyp_modules() -> list[Path]:
     """Return all fyp module files, including subpackage members."""
     return sorted(p for p in FYP.rglob("*.py") if "__pycache__" not in p.parts)
-
-
-
 
 
 def module_name(path: Path) -> str:
     """Dotted module name for a file under the project root."""
     rel = path.relative_to(ROOT).with_suffix("")
     return ".".join(rel.parts)
-
-
-
 
 
 def internal_imports(path: Path) -> list[tuple[str, bool]]:
@@ -79,9 +70,6 @@ def internal_imports(path: Path) -> list[tuple[str, bool]]:
     return found
 
 
-
-
-
 def external_importers() -> dict[str, list[str]]:
     """Map each imported fyp path to the external files referencing it."""
     hits: dict[str, set[str]] = defaultdict(set)
@@ -112,9 +100,6 @@ def external_importers() -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in sorted(hits.items())}
 
 
-
-
-
 def main() -> None:
     out = sys.stdout
     out.write("# fyp import-dependency matrix\n\n")
@@ -143,9 +128,6 @@ def main() -> None:
         out.write(f"- **{mod}**: {len(files)} file(s)\n")
         for f in files:
             out.write(f"  - {f}\n")
-
-
-
 
 
 if __name__ == "__main__":

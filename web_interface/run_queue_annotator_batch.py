@@ -69,7 +69,10 @@ MAX_CONCURRENT_JOBS = 4
 
 # States that mean "still working" — keep polling.
 _RUNNING_STATES = {
-    "JOB_STATE_PENDING", "JOB_STATE_QUEUED", "JOB_STATE_RUNNING", "JOB_STATE_PAUSED",
+    "JOB_STATE_PENDING",
+    "JOB_STATE_QUEUED",
+    "JOB_STATE_RUNNING",
+    "JOB_STATE_PAUSED",
 }
 
 # Delay between poll checks. The job runs on Google's infra; we re-dispatch a
@@ -130,9 +133,7 @@ def _claim_from_queue(data_io, ids) -> int:
             return None  # nothing to claim — skip the write
         return remaining
 
-    data_io.update_json(
-        storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[]
-    )
+    data_io.update_json(storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[])
     return counts["removed"]
 
 
@@ -152,9 +153,7 @@ def _restore_to_queue(data_io, ids) -> int:
             return None
         return fresh + additions
 
-    data_io.update_json(
-        storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[]
-    )
+    data_io.update_json(storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[])
     return counts["added"]
 
 
@@ -208,8 +207,11 @@ def _poll_one_job(reporter, run, job, batch, data_io):
 
     if state in batch._TERMINAL_FAIL:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: Gemini job ended in {state}; restored {restored:,} "
-                       f"claimed video(s) to the queue. No further jobs will be submitted.")
+        _log(
+            reporter,
+            f"{label}: Gemini job ended in {state}; restored {restored:,} "
+            f"claimed video(s) to the queue. No further jobs will be submitted.",
+        )
         _notify(run, "failed", error=f"Gemini batch job ended in {state}")
         run["submit_halted"] = True
         return True
@@ -224,23 +226,38 @@ def _poll_one_job(reporter, run, job, batch, data_io):
         refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
     except Exception as exc:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: ingest/refine crashed ({exc}); restored {restored:,} "
-                       f"claimed video(s). No further jobs will be submitted.")
+        _log(
+            reporter,
+            f"{label}: ingest/refine crashed ({exc}); restored {restored:,} "
+            f"claimed video(s). No further jobs will be submitted.",
+        )
         _notify(run, "failed", error=str(exc))
         run["submit_halted"] = True
         return True
 
     if refined is None or refined.empty:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: refinement produced nothing; restored {restored:,} "
-                       f"video(s). No further jobs will be submitted, to avoid a loop.")
+        _log(
+            reporter,
+            f"{label}: refinement produced nothing; restored {restored:,} "
+            f"video(s). No further jobs will be submitted, to avoid a loop.",
+        )
         _notify(run, "failed", error="Refinement produced no rows")
         run["submit_halted"] = True
         return True
 
-    ok_ids = refined.loc[refined["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
-    fail_ids = refined.loc[refined.get("annotated_fail", False).fillna(False).astype(bool), "item_id"].astype(str).tolist() \
-        if "annotated_fail" in refined.columns else []
+    ok_ids = (
+        refined.loc[refined["annotated_ok"].fillna(False).astype(bool), "item_id"]
+        .astype(str)
+        .tolist()
+    )
+    fail_ids = (
+        refined.loc[refined.get("annotated_fail", False).fillna(False).astype(bool), "item_id"]
+        .astype(str)
+        .tolist()
+        if "annotated_fail" in refined.columns
+        else []
+    )
     # ok + fail stay claimed (definitively processed). Items that were submitted
     # but never came back (DNF / missing from output) are re-queued for retry —
     # matching the synchronous worker, which leaves un-refined items in the queue.
@@ -251,10 +268,14 @@ def _poll_one_job(reporter, run, job, batch, data_io):
     run["total_ok"] = int(run.get("total_ok", 0)) + len(ok_ids)
     run["total_fail"] = int(run.get("total_fail", 0)) + len(fail_ids)
     run["_completed_this_link"].append(
-        {"ok": len(ok_ids), "fail": len(fail_ids), "requeued": requeued})
+        {"ok": len(ok_ids), "fail": len(fail_ids), "requeued": requeued}
+    )
     remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    _log(reporter, f"{label} done: {len(ok_ids):,} annotated, {len(fail_ids):,} failed, "
-                   f"{requeued:,} re-queued. {len(remaining):,} still pending in the queue.")
+    _log(
+        reporter,
+        f"{label} done: {len(ok_ids):,} annotated, {len(fail_ids):,} failed, "
+        f"{requeued:,} re-queued. {len(remaining):,} still pending in the queue.",
+    )
     return True
 
 
@@ -284,36 +305,52 @@ def _submit_more_jobs(reporter, run, batch, data_io) -> None:
         total_batches = _total_batches(run.get("initial_total", 0), batch_size, max_batches)
         if not run.get("_announced"):
             run["_announced"] = True
-            _log(reporter, f"Starting async annotation: {run['initial_total']:,} video(s) "
-                           f"to process in up to {total_batches} batch(es) of "
-                           f"{batch_size:,}, at most {cap} job(s) in flight.")
+            _log(
+                reporter,
+                f"Starting async annotation: {run['initial_total']:,} video(s) "
+                f"to process in up to {total_batches} batch(es) of "
+                f"{batch_size:,}, at most {cap} job(s) in flight.",
+            )
 
         ts_label = _ts_label()
-        _log(reporter, f"Batch {batch_no}: building + uploading JSONL "
-                       f"for {len(slice_ids):,} video(s)...")
+        _log(
+            reporter,
+            f"Batch {batch_no}: building + uploading JSONL for {len(slice_ids):,} video(s)...",
+        )
         try:
             jsonl_uri, submitted_ids = batch.build_and_upload_jsonl(slice_ids, ts_label)
             job_name, output_uri = batch.submit_batch_job(jsonl_uri, ts_label)
         except Exception as exc:
-            _log(reporter, f"Batch {batch_no}: submit failed ({exc}); queue untouched — "
-                           f"will retry on the next chain link.")
+            _log(
+                reporter,
+                f"Batch {batch_no}: submit failed ({exc}); queue untouched — "
+                f"will retry on the next chain link.",
+            )
             run["_submit_error"] = str(exc)
             break
-        _log(reporter, f"Batch {batch_no}: submitted {len(submitted_ids):,} video(s) "
-                       f"to the Gemini batch service (job {job_name}).")
+        _log(
+            reporter,
+            f"Batch {batch_no}: submitted {len(submitted_ids):,} video(s) "
+            f"to the Gemini batch service (job {job_name}).",
+        )
 
         claimed = _claim_from_queue(data_io, submitted_ids)
-        _log(reporter, f"Claimed {claimed:,} video(s) out of the queue — "
-                       f"{len(submitted_ids):,} now in batch {batch_no}.")
-        run["jobs"].append({
-            "job_name": job_name,
-            "output_uri": output_uri,
-            "jsonl_uri": jsonl_uri,
-            "submitted_ids": submitted_ids,
-            "ts_label": ts_label,
-            "batch_no": batch_no,
-            "submitted_at": _dt.datetime.now(_dt.UTC).isoformat(),
-        })
+        _log(
+            reporter,
+            f"Claimed {claimed:,} video(s) out of the queue — "
+            f"{len(submitted_ids):,} now in batch {batch_no}.",
+        )
+        run["jobs"].append(
+            {
+                "job_name": job_name,
+                "output_uri": output_uri,
+                "jsonl_uri": jsonl_uri,
+                "submitted_ids": submitted_ids,
+                "ts_label": ts_label,
+                "batch_no": batch_no,
+                "submitted_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            }
+        )
         run["chunk_index"] = batch_no
 
         # "Submitted" email once per run — per-job progress is "batch_done".
@@ -329,15 +366,24 @@ def _journal_finished(run: dict, remaining: int, reason: str) -> None:
 
         ok, fail = int(run.get("total_ok") or 0), int(run.get("total_fail") or 0)
         batches = int(run.get("chunk_index") or 0)
-        message = (f"Annotation finished — {ok:,} annotated, {fail:,} failed "
-                   f"across {batches:,} batch job(s)")
+        message = (
+            f"Annotation finished — {ok:,} annotated, {fail:,} failed "
+            f"across {batches:,} batch job(s)"
+        )
         message += f"; {remaining:,} still queued" if remaining else "; queue empty"
         if reason and not reason.lower().startswith("queue is now empty"):
             message += f" ({reason})"
-        journal.record("annotate.finished", message,
-                       actor=run.get("started_by") or None, worker="queue_annotator_batch",
-                       ok=ok, fail=fail, batches=batches, queue_remaining=remaining,
-                       reason=reason)
+        journal.record(
+            "annotate.finished",
+            message,
+            actor=run.get("started_by") or None,
+            worker="queue_annotator_batch",
+            ok=ok,
+            fail=fail,
+            batches=batches,
+            queue_remaining=remaining,
+            reason=reason,
+        )
     except Exception:
         pass
 
@@ -359,8 +405,11 @@ def _run_phase(reporter, task_args, batch, data_io):
     run.setdefault("_announced", bool(run["jobs"]) or int(run.get("chunk_index") or 0) > 0)
 
     if reporter.check_cancelled():
-        _log(reporter, f"Cancellation requested; leaving {len(run['jobs'])} in-flight "
-                       f"job(s) and their claimed items as-is.")
+        _log(
+            reporter,
+            f"Cancellation requested; leaving {len(run['jobs'])} in-flight "
+            f"job(s) and their claimed items as-is.",
+        )
         _clear_job_state(data_io)
         return None
 
@@ -388,21 +437,26 @@ def _run_phase(reporter, task_args, batch, data_io):
     # ---- Reflect state in the card + the job-state mirror file ----
     remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
     claimed_total = sum(len(j.get("submitted_ids") or []) for j in run["jobs"])
-    reporter.emit_data({
-        "annotate_queue_len": len(remaining),
-        "annotate_claimed_len": claimed_total,
-    })
+    reporter.emit_data(
+        {
+            "annotate_queue_len": len(remaining),
+            "annotate_claimed_len": claimed_total,
+        }
+    )
 
     # ---- Terminal? ----
     if not run["jobs"] and run.get("_submit_error"):
         # Nothing in flight to wait for AND submission is failing: retrying on a
         # 120s chain would loop on a broken backend forever. The queue was left
         # untouched, so stopping loses nothing.
-        _log(reporter, "Stopping: no job in flight and the submit is failing "
-                       f"({run['_submit_error']}).")
+        _log(
+            reporter,
+            f"Stopping: no job in flight and the submit is failing ({run['_submit_error']}).",
+        )
         _notify(run, "failed", error=f"Batch submit failed: {run['_submit_error']}")
-        _journal_finished(run, len(remaining),
-                          f"stopped — the batch submit is failing ({run['_submit_error']})")
+        _journal_finished(
+            run, len(remaining), f"stopped — the batch submit is failing ({run['_submit_error']})"
+        )
         _clear_job_state(data_io)
         return None
 
@@ -422,9 +476,12 @@ def _run_phase(reporter, task_args, batch, data_io):
             return None
         if terminal_reason is not None:
             total_ok, total_fail = int(run["total_ok"]), int(run["total_fail"])
-            _log(reporter, f"All done — {terminal_reason} Processed {total_ok:,} annotated, "
-                           f"{total_fail:,} failed across {int(run['chunk_index'])} batch(es). "
-                           f"Run a Consolidate & Refresh to fold the new annotations in.")
+            _log(
+                reporter,
+                f"All done — {terminal_reason} Processed {total_ok:,} annotated, "
+                f"{total_fail:,} failed across {int(run['chunk_index'])} batch(es). "
+                f"Run a Consolidate & Refresh to fold the new annotations in.",
+            )
             # The per-job "failed" mails already covered a run with no results.
             if total_ok or total_fail:
                 _notify(run, "completed", total_ok=total_ok, total_fail=total_fail)
@@ -435,8 +492,14 @@ def _run_phase(reporter, task_args, batch, data_io):
     # More to do (jobs in flight, or the queue refilled while slots were full):
     # notify finished jobs, persist the table, chain to the next link.
     for done in run["_completed_this_link"]:
-        _notify(run, "batch_done", ok=done["ok"], fail=done["fail"],
-                requeued=done["requeued"], remaining=len(remaining))
+        _notify(
+            run,
+            "batch_done",
+            ok=done["ok"],
+            fail=done["fail"],
+            requeued=done["requeued"],
+            remaining=len(remaining),
+        )
 
     next_args = {k: v for k, v in run.items() if not k.startswith("_")}
     next_args["phase"] = "run"
@@ -449,9 +512,11 @@ def _run_phase(reporter, task_args, batch, data_io):
     # batch" read as if a batch were being submitted every two minutes.
     wait = _delay_phrase(_POLL_DELAY_S)
     n_jobs = len(run["jobs"])
-    chain_msg = (f"{n_jobs} job(s) still in flight — checking again in {wait}."
-                 if n_jobs else
-                 f"No job in flight — trying the queue again in {wait}.")
+    chain_msg = (
+        f"{n_jobs} job(s) still in flight — checking again in {wait}."
+        if n_jobs
+        else f"No job in flight — trying the queue again in {wait}."
+    )
     return {
         "chain": True,
         "next_task_args": next_args,
@@ -479,15 +544,17 @@ def _legacy_args_to_run(task_args) -> dict:
         "total_fail": int(task_args.get("total_fail", 0)),
     }
     if task_args.get("phase") == "poll" and task_args.get("job_name"):
-        common["jobs"] = [{
-            "job_name": task_args.get("job_name"),
-            "output_uri": task_args.get("output_uri"),
-            "jsonl_uri": task_args.get("jsonl_uri"),
-            "submitted_ids": task_args.get("submitted_ids") or [],
-            "ts_label": "",
-            "batch_no": int(task_args.get("chunk_index", 0)) + 1,
-            "submitted_at": "",
-        }]
+        common["jobs"] = [
+            {
+                "job_name": task_args.get("job_name"),
+                "output_uri": task_args.get("output_uri"),
+                "jsonl_uri": task_args.get("jsonl_uri"),
+                "submitted_ids": task_args.get("submitted_ids") or [],
+                "ts_label": "",
+                "batch_no": int(task_args.get("chunk_index", 0)) + 1,
+                "submitted_at": "",
+            }
+        ]
         # The old poll phase's chunk_index counted COMPLETED jobs; the table
         # counts submitted ones, and this job is submitted.
         common["chunk_index"] = int(task_args.get("chunk_index", 0)) + 1
@@ -497,7 +564,9 @@ def _legacy_args_to_run(task_args) -> dict:
     return common
 
 
-def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_queue_annotator_batch(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Process one phase of the batch-annotation state machine.
 
     Args:
@@ -518,9 +587,11 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
     # cleanly when another backend is selected instead of failing mid-flight.
     backend = active_backend_name()
     if backend != "gemini":
-        reporter.log(f"Batch annotation only supports the Gemini backend "
-                     f"(active backend: {backend}). Switch the backend in "
-                     f"Admin → Backends or use the live annotator.")
+        reporter.log(
+            f"Batch annotation only supports the Gemini backend "
+            f"(active backend: {backend}). Switch the backend in "
+            f"Admin → Backends or use the live annotator."
+        )
         return None
 
     phase = task_args.get("phase", "run")
@@ -533,25 +604,38 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
     return None
 
 
-
-
 if __name__ == "__main__":
     import argparse
 
     from web_interface.task_status import LocalStatusReporter
 
-    parser = argparse.ArgumentParser(description="Run batch queue annotator (submit + poll to done)")
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
-                        help="Items per submitted batch job (default: %(default)s)")
-    parser.add_argument("--max-batches", type=int, default=None,
-                        help="Max batches (default: unlimited)")
-    parser.add_argument("--launched-by", type=str, default=None,
-                        help="Email of the launching user, for milestone notifications.")
+    parser = argparse.ArgumentParser(
+        description="Run batch queue annotator (submit + poll to done)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="Items per submitted batch job (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-batches", type=int, default=None, help="Max batches (default: unlimited)"
+    )
+    parser.add_argument(
+        "--launched-by",
+        type=str,
+        default=None,
+        help="Email of the launching user, for milestone notifications.",
+    )
     args = parser.parse_args()
 
     reporter = LocalStatusReporter("queue_annotator_batch")
-    next_args = {"phase": "run", "batch_size": args.batch_size,
-                 "max_batches": args.max_batches, "launched_by": args.launched_by}
+    next_args = {
+        "phase": "run",
+        "batch_size": args.batch_size,
+        "max_batches": args.max_batches,
+        "launched_by": args.launched_by,
+    }
     try:
         while next_args is not None:
             result = run_queue_annotator_batch(reporter, next_args)
@@ -568,5 +652,6 @@ if __name__ == "__main__":
     except Exception as exc:
         reporter.fail(str(exc))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

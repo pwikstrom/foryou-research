@@ -4,8 +4,6 @@ Description: Centralized I/O operations for dataframes.
 Author: Patrik
 """
 
-
-
 import datetime as _dt
 import json
 import os
@@ -56,10 +54,10 @@ def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: floa
     logger.debug(f"[IO] op={op} loc={loc} file={bn} mode={mode} bytes={bytes_} ms={t_ms:.1f}")
 
 
-
 # ------------------------------------------------------------------------------
 # Path Resolution & GCS Helpers
 # ------------------------------------------------------------------------------
+
 
 def _resolve_paths(storage_location: str = "cache", filename: str = ""):
     """
@@ -68,61 +66,56 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
     2. A Secondary Path (Local Path if GCS is enabled, else None)
     3. Mode ('gcs' or 'local')
     4. GCS Blob Name (if mode is 'gcs', else None)
-    
+
     Returns:
         tuple: (primary_path, secondary_path, mode, blob_name)
     """
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     # 1. Validate Location
-    #print(60*"==")
-    #print(storage_location)
-    #print(60*"==")
-    if storage_location not in _cf()['paths']:
-        valid_locs = ', '.join(list(_cf()['paths'].keys()))
+    # print(60*"==")
+    # print(storage_location)
+    # print(60*"==")
+    if storage_location not in _cf()["paths"]:
+        valid_locs = ", ".join(list(_cf()["paths"].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
-
-
 
     # 2. Check GCS Configuration
     gcs_base = False
     use_gcs = False
-    if storage_location == 'cache':
-        use_gcs = _cf()['data_io']['use_gcs_for_cache']
+    if storage_location == "cache":
+        use_gcs = _cf()["data_io"]["use_gcs_for_cache"]
     else:
-        use_gcs = _cf()['data_io']['use_gcs_for_data']
+        use_gcs = _cf()["data_io"]["use_gcs_for_data"]
 
     if use_gcs:
-        gcs_base = _cf()['gcs_paths'][storage_location]
+        gcs_base = _cf()["gcs_paths"][storage_location]
 
-    bucket_name = _cf()['data_io']['GCS_bucket_name']
-    
+    bucket_name = _cf()["data_io"]["GCS_bucket_name"]
+
     # 3. Resolve
     if use_gcs and gcs_base:
         if not bucket_name:
             raise ValueError("GCS bucket name not found in config")
-             
+
         # Construct Blob Name
         blob_name = f"{gcs_base}/{filename}"
         blob_name = blob_name.replace("//", "/")
         gcs_uri = f"gs://{bucket_name}/{blob_name}"
-        
-        return (gcs_uri, None, 'gcs', blob_name)
+
+        return (gcs_uri, None, "gcs", blob_name)
     else:
         # Local
-        local_path = os.path.join(_cf()['paths'][storage_location], filename)
-        return (local_path, None, 'local', None)
-
+        local_path = os.path.join(_cf()["paths"][storage_location], filename)
+        return (local_path, None, "local", None)
 
 
 def _get_bucket():
     """Retrieve the bucket object from config."""
-    w = _cf()['data_io']['bucket']
+    w = _cf()["data_io"]["bucket"]
     return w
-
-
 
 
 # Storage locations that hold raw donations and their archive. Every object
@@ -135,12 +128,16 @@ def _get_bucket():
 # (Key naming is historical: the TikTok keys are per SOURCE — ddp/aio/
 # zeeschuimer — while instagram_raw/youtube_raw are per PLATFORM; see the
 # note in fyp_config.py.)
-APPEND_ONLY_LOCATIONS: frozenset = frozenset({
-    "ddp_raw", "zeeschuimer_raw", "aio_raw", "instagram_raw", "youtube_raw",
-    "archive",
-})
-
-
+APPEND_ONLY_LOCATIONS: frozenset = frozenset(
+    {
+        "ddp_raw",
+        "zeeschuimer_raw",
+        "aio_raw",
+        "instagram_raw",
+        "youtube_raw",
+        "archive",
+    }
+)
 
 
 def _refuse_clobber(storage_location: str, filename: str) -> None:
@@ -150,9 +147,8 @@ def _refuse_clobber(storage_location: str, filename: str) -> None:
     if exists(storage_location=storage_location, filename=filename):
         raise FileExistsError(
             f"'{filename}' already exists in '{storage_location}' and raw "
-            f"uploads are never overwritten")
-
-
+            f"uploads are never overwritten"
+        )
 
 
 def _no_clobber_kwargs(guard: bool) -> dict:
@@ -160,16 +156,11 @@ def _no_clobber_kwargs(guard: bool) -> dict:
     return {"if_generation_match": 0} if guard else {}
 
 
-
-
 def _is_precondition_failed(exc: Exception) -> bool:
     """True for the GCS 412 raised when an ``if_generation_match=0`` write
     finds the object already there (checked by name so no google import is
     needed at module level)."""
     return type(exc).__name__ == "PreconditionFailed" or getattr(exc, "code", None) == 412
-
-
-
 
 
 def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
@@ -194,10 +185,10 @@ def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
             but broken in GCS mode.
     """
     cf = _cf()
-    if name in cf['paths']:
+    if name in cf["paths"]:
         return
 
-    local_data = cf['paths'].get('local_data', "")
+    local_data = cf["paths"].get("local_data", "")
     rel = os.path.relpath(abs_path, local_data) if local_data else ".."
     if rel.startswith(".."):
         raise ValueError(
@@ -205,15 +196,15 @@ def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
             f"paths.local_data ('{local_data}') — no GCS path is derivable."
         )
 
-    cf['paths'][name] = abs_path
+    cf["paths"][name] = abs_path
 
-    if cf['data_io'].get('use_gcs_for_data'):
-        gcs_prefix = cf['data_io'].get('gcs_data_prefix', "")
+    if cf["data_io"].get("use_gcs_for_data"):
+        gcs_prefix = cf["data_io"].get("gcs_data_prefix", "")
         if rel == ".":
             gcs_path = gcs_prefix
         else:
             gcs_path = f"{gcs_prefix}/{rel}" if gcs_prefix else rel
-        cf.setdefault('gcs_paths', {})[name] = gcs_path
+        cf.setdefault("gcs_paths", {})[name] = gcs_path
     else:
         os.makedirs(abs_path, exist_ok=True)
 
@@ -221,24 +212,16 @@ def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
         logger.info(f"    [DATA_IO] Registered storage location '{name}' -> {abs_path}")
 
 
-
-
-
-
-
-
 def find_key_value_in_pq_metadata(
-    storage_location: str = "cache",
-    filename: str = "",
-    the_key: str = ""
-    ):
+    storage_location: str = "cache", filename: str = "", the_key: str = ""
+):
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
-    
+
     if the_key == "":
         raise ValueError("Key cannot be empty")
 
@@ -247,16 +230,12 @@ def find_key_value_in_pq_metadata(
 
     for k in file_metadata_dict:
         try:
-            some_dict = json.loads(file_metadata_dict[k].decode('utf-8'))
-            if some_dict.get(the_key,None) is not None:
+            some_dict = json.loads(file_metadata_dict[k].decode("utf-8"))
+            if some_dict.get(the_key, None) is not None:
                 return some_dict.get(the_key)
         except Exception:
             pass
     return None
-
-
-
-
 
 
 def exists(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> bool:
@@ -267,17 +246,15 @@ def exists(storage_location: str = "cache", filename: str = "", verbose: bool = 
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-
-    
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
-    #if verbose:
+    # if verbose:
     #    print(f"    [DATA_IO] exists: Checking {primary}")
-    
-    if mode == 'gcs':
+
+    if mode == "gcs":
         bucket = _get_bucket()
         gcs_exists = False
         if bucket:
@@ -293,26 +270,21 @@ def exists(storage_location: str = "cache", filename: str = "", verbose: bool = 
         return os.path.exists(primary)
 
 
-
-
-
-
 def getctime(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Get the creation time of the file filename.
     """
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
-    
-    if mode == 'gcs':
-        bucket = _cf()['data_io']['bucket']
+
+    if mode == "gcs":
+        bucket = _cf()["data_io"]["bucket"]
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob and blob.time_created:
@@ -325,25 +297,20 @@ def getctime(storage_location: str = "cache", filename: str = "", verbose: bool 
         return os.path.getctime(primary)
 
 
-
-
-
 def getmtime(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Get the modification time of the file.
     """
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
-    
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if bucket:
             blob = bucket.get_blob(blob_name)
@@ -354,10 +321,6 @@ def getmtime(storage_location: str = "cache", filename: str = "", verbose: bool 
             raise ValueError("GCS bucket not initialized")
     else:
         return os.path.getmtime(primary)
-
-
-
-
 
 
 def getsize(storage_location: str = "cache", filename: str = "", verbose: bool = False):
@@ -371,23 +334,19 @@ def getsize(storage_location: str = "cache", filename: str = "", verbose: bool =
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if bucket:
-                blob = bucket.get_blob(blob_name)
-                if blob:
-                    return blob.size
-                raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
+            blob = bucket.get_blob(blob_name)
+            if blob:
+                return blob.size
+            raise FileNotFoundError(f"GCS Blob not found: {blob_name}")
         else:
-                raise ValueError("GCS bucket not initialized")
+            raise ValueError("GCS bucket not initialized")
     else:
         return os.path.getsize(primary)
-
-
-
 
 
 def stat(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> dict | None:
@@ -405,7 +364,7 @@ def stat(storage_location: str = "cache", filename: str = "", verbose: bool = Fa
 
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
@@ -418,8 +377,6 @@ def stat(storage_location: str = "cache", filename: str = "", verbose: bool = Fa
         if not os.path.exists(primary):
             return None
         return {"size": int(os.path.getsize(primary)), "mtime": float(os.path.getmtime(primary))}
-
-
 
 
 def get_parquet_columns(storage_location: str = "cache", filename: str = "") -> list[str] | None:
@@ -444,10 +401,6 @@ def get_parquet_columns(storage_location: str = "cache", filename: str = "") -> 
     return list(meta.schema.to_arrow_schema().names)
 
 
-
-
-
-
 def get_parquet_num_rows(storage_location: str = "cache", filename: str = "") -> int | None:
     """Return a parquet file's row count from its footer, without reading rows.
 
@@ -467,52 +420,46 @@ def get_parquet_num_rows(storage_location: str = "cache", filename: str = "") ->
     return int(pq.read_metadata(primary).num_rows)
 
 
-
-
-
-
-
-
 def remove(storage_location: str = "cache", filename: str = "", verbose: bool = False):
     """
     Remove the file filename from the given storage location.
     """
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
-
 
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     # 1. Remove from GCS if configured
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if bucket:
             try:
                 # delete() raises NotFound by default if missing, unless generic exception handling
                 bucket.blob(blob_name).delete()
-                if verbose: logger.info(f"    [DATA_IO] Removed GCS blob '{blob_name}'")
+                if verbose:
+                    logger.info(f"    [DATA_IO] Removed GCS blob '{blob_name}'")
             except Exception as e:
                 # It's possible it didn't exist
-                if verbose: logger.warning(f"    [DATA_IO] GCS remove note: {e}")
+                if verbose:
+                    logger.warning(f"    [DATA_IO] GCS remove note: {e}")
 
     else:
         if os.path.exists(primary):
             os.remove(primary)
-            if verbose: logger.info(f"    [DATA_IO] Removed local file '{primary}'")
+            if verbose:
+                logger.info(f"    [DATA_IO] Removed local file '{primary}'")
         else:
-            if verbose: logger.warning(f"    [DATA_IO] File '{primary}' not found in local storage")
+            if verbose:
+                logger.warning(f"    [DATA_IO] File '{primary}' not found in local storage")
 
 
-
-
-
-
-
-def listdir(storage_location: str = "cache", return_absolute_path: bool = False, verbose: bool = False) -> list:
+def listdir(
+    storage_location: str = "cache", return_absolute_path: bool = False, verbose: bool = False
+) -> list:
     """
     List files in the given storage location.
     Handles GCS listing if configured.
@@ -522,66 +469,64 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
 
     gcs_base = False
     use_gcs = False
-    if storage_location == 'cache':
-        use_gcs = _cf()['data_io']['use_gcs_for_cache']
+    if storage_location == "cache":
+        use_gcs = _cf()["data_io"]["use_gcs_for_cache"]
     else:
-        use_gcs = _cf()['data_io']['use_gcs_for_data']
+        use_gcs = _cf()["data_io"]["use_gcs_for_data"]
 
     if use_gcs:
-        gcs_base = _cf()['gcs_paths'][storage_location]
-
+        gcs_base = _cf()["gcs_paths"][storage_location]
 
     files = []
 
     if use_gcs and gcs_base:
         # GCS Mode
         try:
-            bucket = _cf()['data_io']['bucket']
-            bucket_name = _cf()['data_io']['GCS_bucket_name']
+            bucket = _cf()["data_io"]["bucket"]
+            bucket_name = _cf()["data_io"]["GCS_bucket_name"]
             if bucket:
                 # Add trailing slash to treat as directory
                 prefix = gcs_base
-                if not prefix.endswith("/"): prefix += "/"
-                
-                #if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
-                
-                
-                iterator = bucket.list_blobs(prefix=prefix, delimiter='/')
+                if not prefix.endswith("/"):
+                    prefix += "/"
+
+                # if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
+
+                iterator = bucket.list_blobs(prefix=prefix, delimiter="/")
                 for page in iterator.pages:
                     for blob in page:
-                         name = blob.name
-                         # remove prefix
-                         rel_name = name[len(prefix):]
-                         if rel_name: # skip the directory blob itself
-                             files.append(rel_name)
+                        name = blob.name
+                        # remove prefix
+                        rel_name = name[len(prefix) :]
+                        if rel_name:  # skip the directory blob itself
+                            files.append(rel_name)
                     # "subdirectories"
                     for p in page.prefixes:
                         # p is something like "prefix/subdir/"
                         # we want just "subdir"
-                        rel_dir = p[len(prefix):].rstrip('/')
+                        rel_dir = p[len(prefix) :].rstrip("/")
                         if rel_dir:
                             files.append(rel_dir)
-                
+
                 if return_absolute_path:
-                     # Return GS URIs
-                     files = [f"gs://{bucket_name}/{prefix}{f}" for f in files]
+                    # Return GS URIs
+                    files = [f"gs://{bucket_name}/{prefix}{f}" for f in files]
             else:
-                 raise ValueError("GCS bucket not initialized for listdir")
+                raise ValueError("GCS bucket not initialized for listdir")
 
-            #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
-                 
+            # if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
+
         except Exception:
-            #if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
-            files = [] # Or raise? Old code just warned and returned empty or had logic flow issues.
+            # if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
+            files = []  # Or raise? Old code just warned and returned empty or had logic flow issues.
 
-             
     else:
         # Local Mode
-        if storage_location not in _cf()['paths']:
+        if storage_location not in _cf()["paths"]:
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
-        local_dir = _cf()['paths'][storage_location]
+        local_dir = _cf()["paths"][storage_location]
 
-        #if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
+        # if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
         if not os.path.isdir(local_dir):
             os.makedirs(local_dir, exist_ok=True)
@@ -592,7 +537,7 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
         if return_absolute_path:
             files = [os.path.join(local_dir, f) for f in files]
 
-        #if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
+        # if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
 
     _io_log(
         op="listdir",
@@ -606,25 +551,25 @@ def listdir(storage_location: str = "cache", return_absolute_path: bool = False,
     return files
 
 
-
-
-
-
-
-def move(src_storage_location: str = "", dst_storage_location: str = "", filename: str = "", verbose: bool = False):
+def move(
+    src_storage_location: str = "",
+    dst_storage_location: str = "",
+    filename: str = "",
+    verbose: bool = False,
+):
     """
     Move the file filename from src_storage_location to dst_storage_location.
     """
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if src_storage_location == "":
         raise ValueError("Source storage location cannot be empty")
-    
+
     if dst_storage_location == "":
         raise ValueError("Destination storage location cannot be empty")
-    
+
     # Resolve DST
     dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(dst_storage_location, filename)
 
@@ -634,49 +579,62 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
     if guard:
         _refuse_clobber(dst_storage_location, filename)
 
-
     # temp to storage_location
     if src_storage_location == "temp":
-        
-        src_path = os.path.join(_cf()['paths']['temp'], filename)
+        src_path = os.path.join(_cf()["paths"]["temp"], filename)
         if not os.path.exists(src_path):
-             if verbose: logger.error(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
-             return
+            if verbose:
+                logger.error(f"    [DATA_IO] ERROR: Source file not found in temp: '{src_path}'")
+            return
 
-        if dst_mode == 'gcs':
+        if dst_mode == "gcs":
             bucket = _get_bucket()
             if bucket:
                 try:
                     blob = bucket.blob(dst_blob_name)
                     blob.upload_from_filename(src_path, **_no_clobber_kwargs(guard))
-                    if verbose: logger.info(f"    [DATA_IO] Uploaded from temp to GCS: '{src_path}' -> '{dst_blob_name}'")
+                    if verbose:
+                        logger.info(
+                            f"    [DATA_IO] Uploaded from temp to GCS: '{src_path}' -> '{dst_blob_name}'"
+                        )
                     # Remove local temp file after successful upload
                     os.remove(src_path)
                 except Exception as e:
                     if guard and _is_precondition_failed(e):
                         raise FileExistsError(
                             f"'{filename}' already exists in '{dst_storage_location}' "
-                            f"and raw uploads are never overwritten") from e
+                            f"and raw uploads are never overwritten"
+                        ) from e
                     if guard:
                         raise
-                    if verbose: logger.warning(f"    [DATA_IO] WARN: Failed to upload/move from temp to GCS: {e}")
+                    if verbose:
+                        logger.warning(
+                            f"    [DATA_IO] WARN: Failed to upload/move from temp to GCS: {e}"
+                        )
             else:
-                 if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized for temp move.")
+                if verbose:
+                    logger.warning("    [DATA_IO] WARN: GCS bucket not initialized for temp move.")
 
-        elif dst_mode == 'local':
-             if dst_primary:
+        elif dst_mode == "local":
+            if dst_primary:
                 shutil.move(src_path, dst_primary)
-                if verbose: logger.info(f"    [DATA_IO] Moved from temp to local: '{src_path}' -> '{dst_primary}'")
-             else:
-                 if verbose: logger.error("    [DATA_IO] ERROR: Destination path resolution failed for local move.")
-        
+                if verbose:
+                    logger.info(
+                        f"    [DATA_IO] Moved from temp to local: '{src_path}' -> '{dst_primary}'"
+                    )
+            else:
+                if verbose:
+                    logger.error(
+                        "    [DATA_IO] ERROR: Destination path resolution failed for local move."
+                    )
+
         return
 
     # Resolve SRC
     src_primary, _, src_mode, src_blob_name = _resolve_paths(src_storage_location, filename)
 
     # GCS Move
-    if src_mode == 'gcs' and dst_mode == 'gcs':
+    if src_mode == "gcs" and dst_mode == "gcs":
         bucket = _get_bucket()
         if bucket:
             try:
@@ -684,32 +642,40 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
                 # GCS 'rename' is a move (copy + delete). The generation
                 # precondition applies to the DESTINATION object.
                 bucket.rename_blob(blob, dst_blob_name, **_no_clobber_kwargs(guard))
-                if verbose: logger.info(f"    [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
+                if verbose:
+                    logger.info(f"    [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
             except Exception as e:
                 if guard and _is_precondition_failed(e):
                     raise FileExistsError(
                         f"'{filename}' already exists in '{dst_storage_location}' "
-                        f"and raw uploads are never overwritten") from e
+                        f"and raw uploads are never overwritten"
+                    ) from e
                 if guard:
                     raise
-                if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
+                if verbose:
+                    logger.warning(f"    [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
 
     # Local Move
-    elif src_mode == 'local' and dst_mode == 'local':
-
+    elif src_mode == "local" and dst_mode == "local":
         if src_primary and dst_primary:
             shutil.move(src_primary, dst_primary)
-            if verbose: logger.info(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
+            if verbose:
+                logger.info(
+                    f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'"
+                )
         else:
-            if verbose and src_mode == 'local':
-                logger.error(f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
+            if verbose and src_mode == "local":
+                logger.error(
+                    f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'"
+                )
 
 
-
-
-
-
-def rename(storage_location: str = "", src_filename: str = "", dst_filename: str = "", verbose: bool = False) -> bool:
+def rename(
+    storage_location: str = "",
+    src_filename: str = "",
+    dst_filename: str = "",
+    verbose: bool = False,
+) -> bool:
     """Rename a file within a single storage location.
 
     Local mode is an atomic filesystem move; GCS mode uses ``rename_blob``
@@ -743,7 +709,7 @@ def rename(storage_location: str = "", src_filename: str = "", dst_filename: str
     if guard:
         _refuse_clobber(storage_location, dst_filename)
 
-    if src_mode == 'gcs':
+    if src_mode == "gcs":
         bucket = _get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized for rename")
@@ -756,23 +722,21 @@ def rename(storage_location: str = "", src_filename: str = "", dst_filename: str
             if guard and _is_precondition_failed(e):
                 raise FileExistsError(
                     f"'{dst_filename}' already exists in '{storage_location}' "
-                    f"and raw uploads are never overwritten") from e
+                    f"and raw uploads are never overwritten"
+                ) from e
             raise
-        if verbose: logger.info(f"    [DATA_IO] Renamed GCS: '{src_blob_name}' -> '{dst_blob_name}'")
+        if verbose:
+            logger.info(f"    [DATA_IO] Renamed GCS: '{src_blob_name}' -> '{dst_blob_name}'")
         return True
 
     if not src_primary or not os.path.exists(src_primary):
         return False
     shutil.move(src_primary, dst_primary)
-    if verbose: logger.info(f"    [DATA_IO] Renamed Local: '{src_filename}' -> '{dst_filename}' in '{storage_location}'")
+    if verbose:
+        logger.info(
+            f"    [DATA_IO] Renamed Local: '{src_filename}' -> '{dst_filename}' in '{storage_location}'"
+        )
     return True
-
-
-
-
-
-
-
 
 
 # read a file with one json object per line and return a list of dictionaries
@@ -780,24 +744,25 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
-
 
     # Extension check
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != '.ndjson':
-        if verbose: 
-            logger.warning(f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})")
-        
+    if ext != ".ndjson":
+        if verbose:
+            logger.warning(
+                f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})"
+            )
+
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
-    
+
     # Attempt Primary Load
     data = []
-    if True:#try:
-        if mode == 'gcs':
+    if True:  # try:
+        if mode == "gcs":
             bucket = _get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
@@ -805,32 +770,27 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                 if blob.exists():
                     with blob.open("r") as file:
                         for line in file:
-                            #line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
-                            #line = '{"log_script":"' + root + '",' + line[1:]
+                            # line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
+                            # line = '{"log_script":"' + root + '",' + line[1:]
                             data.append(json.loads(line))
                     return data
                 else:
-                     if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                    if verbose:
+                        logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             else:
-                 if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
+                if verbose:
+                    logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local Primary
-            with open(primary, encoding='utf-8') as file:
+            with open(primary, encoding="utf-8") as file:
                 for line in file:
-                    #line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
-                    #line = '{"log_script":"' + root + '",' + line[1:]
+                    # line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
+                    # line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
 
     # If we are here, things haven't gone very well have they
     return None
-
-
-
-
-
-
-
 
 
 def load_json(storage_location: str = "cache", filename: str = "", verbose: bool = False):
@@ -841,23 +801,25 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
-
 
     # Extension check
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != '.json':
-        if verbose: logger.warning(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
-        
+    if ext != ".json":
+        if verbose:
+            logger.warning(
+                f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
+            )
+
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     # Attempt Primary Load
     _t_io = _time.perf_counter()
     try:
-        if mode == 'gcs':
+        if mode == "gcs":
             from google.api_core import exceptions as gcs_exceptions
 
             bucket = _get_bucket()
@@ -873,7 +835,8 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                 try:
                     content = blob.download_as_text()
                 except gcs_exceptions.NotFound:
-                    if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                    if verbose:
+                        logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
                     return None
                 _io_log(
                     op="load_json",
@@ -885,10 +848,11 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                 )
                 return json.loads(content)
             else:
-                 if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
+                if verbose:
+                    logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
             # Local from local
-            with open(primary, encoding='utf-8') as file:
+            with open(primary, encoding="utf-8") as file:
                 content = file.read()
                 _io_log(
                     op="load_json",
@@ -904,20 +868,23 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
         # An absent file is the normal first-run state for many callers, so it
         # is not an error worth logging — mirrors the GCS NotFound branch above
         # and lets callers drop their own pre-flight exists() probe.
-        if verbose: logger.warning(f"    [DATA_IO] WARN: file not found: '{filename}' in '{storage_location}'.")
+        if verbose:
+            logger.warning(
+                f"    [DATA_IO] WARN: file not found: '{filename}' in '{storage_location}'."
+            )
         return None
     except Exception as e:
-        if verbose: logger.warning(f"    [DATA_IO] Loading json failed ({mode}): {e}")
+        if verbose:
+            logger.warning(f"    [DATA_IO] Loading json failed ({mode}): {e}")
         # If we are in local mode, primary failed, no secondary. Raise/Return None.
-        if mode == 'local':
-             logger.error(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
-             return None
+        if mode == "local":
+            logger.error(
+                f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}"
+            )
+            return None
 
     # If we are here, things haven't gone very well have they
     return None
-
-
-
 
 
 def load_json_optional(storage_location: str = "cache", filename: str = "", verbose: bool = False):
@@ -945,7 +912,7 @@ def load_json_optional(storage_location: str = "cache", filename: str = "", verb
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         from google.api_core import exceptions as gcs_exceptions
 
         bucket = _get_bucket()
@@ -955,14 +922,16 @@ def load_json_optional(storage_location: str = "cache", filename: str = "", verb
         try:
             content = blob.download_as_text()
         except gcs_exceptions.NotFound:
-            if verbose: logger.warning(f"    [DATA_IO] GCS Blob absent: {blob_name}.")
+            if verbose:
+                logger.warning(f"    [DATA_IO] GCS Blob absent: {blob_name}.")
             return None
     else:
         try:
-            with open(primary, encoding='utf-8') as file:
+            with open(primary, encoding="utf-8") as file:
                 content = file.read()
         except FileNotFoundError:
-            if verbose: logger.warning(f"    [DATA_IO] File absent: '{filename}' in '{storage_location}'.")
+            if verbose:
+                logger.warning(f"    [DATA_IO] File absent: '{filename}' in '{storage_location}'.")
             return None
 
     _io_log(
@@ -976,9 +945,9 @@ def load_json_optional(storage_location: str = "cache", filename: str = "", verb
     return json.loads(content)
 
 
-
-
-def local_copy(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> str | None:
+def local_copy(
+    storage_location: str = "cache", filename: str = "", verbose: bool = False
+) -> str | None:
     """Return a local filesystem path to a raw file, downloading it if needed.
 
     A generic binary accessor for readers that need a real file on disk (e.g.
@@ -1001,16 +970,18 @@ def local_copy(storage_location: str = "cache", filename: str = "", verbose: boo
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if not bucket:
-            if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
+            if verbose:
+                logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
             return None
         blob = bucket.blob(blob_name)
         if not blob.exists():
-            if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+            if verbose:
+                logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             return None
-        temp_dir = _cf()['paths']['temp']
+        temp_dir = _cf()["paths"]["temp"]
         os.makedirs(temp_dir, exist_ok=True)
         # Prefix with the storage location so identically-named files from
         # different locations cannot clobber each other's temp copies.
@@ -1028,11 +999,9 @@ def local_copy(storage_location: str = "cache", filename: str = "", verbose: boo
 
     if os.path.exists(primary):
         return primary
-    if verbose: logger.warning(f"    [DATA_IO] WARN: Local file not found: {primary}.")
+    if verbose:
+        logger.warning(f"    [DATA_IO] WARN: Local file not found: {primary}.")
     return None
-
-
-
 
 
 def release_local_copy(path: str | None, verbose: bool = False) -> None:
@@ -1049,7 +1018,7 @@ def release_local_copy(path: str | None, verbose: bool = False) -> None:
     """
     if not path:
         return
-    temp_dir = os.path.abspath(_cf()['paths']['temp'])
+    temp_dir = os.path.abspath(_cf()["paths"]["temp"])
     abs_path = os.path.abspath(path)
     if not abs_path.startswith(temp_dir + os.sep):
         return
@@ -1061,11 +1030,13 @@ def release_local_copy(path: str | None, verbose: bool = False) -> None:
         pass
 
 
-
-
-
-def save_json(data = None, storage_location: str = "cache", filename: str = "", verbose: bool = False,
-              overwrite: bool = True):
+def save_json(
+    data=None,
+    storage_location: str = "cache",
+    filename: str = "",
+    verbose: bool = False,
+    overwrite: bool = True,
+):
     """
     Save a json to a given path.
     Supports GCS write + Parallel Save.
@@ -1077,18 +1048,21 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
 
     if data is None:
         raise ValueError("Data cannot be empty")
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != '.json':
-        if verbose: logger.warning(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
-        
+    if ext != ".json":
+        if verbose:
+            logger.warning(
+                f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
+            )
+
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
     if not overwrite:
         _refuse_clobber(storage_location, filename)
@@ -1097,24 +1071,26 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
 
     # 1. Save Primary
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if bucket:
-             blob = bucket.blob(blob_name)
-             try:
-                 blob.upload_from_string(payload, **_no_clobber_kwargs(not overwrite))
-             except Exception as e:
-                 if not overwrite and _is_precondition_failed(e):
-                     raise FileExistsError(
-                         f"'{filename}' already exists in '{storage_location}'") from e
-                 raise
-             if verbose: logger.info(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
+            blob = bucket.blob(blob_name)
+            try:
+                blob.upload_from_string(payload, **_no_clobber_kwargs(not overwrite))
+            except Exception as e:
+                if not overwrite and _is_precondition_failed(e):
+                    raise FileExistsError(
+                        f"'{filename}' already exists in '{storage_location}'"
+                    ) from e
+                raise
+            if verbose:
+                logger.info(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
         else:
-             raise ValueError("GCS bucket not initialized")
+            raise ValueError("GCS bucket not initialized")
     else:
         # Local
         os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, 'w', encoding='utf-8') as file:
+        with open(primary, "w", encoding="utf-8") as file:
             file.write(payload)
 
     _io_log(
@@ -1129,10 +1105,6 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
     return 0
 
 
-
-
-
-
 # Per-path locks for the local branch of update_json. In-process only — local
 # mode normally has a single server instance, so the lock guards concurrent
 # threads; the cross-instance guarantee comes from the GCS generation check.
@@ -1140,13 +1112,14 @@ _update_json_locks: dict = {}
 _update_json_locks_guard = threading.Lock()
 
 
-
-
-
-
-def update_json(storage_location: str = "cache", filename: str = "",
-                mutate=None, default=None, max_retries: int = 6,
-                verbose: bool = False):
+def update_json(
+    storage_location: str = "cache",
+    filename: str = "",
+    mutate=None,
+    default=None,
+    max_retries: int = 6,
+    verbose: bool = False,
+):
     """Atomically read-modify-write a JSON file (lost-update safe).
 
     The concurrency-safe replacement for the ``load_json`` → mutate →
@@ -1195,7 +1168,7 @@ def update_json(storage_location: str = "cache", filename: str = "",
 
     _t_io = _time.perf_counter()
 
-    if mode == 'gcs':
+    if mode == "gcs":
         from google.api_core import exceptions as gcs_exceptions
 
         bucket = _get_bucket()
@@ -1226,8 +1199,10 @@ def update_json(storage_location: str = "cache", filename: str = "",
                 # Another writer changed the object between our read and
                 # write — back off briefly and retry against fresh contents.
                 if verbose:
-                    logger.info(f"    [DATA_IO] update_json generation conflict on "
-                                f"{blob_name} (attempt {attempt + 1}/{max_retries})")
+                    logger.info(
+                        f"    [DATA_IO] update_json generation conflict on "
+                        f"{blob_name} (attempt {attempt + 1}/{max_retries})"
+                    )
                 _time.sleep(0.2 * (attempt + 1))
                 continue
 
@@ -1242,8 +1217,7 @@ def update_json(storage_location: str = "cache", filename: str = "",
             return new_value
 
         raise RuntimeError(
-            f"update_json: lost the write race on '{blob_name}' "
-            f"{max_retries} times — giving up."
+            f"update_json: lost the write race on '{blob_name}' {max_retries} times — giving up."
         )
 
     # Local mode: per-path lock + write-temp-then-rename.
@@ -1254,7 +1228,7 @@ def update_json(storage_location: str = "cache", filename: str = "",
         current = _fresh_default()
         if os.path.exists(primary):
             try:
-                with open(primary, encoding='utf-8') as file:
+                with open(primary, encoding="utf-8") as file:
                     current = json.loads(file.read())
             except (OSError, json.JSONDecodeError):
                 current = _fresh_default()
@@ -1265,11 +1239,9 @@ def update_json(storage_location: str = "cache", filename: str = "",
 
         payload = json.dumps(new_value)
         os.makedirs(os.path.dirname(primary), exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(primary), suffix=".tmp"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(primary), suffix=".tmp")
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as file:
+            with os.fdopen(fd, "w", encoding="utf-8") as file:
                 file.write(payload)
             os.replace(tmp_path, primary)
         except BaseException:
@@ -1290,9 +1262,9 @@ def update_json(storage_location: str = "cache", filename: str = "",
     return new_value
 
 
-
-
-def load_text(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> str | None:
+def load_text(
+    storage_location: str = "cache", filename: str = "", verbose: bool = False
+) -> str | None:
     """Load a UTF-8 text file (e.g. a TOML contract) from a storage location.
 
     The text analogue of :func:`load_json` — used for raw text payloads (TOML,
@@ -1316,7 +1288,7 @@ def load_text(storage_location: str = "cache", filename: str = "", verbose: bool
 
     _t_io = _time.perf_counter()
     try:
-        if mode == 'gcs':
+        if mode == "gcs":
             bucket = _get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
@@ -1331,11 +1303,13 @@ def load_text(storage_location: str = "cache", filename: str = "", verbose: bool
                         t_ms=(_time.perf_counter() - _t_io) * 1000.0,
                     )
                     return content
-                if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                if verbose:
+                    logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
             else:
-                if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
+                if verbose:
+                    logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
-            with open(primary, encoding='utf-8') as file:
+            with open(primary, encoding="utf-8") as file:
                 content = file.read()
                 _io_log(
                     op="load_text",
@@ -1347,17 +1321,20 @@ def load_text(storage_location: str = "cache", filename: str = "", verbose: bool
                 )
                 return content
     except Exception as e:
-        if verbose: logger.warning(f"    [DATA_IO] Loading text failed ({mode}): {e}")
-        if mode == 'local':
-            logger.error(f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}")
+        if verbose:
+            logger.warning(f"    [DATA_IO] Loading text failed ({mode}): {e}")
+        if mode == "local":
+            logger.error(
+                f"    [DATA_IO] ERROR Couldn't load '{filename}' from '{storage_location}': {e}"
+            )
             return None
 
     return None
 
 
-
-
-def save_text(data: str = "", storage_location: str = "cache", filename: str = "", verbose: bool = False) -> int:
+def save_text(
+    data: str = "", storage_location: str = "cache", filename: str = "", verbose: bool = False
+) -> int:
     """Save a UTF-8 text string (e.g. a TOML contract) to a storage location.
 
     The text analogue of :func:`save_json` — the payload is written verbatim
@@ -1382,17 +1359,18 @@ def save_text(data: str = "", storage_location: str = "cache", filename: str = "
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if bucket:
             blob = bucket.blob(blob_name)
             blob.upload_from_string(data, content_type="text/plain; charset=utf-8")
-            if verbose: logger.info(f"    [DATA_IO] Saved text to GCS: {blob_name}")
+            if verbose:
+                logger.info(f"    [DATA_IO] Saved text to GCS: {blob_name}")
         else:
             raise ValueError("GCS bucket not initialized")
     else:
         os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, 'w', encoding='utf-8') as file:
+        with open(primary, "w", encoding="utf-8") as file:
             file.write(data)
 
     _io_log(
@@ -1405,11 +1383,6 @@ def save_text(data: str = "", storage_location: str = "cache", filename: str = "
     )
 
     return 0
-
-
-
-
-
 
 
 def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
@@ -1435,8 +1408,7 @@ def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
 
     # Quick check: are there any string columns that look like tuples?
     has_tuple_strings = any(
-        isinstance(c, str) and c.startswith("(") and c.endswith(")")
-        for c in cols
+        isinstance(c, str) and c.startswith("(") and c.endswith(")") for c in cols
     )
     if not has_tuple_strings:
         return df
@@ -1473,9 +1445,6 @@ def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
-
-
 # Ranged parallel download for big blobs: a single download_as_bytes() stream
 # tops out well below what Cloud Run's NIC delivers, and the multi-GB recoded
 # study parquets spend most of their cold-open time in that one stream.
@@ -1506,7 +1475,7 @@ def _download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
         # A fresh Blob per range: download state is per-call, but keeping
         # threads off one shared object costs nothing.
         data = bucket.blob(blob_name).download_as_bytes(start=start, end=end)
-        buf[start:start + len(data)] = data
+        buf[start : start + len(data)] = data
 
     with ThreadPoolExecutor(max_workers=_PARALLEL_DL_WORKERS) as pool:
         # list() propagates the first exception instead of swallowing it.
@@ -1515,96 +1484,96 @@ def _download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
 
 
 def load_parquet(
-        storage_location: str = "cache",
-        filename: str = "", # if filename == '*' -> load all parquet files in storage_location
-        #columns=None,
-        filters=None,
-        verbose = False,
-    ):
+    storage_location: str = "cache",
+    filename: str = "",  # if filename == '*' -> load all parquet files in storage_location
+    # columns=None,
+    filters=None,
+    verbose=False,
+):
     """
     Load a dataframe from a given path.
     Supports GCS direct read (gs://).
     """
 
-    columns=None
-    #filters=None
-
+    columns = None
+    # filters=None
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-
-
     def _renamed(s):
         fixer_upper = [
-            #("B_local_","local_"),
-            #("D_local_","local_"),
-            (".","_"),
-            ("data_",""),
-            ("source_url_","source_"),
-            ("_collected",""),
-            ("framing_analysis_","FA_"),
-            ("cultural_representation_analysis_","CRA_"),
-            ("ideological_analysis_","IA_"),
-
+            # ("B_local_","local_"),
+            # ("D_local_","local_"),
+            (".", "_"),
+            ("data_", ""),
+            ("source_url_", "source_"),
+            ("_collected", ""),
+            ("framing_analysis_", "FA_"),
+            ("cultural_representation_analysis_", "CRA_"),
+            ("ideological_analysis_", "IA_"),
         ]
         for fu in fixer_upper:
-            s = s.replace(fu[0],fu[1])
+            s = s.replace(fu[0], fu[1])
         return s
 
     t1 = _dt.datetime.now()
 
-
-    if _cf()['data_io']['bucket'] is not None:
+    if _cf()["data_io"]["bucket"] is not None:
         # Initialize GCS filesystem
         fs = gcsfs.GCSFileSystem()
 
-
     # if we are to load all parquet files in this location (and it is gcs)
-    if filename == "*" and _cf()['data_io']['use_gcs_for_data']:
+    if filename == "*" and _cf()["data_io"]["use_gcs_for_data"]:
         gcs_base = _cf().get("gcs_paths", {}).get(storage_location)
-        bucket_name = _cf()['data_io'].get('GCS_bucket_name')
-        files = fs.glob(f'gs://{bucket_name}/{gcs_base}/*.parquet')
+        bucket_name = _cf()["data_io"].get("GCS_bucket_name")
+        files = fs.glob(f"gs://{bucket_name}/{gcs_base}/*.parquet")
         files = ["gs://" + f for f in files]
 
         # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
         if columns is not None:
             # Read parquet schema
-            with fs.open(files[0]) as f: # assume all files have the same schema so it's enough to check the first one
+            with fs.open(
+                files[0]
+            ) as f:  # assume all files have the same schema so it's enough to check the first one
                 parquet_schema = pq.read_schema(f)
             existing_cols = parquet_schema.names
 
             # iterate over the parquet columns and check if they included in the requested columns list
             # OR if a renamed version of the parquet columns are included in the requested columns list
             # I have to do it this way since at some stage in the processing, I'm changing renaming the columns
-            # Yes - it's a bit confusing.  
+            # Yes - it's a bit confusing.
             # TODO: this code is outdated and should be updated
             confirmed_columns = []
             for ec in existing_cols:
                 if ec in columns or _renamed(ec) in columns:
                     confirmed_columns += [ec]
                 else:
-                    logger.info(f"    [DATA_IO] Parquet column '{ec}' not loaded since not requested")
+                    logger.info(
+                        f"    [DATA_IO] Parquet column '{ec}' not loaded since not requested"
+                    )
 
             columns = list(set(confirmed_columns))
             if verbose:
                 logger.info(f"    [DATA_IO] Column selection: {columns}")
 
-
         if verbose:
-            logger.info(f"    [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... ")
+            logger.info(
+                f"    [DATA_IO] Loading: all parquet files from folder '{storage_location}' (gcs)... "
+            )
         _t_io = _time.perf_counter()
         df = pd.read_parquet(
             files,
             filesystem=fs,
-            engine='pyarrow',
+            engine="pyarrow",
             use_threads=True,
             dtype_backend="pyarrow",
             columns=columns,
-            filters=filters)
+            filters=filters,
+        )
         _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
         if verbose:
             logger.info(f"    [DATA_IO] ...done (shape: {df.shape})")
@@ -1624,14 +1593,15 @@ def load_parquet(
 
         if verbose:
             t2 = _dt.datetime.now()
-            logger.info(f"    [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
+            logger.info(
+                f"    [DATA_IO] Loaded parquet(s) shape: {df.shape}. Time: {(t2 - t1).total_seconds():.1f} seconds"
+            )
 
         return df
 
-
     # if we have arrived here, we are loading a single parquet file
     root, ext = os.path.splitext(filename)
-    if ext != '.parquet':
+    if ext != ".parquet":
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
 
     if not exists(storage_location, filename):
@@ -1643,7 +1613,7 @@ def load_parquet(
     # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
     if columns is not None:
         try:
-            if mode == 'gcs':
+            if mode == "gcs":
                 # Read parquet schema
                 with fs.open(primary) as f:
                     parquet_schema = pq.read_schema(f)
@@ -1652,17 +1622,18 @@ def load_parquet(
                 parquet_schema = pq.read_schema(primary)
             existing_cols = parquet_schema.names
         except Exception as e:
-            if verbose: logger.warning(f"    [DATA_IO] WARN: Column selection failed: {e}")
+            if verbose:
+                logger.warning(f"    [DATA_IO] WARN: Column selection failed: {e}")
             existing_cols = []
         columns = [c for c in columns if c in existing_cols]
         if verbose:
             logger.info(f"    [DATA_IO] Column selection: {columns}")
 
-
-    if verbose: logger.info(f"    [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...")
+    if verbose:
+        logger.info(f"    [DATA_IO] Loading: '{filename}' from '{storage_location}' ({mode})...")
     _t_io = _time.perf_counter()
     try:
-        if mode == 'gcs':
+        if mode == "gcs":
             # Bypass gcsfs: download the blob to memory, then decode with
             # pyarrow directly. Benchmarks on task-runner showed this is
             # ~1.2-2.3x faster than pd.read_parquet("gs://...") and has
@@ -1693,18 +1664,20 @@ def load_parquet(
                 # parallel path handles, so it cannot spam the logs.
                 logger.info(
                     f"[IO] big-blob load '{os.path.basename(filename)}': "
-                    f"download {len(raw)/1e6:.0f} MB in {_t_dl:.1f}s "
-                    f"({len(raw)/1e6/max(_t_dl, 0.001):.0f} MB/s), "
-                    f"decode {_t_dec:.1f}s")
+                    f"download {len(raw) / 1e6:.0f} MB in {_t_dl:.1f}s "
+                    f"({len(raw) / 1e6 / max(_t_dl, 0.001):.0f} MB/s), "
+                    f"decode {_t_dec:.1f}s"
+                )
             del table, raw
         else:
             df = pd.read_parquet(
                 primary,
-                engine='pyarrow',
+                engine="pyarrow",
                 dtype_backend="pyarrow",
                 use_threads=True,
                 columns=columns,
-                filters=filters)
+                filters=filters,
+            )
     except Exception as e:
         logger.warning(f" !! [DATA_IO] WARNING: Loading '{filename}' failed: {e}")
         return None
@@ -1725,23 +1698,21 @@ def load_parquet(
 
     if verbose:
         t2 = _dt.datetime.now()
-        logger.info(f"    [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2-t1).total_seconds():.1f} seconds")
+        logger.info(
+            f"    [DATA_IO] ...done. Shape: {df.shape}. Time: {(t2 - t1).total_seconds():.1f} seconds"
+        )
 
     return df
 
 
-
-
-
-
 def load_parquet_selective(
-        storage_location: str = "cache",
-        filename: str = "",
-        columns: list = None,
-        filters: list = None,
-        set_index: str = None,
-        verbose: bool = False,
-    ):
+    storage_location: str = "cache",
+    filename: str = "",
+    columns: list = None,
+    filters: list = None,
+    set_index: str = None,
+    verbose: bool = False,
+):
     """Load a parquet file with column projection and optional row filters.
 
     Uses a pyarrow.parquet.read_table pipeline that strips the embedded
@@ -1783,7 +1754,7 @@ def load_parquet_selective(
         raise ValueError("Storage location cannot be empty")
 
     root, ext = os.path.splitext(filename)
-    if ext != '.parquet':
+    if ext != ".parquet":
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
 
     if not exists(storage_location, filename):
@@ -1793,7 +1764,7 @@ def load_parquet_selective(
 
     t1 = _dt.datetime.now()
 
-    if mode == 'gcs':
+    if mode == "gcs":
         fs = gcsfs.GCSFileSystem()
         with fs.open(primary) as f:
             existing_cols = pq.read_schema(f).names
@@ -1804,9 +1775,13 @@ def load_parquet_selective(
         missing = [c for c in columns if c not in existing_cols]
         cols_to_read = [c for c in columns if c in existing_cols]
         if missing and verbose:
-            logger.info(f"    [DATA_IO] Selective: {len(missing)} requested column(s) not in schema, skipping: {missing}")
+            logger.info(
+                f"    [DATA_IO] Selective: {len(missing)} requested column(s) not in schema, skipping: {missing}"
+            )
         if not cols_to_read:
-            logger.warning(f" !! [DATA_IO] WARNING: load_parquet_selective: no requested columns exist in '{filename}'")
+            logger.warning(
+                f" !! [DATA_IO] WARNING: load_parquet_selective: no requested columns exist in '{filename}'"
+            )
             return None
     else:
         cols_to_read = None
@@ -1816,12 +1791,14 @@ def load_parquet_selective(
 
     _t_io = _time.perf_counter()
     try:
-        if mode == 'gcs':
+        if mode == "gcs":
             tbl = pq.read_table(primary, columns=cols_to_read, filters=filters, filesystem=fs)
         else:
             tbl = pq.read_table(primary, columns=cols_to_read, filters=filters)
     except Exception as e:
-        logger.warning(f" !! [DATA_IO] WARNING: load_parquet_selective: read failed for '{filename}': {e}")
+        logger.warning(
+            f" !! [DATA_IO] WARNING: load_parquet_selective: read failed for '{filename}': {e}"
+        )
         return None
     _t_io_ms = (_time.perf_counter() - _t_io) * 1000.0
 
@@ -1829,7 +1806,7 @@ def load_parquet_selective(
     # `list<element: string>[pyarrow]` dtype-resolution failure during
     # to_pandas() when other (unselected) columns are list-typed on disk.
     meta = tbl.schema.metadata or {}
-    new_meta = {k: v for k, v in meta.items() if k != b'pandas'}
+    new_meta = {k: v for k, v in meta.items() if k != b"pandas"}
     tbl = tbl.replace_schema_metadata(new_meta or None)
 
     df = tbl.to_pandas(types_mapper=pd.ArrowDtype)
@@ -1853,11 +1830,11 @@ def load_parquet_selective(
 
     if verbose:
         t2 = _dt.datetime.now()
-        logger.info(f"    [DATA_IO] Selective load: '{filename}' shape={df.shape} time={(t2-t1).total_seconds():.3f}s")
+        logger.info(
+            f"    [DATA_IO] Selective load: '{filename}' shape={df.shape} time={(t2 - t1).total_seconds():.3f}s"
+        )
 
     return df
-
-
 
 
 # ----------------------------------------------------------------------------
@@ -1871,13 +1848,13 @@ def load_parquet_selective(
 
 
 def iter_parquet_batches(
-        storage_location: str = "cache",
-        filename: str = "",
-        columns: list = None,
-        filters: list = None,
-        batch_size: int = 131_072,
-        verbose: bool = False,
-    ):
+    storage_location: str = "cache",
+    filename: str = "",
+    columns: list = None,
+    filters: list = None,
+    batch_size: int = 131_072,
+    verbose: bool = False,
+):
     """Stream a parquet file as pyarrow RecordBatches.
 
     The bounded-memory counterpart of :func:`load_parquet_selective`: the
@@ -1905,17 +1882,16 @@ def iter_parquet_batches(
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
     root, ext = os.path.splitext(filename)
-    if ext != '.parquet':
+    if ext != ".parquet":
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
     if not exists(storage_location, filename):
         raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
     primary, _, mode, _ = _resolve_paths(storage_location, filename)
-    if mode == 'gcs':
-        dataset = pads.dataset(primary, format='parquet',
-                               filesystem=gcsfs.GCSFileSystem())
+    if mode == "gcs":
+        dataset = pads.dataset(primary, format="parquet", filesystem=gcsfs.GCSFileSystem())
     else:
-        dataset = pads.dataset(primary, format='parquet')
+        dataset = pads.dataset(primary, format="parquet")
 
     cols_to_read = None
     if columns is not None:
@@ -1923,14 +1899,17 @@ def iter_parquet_batches(
         missing = [c for c in columns if c not in existing_cols]
         cols_to_read = [c for c in columns if c in existing_cols]
         if missing and verbose:
-            logger.info(f"    [DATA_IO] iter_parquet_batches: {len(missing)} requested column(s) not in schema, skipping: {missing}")
+            logger.info(
+                f"    [DATA_IO] iter_parquet_batches: {len(missing)} requested column(s) not in schema, skipping: {missing}"
+            )
         if not cols_to_read:
-            logger.warning(f" !! [DATA_IO] WARNING: iter_parquet_batches: no requested columns exist in '{filename}'")
+            logger.warning(
+                f" !! [DATA_IO] WARNING: iter_parquet_batches: no requested columns exist in '{filename}'"
+            )
             return
 
     expr = pq.filters_to_expression(filters) if filters else None
-    scanner = dataset.scanner(columns=cols_to_read, filter=expr,
-                              batch_size=batch_size)
+    scanner = dataset.scanner(columns=cols_to_read, filter=expr, batch_size=batch_size)
     if verbose:
         logger.info(f"    [DATA_IO] Streaming '{filename}' (batch_size={batch_size:,})")
     for batch in scanner.to_batches():
@@ -1938,17 +1917,15 @@ def iter_parquet_batches(
             yield batch
 
 
-
-
 def write_parquet_stream(
-        storage_location: str = "cache",
-        filename: str = "",
-        batches=None,
-        schema: "pa.Schema" = None,
-        compression: str = "zstd",
-        compression_level: int = 5,
-        verbose: bool = False,
-    ) -> int:
+    storage_location: str = "cache",
+    filename: str = "",
+    batches=None,
+    schema: "pa.Schema" = None,
+    compression: str = "zstd",
+    compression_level: int = 5,
+    verbose: bool = False,
+) -> int:
     """Write an iterable of RecordBatches/Tables as one parquet file.
 
     The bounded-memory counterpart of :func:`save_parquet`: batches are
@@ -1982,15 +1959,16 @@ def write_parquet_stream(
     try:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
-        with pq.ParquetWriter(tmp_path, schema, compression=compression,
-                              compression_level=compression_level) as writer:
-            for batch in (batches or []):
+        with pq.ParquetWriter(
+            tmp_path, schema, compression=compression, compression_level=compression_level
+        ) as writer:
+            for batch in batches or []:
                 if isinstance(batch, pa.Table):
                     writer.write_table(batch)
                 else:
                     writer.write_batch(batch)
                 n_rows += batch.num_rows
-        if mode == 'gcs':
+        if mode == "gcs":
             bucket = _get_bucket()
             if not bucket:
                 raise ValueError("GCS bucket not initialized")
@@ -2006,23 +1984,27 @@ def write_parquet_stream(
             except OSError:
                 pass
 
-    _io_log(op="write_parquet_stream", loc=storage_location, filename=filename,
-            mode=mode, bytes_=0, t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    _io_log(
+        op="write_parquet_stream",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=0,
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
     if verbose:
         logger.info(f"    [DATA_IO] Streamed {n_rows:,} rows to '{filename}'")
     return n_rows
 
 
-
-
 def concat_parquet_files(
-        src_storage_location: str = "cache",
-        src_filenames: list = None,
-        dst_storage_location: str = "cache",
-        dst_filename: str = "",
-        batch_size: int = 131_072,
-        verbose: bool = False,
-    ) -> int:
+    src_storage_location: str = "cache",
+    src_filenames: list = None,
+    dst_storage_location: str = "cache",
+    dst_filename: str = "",
+    batch_size: int = 131_072,
+    verbose: bool = False,
+) -> int:
     """Concatenate parquet files into one, at one-record-batch peak memory.
 
     Built on :func:`iter_parquet_batches` + :func:`write_parquet_stream`.
@@ -2044,7 +2026,7 @@ def concat_parquet_files(
         raise ValueError("src_filenames cannot be empty")
 
     first_primary, _, first_mode, _ = _resolve_paths(src_storage_location, src_filenames[0])
-    if first_mode == 'gcs':
+    if first_mode == "gcs":
         with gcsfs.GCSFileSystem().open(first_primary) as f:
             schema = pq.read_schema(f)
     else:
@@ -2056,22 +2038,27 @@ def concat_parquet_files(
     def _all_batches():
         for src in src_filenames:
             for batch in iter_parquet_batches(
-                    storage_location=src_storage_location, filename=src,
-                    batch_size=batch_size):
+                storage_location=src_storage_location, filename=src, batch_size=batch_size
+            ):
                 yield pa.record_batch(batch.columns, schema=schema)
 
     n_rows = write_parquet_stream(
-        storage_location=dst_storage_location, filename=dst_filename,
-        batches=_all_batches(), schema=schema, verbose=verbose)
+        storage_location=dst_storage_location,
+        filename=dst_filename,
+        batches=_all_batches(),
+        schema=schema,
+        verbose=verbose,
+    )
     if verbose:
-        logger.info(f"    [DATA_IO] Concatenated {len(src_filenames)} file(s) -> '{dst_filename}' ({n_rows:,} rows)")
+        logger.info(
+            f"    [DATA_IO] Concatenated {len(src_filenames)} file(s) -> '{dst_filename}' ({n_rows:,} rows)"
+        )
     return n_rows
 
 
-
-
-def save_bytes(data: bytes = b"", storage_location: str = "cache",
-               filename: str = "", verbose: bool = False) -> int:
+def save_bytes(
+    data: bytes = b"", storage_location: str = "cache", filename: str = "", verbose: bool = False
+) -> int:
     """Save a raw binary payload to a storage location.
 
     The binary analogue of :func:`save_text`.
@@ -2092,28 +2079,37 @@ def save_bytes(data: bytes = b"", storage_location: str = "cache",
 
     primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
         bucket.blob(blob_name).upload_from_string(
-            bytes(data), content_type="application/octet-stream")
+            bytes(data), content_type="application/octet-stream"
+        )
     else:
         os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, 'wb') as file:
+        with open(primary, "wb") as file:
             file.write(data)
-    _io_log(op="save_bytes", loc=storage_location, filename=filename,
-            mode=mode, bytes_=len(data), t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    _io_log(
+        op="save_bytes",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(data),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
     if verbose:
         logger.info(f"    [DATA_IO] Saved {len(data):,} bytes to '{filename}'")
     return len(data)
 
 
-
-
-def load_bytes(storage_location: str = "cache", filename: str = "",
-               start: int = None, length: int = None,
-               verbose: bool = False) -> bytes | None:
+def load_bytes(
+    storage_location: str = "cache",
+    filename: str = "",
+    start: int = None,
+    length: int = None,
+    verbose: bool = False,
+) -> bytes | None:
     """Load a raw binary payload (optionally one byte range).
 
     Args:
@@ -2133,7 +2129,7 @@ def load_bytes(storage_location: str = "cache", filename: str = "",
 
     primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         blob = bucket.blob(blob_name)
         if start is None and length is None:
@@ -2143,22 +2139,30 @@ def load_bytes(storage_location: str = "cache", filename: str = "",
             end = (s + length - 1) if length is not None else None
             data = blob.download_as_bytes(start=s, end=end)
     else:
-        with open(primary, 'rb') as file:
+        with open(primary, "rb") as file:
             if start:
                 file.seek(start)
             data = file.read(length) if length is not None else file.read()
-    _io_log(op="load_bytes", loc=storage_location, filename=filename,
-            mode=mode, bytes_=len(data), t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    _io_log(
+        op="load_bytes",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(data),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
     if verbose:
         logger.info(f"    [DATA_IO] Loaded {len(data):,} bytes from '{filename}'")
     return data
 
 
-
-
-def read_byte_ranges(storage_location: str = "cache", filename: str = "",
-                     ranges: list = None, max_workers: int = 32,
-                     verbose: bool = False) -> list:
+def read_byte_ranges(
+    storage_location: str = "cache",
+    filename: str = "",
+    ranges: list = None,
+    max_workers: int = 32,
+    verbose: bool = False,
+) -> list:
     """Read many byte ranges from one stored object.
 
     The random-access primitive under the dense embedding sidecar: local mode
@@ -2184,7 +2188,7 @@ def read_byte_ranges(storage_location: str = "cache", filename: str = "",
 
     primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
-    if mode == 'gcs':
+    if mode == "gcs":
         bucket = _get_bucket()
         blob = bucket.blob(blob_name)
 
@@ -2196,31 +2200,36 @@ def read_byte_ranges(storage_location: str = "cache", filename: str = "",
             out = list(ex.map(_one, ranges))
     else:
         # seek+read, not os.pread — the latter does not exist on Windows.
-        with open(primary, 'rb') as file:
+        with open(primary, "rb") as file:
             out = []
             for off, length in ranges:
                 file.seek(off)
                 out.append(file.read(length))
     total = sum(len(b) for b in out)
-    _io_log(op="read_byte_ranges", loc=storage_location, filename=filename,
-            mode=mode, bytes_=total, t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    _io_log(
+        op="read_byte_ranges",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=total,
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
     if verbose:
         logger.info(f"    [DATA_IO] Read {len(ranges)} range(s), {total:,} bytes from '{filename}'")
     return out
 
 
-
-
 # Create a global lock object
 file_lock = threading.Lock()
 
+
 def save_parquet(
-    df: pd.DataFrame = None, 
-    storage_location: str = "cache", 
-    filename: str = "", 
+    df: pd.DataFrame = None,
+    storage_location: str = "cache",
+    filename: str = "",
     asyncronous: bool = False,
     verbose: bool = False,
-    ):
+):
     """
     Save a dataframe to the given path.
     Supports GCS direct write and Parallel Save (GCS + Local).
@@ -2228,25 +2237,24 @@ def save_parquet(
 
     if df is None:
         raise ValueError("Dataframe cannot be empty")
-    
+
     if filename == "":
         raise ValueError("Filename cannot be empty")
-    
+
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
     this_df = df.copy()
 
-
     # A) Resolve Paths (Primary = GCS if enabled, Secondary = Local)
     # Note: filename here might not have extension yet, logic below handles it
-    
+
     # Base logic to ensure extension is .parquet
     base_name = os.path.basename(filename)
     root, ext = os.path.splitext(base_name)
-    if ext != '.parquet':
+    if ext != ".parquet":
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
-    
+
     # Resolve using the filename (which has .parquet)
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
 
@@ -2256,7 +2264,7 @@ def save_parquet(
     # C) Save to Primary
 
     # To get the total memory usage of the DataFrame in bytes:
-    memory_per_column = this_df.memory_usage(deep=True) 
+    memory_per_column = this_df.memory_usage(deep=True)
     total_memory_bytes = memory_per_column.sum()
     total_memory_mb = total_memory_bytes / (1024**2)
 
@@ -2272,7 +2280,7 @@ def save_parquet(
         my_compression_level = 3
     else:
         my_compression_level = 0
-    
+
     _t_io = _time.perf_counter()
     _io_sync = True  # only flip to False on the async branch below
 
@@ -2283,14 +2291,14 @@ def save_parquet(
         — significantly faster than pd.to_parquet("gs://...") which goes through
         gcsfs and incurs large per-call overhead on small files.
         """
-        if mode == 'gcs':
+        if mode == "gcs":
             tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
                     tmp_path = tmp.name
                 df_to_write.to_parquet(
                     tmp_path,
-                    engine='pyarrow',
+                    engine="pyarrow",
                     compression="zstd",
                     compression_level=my_compression_level,
                 )
@@ -2308,12 +2316,13 @@ def save_parquet(
             os.makedirs(os.path.dirname(primary), exist_ok=True)
             df_to_write.to_parquet(
                 primary,
-                engine='pyarrow',
+                engine="pyarrow",
                 compression="zstd",
                 compression_level=my_compression_level,
             )
 
     if storage_location == "cache":
+
         def alert_finished(future):
             if future.exception():
                 if verbose:
@@ -2354,7 +2363,7 @@ def save_parquet(
             t_ms=_t_io_ms,
         )
 
-    if verbose: logger.info(f"    [DATA_IO] ...moving on. Shape: {this_df.shape}")
+    if verbose:
+        logger.info(f"    [DATA_IO] ...moving on. Shape: {this_df.shape}")
 
     return this_df
-

@@ -9,10 +9,6 @@ from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingB
 _TEST_ADMIN = "__embed_gate_test_admin__"
 
 
-
-
-
-
 class _StubLocalEmbedBackend(EmbeddingBackend):
     """Registered stub standing in for a local embedding backend."""
 
@@ -35,10 +31,6 @@ class _StubLocalEmbedBackend(EmbeddingBackend):
         return np.zeros((len(texts), 8), dtype=np.float32)
 
 
-
-
-
-
 @pytest.fixture
 def stub_embed_backend(monkeypatch):
     stub = _StubLocalEmbedBackend()
@@ -51,10 +43,6 @@ def stub_embed_backend(monkeypatch):
     return stub
 
 
-
-
-
-
 def test_start_process_refuses_cloud_dispatch_for_local_backend(stub_embed_backend, monkeypatch):
     import web_interface.process_manager as pm
 
@@ -63,10 +51,6 @@ def test_start_process_refuses_cloud_dispatch_for_local_backend(stub_embed_backe
     assert ok is False
     assert "local machine" in msg
     assert "stub_embed_local" in msg
-
-
-
-
 
 
 def test_start_process_local_mode_unaffected(stub_embed_backend, monkeypatch):
@@ -84,10 +68,6 @@ def test_start_process_local_mode_unaffected(stub_embed_backend, monkeypatch):
     ok, msg = pm.start_process("embeddings_refresh", "unused_script.py")
     assert ok is False
     assert msg == "Process already running"
-
-
-
-
 
 
 @pytest.fixture
@@ -114,19 +94,11 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def test_api_start_refuses_unavailable_embedding_backend(client, stub_embed_backend, monkeypatch):
     stub_embed_backend._ok = False
     resp = client.post("/api/start/embeddings_refresh", json={})
     assert resp.status_code == 400
     assert "stub not ready" in resp.get_json()["message"]
-
-
-
-
 
 
 def test_embedding_backends_endpoint_shape(client):

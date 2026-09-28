@@ -29,8 +29,12 @@ class FakeCollection:
 
 
 def _fp():
-    return {"kind": "json", "member_paths": [],
-            "key_paths": ["Activity.Video Browsing History.VideoList[].Date|str"], "stats": {}}
+    return {
+        "kind": "json",
+        "member_paths": [],
+        "key_paths": ["Activity.Video Browsing History.VideoList[].Date|str"],
+        "stats": {},
+    }
 
 
 def _rows(n: int) -> pd.DataFrame:
@@ -83,7 +87,9 @@ def test_floor_quarantines_even_while_the_baseline_is_learning(stores):
 
 def test_by_design_exclusions_do_not_trip_the_floor(stores):
     sentinel = ss.StructureSentinel()
-    coll = FakeCollection(_fp(), {"loss.json": {"raw_rows": 1000, "dropped": {"outside_whitelist": 940}}})
+    coll = FakeCollection(
+        _fp(), {"loss.json": {"raw_rows": 1000, "dropped": {"outside_whitelist": 940}}}
+    )
     raw = pd.DataFrame({"x": range(1000)})
     sentinel.check_raw(coll, "loss.json", raw)
 
@@ -102,8 +108,9 @@ def test_an_approval_of_the_floor_finding_sticks(stores):
     sentinel.check_raw(coll, "loss.json", raw)
     verdict = sentinel.check_processed(coll, "loss.json", _rows(50))
     assert verdict["status"] == "quarantined"
-    prior = dict(verdict, status="approved", review_action="approve",
-                 reviewed_at="2026-09-18T00:00:00+00:00")
+    prior = dict(
+        verdict, status="approved", review_action="approve", reviewed_at="2026-09-18T00:00:00+00:00"
+    )
 
     again = ss.StructureSentinel()
     again.prior_verdicts = {"loss.json": prior}
@@ -113,12 +120,17 @@ def test_an_approval_of_the_floor_finding_sticks(stores):
     assert verdict["status"] == "approved"
 
 
-
 def test_record_ids_used_as_keys_collapse_to_one_path():
-    live = {"TikTok Live": {"Watch Live History": {"WatchLiveMap": {
-        "7543199678871915271": {"WatchTime": "2026-01-01 10:00:00"},
-        "7543199678871915999": {"WatchTime": "2026-01-02 10:00:00"},
-    }}}}
+    live = {
+        "TikTok Live": {
+            "Watch Live History": {
+                "WatchLiveMap": {
+                    "7543199678871915271": {"WatchTime": "2026-01-01 10:00:00"},
+                    "7543199678871915999": {"WatchTime": "2026-01-02 10:00:00"},
+                }
+            }
+        }
+    }
     paths = ss.key_paths_of(live)
     assert paths == {"TikTok Live.Watch Live History.WatchLiveMap.<id>.WatchTime|str"}
     assert ss.key_paths_of({"2026": {"a": 1}}) == {"2026.a|int"}  # short numbers stay

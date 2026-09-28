@@ -16,10 +16,6 @@ _GEN_PARAMS = {
 }
 
 
-
-
-
-
 def test_gemini_descriptor_hash_pinned():
     """Fixed identity input -> fixed av_ id (pre-backend-support value)."""
     descriptor = av.build_version_descriptor(
@@ -46,47 +42,41 @@ def test_gemini_descriptor_hash_pinned():
     assert again == descriptor
 
 
-
-
-
-
 def test_extra_params_fork_the_version():
     base = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS)
+        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS
+    )
     forked = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS,
-        extra_params={"n_frames": 8, "with_audio": True})
+        model="m",
+        prompt_text="p",
+        schema_json=None,
+        gen_params=_GEN_PARAMS,
+        extra_params={"n_frames": 8, "with_audio": True},
+    )
     assert forked["annotation_version"] != base["annotation_version"]
     assert forked["gen_params"]["n_frames"] == 8
 
     # Empty extras behave exactly like None (no identity change).
     empty = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS,
-        extra_params={})
+        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS, extra_params={}
+    )
     assert empty["annotation_version"] == base["annotation_version"]
-
-
-
-
 
 
 def test_backend_key_is_non_identity_metadata():
     base = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS)
+        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS
+    )
     tagged = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS,
-        backend="qwen_local")
+        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS, backend="qwen_local"
+    )
     assert tagged["annotation_version"] == base["annotation_version"]
     assert tagged["backend"] == "qwen_local"
     # gemini backend tag is normalized away entirely.
     gem = av.build_version_descriptor(
-        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS,
-        backend="gemini")
+        model="m", prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS, backend="gemini"
+    )
     assert "backend" not in gem
-
-
-
-
 
 
 def test_current_descriptor_forks_when_qwen_active(monkeypatch):
@@ -95,8 +85,9 @@ def test_current_descriptor_forks_when_qwen_active(monkeypatch):
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
     gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "qwen_local"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "qwen_local"}
+    )
     qwen_descriptor = av.active_version_descriptor(fresh=True)
     assert qwen_descriptor["annotation_version"] != gemini_id
     assert qwen_descriptor["backend"] == "qwen_local"
@@ -107,17 +98,17 @@ def test_current_descriptor_forks_when_qwen_active(monkeypatch):
     assert av.active_version_descriptor(fresh=True)["annotation_version"] == gemini_id
 
 
-
-
-
-
 def test_qwen_descriptor_registers_cleanly():
     """A qwen descriptor round-trips through the registry like any other."""
     registry = av.empty_registry()
     qwen_descriptor = av.build_version_descriptor(
         model="mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit",
-        prompt_text="p", schema_json=None, gen_params=_GEN_PARAMS,
-        extra_params={"n_frames": 8}, backend="qwen_local")
+        prompt_text="p",
+        schema_json=None,
+        gen_params=_GEN_PARAMS,
+        extra_params={"n_frames": 8},
+        backend="qwen_local",
+    )
     registry = av._register_into(registry, qwen_descriptor, "p", None)
     stored = registry["versions"][qwen_descriptor["annotation_version"]]
     assert stored["backend"] == "qwen_local"
@@ -129,9 +120,6 @@ def test_qwen_descriptor_registers_cleanly():
     assert isinstance(av._harvest_orphan_metadata(), dict)
 
 
-
-
-
 def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
     """Each local backend forks its own distinct av_ version."""
     from fyp.annotation.backends import settings as backend_settings
@@ -139,15 +127,17 @@ def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
     gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "minicpm_local"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "minicpm_local"}
+    )
     minicpm_descriptor = av.active_version_descriptor(fresh=True)
     assert minicpm_descriptor["annotation_version"] != gemini_id
     assert minicpm_descriptor["backend"] == "minicpm_local"
     assert minicpm_descriptor["model"].startswith("mlx-community/MiniCPM")
     assert minicpm_descriptor["gen_params"]["n_frames"] == 8
 
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "qwen_local"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "qwen_local"}
+    )
     qwen_id = av.active_version_descriptor(fresh=True)["annotation_version"]
     assert minicpm_descriptor["annotation_version"] != qwen_id

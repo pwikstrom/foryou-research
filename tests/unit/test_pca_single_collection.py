@@ -17,12 +17,9 @@ import pandas as pd
 from fyp.analysis.pca import calculate_scaled_pca_scores
 
 
-
-
-
-
-def _make_study_frame(n_collections: int = 1, n_dates: int = 20,
-                      rows_per_group: int = 20, seed: int = 3) -> pd.DataFrame:
+def _make_study_frame(
+    n_collections: int = 1, n_dates: int = 20, rows_per_group: int = 20, seed: int = 3
+) -> pd.DataFrame:
     """A minimal but genuine recoded study frame: two features, both roles."""
     rng = np.random.default_rng(seed)
     collections = [f"coll-{i:02d}" for i in range(n_collections)]
@@ -36,24 +33,24 @@ def _make_study_frame(n_collections: int = 1, n_dates: int = 20,
             date_col += [date] * rows_per_group
 
     n_rows = len(coll_col)
-    return pd.DataFrame({
-        "collection_id": pd.array(coll_col, dtype="string[pyarrow]"),
-        "local_date": pd.array(date_col, dtype="string[pyarrow]"),
-        "duration": pd.array(rng.uniform(5, 90, n_rows), dtype="double[pyarrow]"),
-        "content_category": pd.array(rng.choice(categories, n_rows),
-                                     dtype="string[pyarrow]"),
-        "annotated_ok": pd.array([True] * n_rows, dtype="bool[pyarrow]"),
-    })
-
-
-
-
+    return pd.DataFrame(
+        {
+            "collection_id": pd.array(coll_col, dtype="string[pyarrow]"),
+            "local_date": pd.array(date_col, dtype="string[pyarrow]"),
+            "duration": pd.array(rng.uniform(5, 90, n_rows), dtype="double[pyarrow]"),
+            "content_category": pd.array(rng.choice(categories, n_rows), dtype="string[pyarrow]"),
+            "annotated_ok": pd.array([True] * n_rows, dtype="bool[pyarrow]"),
+        }
+    )
 
 
 def test_single_collection_study_produces_pca_scores():
     scores, _interpretations = calculate_scaled_pca_scores(
         study_recoded_dataset=_make_study_frame(n_collections=1),
-        load_from_cache=False, save_to_cache=False, verbose=False)
+        load_from_cache=False,
+        save_to_cache=False,
+        verbose=False,
+    )
 
     assert scores is not None, "a single-collection study must still get PCA scores"
     # One group per (collection, date) — the constant collection_id stays in
@@ -63,36 +60,27 @@ def test_single_collection_study_produces_pca_scores():
     assert scores["collection_id"].nunique() == 1
 
 
-
-
-
-
 def test_multi_collection_study_is_unchanged():
     scores, _interpretations = calculate_scaled_pca_scores(
         study_recoded_dataset=_make_study_frame(n_collections=3),
-        load_from_cache=False, save_to_cache=False, verbose=False)
+        load_from_cache=False,
+        save_to_cache=False,
+        verbose=False,
+    )
 
     assert scores is not None
     assert len(scores) == 60
     assert scores["collection_id"].nunique() == 3
 
 
-
-
-
-
 def test_all_constant_grouping_factors_terminates():
     df = _make_study_frame(n_collections=1, n_dates=1, rows_per_group=400)
 
     scores, _interpretations = calculate_scaled_pca_scores(
-        study_recoded_dataset=df, load_from_cache=False,
-        save_to_cache=False, verbose=False)
+        study_recoded_dataset=df, load_from_cache=False, save_to_cache=False, verbose=False
+    )
 
     assert scores is None
-
-
-
-
 
 
 def test_all_na_grouping_factor_terminates():
@@ -100,7 +88,7 @@ def test_all_na_grouping_factor_terminates():
     df["local_date"] = pd.array([None] * len(df), dtype="string[pyarrow]")
 
     scores, _interpretations = calculate_scaled_pca_scores(
-        study_recoded_dataset=df, load_from_cache=False,
-        save_to_cache=False, verbose=False)
+        study_recoded_dataset=df, load_from_cache=False, save_to_cache=False, verbose=False
+    )
 
     assert scores is None

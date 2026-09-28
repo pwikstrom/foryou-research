@@ -43,10 +43,6 @@ except ImportError:  # not installed outside Apple Silicon dev machines
 logger = get_logger(__name__)
 
 
-
-
-
-
 def _minicpm_cf() -> dict:
     """The ``[machine.minicpm_local]`` config block with pilot-tuned defaults."""
     stored = get_config()["machine"].get("minicpm_local", {}) or {}
@@ -62,10 +58,6 @@ def _minicpm_cf() -> dict:
     return {**defaults, **stored}
 
 
-
-
-
-
 class MiniCPMLocalBackend(AnnotationBackend):
     """MiniCPM-o running locally via mlx-vlm (frames + audio)."""
 
@@ -79,11 +71,9 @@ class MiniCPMLocalBackend(AnnotationBackend):
     _loaded_model_id = None
     _load_lock = threading.Lock()
 
-
     def _effective_cf(self) -> dict:
         """The ``[machine.minicpm_local]`` config with variant overrides applied."""
         return {**_minicpm_cf(), **self.overrides}
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Hardware/dependency readiness (see ``minicpm_support.check_all``).
@@ -99,16 +89,13 @@ class MiniCPMLocalBackend(AnnotationBackend):
 
         return minicpm_support.availability(self._effective_cf()["model_id"])
 
-
     def prompt_suffix(self) -> str:
         """The frames+audio addendum (part of the version identity)."""
         return PROMPT_ADDENDUM
 
-
     def effective_model_id(self) -> str:
         """The configured local model id."""
         return self._effective_cf()["model_id"]
-
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
@@ -121,7 +108,6 @@ class MiniCPMLocalBackend(AnnotationBackend):
             "max_output_tokens": minicpm_cf["max_tokens"],
         }
 
-
     def version_extra_params(self) -> dict:
         """Frame/audio sampling parameters (output-affecting → identity)."""
         minicpm_cf = self._effective_cf()
@@ -132,7 +118,6 @@ class MiniCPMLocalBackend(AnnotationBackend):
             "with_audio": minicpm_cf["with_audio"],
             "repetition_penalty": minicpm_cf["repetition_penalty"],
         }
-
 
     def _ensure_model(self):
         """Load the model once per process (thread-safe); returns (model, processor)."""
@@ -147,7 +132,8 @@ class MiniCPMLocalBackend(AnnotationBackend):
                 raise RuntimeError(
                     f"local model {cls._loaded_model_id!r} is already resident; "
                     f"cannot load {model_id!r} in the same process — restart the "
-                    f"worker to switch local-model variants")
+                    f"worker to switch local-model variants"
+                )
             if cls._model is None:
                 from fyp.annotation.backends.minicpm_sanitize_fix import apply_patches
 
@@ -158,11 +144,14 @@ class MiniCPMLocalBackend(AnnotationBackend):
                 logger.info("Local MiniCPM model loaded")
         return cls._model, cls._processor
 
-
-    def annotate_one(self, item_id: str, platform: str | None = None,
-                     gen_overrides: dict | None = None,
-                     prompt_text: str | None = None,
-                     response_schema=None) -> dict:
+    def annotate_one(
+        self,
+        item_id: str,
+        platform: str | None = None,
+        gen_overrides: dict | None = None,
+        prompt_text: str | None = None,
+        response_schema=None,
+    ) -> dict:
         """Annotate one item; returns the production raw-row dict.
 
         Args:
@@ -185,8 +174,10 @@ class MiniCPMLocalBackend(AnnotationBackend):
         from fyp.annotation import annotation_versioning
         from fyp.annotation.annotation_schema import get_annotation_json_schema
 
-        minicpm_cf = {**self._effective_cf(),
-                      **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
+        minicpm_cf = {
+            **self._effective_cf(),
+            **{k: v for k, v in (gen_overrides or {}).items() if v is not None},
+        }
         now = _dt.datetime.now()
         row: dict = {
             "item_id": item_id,
@@ -223,15 +214,28 @@ class MiniCPMLocalBackend(AnnotationBackend):
                 return row
 
             duration = _probe_duration(local_video) or 60.0
-            frames = _sample_frames(local_video, duration, work_dir,
-                                    minicpm_cf["fps"], minicpm_cf["max_frames"],
-                                    minicpm_cf["frame_scale"])
+            frames = _sample_frames(
+                local_video,
+                duration,
+                work_dir,
+                minicpm_cf["fps"],
+                minicpm_cf["max_frames"],
+                minicpm_cf["frame_scale"],
+            )
             audio = _extract_audio(local_video, work_dir) if minicpm_cf["with_audio"] else None
 
             model, processor = self._ensure_model()
             start = _dt.datetime.now()
-            result = _generate(model, processor, frames, audio, duration,
-                               system_prompt, response_schema, minicpm_cf)
+            result = _generate(
+                model,
+                processor,
+                frames,
+                audio,
+                duration,
+                system_prompt,
+                response_schema,
+                minicpm_cf,
+            )
             row["inference_duration"] = (_dt.datetime.now() - start).total_seconds()
 
             row["response"] = result["text"]
@@ -240,7 +244,7 @@ class MiniCPMLocalBackend(AnnotationBackend):
                 "candidates_tokens": result.get("generation_tokens"),
                 "thoughts_tokens": 0,
                 "total_tokens": (result.get("prompt_tokens") or 0)
-                                + (result.get("generation_tokens") or 0),
+                + (result.get("generation_tokens") or 0),
             }
             parsed = json.loads(row["response"] or "null")
             if not isinstance(parsed, dict):

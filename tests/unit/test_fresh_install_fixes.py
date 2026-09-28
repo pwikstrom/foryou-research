@@ -19,19 +19,11 @@ import types
 import pandas as pd
 
 
-
-
-
-
 def _fake_running_proc():
     """A stand-in for a subprocess handle that reports 'still running'."""
     proc = types.SimpleNamespace()
     proc.poll = lambda: None
     return proc
-
-
-
-
 
 
 def test_blocking_consolidate_detects_per_platform_scraper(monkeypatch):
@@ -48,10 +40,6 @@ def test_blocking_consolidate_detects_per_platform_scraper(monkeypatch):
         worker_status.processes.pop(scraper_name, None)
 
 
-
-
-
-
 def test_blocking_consolidate_detects_annotator(monkeypatch):
     from web_interface.services import worker_status
 
@@ -60,10 +48,6 @@ def test_blocking_consolidate_detects_annotator(monkeypatch):
         assert "queue_annotator" in worker_status._workers_blocking_consolidate()
     finally:
         worker_status.processes.pop("queue_annotator", None)
-
-
-
-
 
 
 def test_consolidate_blockers_include_drain_lease(monkeypatch):
@@ -77,10 +61,6 @@ def test_consolidate_blockers_include_drain_lease(monkeypatch):
     assert enrichment._consolidate_blockers() == []
 
 
-
-
-
-
 def test_add_local_time_features_empty_frame():
     from fyp.ingest.base import ForYouCollection
 
@@ -88,10 +68,6 @@ def test_add_local_time_features_empty_frame():
     # Must not raise (used to KeyError on 'tz_offset') and must not invent columns.
     ForYouCollection.add_local_time_features(stub)
     assert len(stub.data) == 0
-
-
-
-
 
 
 def test_tiktok_ddp_load_single_raw_clear_error_on_non_json(monkeypatch):
@@ -107,10 +83,6 @@ def test_tiktok_ddp_load_single_raw_clear_error_on_non_json(monkeypatch):
         tiktok_mod.TikTokDDPCollection.load_single_raw(stub, "TikTok_Data_123.zip")
 
 
-
-
-
-
 def test_accepted_upload_suffixes_declarations():
     from fyp.ingest.base import ForYouBaseCollection
     from fyp.ingest.instagram import InstagramDDPCollection
@@ -122,10 +94,6 @@ def test_accepted_upload_suffixes_declarations():
     assert InstagramDDPCollection.accepted_upload_suffixes() == [".zip"]
     assert YouTubeDDPCollection.accepted_upload_suffixes() == [".zip"]
     assert ForYouBaseCollection.accepted_upload_suffixes() == []
-
-
-
-
 
 
 def test_collection_metadata_without_participant_files(monkeypatch):
@@ -140,22 +108,23 @@ def test_collection_metadata_without_participant_files(monkeypatch):
     monkeypatch.setattr(donations.data_io, "listdir", lambda **kw: [])
     monkeypatch.setattr(donations, "generate_personas", lambda df: pd.DataFrame())
 
-    events = pd.DataFrame({
-        "collection_id": ["c1", "c1", "c1"],
-        "activity_type": ["play", "play", "fave"],
-        "ts_added_to_dataset": pd.to_datetime(["2026-07-15"] * 3),
-    })
+    events = pd.DataFrame(
+        {
+            "collection_id": ["c1", "c1", "c1"],
+            "activity_type": ["play", "play", "fave"],
+            "ts_added_to_dataset": pd.to_datetime(["2026-07-15"] * 3),
+        }
+    )
     meta = donations.generate_collection_metadata(
-        events, sort_by=None, verbose=False,
-        save_to_disk_ok=False, load_from_disk=False,
+        events,
+        sort_by=None,
+        verbose=False,
+        save_to_disk_ok=False,
+        load_from_disk=False,
     )
     assert list(meta.index) == ["c1"]
     assert ("counts", "play") in meta.columns
     assert ("other", "ts_added_to_dataset") in meta.columns
-
-
-
-
 
 
 def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
@@ -190,8 +159,6 @@ def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
     assert saved["payload"] is payload
 
 
-
-
 def test_presentation_read_failure_does_not_overwrite_the_store(monkeypatch):
     """A read FAILURE must not be mistaken for a fresh install.
 
@@ -220,10 +187,6 @@ def test_presentation_read_failure_does_not_overwrite_the_store(monkeypatch):
     assert not saved, "a read failure must never write over the stored surfaces"
 
 
-
-
-
-
 def test_annotated_ok_ids_empty_when_no_annotations_exist(monkeypatch):
     """An embeddings refresh before any annotation run must see an empty
     backlog, not crash with FileNotFoundError on the annotations parquet."""
@@ -231,10 +194,6 @@ def test_annotated_ok_ids_empty_when_no_annotations_exist(monkeypatch):
 
     monkeypatch.setattr(embeddings.data_io, "exists", lambda **kw: False)
     assert embeddings.annotated_ok_item_ids() == []
-
-
-
-
 
 
 def test_aio_aws_fetch_gate(monkeypatch):

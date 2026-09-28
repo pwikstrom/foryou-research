@@ -75,17 +75,20 @@ MAX_CHAIN_RESTARTS = 2
 
 # Segmentation override keys accepted from the UI / CLI and carried verbatim
 # through every link (so a chain restart re-resolves with the same inputs).
-_OVERRIDE_KEYS = (("cut", float), ("mem", int), ("min_videos", int),
-                  ("min_minutes", float), ("max_skip", int),
-                  ("window_n", int), ("max_windows", int))
+_OVERRIDE_KEYS = (
+    ("cut", float),
+    ("mem", int),
+    ("min_videos", int),
+    ("min_minutes", float),
+    ("max_skip", int),
+    ("window_n", int),
+    ("max_windows", int),
+)
 
 
-
-
-
-
-def plan_batch(remaining: list[str], counts: dict | None,
-               batch_size: int | None) -> tuple[list[str], list[str]]:
+def plan_batch(
+    remaining: list[str], counts: dict | None, batch_size: int | None
+) -> tuple[list[str], list[str]]:
     """Split ``remaining`` into this link's batch and the rest.
 
     An explicit ``batch_size`` is a plain count. Otherwise the batch grows
@@ -98,8 +101,7 @@ def plan_batch(remaining: list[str], counts: dict | None,
         n = int(batch_size)
         return remaining[:n], remaining[n:]
     if not counts:
-        return (remaining[:COLLECTIONS_PER_BATCH],
-                remaining[COLLECTIONS_PER_BATCH:])
+        return (remaining[:COLLECTIONS_PER_BATCH], remaining[COLLECTIONS_PER_BATCH:])
     n, plays = 0, 0
     while n < len(remaining) and n < MAX_COLLECTIONS_PER_BATCH:
         n += 1
@@ -109,25 +111,15 @@ def plan_batch(remaining: list[str], counts: dict | None,
     return remaining[:n], remaining[n:]
 
 
-
-
 def _progress_filename(run_id: str) -> str:
     from fyp.analysis import session_explorer
 
     return f"{session_explorer.PROGRESS_PREFIX}{run_id}.json"
 
 
-
-
-
-
 def _flag(value) -> bool:
     """Parse a task_args boolean that may arrive as bool, str, or int."""
     return str(value).strip().lower() in ("1", "true", "yes", "on")
-
-
-
-
 
 
 def _manifest_n_plays(value) -> int:
@@ -142,10 +134,6 @@ def _manifest_n_plays(value) -> int:
     if isinstance(value, (list, tuple)):
         return int(value[0]) if value else 0
     return int(value or 0)
-
-
-
-
 
 
 def _store_shards_for(store_fp: str) -> list | None:
@@ -163,15 +151,25 @@ def _store_shards_for(store_fp: str) -> list | None:
             return None
         return [[str(n), int(s), float(m)] for n, s, m in entries]
     except Exception as exc:
-        print(f"[sessions] shard set not recorded ({type(exc).__name__}: {exc}); "
-              "the next run will re-baseline.")
+        print(
+            f"[sessions] shard set not recorded ({type(exc).__name__}: {exc}); "
+            "the next run will re-baseline."
+        )
         return None
 
 
-def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
-                store_fp: str, n_vectors: int, dim: int,
-                trend_cols: list[str], annotations_fp: str,
-                annotations_max_ts: str | None = None) -> dict:
+def _merge_meta(
+    meta_old,
+    manifest: dict,
+    params: dict,
+    model: str,
+    store_fp: str,
+    n_vectors: int,
+    dim: int,
+    trend_cols: list[str],
+    annotations_fp: str,
+    annotations_max_ts: str | None = None,
+) -> dict:
     """Meta payload for a merge publish.
 
     The per-collection block is the previous build's block minus dropped and
@@ -186,8 +184,7 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
     import pandas as pd
 
     old = meta_old if isinstance(meta_old, dict) else {}
-    old_block = (old.get("collections")
-                 if isinstance(old.get("collections"), dict) else {})
+    old_block = old.get("collections") if isinstance(old.get("collections"), dict) else {}
     refresh = list(manifest.get("refresh") or [])
     gone = set(manifest.get("drop") or []) | set(refresh)
     block = {cid: rec for cid, rec in old_block.items() if cid not in gone}
@@ -195,9 +192,11 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
     cov = manifest.get("coverage") or {}
     cnt = manifest.get("counts") or {}
     for cid in refresh:
-        block[cid] = {"windows": cov.get(cid, []),
-                      "n_plays": _manifest_n_plays(cnt.get(cid)),
-                      "built_at": built_at}
+        block[cid] = {
+            "windows": cov.get(cid, []),
+            "n_plays": _manifest_n_plays(cnt.get(cid)),
+            "built_at": built_at,
+        }
     meta = {
         "built_at": built_at,
         "embedding_model": model,
@@ -208,21 +207,17 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
         "params": params,
         "trend_vars": trend_cols,
         "collections": block,
-        "baseline_corpus_count": int(old.get("baseline_corpus_count")
-                                     or old.get("corpus_mean_count") or n_vectors),
+        "baseline_corpus_count": int(
+            old.get("baseline_corpus_count") or old.get("corpus_mean_count") or n_vectors
+        ),
         "annotations_max_ts": annotations_max_ts or old.get("annotations_max_ts"),
     }
     shards = _store_shards_for(store_fp)
     if shards is not None:
         meta["store_shards"] = shards
-    if old.get("store_fingerprint") and store_fp and \
-            old.get("store_fingerprint") != store_fp:
+    if old.get("store_fingerprint") and store_fp and old.get("store_fingerprint") != store_fp:
         meta["corpus_mean_drift"] = True
     return meta
-
-
-
-
 
 
 def _foreign_run_active(max_age_seconds: float = 5400) -> bool:
@@ -241,15 +236,10 @@ def _foreign_run_active(max_age_seconds: float = 5400) -> bool:
     for fn in data_io.listdir(storage_location=session_explorer.ARTIFACT_LOCATION):
         if not fn.startswith(session_explorer.PROGRESS_PREFIX):
             continue
-        st = data_io.stat(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=fn)
+        st = data_io.stat(storage_location=session_explorer.ARTIFACT_LOCATION, filename=fn)
         if st and now - st["mtime"] <= max_age_seconds:
             return True
     return False
-
-
-
-
 
 
 def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
@@ -284,15 +274,16 @@ def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
 
     data_io.update_json(
         storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=_progress_filename(run_id), mutate=_mutate, default=None)
+        filename=_progress_filename(run_id),
+        mutate=_mutate,
+        default=None,
+    )
     return claimed["won"]
 
 
-
-
-
-
-def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_sessions_refresh(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Segment one batch of collections and optionally chain to the next.
 
     Args:
@@ -341,8 +332,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         # NOTE: skip_if_busy is deliberately NOT carried — a restart re-enters
         # setup while its own previous progress file still exists, so carrying
         # the flag would make the chain skip itself.
-        base = {k: task_args.get(k) for k, _ in _OVERRIDE_KEYS
-                if task_args.get(k) is not None}
+        base = {k: task_args.get(k) for k, _ in _OVERRIDE_KEYS if task_args.get(k) is not None}
         if collections_str:
             base["collections"] = collections_str
         if stale_only:
@@ -355,11 +345,19 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         base["chain_restarts"] = restarts + 1
         return base
 
-    def _chain_args(next_chunk: int, remaining: list[str], run_id: str,
-                    params: dict, trend_cols: list[str], model: str,
-                    store_fp: str, total: int, mode: str,
-                    annotations_fp: str,
-                    annotations_max_ts: str | None = None) -> dict:
+    def _chain_args(
+        next_chunk: int,
+        remaining: list[str],
+        run_id: str,
+        params: dict,
+        trend_cols: list[str],
+        model: str,
+        store_fp: str,
+        total: int,
+        mode: str,
+        annotations_fp: str,
+        annotations_max_ts: str | None = None,
+    ) -> dict:
         args = {
             "chunk_index": next_chunk,
             # \x1f (unit separator): collection ids are user-derived strings,
@@ -410,8 +408,9 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         reporter.update_progress(0, "Planning refresh...")
         if _flag(task_args.get("skip_if_busy", "")) and restarts == 0:
             if _foreign_run_active():
-                reporter.log("Another sessions refresh appears to be running "
-                             "— skipping this (chained) run.")
+                reporter.log(
+                    "Another sessions refresh appears to be running — skipping this (chained) run."
+                )
                 reporter.update_progress(100, "Skipped — refresh already running")
                 reporter.emit_data({"sessions_mode": "skipped_busy"})
                 return None
@@ -424,7 +423,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         model = embeddings.active_embedding_backend().model_id()
         try:
             corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(
-                model, reporter=reporter)
+                model, reporter=reporter
+            )
         except (ValueError, embedding_store.CorpusMeanDrift):
             corpus_mean, n_vectors, store_fp = None, 0, ""
         reporter.log(f"Embedding store: {n_vectors:,} vectors (model={model})")
@@ -443,26 +443,33 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         trend_cols = session_explorer.trend_numeric_columns()
         reporter.log(f"Session min/max columns for {len(trend_cols)} trend variable(s).")
 
-        artifact_files = (session_explorer.SESSIONS_FILE,
-                          session_explorer.EPISODES_FILE,
-                          session_explorer.WINDOWS_FILE,
-                          session_explorer.PLAYS_FILE)
+        artifact_files = (
+            session_explorer.SESSIONS_FILE,
+            session_explorer.EPISODES_FILE,
+            session_explorer.WINDOWS_FILE,
+            session_explorer.PLAYS_FILE,
+        )
         artifacts_exist = all(
-            data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                           filename=f) for f in artifact_files)
+            data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION, filename=f)
+            for f in artifact_files
+        )
         meta_old = None
-        if data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=session_explorer.META_FILE):
+        if data_io.exists(
+            storage_location=session_explorer.ARTIFACT_LOCATION, filename=session_explorer.META_FILE
+        ):
             meta_old = data_io.load_json(
                 storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.META_FILE)
+                filename=session_explorer.META_FILE,
+            )
         plays_schema_ok = True
         if artifacts_exist:
             old_cols = data_io.get_parquet_columns(
                 storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.PLAYS_FILE)
-            plays_schema_ok = (sorted(old_cols or []) ==
-                               sorted(session_explorer.plays_table(None).schema.names))
+                filename=session_explorer.PLAYS_FILE,
+            )
+            plays_schema_ok = sorted(old_cols or []) == sorted(
+                session_explorer.plays_table(None).schema.names
+            )
 
         scope = {str(c) for c in collections} if collections else None
 
@@ -474,7 +481,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         annotations_max_ts = (meta_old or {}).get("annotations_max_ts")
         try:
             escope = session_explorer.enrichment_change_scope(
-                meta_old, store_fp, int(n_vectors), annotations_fp, model, covered)
+                meta_old, store_fp, int(n_vectors), annotations_fp, model, covered
+            )
             if escope.get("reason") and escope.get("reason") != "enrichment unchanged":
                 verb = "local" if escope.get("local") else "not local"
                 reporter.log(f"Enrichment change is {verb}: {escope['reason']}.")
@@ -487,33 +495,55 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         except Exception as exc:
             # Scoping is an optimisation: if it cannot be computed the plan
             # falls back to the full rebuild it always did.
-            reporter.log(f"Enrichment-change scoping skipped ({type(exc).__name__}: {exc}) "
-                         "— any enrichment change rebuilds every collection.")
+            reporter.log(
+                f"Enrichment-change scoping skipped ({type(exc).__name__}: {exc}) "
+                "— any enrichment change rebuilds every collection."
+            )
             escope = None
 
         plan = session_explorer.compute_refresh_plan(
-            discovered, coverage, meta_old, params, model, trend_cols,
-            artifacts_exist, plays_schema_ok=plays_schema_ok, scope=scope,
-            store_fp=store_fp, annotations_fp=annotations_fp,
-            enrichment_scope=escope)
+            discovered,
+            coverage,
+            meta_old,
+            params,
+            model,
+            trend_cols,
+            artifacts_exist,
+            plays_schema_ok=plays_schema_ok,
+            scope=scope,
+            store_fp=store_fp,
+            annotations_fp=annotations_fp,
+            enrichment_scope=escope,
+        )
         if not stale_only and plan["mode"] != "full":
             # Forced refresh: rebuild the requested set regardless of
             # staleness. Unscoped -> full overwrite; scoped -> merge.
-            refresh = [cid for cid, _ in discovered
-                       if scope is None or cid in scope]
+            refresh = [cid for cid, _ in discovered if scope is None or cid in scope]
             if scope is None:
-                plan = {"mode": "full", "reason": "forced full rebuild",
-                        "refresh": refresh, "drop": []}
+                plan = {
+                    "mode": "full",
+                    "reason": "forced full rebuild",
+                    "refresh": refresh,
+                    "drop": [],
+                }
             else:
-                plan = {"mode": "merge", "reason": "targeted refresh",
-                        "refresh": refresh, "drop": plan["drop"]}
+                plan = {
+                    "mode": "merge",
+                    "reason": "targeted refresh",
+                    "refresh": refresh,
+                    "drop": plan["drop"],
+                }
         elif plan["mode"] == "full" and (stale_only or scope is not None):
-            reporter.log(f"Cannot refresh incrementally ({plan['reason']}) — "
-                         "running a full rebuild of every covered collection.")
-        reporter.log(f"Plan: mode={plan['mode']} ({plan['reason']}); "
-                     f"{len(plan['refresh'])} to segment, "
-                     f"{len(plan['drop'])} to drop; "
-                     f"{len(discovered)} covered collection(s) total.")
+            reporter.log(
+                f"Cannot refresh incrementally ({plan['reason']}) — "
+                "running a full rebuild of every covered collection."
+            )
+        reporter.log(
+            f"Plan: mode={plan['mode']} ({plan['reason']}); "
+            f"{len(plan['refresh'])} to segment, "
+            f"{len(plan['drop'])} to drop; "
+            f"{len(discovered)} covered collection(s) total."
+        )
 
         if plan["mode"] == "noop":
             reporter.update_progress(100, "Up to date")
@@ -535,18 +565,34 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             # stream is bounded and the setup deadline is trivially met.
             session_explorer.sweep_stale_run_files(run_id)
             meta = _merge_meta(
-                meta_old, {"refresh": [], "drop": plan["drop"]}, params,
-                model, store_fp, n_vectors,
-                embeddings.active_embedding_backend().dim(), trend_cols,
-                annotations_fp, annotations_max_ts)
+                meta_old,
+                {"refresh": [], "drop": plan["drop"]},
+                params,
+                model,
+                store_fp,
+                n_vectors,
+                embeddings.active_embedding_backend().dim(),
+                trend_cols,
+                annotations_fp,
+                annotations_max_ts,
+            )
             session_explorer.merge_publish_artifacts(
-                run_id, n_chunks=0, refresh_cids=[], drop_cids=plan["drop"],
-                expected={}, meta=meta, trend_cols=trend_cols,
-                reporter=reporter, covered_collections=0)
+                run_id,
+                n_chunks=0,
+                refresh_cids=[],
+                drop_cids=plan["drop"],
+                expected={},
+                meta=meta,
+                trend_cols=trend_cols,
+                reporter=reporter,
+                covered_collections=0,
+            )
             reporter.update_progress(100, "Done")
             reporter.emit_data({"sessions_mode": "drop_only"})
-            reporter.log(f"Dropped {len(plan['drop'])} collection(s) that left "
-                         "every study; nothing to segment.")
+            reporter.log(
+                f"Dropped {len(plan['drop'])} collection(s) that left "
+                "every study; nothing to segment."
+            )
             return None
 
         if plan["mode"] == "full" and total == 0:
@@ -554,12 +600,11 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             # tab renders a clean empty state instead of a missing-file error.
             session_explorer.sweep_stale_run_files(run_id)
             meta = session_explorer.build_artifacts(
-                reporter=reporter, params=overrides or None,
-                coverage=coverage)
+                reporter=reporter, params=overrides or None, coverage=coverage
+            )
             reporter.update_progress(100, "Done")
             reporter.emit_data({"sessions_mode": "empty"})
-            reporter.log("No covered collections with in-window play rows; "
-                         "wrote empty artifacts.")
+            reporter.log("No covered collections with in-window play rows; wrote empty artifacts.")
             return None if not meta.get("cancelled") else None
 
         session_explorer.sweep_stale_run_files(run_id)
@@ -571,8 +616,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "refresh": plan["refresh"],
             "drop": plan["drop"],
             "coverage": {cid: coverage.get(cid, []) for cid in plan["refresh"]},
-            "counts": {cid: int(counts.get(cid, 0))
-                       for cid in plan["refresh"]},
+            "counts": {cid: int(counts.get(cid, 0)) for cid in plan["refresh"]},
         }
 
         def _seed(progress):
@@ -582,16 +626,29 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
         data_io.update_json(
             storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=_progress_filename(run_id), mutate=_seed, default=None)
+            filename=_progress_filename(run_id),
+            mutate=_seed,
+            default=None,
+        )
 
-        reporter.log(f"Setup complete: {total} collection(s) to segment; "
-                     "chaining to the first batch.")
+        reporter.log(
+            f"Setup complete: {total} collection(s) to segment; chaining to the first batch."
+        )
         return {
             "chain": True,
-            "next_task_args": _chain_args(0, remaining, run_id, params,
-                                          trend_cols, model, store_fp, total,
-                                          plan["mode"], annotations_fp,
-                                          annotations_max_ts),
+            "next_task_args": _chain_args(
+                0,
+                remaining,
+                run_id,
+                params,
+                trend_cols,
+                model,
+                store_fp,
+                total,
+                plan["mode"],
+                annotations_fp,
+                annotations_max_ts,
+            ),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
     else:
@@ -611,16 +668,19 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if store_fp:
             try:
                 corpus_mean, n_vectors, _ = embedding_store.get_corpus_mean(
-                    model, expected_fp=store_fp)
+                    model, expected_fp=store_fp
+                )
             except embedding_store.CorpusMeanDrift:
                 if restarts >= MAX_CHAIN_RESTARTS:
                     raise RuntimeError(
                         f"Embedding store changed mid-chain {restarts + 1} times "
                         f"— giving up; run Sessions refresh again once "
-                        f"embeddings_refresh has settled.")
+                        f"embeddings_refresh has settled."
+                    )
                 reporter.log(
                     "Embedding store changed mid-chain (new shards landed). "
-                    f"Restarting from scratch (restart {restarts + 1}/{MAX_CHAIN_RESTARTS}).")
+                    f"Restarting from scratch (restart {restarts + 1}/{MAX_CHAIN_RESTARTS})."
+                )
                 return {
                     "chain": True,
                     "next_task_args": _restart_args(),
@@ -633,17 +693,17 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     # windows and in-window play counts (the batching budget); a legacy chain
     # has none and builds unscoped in fixed-count batches, as before.
     manifest: dict = {}
-    if data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                      filename=_progress_filename(run_id)):
+    if data_io.exists(
+        storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+    ):
         prog = data_io.load_json(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=_progress_filename(run_id))
+            storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+        )
         if isinstance(prog, dict) and isinstance(prog.get("manifest"), dict):
             manifest = prog["manifest"]
     coverage_map = manifest.get("coverage") if manifest else None
 
-    batch, rest = plan_batch(remaining, manifest.get("counts") if manifest else None,
-                             batch_size)
+    batch, rest = plan_batch(remaining, manifest.get("counts") if manifest else None, batch_size)
 
     # Report before segmenting, not only after: a link runs for many minutes and
     # each link's reporter starts from a blank progress dict (link 0) or the
@@ -652,22 +712,31 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     started = total - len(remaining)
     reporter.update_progress(
         min(int(started / max(total, 1) * 95), 95),
-        f"Segmenting collections {started + 1}-{started + len(batch)} of {total}...")
+        f"Segmenting collections {started + 1}-{started + len(batch)} of {total}...",
+    )
 
     index = embedding_store.load_index(model) if corpus_mean is not None else None
 
-    with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log,
-                   collections=len(batch)):
+    with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log, collections=len(batch)):
         srows, erows, wrows, plays, stats = session_explorer.build_batch(
-            batch, model, corpus_mean, index, params=params, reporter=reporter,
-            trend_cols=trend_cols, coverage=coverage_map, workers=workers)
+            batch,
+            model,
+            corpus_mean,
+            index,
+            params=params,
+            reporter=reporter,
+            trend_cols=trend_cols,
+            coverage=coverage_map,
+            workers=workers,
+        )
     if srows is None:
         reporter.log("Cancelled by user. Previous artifacts left intact.")
         return None
     reporter.log(session_explorer.format_batch_timing(chunk, len(batch), stats))
 
-    session_explorer.write_batch_shards(run_id, chunk, srows, erows, wrows,
-                                        trend_cols=trend_cols, plays=plays)
+    session_explorer.write_batch_shards(
+        run_id, chunk, srows, erows, wrows, trend_cols=trend_cols, plays=plays
+    )
 
     def _mutate(progress):
         # Keyed by chunk so a Cloud Tasks replay of a link OVERWRITES its own
@@ -677,8 +746,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         progress = progress if isinstance(progress, dict) else {}
         chunks = progress.setdefault("chunks", {})
         chunks[str(chunk)] = {
-            "sessions": len(srows), "episodes": len(erows),
-            "windows": len(wrows), "plays": stats["n_plays"],
+            "sessions": len(srows),
+            "episodes": len(erows),
+            "windows": len(wrows),
+            "plays": stats["n_plays"],
             # Per-chunk collection count: summed at publish and compared to
             # what discovery found, so a run that only covered part of the
             # corpus can never publish (see publish_artifacts).
@@ -688,7 +759,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
     progress_raw = data_io.update_json(
         storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=_progress_filename(run_id), mutate=_mutate, default=None)
+        filename=_progress_filename(run_id),
+        mutate=_mutate,
+        default=None,
+    )
     progress = {
         key: sum(entry.get(key, 0) for entry in progress_raw["chunks"].values())
         for key in ("sessions", "episodes", "windows", "plays", "collections")
@@ -699,10 +773,12 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         min(int(done / max(total, 1) * 95), 95),
         f"Segmented {done}/{total} collections "
         f"({progress['sessions']:,} sessions, {progress['episodes']:,} episodes, "
-        f"{progress['windows']:,} windows)")
+        f"{progress['windows']:,} windows)",
+    )
     reporter.log(
         f"Link {chunk}: {len(batch)} collection(s), tier {stats['tier']}, "
-        f"{stats['n_vectors']:,} vectors, {stats['n_plays']:,} plays.")
+        f"{stats['n_vectors']:,} vectors, {stats['n_plays']:,} plays."
+    )
 
     if rest:
         if reporter.check_cancelled():
@@ -711,14 +787,24 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if not _claim_chain_dispatch(run_id, chunk):
             reporter.log(
                 f"Link {chunk} was already chained by a concurrent execution "
-                "(a platform retry of this link) — stopping this duplicate.")
+                "(a platform retry of this link) — stopping this duplicate."
+            )
             return None
         return {
             "chain": True,
-            "next_task_args": _chain_args(chunk + 1, rest, run_id, params,
-                                          trend_cols, model, store_fp, total,
-                                          mode, annotations_fp,
-                                          annotations_max_ts),
+            "next_task_args": _chain_args(
+                chunk + 1,
+                rest,
+                run_id,
+                params,
+                trend_cols,
+                model,
+                store_fp,
+                total,
+                mode,
+                annotations_fp,
+                annotations_max_ts,
+            ),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
 
@@ -726,10 +812,12 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     index_dim = index.dim if index is not None else None
     if index_dim is None:
         index_dim = embeddings.active_embedding_backend().dim()
-    expected = {"sessions": progress["sessions"],
-                "episodes": progress["episodes"],
-                "windows": progress["windows"],
-                "plays": progress["plays"]}
+    expected = {
+        "sessions": progress["sessions"],
+        "episodes": progress["episodes"],
+        "windows": progress["windows"],
+        "plays": progress["plays"],
+    }
     if mode == "merge":
         if not manifest:
             # Without the manifest a merge cannot know what to replace, and
@@ -737,23 +825,39 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             # with only this run's subset — the exact bug merge mode fixes.
             raise RuntimeError(
                 f"merge run {run_id} lost its manifest (progress file "
-                f"rewritten?) — refusing to publish. Shards kept.")
+                f"rewritten?) — refusing to publish. Shards kept."
+            )
         meta_old = None
-        if data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=session_explorer.META_FILE):
+        if data_io.exists(
+            storage_location=session_explorer.ARTIFACT_LOCATION, filename=session_explorer.META_FILE
+        ):
             meta_old = data_io.load_json(
                 storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.META_FILE)
-        meta = _merge_meta(meta_old, manifest, params, model, store_fp,
-                           int(n_vectors), int(index_dim), trend_cols,
-                           annotations_fp, annotations_max_ts)
+                filename=session_explorer.META_FILE,
+            )
+        meta = _merge_meta(
+            meta_old,
+            manifest,
+            params,
+            model,
+            store_fp,
+            int(n_vectors),
+            int(index_dim),
+            trend_cols,
+            annotations_fp,
+            annotations_max_ts,
+        )
         session_explorer.merge_publish_artifacts(
-            run_id, n_chunks=chunk + 1,
+            run_id,
+            n_chunks=chunk + 1,
             refresh_cids=list(manifest.get("refresh") or []),
             drop_cids=list(manifest.get("drop") or []),
-            expected=expected, meta=meta, trend_cols=trend_cols,
+            expected=expected,
+            meta=meta,
+            trend_cols=trend_cols,
             reporter=reporter,
-            covered_collections=progress["collections"])
+            covered_collections=progress["collections"],
+        )
     else:
         meta = {
             "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
@@ -778,17 +882,25 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if manifest:
             manifest_counts = manifest.get("counts") or {}
             meta["collections"] = {
-                cid: {"windows": (manifest.get("coverage") or {}).get(cid, []),
-                      "n_plays": _manifest_n_plays(manifest_counts.get(cid)),
-                      "built_at": meta["built_at"]}
-                for cid in manifest.get("refresh") or []}
+                cid: {
+                    "windows": (manifest.get("coverage") or {}).get(cid, []),
+                    "n_plays": _manifest_n_plays(manifest_counts.get(cid)),
+                    "built_at": meta["built_at"],
+                }
+                for cid in manifest.get("refresh") or []
+            }
         session_explorer.publish_artifacts(
-            run_id, n_chunks=chunk + 1,
-            expected=expected, meta=meta, reporter=reporter,
+            run_id,
+            n_chunks=chunk + 1,
+            expected=expected,
+            meta=meta,
+            reporter=reporter,
             covered_collections=progress["collections"],
-            total_collections=total)
-    data_io.remove(storage_location=session_explorer.ARTIFACT_LOCATION,
-                   filename=_progress_filename(run_id))
+            total_collections=total,
+        )
+    data_io.remove(
+        storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+    )
 
     reporter.update_progress(100, "Done")
     reporter.emit_data({"sessions_mode": "rebuilt"})
@@ -800,8 +912,6 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     )
     reporter.log("Sessions refresh completed.")
     return None
-
-
 
 
 if __name__ == "__main__":
@@ -819,8 +929,15 @@ if __name__ == "__main__":
             task_args["batch_size"] = args.batch_size
         if getattr(args, "workers", None) is not None:
             task_args["workers"] = args.workers
-        for key in ("cut", "mem", "min_videos", "min_minutes", "max_skip",
-                    "window_n", "max_windows"):
+        for key in (
+            "cut",
+            "mem",
+            "min_videos",
+            "min_minutes",
+            "max_skip",
+            "window_n",
+            "max_windows",
+        ):
             value = getattr(args, key, None)
             if value is not None:
                 task_args[key] = value
@@ -838,45 +955,111 @@ if __name__ == "__main__":
         _chain_locally,
         "sessions_refresh",
         arg_specs=[
-            (("--collections",), {"type": str, "default": None,
-                                  "help": "Comma-separated collection ids to refresh "
-                                          "(merged into the existing artifacts; default: all)"}),
-            (("--stale-only",), {"action": "store_true",
-                                 "help": "Refresh only collections whose study windows "
-                                         "or in-window data changed"}),
-            (("--skip-if-busy",), {"action": "store_true",
-                                   "help": "Exit gracefully when another sessions "
-                                           "refresh appears to be running"}),
-            (("--batch-size",), {"type": int, "default": None,
-                                 "help": "Collections per link (default: fill each "
-                                         f"link to {PLAYS_PER_BATCH:,} plays or "
-                                         f"{MAX_COLLECTIONS_PER_BATCH} collections)"}),
-            (("--workers",), {"type": int, "default": None,
-                              "help": "Segmentation worker processes per link "
-                                      "(default: config [sessions] workers; "
-                                      "1 = serial; results identical)"}),
-            (("--cut",), {"type": float, "default": None,
-                          "help": "Focus threshold on mean cosine distance to the "
-                                  "recent centroid (default: config [sessions])"}),
-            (("--mem",), {"type": int, "default": None,
-                          "help": "Recent episode members the centroid is taken over "
-                                  "(default: config [sessions])"}),
-            (("--min-videos",), {"type": int, "default": None,
-                                 "help": "Minimum distinct videos to keep an episode "
-                                         "(default: config [sessions])"}),
-            (("--min-minutes",), {"type": float, "default": None,
-                                  "help": "Minimum episode span in minutes "
-                                          "(default: config [sessions])"}),
-            (("--max-skip",), {"type": int, "default": None,
-                               "help": "Consecutive off-theme videos a binge survives"}),
-            (("--window-n",), {"type": int, "default": None,
-                               "help": "Videos per low-entropy window "
-                                       "(default: config [sessions])"}),
-            (("--max-windows",), {"type": int, "default": None,
-                                  "help": "Low-entropy windows kept per session "
-                                          "(default: config [sessions])"}),
+            (
+                ("--collections",),
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated collection ids to refresh "
+                    "(merged into the existing artifacts; default: all)",
+                },
+            ),
+            (
+                ("--stale-only",),
+                {
+                    "action": "store_true",
+                    "help": "Refresh only collections whose study windows "
+                    "or in-window data changed",
+                },
+            ),
+            (
+                ("--skip-if-busy",),
+                {
+                    "action": "store_true",
+                    "help": "Exit gracefully when another sessions refresh appears to be running",
+                },
+            ),
+            (
+                ("--batch-size",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Collections per link (default: fill each "
+                    f"link to {PLAYS_PER_BATCH:,} plays or "
+                    f"{MAX_COLLECTIONS_PER_BATCH} collections)",
+                },
+            ),
+            (
+                ("--workers",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Segmentation worker processes per link "
+                    "(default: config [sessions] workers; "
+                    "1 = serial; results identical)",
+                },
+            ),
+            (
+                ("--cut",),
+                {
+                    "type": float,
+                    "default": None,
+                    "help": "Focus threshold on mean cosine distance to the "
+                    "recent centroid (default: config [sessions])",
+                },
+            ),
+            (
+                ("--mem",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Recent episode members the centroid is taken over "
+                    "(default: config [sessions])",
+                },
+            ),
+            (
+                ("--min-videos",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Minimum distinct videos to keep an episode "
+                    "(default: config [sessions])",
+                },
+            ),
+            (
+                ("--min-minutes",),
+                {
+                    "type": float,
+                    "default": None,
+                    "help": "Minimum episode span in minutes (default: config [sessions])",
+                },
+            ),
+            (
+                ("--max-skip",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Consecutive off-theme videos a binge survives",
+                },
+            ),
+            (
+                ("--window-n",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Videos per low-entropy window (default: config [sessions])",
+                },
+            ),
+            (
+                ("--max-windows",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Low-entropy windows kept per session (default: config [sessions])",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Build the Sessions-tab artifacts (session index, binge "
-                    "episodes, low-entropy windows)",
+        "episodes, low-entropy windows)",
     )

@@ -17,7 +17,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-_spec = importlib.util.spec_from_file_location("fyp_intake_report", ROOT / "scripts" / "intake_report.py")
+_spec = importlib.util.spec_from_file_location(
+    "fyp_intake_report", ROOT / "scripts" / "intake_report.py"
+)
 ir = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = ir  # dataclasses resolve postponed annotations through sys.modules
 _spec.loader.exec_module(ir)
@@ -25,25 +27,80 @@ _spec.loader.exec_module(ir)
 
 def _ledger() -> dict:
     return {
-        "legacy.json": {"outcome": "skipped_legacy", "raw_rows": None, "platform": None, "source": None,
-                        "notes": "migrated from legacy discarded_collection_files.json"},
-        "tt1.json": {"outcome": "added_as_new", "raw_rows": 1000, "processed_rows": 970, "kept_rows": 950,
-                     "deduped_rows": 20, "dropped": {"not_parseable": 20, "missing_required": 10},
-                     "platform": "tiktok", "source": "ddp", "tz": "Australia/Brisbane", "uploaded_at": "2026-08-01T00:00:00+00:00",
-                     "user_id": "a@x", "ts_first_seen": "2026-08-01T01:00:00+00:00"},
-        "tt2.json": {"outcome": "merged_with_existing", "raw_rows": 500, "processed_rows": 500, "kept_rows": 100,
-                     "deduped_rows": 400, "dropped": {}, "platform": "tiktok", "source": "ddp",
-                     "merged_with_siblings": ["tt1.json"], "collection_id": "c1", "uploaded_at": "2026-08-05T00:00:00+00:00",
-                     "user_id": "b@x"},
-        "yt1.zip": {"outcome": "added_as_new", "raw_rows": 200, "processed_rows": 200, "kept_rows": 200,
-                    "deduped_rows": 0, "dropped": {}, "platform": "youtube", "source": "ddp",
-                    "notes": "Uploader withheld: Comments, Post | Time zone: 12 row(s) carry an ambiguous abbreviation (IST); read as its most common Takeout meaning.",
-                    "uploaded_at": "2026-08-10T00:00:00+00:00", "user_id": "c@x"},
-        "ig1.zip": {"outcome": "load_failed", "platform": "instagram", "source": "ddp", "raw_rows": 0},
-        "old.json": {"outcome": "added_as_new", "raw_rows": 50, "processed_rows": 50, "kept_rows": 50,
-                     "deduped_rows": 0, "dropped": {}, "platform": "tiktok", "source": "ddp"},
-        "prebreak.json": {"outcome": "added_as_new", "raw_rows": 100, "processed_rows": None, "kept_rows": 90,
-                          "deduped_rows": None, "dropped": None, "platform": "tiktok", "source": "ddp"},
+        "legacy.json": {
+            "outcome": "skipped_legacy",
+            "raw_rows": None,
+            "platform": None,
+            "source": None,
+            "notes": "migrated from legacy discarded_collection_files.json",
+        },
+        "tt1.json": {
+            "outcome": "added_as_new",
+            "raw_rows": 1000,
+            "processed_rows": 970,
+            "kept_rows": 950,
+            "deduped_rows": 20,
+            "dropped": {"not_parseable": 20, "missing_required": 10},
+            "platform": "tiktok",
+            "source": "ddp",
+            "tz": "Australia/Brisbane",
+            "uploaded_at": "2026-08-01T00:00:00+00:00",
+            "user_id": "a@x",
+            "ts_first_seen": "2026-08-01T01:00:00+00:00",
+        },
+        "tt2.json": {
+            "outcome": "merged_with_existing",
+            "raw_rows": 500,
+            "processed_rows": 500,
+            "kept_rows": 100,
+            "deduped_rows": 400,
+            "dropped": {},
+            "platform": "tiktok",
+            "source": "ddp",
+            "merged_with_siblings": ["tt1.json"],
+            "collection_id": "c1",
+            "uploaded_at": "2026-08-05T00:00:00+00:00",
+            "user_id": "b@x",
+        },
+        "yt1.zip": {
+            "outcome": "added_as_new",
+            "raw_rows": 200,
+            "processed_rows": 200,
+            "kept_rows": 200,
+            "deduped_rows": 0,
+            "dropped": {},
+            "platform": "youtube",
+            "source": "ddp",
+            "notes": "Uploader withheld: Comments, Post | Time zone: 12 row(s) carry an ambiguous abbreviation (IST); read as its most common Takeout meaning.",
+            "uploaded_at": "2026-08-10T00:00:00+00:00",
+            "user_id": "c@x",
+        },
+        "ig1.zip": {
+            "outcome": "load_failed",
+            "platform": "instagram",
+            "source": "ddp",
+            "raw_rows": 0,
+        },
+        "old.json": {
+            "outcome": "added_as_new",
+            "raw_rows": 50,
+            "processed_rows": 50,
+            "kept_rows": 50,
+            "deduped_rows": 0,
+            "dropped": {},
+            "platform": "tiktok",
+            "source": "ddp",
+        },
+        "prebreak.json": {
+            "outcome": "added_as_new",
+            "raw_rows": 100,
+            "processed_rows": None,
+            "kept_rows": 90,
+            "deduped_rows": None,
+            "dropped": None,
+            "platform": "tiktok",
+            "source": "ddp",
+        },
     }
 
 
@@ -69,29 +126,92 @@ def test_outcomes_by_route():
 
 def _verdicts() -> dict:
     return {
-        "f3": {"status": "learning", "platform": "tiktok", "source": "ddp", "variant": None, "findings": [],
-               "processed_stats": None, "ts_evaluated": "2026-08-01T00:00:00+00:00"},
-        "f4": {"status": "ok", "platform": "tiktok", "source": "ddp", "variant": None, "findings": [],
-               "processed_stats": {"kept_ratio": 0.9}, "ts_evaluated": "2026-08-02T00:00:00+00:00"},
-        "f5": {"status": "quarantined", "platform": "tiktok", "source": "ddp", "variant": None,
-               "findings": [{"layer": "structure", "code": "type_changed", "severity": "quarantine", "detail": "x retyped"}],
-               "processed_stats": None, "ts_evaluated": "2026-08-03T00:00:00+00:00"},
-        "f6": {"status": "approved", "platform": "tiktok", "source": "ddp", "variant": None,
-               "findings": [{"layer": "structure", "code": "new_key_paths", "severity": "warn", "detail": "2 new"}],
-               "processed_stats": {"kept_ratio": 0.8}, "ts_evaluated": "2026-08-20T00:00:00+00:00",
-               "reviewed_at": "2026-08-12T00:00:00+00:00", "review_action": "approve", "reviewed_by": "admin",
-               "withheld_sections": ["Comments"]},
-        "f7": {"status": "rejected", "platform": "youtube", "source": "ddp", "variant": "reviewed",
-               "findings": [{"layer": "stats", "code": "stat_outlier_hard", "severity": "quarantine", "detail": "z=5", "metric": "kept_ratio"}],
-               "processed_stats": {"kept_ratio": 0.1}, "ts_evaluated": "2026-08-15T00:00:00+00:00",
-               "reviewed_at": "2026-08-16T00:00:00+00:00", "review_action": "reject", "reviewed_by": "admin"},
+        "f3": {
+            "status": "learning",
+            "platform": "tiktok",
+            "source": "ddp",
+            "variant": None,
+            "findings": [],
+            "processed_stats": None,
+            "ts_evaluated": "2026-08-01T00:00:00+00:00",
+        },
+        "f4": {
+            "status": "ok",
+            "platform": "tiktok",
+            "source": "ddp",
+            "variant": None,
+            "findings": [],
+            "processed_stats": {"kept_ratio": 0.9},
+            "ts_evaluated": "2026-08-02T00:00:00+00:00",
+        },
+        "f5": {
+            "status": "quarantined",
+            "platform": "tiktok",
+            "source": "ddp",
+            "variant": None,
+            "findings": [
+                {
+                    "layer": "structure",
+                    "code": "type_changed",
+                    "severity": "quarantine",
+                    "detail": "x retyped",
+                }
+            ],
+            "processed_stats": None,
+            "ts_evaluated": "2026-08-03T00:00:00+00:00",
+        },
+        "f6": {
+            "status": "approved",
+            "platform": "tiktok",
+            "source": "ddp",
+            "variant": None,
+            "findings": [
+                {
+                    "layer": "structure",
+                    "code": "new_key_paths",
+                    "severity": "warn",
+                    "detail": "2 new",
+                }
+            ],
+            "processed_stats": {"kept_ratio": 0.8},
+            "ts_evaluated": "2026-08-20T00:00:00+00:00",
+            "reviewed_at": "2026-08-12T00:00:00+00:00",
+            "review_action": "approve",
+            "reviewed_by": "admin",
+            "withheld_sections": ["Comments"],
+        },
+        "f7": {
+            "status": "rejected",
+            "platform": "youtube",
+            "source": "ddp",
+            "variant": "reviewed",
+            "findings": [
+                {
+                    "layer": "stats",
+                    "code": "stat_outlier_hard",
+                    "severity": "quarantine",
+                    "detail": "z=5",
+                    "metric": "kept_ratio",
+                }
+            ],
+            "processed_stats": {"kept_ratio": 0.1},
+            "ts_evaluated": "2026-08-15T00:00:00+00:00",
+            "reviewed_at": "2026-08-16T00:00:00+00:00",
+            "review_action": "reject",
+            "reviewed_by": "admin",
+        },
     }
 
 
 def _baselines() -> dict:
     return {
-        "tiktok_ddp": {"n_accepted": 5, "learned_files": ["f1", "f2", "f3", "f4", "f6"],
-                       "accepted_structures": [{"filename": "f6", "approved_by": "admin", "ts": "2026-08-12T00:00:00+00:00"}]},
+        "tiktok_ddp": {
+            "n_accepted": 5,
+            "learned_files": ["f1", "f2", "f3", "f4", "f6"],
+            "accepted_structures": [
+                {"filename": "f6", "approved_by": "admin", "ts": "2026-08-12T00:00:00+00:00"}
+            ],
+        },
         "youtube_ddp__reviewed": {"n_accepted": 0, "learned_files": [], "accepted_structures": []},
     }
 
@@ -108,12 +228,17 @@ def test_sentinel_denominators():
 
 def test_quarantine_rows_and_summary():
     ledger = {
-        "f6": {"uploaded_at": "2026-08-10T00:00:00+00:00", "ts_first_seen": "2026-08-21T00:00:00+00:00"},
+        "f6": {
+            "uploaded_at": "2026-08-10T00:00:00+00:00",
+            "ts_first_seen": "2026-08-21T00:00:00+00:00",
+        },
         "f5": {"ts_first_seen": "2026-08-03T12:00:00+00:00"},
         "f7": {},
     }
-    commits = [{"sha": "abc12345", "date": "2026-08-11T00:00:00+00:00", "subject": "fix parser"},
-               {"sha": "def12345", "date": "2026-09-01T00:00:00+00:00", "subject": "later"}]
+    commits = [
+        {"sha": "abc12345", "date": "2026-08-11T00:00:00+00:00", "subject": "fix parser"},
+        {"sha": "def12345", "date": "2026-09-01T00:00:00+00:00", "subject": "later"},
+    ]
     rows = ir.quarantine_rows(_verdicts(), ledger, _baselines(), commits)
     by = {r["filename"]: r for r in rows}
     assert set(by) == {"f5", "f6", "f7"}
@@ -135,8 +260,12 @@ def test_quarantine_rows_and_summary():
     assert classified["classes"]["b"] == 1 and classified["n_unclassified_approved"] == 0
 
     # A row whose only timestamps contradict yields a negative duration, counted not clamped.
-    rows2 = ir.quarantine_rows({"g": {**_verdicts()["f6"], "ts_evaluated": "2026-08-20T00:00:00+00:00"}},
-                               {"g": {"ts_first_seen": "2026-08-25T00:00:00+00:00"}}, {}, [])
+    rows2 = ir.quarantine_rows(
+        {"g": {**_verdicts()["f6"], "ts_evaluated": "2026-08-20T00:00:00+00:00"}},
+        {"g": {"ts_first_seen": "2026-08-25T00:00:00+00:00"}},
+        {},
+        [],
+    )
     assert ir.quarantine_summary(rows2)["n_negative_durations"] == 1
 
 
@@ -150,7 +279,14 @@ def test_parse_git_log_and_commits_between():
 
 
 def test_withheld_union_counts_once():
-    verdicts = {"yt1.zip": {"status": "ok", "withheld_sections": ["Comments"], "platform": "youtube", "source": "ddp"}}
+    verdicts = {
+        "yt1.zip": {
+            "status": "ok",
+            "withheld_sections": ["Comments"],
+            "platform": "youtube",
+            "source": "ddp",
+        }
+    }
     out = ir.withheld_counts(verdicts, _ledger())
     assert out["n_files_with_withheld_sections"] == 1
     assert out["sections"] == {"Comments": 1, "Post": 1}
@@ -197,10 +333,14 @@ def test_calibrate_one_file_agrees_with_true_zone_and_flags_wrong_one():
 def test_session_stats_matches_assign_session_ids():
     from fyp.ingest.base import assign_session_ids
 
-    df = pd.DataFrame({
-        "collection_id": ["c1"] * 6 + ["c2"] * 3,
-        "utc_timestamp": pd.to_datetime([0, 100, 400, 1300, 1400, 3400, 0, 1000, 1800], unit="s", utc=True),
-    })
+    df = pd.DataFrame(
+        {
+            "collection_id": ["c1"] * 6 + ["c2"] * 3,
+            "utc_timestamp": pd.to_datetime(
+                [0, 100, 400, 1300, 1400, 3400, 0, 1000, 1800], unit="s", utc=True
+            ),
+        }
+    )
     out = ir.session_stats(df, ir.SESSION_GAPS)
     for gap in ir.SESSION_GAPS:
         expected = assign_session_ids(df.copy(), gap_threshold_s=gap)["session_id"].nunique()
@@ -209,14 +349,16 @@ def test_session_stats_matches_assign_session_ids():
 
 
 def test_comment_gap_stats():
-    df = pd.DataFrame({
-        "raw_file": ["r"] * 5,
-        "collection_id": ["c"] * 5,
-        "utc_timestamp": pd.to_datetime([0, 30, 200, 400, 1000], unit="s", utc=True),
-        "activity_type": ["play", "comment", "comment", "comment", "play"],
-        "item_id": ["v1", "v1", "v1", None, "v2"],
-        "link_method": [None, "ffill_180s", None, None, None],
-    })
+    df = pd.DataFrame(
+        {
+            "raw_file": ["r"] * 5,
+            "collection_id": ["c"] * 5,
+            "utc_timestamp": pd.to_datetime([0, 30, 200, 400, 1000], unit="s", utc=True),
+            "activity_type": ["play", "comment", "comment", "comment", "play"],
+            "item_id": ["v1", "v1", "v1", None, "v2"],
+            "link_method": [None, "ffill_180s", None, None, None],
+        }
+    )
     out = ir.comment_gap_stats(df, ir.COMMENT_GAPS)
     assert out["n_comments"] == 3 and out["n_comments_null_item_id"] == 1
     assert out["n_comments_marked_ffill_180s"] == 1
@@ -224,14 +366,16 @@ def test_comment_gap_stats():
     assert out["window_60s"]["linked"] == 1
     assert out["window_180s"]["linked"] == 2
     assert out["window_300s"]["linked"] == 3
-    assert out["window_60s"]["linked_to_preceding_play_same_collection_pct"] == pytest.approx(33.3, abs=0.1)
+    assert out["window_60s"]["linked_to_preceding_play_same_collection_pct"] == pytest.approx(
+        33.3, abs=0.1
+    )
 
 
 def _reference_overlaps(ts_sets: dict[str, set[int]]) -> dict[tuple[str, str], float]:
     names = sorted(ts_sets)
     out = {}
     for i, a in enumerate(names):
-        for b in names[i + 1:]:
+        for b in names[i + 1 :]:
             shared = len(ts_sets[a] & ts_sets[b])
             if shared:
                 out[(a, b)] = shared / min(len(ts_sets[a]), len(ts_sets[b]))
@@ -240,12 +384,29 @@ def _reference_overlaps(ts_sets: dict[str, set[int]]) -> dict[tuple[str, str], f
 
 def test_timestamp_overlaps_matches_reference_and_union_find():
     pl = pytest.importorskip("polars")
-    sets = {"a": set(range(100)), "b": set(range(80, 200)), "c": set(range(190, 260)), "d": set(range(1000, 1010))}
+    sets = {
+        "a": set(range(100)),
+        "b": set(range(80, 200)),
+        "c": set(range(190, 260)),
+        "d": set(range(1000, 1010)),
+    }
     rows = [(fn, s) for fn, secs in sets.items() for s in secs]
-    frame = pl.DataFrame({"raw_file": [r[0] for r in rows],
-                          "utc_timestamp": [pd.Timestamp(r[1], unit="s", tz="UTC") for r in rows]})
+    frame = pl.DataFrame(
+        {
+            "raw_file": [r[0] for r in rows],
+            "utc_timestamp": [pd.Timestamp(r[1], unit="s", tz="UTC") for r in rows],
+        }
+    )
     pairs_df = ir.timestamp_overlaps(frame)
-    got = {(a, b): round(o, 6) for a, b, o in zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["overlap"].to_list(), strict=False)}
+    got = {
+        (a, b): round(o, 6)
+        for a, b, o in zip(
+            pairs_df["a"].to_list(),
+            pairs_df["b"].to_list(),
+            pairs_df["overlap"].to_list(),
+            strict=False,
+        )
+    }
     assert got == {k: round(v, 6) for k, v in _reference_overlaps(sets).items()}
     pairs = [(a, b, o) for (a, b), o in got.items()]
     events = {k: len(v) for k, v in sets.items()}
@@ -255,8 +416,14 @@ def test_timestamp_overlaps_matches_reference_and_union_find():
     assert at_01["n_false_merges_different_accounts"] == 1
     at_02 = ir.union_find_merges(pairs, 0.2, events, users)  # a-b overlap 0.2 is not > 0.2
     assert at_02["n_merges"] == 0
-    small = ir.union_find_merges([("c", "d", 0.5)], 0.2, events, users,
-                                 collection_per_file={"c": "x", "d": "y"}, shared_per_pair={("c", "d"): 2})
+    small = ir.union_find_merges(
+        [("c", "d", 0.5)],
+        0.2,
+        events,
+        users,
+        collection_per_file={"c": "x", "d": "y"},
+        shared_per_pair={("c", "d"): 2},
+    )
     assert small["n_merges_involving_small_file"] == 1
     assert small["n_merges_spanning_collections"] == 1
     assert small["n_pairs_on_two_shared_seconds_or_fewer"] == 1
@@ -281,7 +448,9 @@ def test_renderers_contain_their_labels():
         "outcomes": ir.outcomes_by_route(_ledger()),
         "sentinel": {
             "denominators": ir.sentinel_denominators(_verdicts(), _baselines()),
-            "quarantine": ir.quarantine_summary(ir.quarantine_rows(_verdicts(), _ledger(), _baselines(), [])),
+            "quarantine": ir.quarantine_summary(
+                ir.quarantine_rows(_verdicts(), _ledger(), _baselines(), [])
+            ),
             "findings": ir.findings_by_layer_code(_verdicts()),
             "withheld": ir.withheld_counts(_verdicts(), _ledger()),
             "contingency": ir.quarantine_contingencies(_verdicts(), _ledger()),
@@ -315,7 +484,9 @@ def test_table_reconciliation_splits_files_by_entry_and_counts():
         "b.json": {"outcome": "skipped_legacy", "raw_rows": None},
         "gone.json": {"outcome": "fully_deduped", "raw_rows": 5},
     }
-    out = ir.table_reconciliation(ledger, {"a.json": "tiktok_ddp", "b.json": "tiktok_ddp", "c.json": "tiktok_ddp"})
+    out = ir.table_reconciliation(
+        ledger, {"a.json": "tiktok_ddp", "b.json": "tiktok_ddp", "c.json": "tiktok_ddp"}
+    )
     assert out["n_files_in_table"] == 3
     assert out["n_in_table_with_entry"] == 2
     assert out["n_in_table_with_counts"] == 1
@@ -327,17 +498,23 @@ def test_table_reconciliation_splits_files_by_entry_and_counts():
 def test_null_activity_type_counts():
     df = pd.DataFrame({"raw_file": ["f1", "f1", "f2"], "activity_type": ["play", None, None]})
     assert ir.null_activity_type_counts(df) == {"rows": 2, "files": 2}
-    assert ir.null_activity_type_counts(pd.DataFrame(columns=["raw_file", "activity_type"])) == {"rows": 0, "files": 0}
+    assert ir.null_activity_type_counts(pd.DataFrame(columns=["raw_file", "activity_type"])) == {
+        "rows": 0,
+        "files": 0,
+    }
 
 
 def test_comments_before_the_first_play_are_counted():
     ts = pd.to_datetime([0, 100, 200, 300, 400], unit="s", utc=True)
-    df = pd.DataFrame({
-        "raw_file": "f", "collection_id": "c",
-        "utc_timestamp": ts,
-        "activity_type": ["comment", "comment", "play", "comment", "play"],
-        "item_id": [None, None, "v1", None, "v2"],
-    })
+    df = pd.DataFrame(
+        {
+            "raw_file": "f",
+            "collection_id": "c",
+            "utc_timestamp": ts,
+            "activity_type": ["comment", "comment", "play", "comment", "play"],
+            "item_id": [None, None, "v1", None, "v2"],
+        }
+    )
     out = ir.comment_gap_stats(df, gaps=(150,))
     assert out["n_comments"] == 3
     assert out["n_comments_before_first_play"] == 2
@@ -358,7 +535,9 @@ def test_stored_offset_distribution_skips_supplied_zone_files():
 def test_calibration_reports_the_other_dst_half_and_stored_offsets():
     # Sydney: standard time (+10) from April to October, daylight time (+11) otherwise.
     utc = pd.to_datetime(
-        [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30, utc=True)
+        [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30,
+        utc=True,
+    )
     out = ir.calibrate_one_file(utc, "Australia/Sydney", stored_offsets=[9])
     assert out["zone_offset"] == 10.0
     assert out["stored_offsets"] == [9]
@@ -377,23 +556,44 @@ def test_calibration_difference_wraps_around_the_day(monkeypatch):
 
 def test_union_find_reports_route_and_account_relation():
     pairs = [("ddp1", "cap1", 0.3), ("ddp1", "ddp2", 0.3), ("ddp2", "ddp3", 0.3)]
-    routes = {"ddp1": "tiktok_ddp", "ddp2": "tiktok_ddp", "ddp3": "tiktok_ddp", "cap1": "tiktok_zeeschuimer"}
+    routes = {
+        "ddp1": "tiktok_ddp",
+        "ddp2": "tiktok_ddp",
+        "ddp3": "tiktok_ddp",
+        "cap1": "tiktok_zeeschuimer",
+    }
     users = {"ddp1": "u1", "ddp2": "u1", "ddp3": "u2", "cap1": None}
     out = ir.union_find_merges(pairs, 0.2, {}, users, route_per_file=routes)
     assert out["n_cross_route_pairs"] == 1
-    assert out["pairs_by_account_relation"] == {"account_unknown": 1, "same_account": 1, "different_accounts": 1}
-    sens = ir.overlap_sensitivity(pairs, {"ddp1": {"user_id": "u1"}}, {}, route_per_file=routes,
-                                  collection_per_file={"ddp2": "c2", "ddp3": "c3"},
-                                  tags={"c2": {"user_id": "u1"}, "c3": {"user_id": "u2"}})
+    assert out["pairs_by_account_relation"] == {
+        "account_unknown": 1,
+        "same_account": 1,
+        "different_accounts": 1,
+    }
+    sens = ir.overlap_sensitivity(
+        pairs,
+        {"ddp1": {"user_id": "u1"}},
+        {},
+        route_per_file=routes,
+        collection_per_file={"ddp2": "c2", "ddp3": "c3"},
+        tags={"c2": {"user_id": "u1"}, "c3": {"user_id": "u2"}},
+    )
     assert sens["n_pairs_within_route"] == 2
     assert sens["thresholds_within_route"]["0.2"]["n_pairs_above_threshold"] == 2
     assert sens["thresholds"]["0.2"]["n_pairs_above_threshold"] == 3
-    assert sens["thresholds_within_route"]["0.2"]["pairs_by_account_relation"] == {"same_account": 1, "different_accounts": 1}
+    assert sens["thresholds_within_route"]["0.2"]["pairs_by_account_relation"] == {
+        "same_account": 1,
+        "different_accounts": 1,
+    }
 
 
 def test_calibration_handles_an_arrow_backed_timestamp_column():
-    utc = pd.Series(pd.to_datetime(
-        [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30, utc=True))
+    utc = pd.Series(
+        pd.to_datetime(
+            [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30,
+            utc=True,
+        )
+    )
     arrow = utc.astype("timestamp[ns, tz=UTC][pyarrow]")
     plain = ir.calibrate_one_file(utc, "Australia/Sydney")
     assert ir.calibrate_one_file(arrow, "Australia/Sydney") == plain

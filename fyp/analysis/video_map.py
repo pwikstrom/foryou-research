@@ -50,13 +50,12 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
+
 
 # Output artifacts in the "recoded" store. The meta file is separate from
 # NICHES_FILE because that JSON's consumers iterate it assuming every key is a
@@ -91,16 +90,27 @@ _GENERIC_NAME_RE = re.compile(r"Niche \d+")
 # categorical fields drive a discrete legend. (Sparse fields like
 # scene_sentiments_* are excluded — they are non-null on <1% of videos.)
 OVERLAY_NUMERIC = [
-    "political_score", "sensitivity_score", "speech_vs_music", "faces_age_estimate",
+    "political_score",
+    "sensitivity_score",
+    "speech_vs_music",
+    "faces_age_estimate",
 ]
 OVERLAY_CATEGORICAL = [
-    "australian_relevance", "tiktok_native", "trend", "advertising", "aigc",
-    "main_gender", "main_ethnicity",
+    "australian_relevance",
+    "tiktok_native",
+    "trend",
+    "advertising",
+    "aigc",
+    "main_gender",
+    "main_ethnicity",
 ]
 # Scrape-derived per-1K-play engagement rates (computed at scrape time)
 # denormalised into the map file as numeric colour overlays.
 SCRAPE_OVERLAY_NUMERIC = [
-    "comments_per_K_play", "faves_per_K_play", "shares_per_K_play", "saves_per_K_play",
+    "comments_per_K_play",
+    "faves_per_K_play",
+    "shares_per_K_play",
+    "saves_per_K_play",
 ]
 # Scrape-side categorical overlays (discrete legend). source_platform is
 # single-valued while annotation/embeddings stay TikTok-only, but the overlay is
@@ -133,14 +143,8 @@ def _get_naming_client() -> genai.Client:
     """
     global _naming_client
     if _naming_client is None:
-        _naming_client = gemini_client.make_client(
-            location=_cf()["machine"]["gemini"]["location"]
-        )
+        _naming_client = gemini_client.make_client(location=_cf()["machine"]["gemini"]["location"])
     return _naming_client
-
-
-
-
 
 
 def _naming_available() -> bool:
@@ -154,10 +158,6 @@ def _naming_available() -> bool:
     """
     mode, _ = gemini_client.gemini_mode()
     return mode is not None
-
-
-
-
 
 
 def _term_name(meta: dict[int, dict], niche: int) -> str:
@@ -174,10 +174,6 @@ def _term_name(meta: dict[int, dict], niche: int) -> str:
     if not terms:
         return f"Niche {niche}"
     return " / ".join(str(t).title() for t in terms[:2])[:48]
-
-
-
-
 
 
 def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
@@ -197,10 +193,6 @@ def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
     pca_dim = min(pca_dim, centred.shape[1], centred.shape[0])
     pca = PCA(n_components=pca_dim, svd_solver="randomized", random_state=0)
     return pca.fit_transform(centred).astype(np.float32)
-
-
-
-
 
 
 def _typicality(matrix: np.ndarray) -> np.ndarray:
@@ -230,10 +222,6 @@ def _typicality(matrix: np.ndarray) -> np.ndarray:
     return (unit @ (mean_dir / norm)).astype(np.float32)
 
 
-
-
-
-
 def _percentile_rank(values: np.ndarray) -> np.ndarray:
     """Rank values into 0-100 percentiles, averaging ties.
 
@@ -258,12 +246,7 @@ def _percentile_rank(values: np.ndarray) -> np.ndarray:
     return (100.0 * ranks).astype(np.float32)
 
 
-
-
-
-
-def _per_video_niche_value(niche_meta: dict[int, dict], labels: np.ndarray,
-                           key: str) -> np.ndarray:
+def _per_video_niche_value(niche_meta: dict[int, dict], labels: np.ndarray, key: str) -> np.ndarray:
     """Spread a per-niche metric across that niche's videos.
 
     Args:
@@ -277,10 +260,6 @@ def _per_video_niche_value(niche_meta: dict[int, dict], labels: np.ndarray,
         isolated from, and a null is the honest answer there.
     """
     return np.array([niche_meta[int(lab)].get(key) for lab in labels], dtype=np.float64)
-
-
-
-
 
 
 def _add_niche_typicality(
@@ -306,10 +285,6 @@ def _add_niche_typicality(
     for rank, niche in enumerate(ranked):
         niche_meta[niche]["typicality"] = round(means[niche], 4)
         niche_meta[niche]["typicality_pct"] = round(100.0 * rank / denom, 1)
-
-
-
-
 
 
 def _add_niche_neighbours(
@@ -366,10 +341,6 @@ def _add_niche_neighbours(
         niche_meta[niches[i]]["isolation_pct"] = round(100.0 * rank / denom, 1)
 
 
-
-
-
-
 def _neighbour_preservation(
     reduced: np.ndarray,
     xy: np.ndarray,
@@ -422,15 +393,12 @@ def _neighbour_preservation(
     }
 
 
-
-
-
-
 _WARM_START_MIN_MEMBERS = 5
 
 
-def _warm_start_centroids(item_ids: list[str], reduced: np.ndarray,
-                          n_niches: int) -> tuple[np.ndarray | None, str]:
+def _warm_start_centroids(
+    item_ids: list[str], reduced: np.ndarray, n_niches: int
+) -> tuple[np.ndarray | None, str]:
     """Initial centroids for the clustering, taken from the previous build.
 
     A fresh k-means++ run redraws every niche boundary even when the corpus
@@ -450,16 +418,22 @@ def _warm_start_centroids(item_ids: list[str], reduced: np.ndarray,
         return None, "no previous map"
     try:
         prev = data_io.load_parquet_selective(
-            storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE,
-            columns=["item_id", "niche"])
+            storage_location=embeddings.STORE_LOCATION,
+            filename=MAP_FILE,
+            columns=["item_id", "niche"],
+        )
     except Exception as exc:
         return None, f"previous map unreadable ({type(exc).__name__})"
     if prev is None or prev.empty or "niche" not in prev.columns:
         return None, "previous map has no niches"
     prev["item_id"] = prev["item_id"].astype("string")
-    prev_niche = pd.to_numeric(
-        prev.drop_duplicates("item_id").set_index("item_id")["niche"], errors="coerce"
-    ).reindex(pd.Index(item_ids, dtype="string")).to_numpy()
+    prev_niche = (
+        pd.to_numeric(
+            prev.drop_duplicates("item_id").set_index("item_id")["niche"], errors="coerce"
+        )
+        .reindex(pd.Index(item_ids, dtype="string"))
+        .to_numpy()
+    )
     known = ~np.isnan(prev_niche)
     if not known.any():
         return None, "no shared items with the previous map"
@@ -510,7 +484,8 @@ def _align_labels_to_previous(
         return labels.astype(np.int32), {}, None
     try:
         prev = data_io.load_parquet_selective(
-            storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE,
+            storage_location=embeddings.STORE_LOCATION,
+            filename=MAP_FILE,
             columns=["item_id", prev_id_col, prev_name_col],
         )
     except Exception:
@@ -521,13 +496,16 @@ def _align_labels_to_previous(
     prev["item_id"] = prev["item_id"].astype("string")
     prev = prev.dropna(subset=[prev_id_col])
     old_name_by_id = {
-        int(i): str(n)
-        for i, n in prev.groupby(prev_id_col)[prev_name_col].first().items()
+        int(i): str(n) for i, n in prev.groupby(prev_id_col)[prev_name_col].first().items()
     }
-    old_per_item = pd.to_numeric(
-        prev.drop_duplicates("item_id").set_index("item_id")[prev_id_col],
-        errors="coerce",
-    ).reindex(pd.Index(item_ids, dtype="string")).to_numpy()
+    old_per_item = (
+        pd.to_numeric(
+            prev.drop_duplicates("item_id").set_index("item_id")[prev_id_col],
+            errors="coerce",
+        )
+        .reindex(pd.Index(item_ids, dtype="string"))
+        .to_numpy()
+    )
 
     new_ids = np.unique(labels)
     old_ids = np.array(sorted(old_name_by_id.keys()))
@@ -565,10 +543,6 @@ def _align_labels_to_previous(
 
     aligned = np.array([mapping[int(l)] for l in labels], dtype=np.int32)
     return aligned, carried, old_per_item
-
-
-
-
 
 
 def _name_niches(
@@ -615,8 +589,11 @@ def _name_niches(
     n_retried = len(carried_in) - len(carried_names)
     story_list = stories.tolist()
     vectorizer = TfidfVectorizer(
-        max_features=8000, min_df=3, max_df=0.4,
-        stop_words="english", ngram_range=(1, 2),
+        max_features=8000,
+        min_df=3,
+        max_df=0.4,
+        stop_words="english",
+        ngram_range=(1, 2),
     )
     tfidf = vectorizer.fit_transform([s if isinstance(s, str) else "" for s in story_list])
     vocab = np.array(vectorizer.get_feature_names_out())
@@ -679,9 +656,13 @@ def _name_niches(
 
     def _name(niche: int) -> tuple[int, str]:
         avoid = (
-            "\nThese labels are taken by other clusters — do not reuse any of them:\n"
-            f"{', '.join(taken_at_start)}\n"
-        ) if taken_at_start else ""
+            (
+                "\nThese labels are taken by other clusters — do not reuse any of them:\n"
+                f"{', '.join(taken_at_start)}\n"
+            )
+            if taken_at_start
+            else ""
+        )
         prompt = (
             f"These are summaries of TikTok videos in one cluster:\n{_exemplars(niche)}\n\n"
             "Give a SHORT 2-4 word label naming this micro-genre. "
@@ -723,10 +704,6 @@ def _name_niches(
     return meta
 
 
-
-
-
-
 def _dedupe_niche_names(
     meta: dict[int, dict],
     exemplars_fn: Callable[[int], str],
@@ -750,6 +727,7 @@ def _dedupe_niche_names(
     Returns:
         Number of niches that were renamed.
     """
+
     def _key(name: str) -> str:
         return " ".join(name.lower().split())
 
@@ -788,10 +766,6 @@ def _dedupe_niche_names(
     return renamed
 
 
-
-
-
-
 def build_niche_map(
     n_niches: int = DEFAULT_N_NICHES,
     map_sample: int = DEFAULT_MAP_SAMPLE,
@@ -813,6 +787,7 @@ def build_niche_map(
     Returns:
         Dict summary with ``videos``, ``niches``, ``mapped`` counts.
     """
+
     def _log(msg: str) -> None:
         if reporter is not None:
             reporter.log(msg)
@@ -824,9 +799,11 @@ def build_niche_map(
     _log(f"Loading embedding store (model={embed_model})...")
     item_ids, matrix = embeddings.load_embeddings(reporter=reporter, model=embed_model)
     if len(item_ids) == 0:
-        _log(f"Embedding store holds no vectors for {embed_model}; nothing to map. "
-             "Run an embeddings refresh first (a backend switch starts from an "
-             "empty store for the new model).")
+        _log(
+            f"Embedding store holds no vectors for {embed_model}; nothing to map. "
+            "Run an embeddings refresh first (a backend switch starts from an "
+            "empty store for the new model)."
+        )
         return {"videos": 0, "niches": 0, "mapped": 0}
     _log(f"Loaded {len(item_ids):,} embeddings ({matrix.shape[1]}d).")
 
@@ -846,12 +823,16 @@ def build_niche_map(
     # names carry over and Gemini is only asked about niches that really moved.
     # reset_labels is the escape hatch — a cold k-means++ start lets genuinely
     # new niches form when the corpus has drifted.
-    init_centroids, warm_reason = (None, "reset_labels") if reset_labels else \
-        _warm_start_centroids(item_ids, reduced, n_niches)
+    init_centroids, warm_reason = (
+        (None, "reset_labels")
+        if reset_labels
+        else _warm_start_centroids(item_ids, reduced, n_niches)
+    )
     if init_centroids is not None:
         _log(f"Clustering warm-started from the previous build ({warm_reason}).")
-        kmeans = MiniBatchKMeans(n_clusters=n_niches, init=init_centroids, n_init=1,
-                                 random_state=0, batch_size=4096)
+        kmeans = MiniBatchKMeans(
+            n_clusters=n_niches, init=init_centroids, n_init=1, random_state=0, batch_size=4096
+        )
     else:
         _log(f"Clustering cold-started with k-means++ ({warm_reason}).")
         kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=0, n_init=5, batch_size=4096)
@@ -863,7 +844,8 @@ def build_niche_map(
     if reporter is not None:
         reporter.update_progress(45, "Aligning niche ids to previous build...")
     labels, niche_carry, prev_niche_per_item = _align_labels_to_previous(
-        item_ids, labels, "niche", "niche_name")
+        item_ids, labels, "niche", "niche_name"
+    )
     # How much did the partition actually move? This is what lets the refresh
     # pipeline skip the study/timeline rebuilds after a map run that changed
     # nothing — a warm-started append typically moves a handful of videos.
@@ -871,14 +853,19 @@ def build_niche_map(
     cold_start = init_centroids is None
     if prev_niche_per_item is None or cold_start:
         niche_changed = len(item_ids)
-        new_videos = len(item_ids) if prev_niche_per_item is None else int(
-            np.isnan(prev_niche_per_item).sum())
+        new_videos = (
+            len(item_ids)
+            if prev_niche_per_item is None
+            else int(np.isnan(prev_niche_per_item).sum())
+        )
     else:
         known = ~np.isnan(prev_niche_per_item)
         new_videos = int((~known).sum())
         niche_changed = int((labels[known] != prev_niche_per_item[known].astype(np.int32)).sum())
-    _log(f"Niche assignment: {niche_changed:,} video(s) changed niche, "
-         f"{new_videos:,} newly mapped (cold_start={cold_start}).")
+    _log(
+        f"Niche assignment: {niche_changed:,} video(s) changed niche, "
+        f"{new_videos:,} newly mapped (cold_start={cold_start})."
+    )
     if reset_labels:
         # Force a full re-naming: cluster ids stay aligned to the previous build
         # (saved niche-filtered analyses survive) but every name is regenerated.
@@ -891,22 +878,35 @@ def build_niche_map(
     anno = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=embeddings.ANNOTATIONS_FILE,
-        columns=["item_id", "video_story", "content_category"] + OVERLAY_NUMERIC + OVERLAY_CATEGORICAL,
+        columns=["item_id", "video_story", "content_category"]
+        + OVERLAY_NUMERIC
+        + OVERLAY_CATEGORICAL,
     )
     anno["item_id"] = anno["item_id"].astype("string")
     anno = anno.set_index("item_id")
     aligned = anno.reindex(pd.Index(item_ids, dtype="string"))
     stories = aligned["video_story"].astype("string").fillna("").reset_index(drop=True)
-    categories = aligned["content_category"].apply(
-        lambda x: str(x[0]) if x is not None and hasattr(x, "__len__") and len(x) > 0 else "none"
-    ).reset_index(drop=True)
+    categories = (
+        aligned["content_category"]
+        .apply(
+            lambda x: (
+                str(x[0]) if x is not None and hasattr(x, "__len__") and len(x) > 0 else "none"
+            )
+        )
+        .reset_index(drop=True)
+    )
 
     naming_mode = "gemini" if _naming_available() else "terms"
     if reporter is not None:
         reporter.update_progress(60, f"Naming niches ({naming_mode})...")
     niche_meta = _name_niches(
-        item_ids, labels, reduced, stories, categories,
-        carried_names=niche_carry, reporter=reporter,
+        item_ids,
+        labels,
+        reduced,
+        stories,
+        categories,
+        carried_names=niche_carry,
+        reporter=reporter,
     )
     _add_niche_typicality(niche_meta, labels, typicality)
     _add_niche_neighbours(niche_meta, labels, reduced)
@@ -925,22 +925,26 @@ def build_niche_map(
     if n_sampled < 3:
         # Too few points for t-SNE (perplexity must be < n_samples) — a tiny
         # corpus gets a trivial deterministic layout instead of a failed build.
-        xy_sample = np.column_stack([np.arange(n_sampled, dtype=np.float64),
-                                     np.zeros(n_sampled, dtype=np.float64)])
+        xy_sample = np.column_stack(
+            [np.arange(n_sampled, dtype=np.float64), np.zeros(n_sampled, dtype=np.float64)]
+        )
     else:
         # sklearn requires perplexity < n_samples; the usual ~n/3 heuristic
         # keeps small corpora (e.g. a 20-video pilot) working, capped at the
         # historical 30 for full-size builds.
         perplexity = min(30.0, max(2.0, (n_sampled - 1) / 3))
-        tsne = TSNE(n_components=2, perplexity=perplexity, init="pca",
-                    random_state=0, max_iter=1000)
+        tsne = TSNE(
+            n_components=2, perplexity=perplexity, init="pca", random_state=0, max_iter=1000
+        )
         xy_sample = tsne.fit_transform(reduced[sample_idx])
 
     preservation = _neighbour_preservation(reduced[sample_idx], xy_sample)
     if preservation:
-        _log(f"Layout keeps {100 * preservation['score']:.0f}% of true k="
-             f"{preservation['k']} neighbours (chance "
-             f"{100 * preservation['chance']:.3f}%).")
+        _log(
+            f"Layout keeps {100 * preservation['score']:.0f}% of true k="
+            f"{preservation['k']} neighbours (chance "
+            f"{100 * preservation['chance']:.3f}%)."
+        )
 
     x = np.full(n, np.nan, dtype=np.float64)
     y = np.full(n, np.nan, dtype=np.float64)
@@ -967,9 +971,13 @@ def build_niche_map(
     typicality_pct = _percentile_rank(typicality)
     isolation_pct = _per_video_niche_value(niche_meta, labels, "isolation_pct")
 
-    scr_available = data_io.get_parquet_columns(
-        storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE,
-    ) or []
+    scr_available = (
+        data_io.get_parquet_columns(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=embeddings.SCRAPES_FILE,
+        )
+        or []
+    )
     scrape_numeric = [c for c in SCRAPE_OVERLAY_NUMERIC if c in scr_available]
     scrape_categorical = [c for c in SCRAPE_OVERLAY_CATEGORICAL if c in scr_available]
     scr = data_io.load_parquet_selective(
@@ -1000,36 +1008,46 @@ def build_niche_map(
     # Per-play engagement rates joined from the consolidated scrapes.
     for col in scrape_numeric:
         overlay_cols[col] = pd.array(
-            pd.to_numeric(scr_by_item[col].reindex(item_index), errors="coerce").reset_index(drop=True),
+            pd.to_numeric(scr_by_item[col].reindex(item_index), errors="coerce").reset_index(
+                drop=True
+            ),
             dtype="double[pyarrow]",
         )
     # Categorical scrape overlays joined the same way.
     for col in scrape_categorical:
         overlay_cols[col] = pd.array(
-            scr_by_item[col].reindex(item_index).astype("string").fillna("unknown").reset_index(drop=True),
+            scr_by_item[col]
+            .reindex(item_index)
+            .astype("string")
+            .fillna("unknown")
+            .reset_index(drop=True),
             dtype="string[pyarrow]",
         )
 
     if reporter is not None:
         reporter.update_progress(90, "Persisting map...")
-    map_df = pd.DataFrame({
-        "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
-        "niche": pd.array(labels.astype(np.int32), dtype="int32[pyarrow]"),
-        "niche_name": pd.array(niche_names, dtype="string[pyarrow]"),
-        "x": pd.array(x, dtype="double[pyarrow]"),
-        "y": pd.array(y, dtype="double[pyarrow]"),
-        "story": pd.array(story.tolist(), dtype="string[pyarrow]"),
-        "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
-        "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
-        "typicality": pd.array(np.round(typicality, 4), dtype="double[pyarrow]"),
-        "typicality_pct": pd.array(np.round(typicality_pct, 2), dtype="double[pyarrow]"),
-        "niche_isolation_pct": pd.array(isolation_pct, dtype="double[pyarrow]"),
-        **overlay_cols,
-    })
+    map_df = pd.DataFrame(
+        {
+            "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
+            "niche": pd.array(labels.astype(np.int32), dtype="int32[pyarrow]"),
+            "niche_name": pd.array(niche_names, dtype="string[pyarrow]"),
+            "x": pd.array(x, dtype="double[pyarrow]"),
+            "y": pd.array(y, dtype="double[pyarrow]"),
+            "story": pd.array(story.tolist(), dtype="string[pyarrow]"),
+            "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
+            "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
+            "typicality": pd.array(np.round(typicality, 4), dtype="double[pyarrow]"),
+            "typicality_pct": pd.array(np.round(typicality_pct, 2), dtype="double[pyarrow]"),
+            "niche_isolation_pct": pd.array(isolation_pct, dtype="double[pyarrow]"),
+            **overlay_cols,
+        }
+    )
     data_io.save_parquet(df=map_df, storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE)
 
     niches_payload = {str(k): v for k, v in niche_meta.items()}
-    data_io.save_json(data=niches_payload, storage_location=embeddings.STORE_LOCATION, filename=NICHES_FILE)
+    data_io.save_json(
+        data=niches_payload, storage_location=embeddings.STORE_LOCATION, filename=NICHES_FILE
+    )
 
     # Build provenance — a separate file (NICHES_FILE consumers assume every
     # key there is a niche id). Lets the UI label the map with the embedding
@@ -1040,14 +1058,15 @@ def build_niche_map(
     # the study-cache freshness check reads THIS instead.
     try:
         _row_hashes = pd.util.hash_pandas_object(
-            pd.Series(labels.astype(np.int64), index=pd.Index(item_ids, dtype="string")),
-            index=True).to_numpy()
+            pd.Series(labels.astype(np.int64), index=pd.Index(item_ids, dtype="string")), index=True
+        ).to_numpy()
         _row_hashes.sort()
-        niche_assignment_hash = hashlib.blake2b(
-            _row_hashes.tobytes(), digest_size=16).hexdigest()
+        niche_assignment_hash = hashlib.blake2b(_row_hashes.tobytes(), digest_size=16).hexdigest()
     except Exception as exc:
-        _log(f"Could not fingerprint the niche assignment ({exc}); "
-             f"study caches will fall back to the file stat.")
+        _log(
+            f"Could not fingerprint the niche assignment ({exc}); "
+            f"study caches will fall back to the file stat."
+        )
         niche_assignment_hash = None
 
     meta_payload = {
@@ -1063,10 +1082,19 @@ def build_niche_map(
         "n_niches": len(niche_meta),
         "neighbour_preservation": preservation,
     }
-    data_io.save_json(data=meta_payload, storage_location=embeddings.STORE_LOCATION, filename=MAP_META_FILE)
+    data_io.save_json(
+        data=meta_payload, storage_location=embeddings.STORE_LOCATION, filename=MAP_META_FILE
+    )
 
-    _log(f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} niches) "
-         f"and {MAP_META_FILE} (model={embed_model}, naming={naming_mode}).")
-    return {"videos": n, "niches": len(niche_meta), "mapped": int(len(sample_idx)),
-            "niche_changed": int(niche_changed), "new_videos": int(new_videos),
-            "cold_start": bool(cold_start)}
+    _log(
+        f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} niches) "
+        f"and {MAP_META_FILE} (model={embed_model}, naming={naming_mode})."
+    )
+    return {
+        "videos": n,
+        "niches": len(niche_meta),
+        "mapped": int(len(sample_idx)),
+        "niche_changed": int(niche_changed),
+        "new_videos": int(new_videos),
+        "cold_start": bool(cold_start),
+    }

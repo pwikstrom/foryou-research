@@ -14,10 +14,6 @@ import fyp.annotation.machine_annotation as machine_annotation
 from web_interface.fyp_data_hub import _debug_enabled
 
 
-
-
-
-
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -37,10 +33,6 @@ def test_debug_enabled_parsing(value, expected):
     assert _debug_enabled(value) is expected
 
 
-
-
-
-
 def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog):
     """vertexai=true with an empty project: no client, no network, a warning."""
     machine = machine_annotation._cf()["machine"]["gemini"]
@@ -48,7 +40,8 @@ def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog)
     monkeypatch.setitem(machine, "vertexai", True)
     monkeypatch.setitem(machine, "project", "")
     monkeypatch.setattr(
-        machine_annotation.fyp_utils, "online_ok",
+        machine_annotation.fyp_utils,
+        "online_ok",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not probe the network")),
     )
 
@@ -57,10 +50,6 @@ def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog)
 
     assert machine["client"] is None
     assert any("not configured" in r.message for r in caplog.records)
-
-
-
-
 
 
 def test_generate_with_retry_raises_clearly_without_client(monkeypatch):

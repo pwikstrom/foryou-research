@@ -43,14 +43,16 @@ def _fake_io(store: dict):
 
 def _lease_payload(platform: str, age_seconds: float) -> str:
     ts = (datetime.now(UTC) - timedelta(seconds=age_seconds)).isoformat()
-    return json.dumps({
-        "platform": platform, "host": "laptop", "user": "patrik",
-        "pid": 4242, "started_at": ts, "heartbeat_at": ts,
-    })
-
-
-
-
+    return json.dumps(
+        {
+            "platform": platform,
+            "host": "laptop",
+            "user": "patrik",
+            "pid": 4242,
+            "started_at": ts,
+            "heartbeat_at": ts,
+        }
+    )
 
 
 def test_read_drain_lease_fresh_stale_missing():
@@ -71,10 +73,6 @@ def test_read_drain_lease_fresh_stale_missing():
         assert drain_lease.read_drain_lease("youtube") is None
 
 
-
-
-
-
 def test_drain_lease_lifecycle_writes_and_removes():
     store = {}
     with patch.object(drain_lease, "_data_io", return_value=_fake_io(store)):
@@ -84,10 +82,6 @@ def test_drain_lease_lifecycle_writes_and_removes():
             assert lease["host"] and lease["user"] and lease["pid"]
             assert drain_lease.read_drain_lease("youtube") is not None
         assert "local_drain_youtube.json" not in store, "lease must be released on exit"
-
-
-
-
 
 
 def test_drain_lease_released_even_when_body_raises():
@@ -101,39 +95,35 @@ def test_drain_lease_released_even_when_body_raises():
         assert "local_drain_youtube.json" not in store
 
 
-
-
-
-
 def test_start_process_guard_blocks_leased_platform_and_consolidate():
     from web_interface import process_manager as pm
 
     fresh = json.loads(_lease_payload("youtube", age_seconds=10))
-    with patch.object(drain_lease, "read_drain_lease",
-                      side_effect=lambda p: fresh if p == "youtube" else None), \
-         patch.object(drain_lease, "active_drain_leases",
-                      return_value={"youtube": fresh}):
+    with (
+        patch.object(
+            drain_lease, "read_drain_lease", side_effect=lambda p: fresh if p == "youtube" else None
+        ),
+        patch.object(drain_lease, "active_drain_leases", return_value={"youtube": fresh}),
+    ):
         msg = pm._drain_lease_conflict("queue_scraper_youtube")
         assert msg and "laptop" in msg and "youtube" in msg
 
-        assert pm._drain_lease_conflict("queue_scraper_tiktok") is None, \
+        assert pm._drain_lease_conflict("queue_scraper_tiktok") is None, (
             "other platforms' scrapers stay startable"
+        )
 
         msg = pm._drain_lease_conflict("consolidate_enrichment")
         assert msg and "laptop" in msg
 
-        assert pm._drain_lease_conflict("pca_refresh") is None, \
-            "unrelated processes are unaffected"
-
-
-
-
+        assert pm._drain_lease_conflict("pca_refresh") is None, "unrelated processes are unaffected"
 
 
 def test_start_process_guard_open_when_no_lease():
     from web_interface import process_manager as pm
 
-    with patch.object(drain_lease, "read_drain_lease", return_value=None), \
-         patch.object(drain_lease, "active_drain_leases", return_value={}):
+    with (
+        patch.object(drain_lease, "read_drain_lease", return_value=None),
+        patch.object(drain_lease, "active_drain_leases", return_value={}),
+    ):
         assert pm._drain_lease_conflict("queue_scraper_youtube") is None
         assert pm._drain_lease_conflict("consolidate_enrichment") is None

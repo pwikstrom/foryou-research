@@ -12,17 +12,11 @@ from datetime import UTC, datetime, timedelta
 from web_interface.routes.process_routes import _chain_run_start
 
 
-
-
 def test_prefers_the_older_status_start_time():
     """The final chain link measures from link 0's start, not its own boot."""
     link_start = datetime(2026, 8, 16, 12, 40, tzinfo=UTC)
     chain_start = "2026-08-16T12:00:00+00:00"
-    assert _chain_run_start(link_start, chain_start) == datetime(
-        2026, 8, 16, 12, 0, tzinfo=UTC
-    )
-
-
+    assert _chain_run_start(link_start, chain_start) == datetime(2026, 8, 16, 12, 0, tzinfo=UTC)
 
 
 def test_unchained_run_keeps_local_start():
@@ -34,15 +28,11 @@ def test_unchained_run_keeps_local_start():
     assert _chain_run_start(link_start, status_start) == link_start
 
 
-
-
 def test_missing_or_bad_status_start_falls_back():
     link_start = datetime(2026, 8, 16, 12, 0, tzinfo=UTC)
     assert _chain_run_start(link_start, None) == link_start
     assert _chain_run_start(link_start, "") == link_start
     assert _chain_run_start(link_start, "not-a-timestamp") == link_start
-
-
 
 
 def test_naive_status_start_is_tolerated():

@@ -40,7 +40,9 @@ def test_contract_platforms_and_fields():
 
     # The retired per-platform names are gone from the contract...
     field_names = {f["name"] for f in contract.get("fields", [])}
-    assert not set(sc.RETIRED_TO_GENERIC) & field_names, "retired fields must not be contract fields"
+    assert not set(sc.RETIRED_TO_GENERIC) & field_names, (
+        "retired fields must not be contract fields"
+    )
     # ...and every retirement target is a base field.
     assert set(sc.RETIRED_TO_GENERIC.values()) <= set(base)
 
@@ -52,8 +54,6 @@ def test_contract_platforms_and_fields():
     ig = sc.field_dtypes(contract, "instagram")
     assert "image_list" not in ig
     print("PASS: scrape contract registers instagram + youtube correctly")
-
-
 
 
 if __name__ == "__main__":

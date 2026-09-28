@@ -44,7 +44,6 @@ PASS = 0
 FAIL = 0
 
 
-
 def _check(name: str, ok: bool, detail: str = ""):
     global PASS, FAIL
     if ok:
@@ -55,11 +54,9 @@ def _check(name: str, ok: bool, detail: str = ""):
         print(f"  FAIL  {name}  {detail}")
 
 
-
 # Synthetic admin user resolved by the stubbed user_manager lookup.
 _TEST_ADMIN_USERNAME = "__phase2_test_admin__"
 _TEST_VIEWER_USERNAME = "__phase2_test_viewer__"
-
 
 
 def _admin_user() -> User:
@@ -69,7 +66,6 @@ def _admin_user() -> User:
         password_hash="",
         approved=True,
     )
-
 
 
 def _viewer_user() -> User:
@@ -87,7 +83,6 @@ def _viewer_user() -> User:
     return u
 
 
-
 def _install_auth_stub():
     """Replace user_manager.get_user with one that resolves our test users."""
     orig = security.user_manager.get_user
@@ -103,15 +98,14 @@ def _install_auth_stub():
     return orig
 
 
-
 def _restore_auth(orig):
     security.user_manager.get_user = orig
-
 
 
 def _build_app():
     """Import the Flask app lazily after the auth stub is in place."""
     from web_interface.fyp_data_hub import app
+
     app.testing = True
     # The production app guards POSTs with Flask-WTF CSRF.  The browser
     # picks up a token from the rendered page; in tests we'd have to
@@ -121,19 +115,17 @@ def _build_app():
     return app
 
 
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
 
 
-
 # ------- backup the presentation store so tests are non-destructive -------
+
 
 def _snapshot_presentation():
     return vp.load_presentation()
-
 
 
 def _restore_presentation(snap):
@@ -142,22 +134,26 @@ def _restore_presentation(snap):
     load_var_schema(fyp_cf, verbose=False)
 
 
-
 # ------- tests -------
+
 
 def test_get_schema_returns_etag_and_rows(client):
     _login(client, _TEST_ADMIN_USERNAME)
     res = client.get("/api/manage/schema")
     if res.status_code != 200:
-        _check("test_get_schema_returns_etag_and_rows", False,
-               f"status={res.status_code} body={res.data[:120]}")
+        _check(
+            "test_get_schema_returns_etag_and_rows",
+            False,
+            f"status={res.status_code} body={res.data[:120]}",
+        )
         return
     body = res.get_json()
     ok = (
         isinstance(body, dict)
         and isinstance(body.get("rows"), list)
         and len(body["rows"]) > 0
-        and isinstance(body.get("etag"), str) and body["etag"]
+        and isinstance(body.get("etag"), str)
+        and body["etag"]
         and isinstance(body.get("columns"), list)
         and isinstance(body.get("enums"), dict)
         # The presentation store (the only editable payload) rides along.
@@ -165,9 +161,7 @@ def test_get_schema_returns_etag_and_rows(client):
         and set(body.get("prio_columns", {})) == {"filter", "timeline", "viz", "display"}
         and body.get("current_hash", "").startswith("v3:")
     )
-    _check("test_get_schema_returns_etag_and_rows", ok,
-           f"keys={list(body.keys())}")
-
+    _check("test_get_schema_returns_etag_and_rows", ok, f"keys={list(body.keys())}")
 
 
 def test_post_schema_rejects_without_permission(client):
@@ -177,10 +171,11 @@ def test_post_schema_rejects_without_permission(client):
         data=json.dumps({"rows": [], "etag": "x"}),
         content_type="application/json",
     )
-    _check("test_post_schema_rejects_without_permission",
-           res.status_code in (401, 403),
-           f"status={res.status_code}")
-
+    _check(
+        "test_post_schema_rejects_without_permission",
+        res.status_code in (401, 403),
+        f"status={res.status_code}",
+    )
 
 
 def test_post_schema_retired(client):
@@ -196,10 +191,11 @@ def test_post_schema_retired(client):
         data=json.dumps({"rows": []}),
         content_type="application/json",
     )
-    _check("test_post_schema_retired",
-           save_res.status_code == 410 and val_res.status_code == 410,
-           f"save={save_res.status_code} validate={val_res.status_code}")
-
+    _check(
+        "test_post_schema_retired",
+        save_res.status_code == 410 and val_res.status_code == 410,
+        f"save={save_res.status_code} validate={val_res.status_code}",
+    )
 
 
 def test_post_presentation_rejects_stale_etag(client):
@@ -213,12 +209,13 @@ def test_post_presentation_rejects_stale_etag(client):
             data=json.dumps({"surfaces": body["presentation"], "etag": "stale-etag-value"}),
             content_type="application/json",
         )
-        _check("test_post_presentation_rejects_stale_etag",
-               res.status_code == 409,
-               f"status={res.status_code} body={res.data[:200]}")
+        _check(
+            "test_post_presentation_rejects_stale_etag",
+            res.status_code == 409,
+            f"status={res.status_code} body={res.data[:200]}",
+        )
     finally:
         _restore_presentation(snap)
-
 
 
 def test_post_presentation_rejects_unknown_variable(client):
@@ -236,11 +233,13 @@ def test_post_presentation_rejects_unknown_variable(client):
         )
         resp = res.get_json() or {}
         ok = res.status_code == 400 and "no_such_variable_xyz" in (resp.get("unknown") or [])
-        _check("test_post_presentation_rejects_unknown_variable", ok,
-               f"status={res.status_code} body={res.data[:200]}")
+        _check(
+            "test_post_presentation_rejects_unknown_variable",
+            ok,
+            f"status={res.status_code} body={res.data[:200]}",
+        )
     finally:
         _restore_presentation(snap)
-
 
 
 def test_post_presentation_persists_and_reloads(client):
@@ -265,25 +264,33 @@ def test_post_presentation_persists_and_reloads(client):
             content_type="application/json",
         )
         if res.status_code != 200:
-            _check("test_post_presentation_persists_and_reloads", False,
-                   f"status={res.status_code} body={res.data[:200]}")
+            _check(
+                "test_post_presentation_persists_and_reloads",
+                False,
+                f"status={res.status_code} body={res.data[:200]}",
+            )
             return
         vs = fyp_cf["var_schema"]
         cell = vs.loc[vs["variable_name"] == probe, "web_filter_prio"].iloc[0]
         is_on = str(cell).strip() not in ("", "<NA>", "None", "nan")
         resp = res.get_json()
-        ok = (is_on == expect_on
-              and resp.get("hash_changed") is False
-              and compute_var_schema_hash() == before_hash
-              and isinstance(resp.get("etag"), str))
-        _check("test_post_presentation_persists_and_reloads", ok,
-               f"probe={probe!r} cell={cell!r} expect_on={expect_on} resp={resp}")
+        ok = (
+            is_on == expect_on
+            and resp.get("hash_changed") is False
+            and compute_var_schema_hash() == before_hash
+            and isinstance(resp.get("etag"), str)
+        )
+        _check(
+            "test_post_presentation_persists_and_reloads",
+            ok,
+            f"probe={probe!r} cell={cell!r} expect_on={expect_on} resp={resp}",
+        )
     finally:
         _restore_presentation(snap)
 
 
-
 # ------- driver -------
+
 
 def main():
     print("\nRunning Phase 2 API integration tests...\n")
@@ -311,6 +318,7 @@ def main():
         _restore_auth(orig)
         # Clean any activity-log files the synthetic users created.
         from fyp.core import data_io
+
         for username in (_TEST_ADMIN_USERNAME, _TEST_VIEWER_USERNAME):
             fname = f"{username}_log.json"
             try:
@@ -320,7 +328,6 @@ def main():
                 pass
     print(f"\nSummary: {PASS} passed, {FAIL} failed\n")
     return 0 if FAIL == 0 else 1
-
 
 
 if __name__ == "__main__":

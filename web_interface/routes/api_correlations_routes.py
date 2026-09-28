@@ -19,15 +19,11 @@ from ._access import study_access_error as _study_access_error
 
 logger = get_logger(__name__)
 
-correlations_bp = Blueprint('correlations_bp', __name__)
+correlations_bp = Blueprint("correlations_bp", __name__)
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/metadata', methods=['POST'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/metadata", methods=["POST"])
+@permission_required("tab.correlations")
 def api_pca_metadata():
     data = request.json or {}
     study = data.get("study")
@@ -50,12 +46,8 @@ def api_pca_metadata():
     return jsonify(payload)
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/data', methods=['POST'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/data", methods=["POST"])
+@permission_required("tab.correlations")
 def api_pca_data():
     data = request.json or {}
     study = data.get("study")
@@ -78,17 +70,13 @@ def api_pca_data():
         return jsonify({"error": "Unknown axis column"}), 400
 
     payload = correlations_service.build_scatter_payload(
-        df, x_col, y_col, color_col,
-        center=bool(data.get("center")))
+        df, x_col, y_col, color_col, center=bool(data.get("center"))
+    )
     return jsonify(payload)
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/correlation_matrix', methods=['POST'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/correlation_matrix", methods=["POST"])
+@permission_required("tab.correlations")
 def api_pca_correlation_matrix():
     data = request.json or {}
     study = data.get("study")
@@ -105,21 +93,16 @@ def api_pca_correlation_matrix():
         return jsonify({"error": "PCA data not found"}), 404
 
     payload, error = correlations_service.build_matrix_payload(
-        df, study,
-        method=data.get("method"),
-        center=bool(data.get("center")))
+        df, study, method=data.get("method"), center=bool(data.get("center"))
+    )
     if payload is None:
         return jsonify({"error": error}), 400
 
     return jsonify(payload)
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/group_stats', methods=['POST'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/group_stats", methods=["POST"])
+@permission_required("tab.correlations")
 def api_correlations_group_stats():
     """Serve the worker-precomputed group-differences artifact for a study.
 
@@ -138,20 +121,18 @@ def api_correlations_group_stats():
 
     payload = correlations_service.load_group_stats(study)
     if payload is None:
-        return jsonify({
-            "error": "Group statistics not computed yet for this study",
-            "hint": "Run Data Pipeline → Dataset Assembly (PCA / Correlations), then reload.",
-        }), 404
+        return jsonify(
+            {
+                "error": "Group statistics not computed yet for this study",
+                "hint": "Run Data Pipeline → Dataset Assembly (PCA / Correlations), then reload.",
+            }
+        ), 404
 
     return jsonify(payload)
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/interpret', methods=['POST'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/interpret", methods=["POST"])
+@permission_required("tab.correlations")
 def api_correlations_interpret():
     """AI-generated plain-language interpretation of the group-stats artifact.
 
@@ -171,24 +152,20 @@ def api_correlations_interpret():
 
     text, error = correlations_service.build_interpretation(study)
     if text is None:
-        status = 503 if 'not available' in (error or '') else 400
+        status = 503 if "not available" in (error or "") else 400
         return jsonify({"error": error}), status
 
     return jsonify({"text": text})
 
 
-
-
-
-
-@correlations_bp.route('/api/correlations/status', methods=['GET'])
-@permission_required('tab.correlations')
+@correlations_bp.route("/api/correlations/status", methods=["GET"])
+@permission_required("tab.correlations")
 def api_correlations_status():
     """Lightweight freshness signal: is the PCA artifact behind the study data?
 
     Informational only (drives a banner); the tab keeps rendering regardless.
     """
-    study = (request.args.get('study') or '').strip()
+    study = (request.args.get("study") or "").strip()
     if not study:
         return jsonify({"error": "No study"}), 400
 

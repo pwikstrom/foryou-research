@@ -22,10 +22,6 @@ from fyp.annotation.backends.base import BackendAvailability
 __all__ = ["BackendAvailability", "EmbeddingBackend"]
 
 
-
-
-
-
 class EmbeddingBackend(ABC):
     """One way of producing dense text embeddings (Gemini API, local Qwen, ...).
 
@@ -40,12 +36,10 @@ class EmbeddingBackend(ABC):
 
     _registry: dict = {}
 
-
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls.name:
             EmbeddingBackend._registry[cls.name] = cls
-
 
     @abstractmethod
     def model_id(self) -> str:
@@ -60,7 +54,6 @@ class EmbeddingBackend(ABC):
             The model id string.
         """
 
-
     @abstractmethod
     def dim(self) -> int:
         """The output vector dimensionality (stamped per-row as ``dim``).
@@ -68,7 +61,6 @@ class EmbeddingBackend(ABC):
         Returns:
             The dimensionality.
         """
-
 
     @abstractmethod
     def availability(self, deep: bool = False) -> BackendAvailability:
@@ -82,7 +74,6 @@ class EmbeddingBackend(ABC):
         Returns:
             The availability result.
         """
-
 
     @abstractmethod
     def embed_texts(self, texts: list[str], reporter=None) -> np.ndarray:

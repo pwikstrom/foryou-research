@@ -18,10 +18,6 @@ MODEL = "test-embed-model"
 DIM = 24
 
 
-
-
-
-
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     """Point the 'recoded' location at a temp dir (local mode)."""
@@ -32,35 +28,27 @@ def store(tmp_path, monkeypatch):
     return tmp_path
 
 
-
-
-
-
 def _write_shard(item_ids, matrix, model=MODEL):
-    df = pd.DataFrame({
-        "item_id": pd.array([str(i) for i in item_ids], dtype="string[pyarrow]"),
-        "embedding": pd.array(
-            pa.array([row.astype(np.float16).tobytes() for row in matrix],
-                     type=pa.large_binary()),
-            dtype=pd.ArrowDtype(pa.large_binary())),
-        "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
-        "dim": pd.array([matrix.shape[1]] * len(item_ids), dtype="int32[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.array([str(i) for i in item_ids], dtype="string[pyarrow]"),
+            "embedding": pd.array(
+                pa.array(
+                    [row.astype(np.float16).tobytes() for row in matrix], type=pa.large_binary()
+                ),
+                dtype=pd.ArrowDtype(pa.large_binary()),
+            ),
+            "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
+            "dim": pd.array([matrix.shape[1]] * len(item_ids), dtype="int32[pyarrow]"),
+        }
+    )
     name = f"{embeddings.SHARD_PREFIX}{len(item_ids)}_{abs(hash(tuple(item_ids))) % 10**8}{embeddings.SHARD_SUFFIX}"
     data_io.save_parquet(df=df, storage_location="recoded", filename=name)
     return name
 
 
-
-
-
-
 def _rand(n, seed):
     return np.random.default_rng(seed).standard_normal((n, DIM)).astype(np.float16)
-
-
-
-
 
 
 def test_build_and_roundtrip(store):
@@ -81,12 +69,8 @@ def test_build_and_roundtrip(store):
     rows2, found2 = index.lookup(["nope", ids[3]])
     assert list(found2) == [False, True]
     np.testing.assert_array_equal(
-        embedding_store.read_vectors(MODEL, rows2, index)[0],
-        mat[3].astype(np.float32))
-
-
-
-
+        embedding_store.read_vectors(MODEL, rows2, index)[0], mat[3].astype(np.float32)
+    )
 
 
 def test_append_only_row_stability(store):
@@ -108,19 +92,11 @@ def test_append_only_row_stability(store):
     np.testing.assert_array_equal(rows1, rows1_after)
 
 
-
-
-
-
 def test_idempotent_when_fresh(store):
     _write_shard([f"x{i}" for i in range(10)], _rand(10, 3))
     m1 = embedding_store.ensure_dense_store(MODEL)
     m2 = embedding_store.ensure_dense_store(MODEL)
     assert m1["built_at"] == m2["built_at"]  # second call was a no-op
-
-
-
-
 
 
 def test_last_occurrence_wins_for_duplicate_ids(store):
@@ -136,10 +112,6 @@ def test_last_occurrence_wins_for_duplicate_ids(store):
     assert found.all()
     got = embedding_store.read_vectors(MODEL, rows, index)
     np.testing.assert_array_equal(got[0], mat2[0].astype(np.float32))
-
-
-
-
 
 
 def test_mutated_shard_triggers_full_rebuild(store):
@@ -158,10 +130,6 @@ def test_mutated_shard_triggers_full_rebuild(store):
     assert found.all()
 
 
-
-
-
-
 def test_corpus_mean_matches_full_matrix_and_fingerprint_gates(store):
     ids = [f"c{i}" for i in range(40)]
     mat = _rand(40, 7)
@@ -173,7 +141,8 @@ def test_corpus_mean_matches_full_matrix_and_fingerprint_gates(store):
     mean, count, got_fp = embedding_store.get_corpus_mean(MODEL, expected_fp=fp)
     assert count == 40 and got_fp == fp
     np.testing.assert_allclose(
-        mean, mat.astype(np.float32).mean(axis=0, dtype=np.float64), atol=1e-6)
+        mean, mat.astype(np.float32).mean(axis=0, dtype=np.float64), atol=1e-6
+    )
 
     # A stale mean (fingerprint mismatch) must be refused.
     assert embedding_store.load_corpus_mean(MODEL, expected_fp="different") is None
@@ -182,10 +151,6 @@ def test_corpus_mean_matches_full_matrix_and_fingerprint_gates(store):
     _write_shard(["late1"], _rand(1, 8))
     with pytest.raises(embedding_store.CorpusMeanDrift):
         embedding_store.get_corpus_mean(MODEL, expected_fp=fp)
-
-
-
-
 
 
 def test_ranged_read_path_matches_memmap(store, monkeypatch):
@@ -210,13 +175,13 @@ def test_ranged_read_path_matches_memmap(store, monkeypatch):
     def _fake_resolve(loc, fn):
         primary, secondary, mode, blob = real_resolve(loc, fn)
         if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
-            return primary, secondary, 'gcs', blob
+            return primary, secondary, "gcs", blob
         return primary, secondary, mode, blob
 
     def _local_ranges(storage_location="cache", filename="", ranges=None, **kw):
         path = real_resolve(storage_location, filename)[0]
         out = []
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             for off, length in ranges:
                 f.seek(off)
                 out.append(f.read(length))
@@ -224,15 +189,10 @@ def test_ranged_read_path_matches_memmap(store, monkeypatch):
 
     monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
     monkeypatch.setattr(data_io, "read_byte_ranges", _local_ranges)
-    via_ranges = embedding_store.read_vectors(MODEL, rows, index,
-                                              coalesce_bytes=DIM * 2 * 4)
+    via_ranges = embedding_store.read_vectors(MODEL, rows, index, coalesce_bytes=DIM * 2 * 4)
     np.testing.assert_array_equal(via_memmap, via_ranges)
     expected = mat[[int(p[1:]) for p in picks]].astype(np.float32)
     np.testing.assert_array_equal(via_memmap, expected)
-
-
-
-
 
 
 def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, tmp_path):
@@ -251,7 +211,7 @@ def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, 
     def _fake_resolve(loc, fn):
         primary, secondary, mode, blob = real_resolve(loc, fn)
         if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
-            return primary, secondary, 'gcs', blob
+            return primary, secondary, "gcs", blob
         return primary, secondary, mode, blob
 
     fetches: list[str] = []
@@ -286,8 +246,6 @@ def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, 
     assert len(fetches) == len(index.parts) + 1
 
 
-
-
 def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path):
     """A request wanting few rows of a cold part reads by range, not by caching.
 
@@ -308,7 +266,7 @@ def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path)
     def _fake_resolve(loc, fn):
         primary, secondary, mode, blob = real_resolve(loc, fn)
         if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
-            return primary, secondary, 'gcs', blob
+            return primary, secondary, "gcs", blob
         return primary, secondary, mode, blob
 
     fetches: list[str] = []
@@ -323,7 +281,7 @@ def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path)
         ranged.append(filename)
         path = real_resolve(storage_location, filename)[0]
         out = []
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             for off, length in ranges:
                 f.seek(off)
                 out.append(f.read(length))
@@ -357,9 +315,8 @@ def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path)
     got = embedding_store.read_vectors(MODEL, one_row, index, local_cache=True)
     np.testing.assert_array_equal(got, expected)
     assert len(fetches) == 1 and len(ranged) == 1, (
-        "an already-cached part must be memmapped, not re-fetched or ranged")
-
-
+        "an already-cached part must be memmapped, not re-fetched or ranged"
+    )
 
 
 def test_other_models_rows_are_excluded(store):

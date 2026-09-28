@@ -63,15 +63,22 @@ def quiet(monkeypatch):
     writes: list[tuple[str, int, list, dict | None]] = []
     monkeypatch.setattr(rtr, "_warm_worker_imports", lambda: None)
     monkeypatch.setattr(rtr, "_vars_with_prior_coverage", lambda cid, vv: list(vv))
-    monkeypatch.setattr(rtr, "write_collection_timeline",
-                        lambda cid, agg, vv, an: writes.append((cid, len(agg), vv, an)))
-    monkeypatch.setattr(rtr, "compute_collection_timeline",
-                        lambda cid, sl, vv, fe: (pd.DataFrame({"period": ["d"] * len(sl)}), {"cid": cid}))
+    monkeypatch.setattr(
+        rtr,
+        "write_collection_timeline",
+        lambda cid, agg, vv, an: writes.append((cid, len(agg), vv, an)),
+    )
+    monkeypatch.setattr(
+        rtr,
+        "compute_collection_timeline",
+        lambda cid, sl, vv, fe: (pd.DataFrame({"period": ["d"] * len(sl)}), {"cid": cid}),
+    )
     return writes
 
 
 class _InlineExecutor:
     """Records submission order and runs the work inline — deterministic."""
+
     submitted: list[str] = []
 
     def __init__(self, *a, **k):
@@ -104,8 +111,9 @@ def test_children_compute_and_the_parent_writes_biggest_first(monkeypatch, quiet
     # The no-slice collection would load from storage on the serial path;
     # give process_one_collection a stand-in so the test stays offline.
     serial_seen: list[str] = []
-    monkeypatch.setattr(rtr, "process_one_collection",
-                        lambda cid, sl, vv, fe: serial_seen.append(cid) or True)
+    monkeypatch.setattr(
+        rtr, "process_one_collection", lambda cid, sl, vv, fe: serial_seen.append(cid) or True
+    )
 
     n = rtr._process_batch(reporter, list(slices), slices, ["v1"], {"big": "2025-01-01"}, 0, 4)
 
@@ -141,8 +149,13 @@ def test_pool_failure_falls_back_to_serial(monkeypatch, quiet):
 
 
 def test_single_worker_never_builds_a_pool(monkeypatch, quiet):
-    monkeypatch.setattr(rtr, "ProcessPoolExecutor", _Broken_if_used := type(
-        "X", (), {"__init__": lambda self, *a, **k: pytest.fail("pool built for one worker")}))
+    monkeypatch.setattr(
+        rtr,
+        "ProcessPoolExecutor",
+        _Broken_if_used := type(
+            "X", (), {"__init__": lambda self, *a, **k: pytest.fail("pool built for one worker")}
+        ),
+    )
     monkeypatch.setattr(rtr.os, "cpu_count", lambda: 1)
     reporter = _Reporter()
     slices = {"only": pd.DataFrame({"x": range(5)})}
@@ -150,8 +163,9 @@ def test_single_worker_never_builds_a_pool(monkeypatch, quiet):
     assert not any("worker processes" in ln for ln in reporter.lines)
 
 
-@pytest.mark.skipif("fork" not in multiprocessing.get_all_start_methods(),
-                    reason="fork start method unavailable")
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(), reason="fork start method unavailable"
+)
 def test_real_forked_pool_round_trips_results(monkeypatch, quiet):
     """Children inherit the parent's (monkeypatched) modules and return frames."""
     monkeypatch.setattr(rtr.os, "cpu_count", lambda: 4)

@@ -32,10 +32,6 @@ _EMBED_RETRIES = 4
 _EMBED_WORKERS = 4
 
 
-
-
-
-
 def _api_cf() -> dict:
     """The ``[embedding.qwen_api]`` config block with defaults."""
     stored = get_config().get("embedding", {}).get("qwen_api", {}) or {}
@@ -47,10 +43,6 @@ def _api_cf() -> dict:
         "request_timeout": 60,
     }
     return {**defaults, **stored}
-
-
-
-
 
 
 def _embed_batch(key: str, cf: dict, chunk: list[str]) -> list[list[float]] | None:
@@ -67,9 +59,10 @@ def _embed_batch(key: str, cf: dict, chunk: list[str]) -> list[list[float]] | No
         try:
             r = requests.post(
                 f"{cf['base_url']}/embeddings",
-                headers={"Authorization": f"Bearer {key}",
-                         "Content-Type": "application/json"},
-                json=payload, timeout=cf["request_timeout"])
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=cf["request_timeout"],
+            )
         except requests.RequestException as exc:
             logger.warning(f"qwen_api embedding request failed: {exc}")
             continue
@@ -81,13 +74,8 @@ def _embed_batch(key: str, cf: dict, chunk: list[str]) -> list[list[float]] | No
         data = sorted(r.json().get("data") or [], key=lambda d: d.get("index", 0))
         if len(data) == len(chunk):
             return [d["embedding"] for d in data]
-        logger.warning(f"qwen_api embedding returned {len(data)} vectors for "
-                       f"{len(chunk)} inputs")
+        logger.warning(f"qwen_api embedding returned {len(data)} vectors for {len(chunk)} inputs")
     return None
-
-
-
-
 
 
 class QwenApiEmbeddingBackend(EmbeddingBackend):
@@ -96,16 +84,13 @@ class QwenApiEmbeddingBackend(EmbeddingBackend):
     name = "qwen_api"
     cloud_run_capable = True
 
-
     def model_id(self) -> str:
         """The configured hosted embedding model id."""
         return _api_cf()["model_id"]
 
-
     def dim(self) -> int:
         """The configured (Matryoshka-truncated) output dimensionality."""
         return int(_api_cf()["dim"])
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """API-key (and optionally live-endpoint) readiness.
@@ -119,21 +104,30 @@ class QwenApiEmbeddingBackend(EmbeddingBackend):
         """
         checks: list[dict] = []
         key = os.environ.get(API_KEY_ENV, "")
-        checks.append({
-            "name": "api key", "ok": bool(key),
-            "detail": f"{API_KEY_ENV} is set" if key else f"{API_KEY_ENV} is not set",
-            "fix": "" if key else (
-                f"Create a Model Studio API key (international region) and set "
-                f"the {API_KEY_ENV} environment variable. "
-                "See docs/installation.md#enabling-hosted-qwen-annotation."),
-        })
+        checks.append(
+            {
+                "name": "api key",
+                "ok": bool(key),
+                "detail": f"{API_KEY_ENV} is set" if key else f"{API_KEY_ENV} is not set",
+                "fix": ""
+                if key
+                else (
+                    f"Create a Model Studio API key (international region) and set "
+                    f"the {API_KEY_ENV} environment variable. "
+                    "See docs/installation.md#enabling-hosted-qwen-annotation."
+                ),
+            }
+        )
         if not key:
             return BackendAvailability(
                 ok=False,
-                reason=(f"Hosted Qwen embedding is not configured: the "
-                        f"{API_KEY_ENV} environment variable is not set. "
-                        "See docs/installation.md#enabling-hosted-qwen-annotation."),
-                checks=checks)
+                reason=(
+                    f"Hosted Qwen embedding is not configured: the "
+                    f"{API_KEY_ENV} environment variable is not set. "
+                    "See docs/installation.md#enabling-hosted-qwen-annotation."
+                ),
+                checks=checks,
+            )
 
         if deep:
             ping = self._ping(key)
@@ -143,28 +137,36 @@ class QwenApiEmbeddingBackend(EmbeddingBackend):
 
         return BackendAvailability(ok=True, reason="", checks=checks)
 
-
     def _ping(self, key: str) -> dict:
         """List models on the configured endpoint; return a check row."""
         cf = _api_cf()
         try:
-            r = requests.get(f"{cf['base_url']}/models",
-                             headers={"Authorization": f"Bearer {key}"}, timeout=30)
+            r = requests.get(
+                f"{cf['base_url']}/models", headers={"Authorization": f"Bearer {key}"}, timeout=30
+            )
         except requests.RequestException as exc:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"endpoint unreachable: {exc}",
-                    "fix": "Check network access to DashScope."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"endpoint unreachable: {exc}",
+                "fix": "Check network access to DashScope.",
+            }
         if r.status_code != 200:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"models list failed: HTTP {r.status_code}: {r.text[:200]}",
-                    "fix": "Check the API key and its region (international vs Beijing)."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"models list failed: HTTP {r.status_code}: {r.text[:200]}",
+                "fix": "Check the API key and its region (international vs Beijing).",
+            }
         ids = {m.get("id") for m in (r.json().get("data") or [])}
         if cf["model_id"] not in ids:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"model {cf['model_id']!r} not offered on this endpoint",
-                    "fix": "Check [embedding.qwen_api].model_id against the Model Studio catalog."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"model {cf['model_id']!r} not offered on this endpoint",
+                "fix": "Check [embedding.qwen_api].model_id against the Model Studio catalog.",
+            }
         return {"name": "api ping", "ok": True, "detail": f"{cf['model_id']} available", "fix": ""}
-
 
     def embed_texts(self, texts: list[str], reporter=None) -> np.ndarray:
         """Embed a list of texts into an ``(n, dim)`` float32 matrix.
@@ -185,7 +187,7 @@ class QwenApiEmbeddingBackend(EmbeddingBackend):
         dim = int(cf["dim"])
         batch_size = int(cf["batch_size"])
         safe = [t if t else " " for t in texts]
-        batches = [(i, safe[i:i + batch_size]) for i in range(0, len(safe), batch_size)]
+        batches = [(i, safe[i : i + batch_size]) for i in range(0, len(safe), batch_size)]
         out: dict[int, list[list[float]]] = {}
         done = 0
 
@@ -195,7 +197,7 @@ class QwenApiEmbeddingBackend(EmbeddingBackend):
                 i = futures[fut]
                 vecs = fut.result()
                 if vecs is None:
-                    vecs = [[0.0] * dim] * len(safe[i:i + batch_size])
+                    vecs = [[0.0] * dim] * len(safe[i : i + batch_size])
                 out[i] = vecs
                 done += 1
                 if reporter is not None and done % 50 == 0:

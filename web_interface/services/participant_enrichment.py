@@ -98,8 +98,7 @@ def enqueue_first_batches(collection_ids: list[str], log=print) -> dict:
         owner_map = load_owner_map(fresh=True)
         ledger = _load_ledger()
         candidates = [
-            str(c) for c in collection_ids
-            if owner_map.get(str(c)) and str(c) not in ledger
+            str(c) for c in collection_ids if owner_map.get(str(c)) and str(c) not in ledger
         ]
         if not candidates:
             return queued
@@ -107,14 +106,20 @@ def enqueue_first_batches(collection_ids: list[str], log=print) -> dict:
         df = data_io.load_parquet_selective(
             storage_location="recoded",
             filename=RECODED_FILENAME,
-            columns=["collection_id", "source_platform", "item_id",
-                     "activity_type", "utc_timestamp"],
+            columns=[
+                "collection_id",
+                "source_platform",
+                "item_id",
+                "activity_type",
+                "utc_timestamp",
+            ],
             filters=[("collection_id", "in", candidates)],
         )
         if df is None or df.empty:
             return queued
 
         from fyp.scrape import scrape_queues
+
         scrapeable = set(scrape_queues.registered_platforms())
 
         views = df[df["activity_type"].astype(str).isin(_VIEW_TYPES)]
@@ -160,12 +165,17 @@ def enqueue_first_batches(collection_ids: list[str], log=print) -> dict:
         data_io.update_json(
             storage_location="cache",
             filename=LEDGER_FILENAME,
-            mutate=lambda current: {**(current if isinstance(current, dict) else {}), **new_entries},
+            mutate=lambda current: {
+                **(current if isinstance(current, dict) else {}),
+                **new_entries,
+            },
             default={},
         )
         for cid, n in queued.items():
-            log(f"First batch queued for {cid}: {n} items to scrape "
-                f"(annotation follows automatically once they are scraped).")
+            log(
+                f"First batch queued for {cid}: {n} items to scrape "
+                f"(annotation follows automatically once they are scraped)."
+            )
     except Exception as exc:  # never fail the caller's run
         logger.error(f"participant_enrichment.enqueue_first_batches failed: {exc}")
     return queued
@@ -180,14 +190,18 @@ def _status_lookup(item_ids: list[str]) -> dict[str, pd.Series] | None:
     """
     try:
         from web_interface.services import preview_cache
+
         status = preview_cache.get_enrichment_status_cached()
         if status is None:
             return None
         import numpy as np
+
         ids = [str(i) for i in item_ids]
         scraped, annotated = preview_cache.status_flags(np.asarray(ids), status)
-        return {"scraped": pd.Series(scraped, index=ids),
-                "annotated": pd.Series(annotated, index=ids)}
+        return {
+            "scraped": pd.Series(scraped, index=ids),
+            "annotated": pd.Series(annotated, index=ids),
+        }
     except Exception as exc:
         logger.error(f"participant_enrichment: enrichment status lookup failed: {exc}")
         return None
@@ -207,8 +221,9 @@ def check_first_batch_completions() -> list[str]:
     notified: list[str] = []
     try:
         ledger = _load_ledger()
-        open_entries = {cid: e for cid, e in ledger.items()
-                        if isinstance(e, dict) and not e.get("notified")}
+        open_entries = {
+            cid: e for cid, e in ledger.items() if isinstance(e, dict) and not e.get("notified")
+        }
         if not open_entries:
             return notified
 
@@ -227,10 +242,13 @@ def check_first_batch_completions() -> list[str]:
             # scraped enter the annotation queue: an unscraped item there
             # would burn as "file not found" and be pruned as failed.
             already = {str(i) for i in (entry.get("annotate_queued") or [])}
-            ready = [i for i in items
-                     if bool(flags["scraped"].get(i, False))
-                     and not bool(flags["annotated"].get(i, False))
-                     and i not in already]
+            ready = [
+                i
+                for i in items
+                if bool(flags["scraped"].get(i, False))
+                and not bool(flags["annotated"].get(i, False))
+                and i not in already
+            ]
             if ready:
                 data_io.update_json(
                     storage_location="cache",
@@ -245,14 +263,22 @@ def check_first_batch_completions() -> list[str]:
                     current = current if isinstance(current, dict) else {}
                     if cid in current and isinstance(current[cid], dict):
                         prev = {str(i) for i in (current[cid].get("annotate_queued") or [])}
-                        current[cid] = {**current[cid],
-                                        "annotate_queued": sorted(prev | set(ready))}
+                        current[cid] = {
+                            **current[cid],
+                            "annotate_queued": sorted(prev | set(ready)),
+                        }
                     return current
 
-                data_io.update_json(storage_location="cache", filename=LEDGER_FILENAME,
-                                    mutate=_record_handoff, default={})
-                logger.info(f"First batch for {cid}: {len(ready)} scraped item(s) "
-                            f"handed to the annotation queue.")
+                data_io.update_json(
+                    storage_location="cache",
+                    filename=LEDGER_FILENAME,
+                    mutate=_record_handoff,
+                    default={},
+                )
+                logger.info(
+                    f"First batch for {cid}: {len(ready)} scraped item(s) "
+                    f"handed to the annotation queue."
+                )
 
             # --- Completion check.
             n_done = int(flags["annotated"].sum())
@@ -273,17 +299,23 @@ def check_first_batch_completions() -> list[str]:
             def _mark(current, cid=cid):
                 current = current if isinstance(current, dict) else {}
                 if cid in current and isinstance(current[cid], dict):
-                    current[cid] = {**current[cid], "notified": True,
-                                    "notified_at": datetime.now(timezone.utc).isoformat(),
-                                    "n_annotated": n_done,
-                                    "emailed": bool(user and wants_email)}
+                    current[cid] = {
+                        **current[cid],
+                        "notified": True,
+                        "notified_at": datetime.now(timezone.utc).isoformat(),
+                        "n_annotated": n_done,
+                        "emailed": bool(user and wants_email),
+                    }
                 return current
 
-            data_io.update_json(storage_location="cache", filename=LEDGER_FILENAME,
-                                mutate=_mark, default={})
+            data_io.update_json(
+                storage_location="cache", filename=LEDGER_FILENAME, mutate=_mark, default={}
+            )
             notified.append(cid)
-            logger.info(f"First batch complete for {cid}: {n_done}/{len(items)} annotated"
-                        f" (owner {owner}, emailed={bool(user and wants_email)})")
+            logger.info(
+                f"First batch complete for {cid}: {n_done}/{len(items)} annotated"
+                f" (owner {owner}, emailed={bool(user and wants_email)})"
+            )
     except Exception as exc:
         logger.error(f"participant_enrichment.check_first_batch_completions failed: {exc}")
     return notified

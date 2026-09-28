@@ -81,34 +81,20 @@ class InstagramDDPCollection(ForYouBaseCollection):
     }
     _SHORTCODE_RE = re.compile(r"instagram\.com/(?:reel|p|tv)/([\w-]+)")
 
-
-
-
-
     def __init__(self, collection_id: str = None, verbose: bool = False):
         super().__init__(collection_id, verbose)
         self.source_platform = "instagram"
         self.data_source = "ddp"
         self.min_required_rows_per_raw_file = 10
 
-
-
-
-
     @classmethod
     def accepted_upload_suffixes(cls) -> list[str]:
         return [".zip"]
-
-
-
 
     @classmethod
     def zip_member_suffixes(cls) -> list[str]:
         """The two activity-stream members read from the export zip."""
         return [suffix for suffix, _ in cls._STREAMS]
-
-
-
 
     @classmethod
     def review_manifest(cls) -> dict:
@@ -123,18 +109,18 @@ class InstagramDDPCollection(ForYouBaseCollection):
                 "sections": [suffix for suffix, activity in cls._STREAMS if activity == "play"],
                 "min_rows": 10,
                 "message": "An Instagram donation needs at least 10 viewed posts, "
-                           "videos or stories to be usable.",
+                "videos or stories to be usable.",
             },
             "sections": [
-                {"id": suffix, "title": cls._STREAM_TITLES.get(suffix, suffix),
-                 "parser": "instagram_records", "row_delete": True}
+                {
+                    "id": suffix,
+                    "title": cls._STREAM_TITLES.get(suffix, suffix),
+                    "parser": "instagram_records",
+                    "row_delete": True,
+                }
                 for suffix, _ in cls._STREAMS
             ],
         }
-
-
-
-
 
     @staticmethod
     def _records(payload: object) -> list[dict]:
@@ -155,12 +141,10 @@ class InstagramDDPCollection(ForYouBaseCollection):
                     return value
         return []
 
-
-
-
-
     @classmethod
-    def _extract(cls, record: dict) -> tuple[str | None, str | None, str | None, str | None, int | None, str | None]:
+    def _extract(
+        cls, record: dict
+    ) -> tuple[str | None, str | None, str | None, str | None, int | None, str | None]:
         """Return ``(item_id, desc, author_id, author_name, timestamp, text)`` for one record.
 
         Supports both Instagram export record schemas: the current
@@ -228,10 +212,6 @@ class InstagramDDPCollection(ForYouBaseCollection):
             timestamp = None
         return item_id, desc, author_id, author_name, timestamp, text
 
-
-
-
-
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Extract the viewed-reels and liked-posts streams from the upload zip.
 
@@ -262,7 +242,9 @@ class InstagramDDPCollection(ForYouBaseCollection):
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
-                raise ValueError(f"'{filename}' member '{suffix}' is not valid JSON: {exc}") from exc
+                raise ValueError(
+                    f"'{filename}' member '{suffix}' is not valid JSON: {exc}"
+                ) from exc
             for record in self._records(payload):
                 item_id, desc, author_id, author_name, timestamp, text = self._extract(record)
                 # item_id is nullable in the activity contract (classic story
@@ -271,17 +253,19 @@ class InstagramDDPCollection(ForYouBaseCollection):
                 if timestamp is None:
                     continue
                 is_comment = activity_type == "comment"
-                rows.append({
-                    "item_id": item_id if item_id else pd.NA,
-                    "activity_type": activity_type,
-                    "ig_timestamp": timestamp,
-                    # The comment text travels in extra_data like every other
-                    # platform's; it must never seed an item caption.
-                    "extra_data": repair_mojibake(text) if (is_comment and text) else pd.NA,
-                    "seed_desc": repair_mojibake(desc) if (desc and not is_comment) else pd.NA,
-                    "seed_author_id": author_id if author_id else pd.NA,
-                    "seed_author_name": repair_mojibake(author_name) if author_name else pd.NA,
-                })
+                rows.append(
+                    {
+                        "item_id": item_id if item_id else pd.NA,
+                        "activity_type": activity_type,
+                        "ig_timestamp": timestamp,
+                        # The comment text travels in extra_data like every other
+                        # platform's; it must never seed an item caption.
+                        "extra_data": repair_mojibake(text) if (is_comment and text) else pd.NA,
+                        "seed_desc": repair_mojibake(desc) if (desc and not is_comment) else pd.NA,
+                        "seed_author_id": author_id if author_id else pd.NA,
+                        "seed_author_name": repair_mojibake(author_name) if author_name else pd.NA,
+                    }
+                )
 
         if not rows:
             return pd.DataFrame()
@@ -300,10 +284,6 @@ class InstagramDDPCollection(ForYouBaseCollection):
 
         return df
 
-
-
-
-
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         """Convert the unix view/like timestamps to UTC and finalize the frame."""
         df = df.copy()
@@ -311,8 +291,3 @@ class InstagramDDPCollection(ForYouBaseCollection):
             df["ig_timestamp"], unit="s", utc=True, errors="coerce"
         )
         return derive_play_duration(self._finalize_activity_frame(df))
-
-
-
-
-

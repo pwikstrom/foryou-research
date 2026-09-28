@@ -56,16 +56,11 @@ MIN_SESSIONS_PER_MONTH = 4
 MIN_PARTICIPANTS = 5
 
 
-
-
-
 def _segment_label(frac: pd.Series) -> pd.Series:
     """Map within-session position fraction (0=start..1=end) to early/late/mid."""
-    return np.where(frac < SEGMENT_FRACTION, "early",
-                    np.where(frac >= 1 - SEGMENT_FRACTION, "late", "mid"))
-
-
-
+    return np.where(
+        frac < SEGMENT_FRACTION, "early", np.where(frac >= 1 - SEGMENT_FRACTION, "late", "mid")
+    )
 
 
 def build_session_metrics(
@@ -129,16 +124,16 @@ def build_session_metrics(
     piv.columns = [f"{a}_{b}" for a, b in piv.columns]
     piv = piv.reset_index().dropna()
 
-    meta = work.groupby("session_id").agg(start=("utc_timestamp", "min"),
-                                          n_annot=("feed_position", "size")).reset_index()
+    meta = (
+        work.groupby("session_id")
+        .agg(start=("utc_timestamp", "min"), n_annot=("feed_position", "size"))
+        .reset_index()
+    )
     table = piv.merge(meta, on="session_id")
     for f in feat_cols:
         if f"{f}_late" in table.columns and f"{f}_early" in table.columns:
             table[f"d_{f}"] = table[f"{f}_late"] - table[f"{f}_early"]
     return table
-
-
-
 
 
 def _bootstrap_ci(values: np.ndarray, n_boot: int = 2000, seed: int = 0) -> tuple[float, float]:
@@ -148,9 +143,6 @@ def _bootstrap_ci(values: np.ndarray, n_boot: int = 2000, seed: int = 0) -> tupl
     rng = np.random.default_rng(seed)
     means = [rng.choice(values, len(values), replace=True).mean() for _ in range(n_boot)]
     return tuple(np.percentile(means, [2.5, 97.5]))
-
-
-
 
 
 def aggregate_contrast(metrics: pd.DataFrame) -> list[dict[str, Any]]:
@@ -177,16 +169,18 @@ def aggregate_contrast(metrics: pd.DataFrame) -> list[dict[str, Any]]:
         except ValueError:
             p = float("nan")
         raw_p.append(p)
-        out.append({
-            "feature": f,
-            "early": round(float(early[f"{f}_early"].mean()), 4),
-            "late": round(float(late[f"{f}_late"].mean()), 4),
-            "delta": round(float(d.mean()), 4),
-            "pct_up": round(float((d > 0).mean()), 3),
-            "ci_lo": round(float(lo), 4),
-            "ci_hi": round(float(hi), 4),
-            "p": p,
-        })
+        out.append(
+            {
+                "feature": f,
+                "early": round(float(early[f"{f}_early"].mean()), 4),
+                "late": round(float(late[f"{f}_late"].mean()), 4),
+                "delta": round(float(d.mean()), 4),
+                "pct_up": round(float((d > 0).mean()), 3),
+                "ci_lo": round(float(lo), 4),
+                "ci_hi": round(float(hi), 4),
+                "p": p,
+            }
+        )
     # Benjamini-Hochberg FDR across the feature grid.
     order = np.argsort([o["p"] if not math.isnan(o["p"]) else 1.0 for o in out])
     m = len(out)
@@ -194,9 +188,6 @@ def aggregate_contrast(metrics: pd.DataFrame) -> list[dict[str, Any]]:
         p = out[idx]["p"]
         out[idx]["fdr"] = round(min(1.0, p * m / rank), 4) if not math.isnan(p) else None
     return out
-
-
-
 
 
 def participant_variation(metrics: pd.DataFrame) -> dict[str, Any]:
@@ -207,33 +198,39 @@ def participant_variation(metrics: pd.DataFrame) -> dict[str, Any]:
     for f in feats:
         col = pp[f"d_{f}"].dropna()
         q = np.percentile(col, [10, 25, 50, 75, 90]) if len(col) else [np.nan] * 5
-        dist[f] = {"p10": round(float(q[0]), 4), "p25": round(float(q[1]), 4),
-                   "median": round(float(q[2]), 4), "p75": round(float(q[3]), 4),
-                   "p90": round(float(q[4]), 4)}
+        dist[f] = {
+            "p10": round(float(q[0]), 4),
+            "p25": round(float(q[1]), 4),
+            "median": round(float(q[2]), 4),
+            "p75": round(float(q[3]), 4),
+            "p90": round(float(q[4]), 4),
+        }
     return {
         "n_participants": int(len(pp)),
         "distributions": dist,
         "n_narrowing": int((pp["d_entropy"] < 0).sum()) if "d_entropy" in pp else None,
-        "n_engagement_rising": int((pp["d_completion"] > 0).sum()) if "d_completion" in pp else None,
+        "n_engagement_rising": int((pp["d_completion"] > 0).sum())
+        if "d_completion" in pp
+        else None,
     }
-
-
-
 
 
 def session_distributions(metrics: pd.DataFrame) -> dict[str, Any]:
     """Session-level variation — where rabbit-hole sessions live."""
     return {
         "n_sessions": int(len(metrics)),
-        "pct_narrowing": round(float((metrics["d_entropy"] < 0).mean()), 3) if "d_entropy" in metrics else None,
-        "pct_engagement_rising": round(float((metrics["d_completion"] > 0).mean()), 3) if "d_completion" in metrics else None,
+        "pct_narrowing": round(float((metrics["d_entropy"] < 0).mean()), 3)
+        if "d_entropy" in metrics
+        else None,
+        "pct_engagement_rising": round(float((metrics["d_completion"] > 0).mean()), 3)
+        if "d_completion" in metrics
+        else None,
     }
 
 
-
-
-
-def temporal_trends(metrics: pd.DataFrame, min_sessions: int = MIN_SESSIONS_PER_MONTH) -> dict[str, Any]:
+def temporal_trends(
+    metrics: pd.DataFrame, min_sessions: int = MIN_SESSIONS_PER_MONTH
+) -> dict[str, Any]:
     """Per-calendar-month means of the headline session metrics (density-gated).
 
     Only months with at least ``min_sessions`` qualifying sessions are reported,
@@ -246,16 +243,20 @@ def temporal_trends(metrics: pd.DataFrame, min_sessions: int = MIN_SESSIONS_PER_
     grp = m.groupby("month")
     sizes = grp.size()
     keep = sizes[sizes >= min_sessions].index
-    headline = [c for c in ["d_completion", "d_entropy", "completion_early", "n_annot"] if c in m.columns]
+    headline = [
+        c for c in ["d_completion", "d_entropy", "completion_early", "n_annot"] if c in m.columns
+    ]
     rows = []
     for month in sorted(keep):
         g = m[m["month"] == month]
-        rows.append({"month": month, "n_sessions": int(len(g)),
-                     **{c: round(float(g[c].mean()), 4) for c in headline}})
+        rows.append(
+            {
+                "month": month,
+                "n_sessions": int(len(g)),
+                **{c: round(float(g[c].mean()), 4) for c in headline},
+            }
+        )
     return {"months": rows, "min_sessions_per_month": min_sessions}
-
-
-
 
 
 def compute_profile(metrics: pd.DataFrame) -> dict[str, Any]:

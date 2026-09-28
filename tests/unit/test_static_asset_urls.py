@@ -22,21 +22,29 @@ _ASSET_REF = re.compile(r"""asset_url\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
 def test_templates_carry_no_hand_versioned_assets():
-    offenders = [str(p.relative_to(WEB)) for p in TEMPLATES if "?v=" in p.read_text(encoding="utf-8")]
+    offenders = [
+        str(p.relative_to(WEB)) for p in TEMPLATES if "?v=" in p.read_text(encoding="utf-8")
+    ]
     assert not offenders, f"hand-maintained ?v= in: {offenders} — use asset_url()"
 
 
 def test_scripts_and_stylesheets_use_asset_url():
     offenders = [
-        str(p.relative_to(WEB)) for p in TEMPLATES if _STATIC_URL_FOR.search(p.read_text(encoding="utf-8"))
+        str(p.relative_to(WEB))
+        for p in TEMPLATES
+        if _STATIC_URL_FOR.search(p.read_text(encoding="utf-8"))
     ]
     assert not offenders, f"url_for('static') for JS/CSS in: {offenders} — use asset_url()"
 
 
 def test_every_referenced_asset_exists():
     missing = sorted(
-        {name for p in TEMPLATES for name in _ASSET_REF.findall(p.read_text(encoding="utf-8"))
-         if not (WEB / "static" / name).is_file()}
+        {
+            name
+            for p in TEMPLATES
+            for name in _ASSET_REF.findall(p.read_text(encoding="utf-8"))
+            if not (WEB / "static" / name).is_file()
+        }
     )
     assert not missing, f"asset_url() references missing static files: {missing}"
 

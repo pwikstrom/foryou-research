@@ -38,25 +38,122 @@ from web_interface.services import timeline_service as ts
 def _frame() -> pd.DataFrame:
     rows = [
         # local_date, activity, play_dur, duration, scraped_ok, scraped_fail, annotated_ok, score, cat, tags, extra
-        ("2025-01-01", "play",     10.0, 30.0, True,  False, True,  1.0, "a", ["x", "y"],          "fave"),
-        ("2025-01-01", "play",     40.0, 30.0, True,  False, True,  3.0, "b", np.array(["y"]),     None),
-        ("2025-01-01", "play",      5.0, 30.0, True,  False, True,  np.nan, "a", [],               "fave,comment:hi"),
-        ("2025-01-01", "play",      5.0, 30.0, True,  False, False, 9.0, "z", ["dropped"],         None),   # MA failed → out
-        ("2025-01-02", "observe",  np.nan, 20.0, True, False, True, 2.0, "b", ["x", None, "z"],    None),   # weight = duration
-        ("2025-01-02", "play",     np.nan, 30.0, True, False, True, 2.0, "a", ["x"],               None),   # no play_dur → out
-        ("2025-01-02", "play",      0.0, 30.0, True,  False, True,  4.0, None, None,               "save,share:copy_link"),
-        ("2025-01-03", "play",     12.0, 10.0, True,  False, True,  6.0, "c", ["y", "y"],          None),   # capped at duration
-        ("2025-01-03", "like",     12.0, 10.0, True,  False, True,  6.0, "c", ["nope"],            None),   # not a play → out
-        ("2025-01-03", "play",      7.0, 10.0, False, True,  np.nan, 1.0, "c", ["nope"],           None),   # scrape failed → out
+        ("2025-01-01", "play", 10.0, 30.0, True, False, True, 1.0, "a", ["x", "y"], "fave"),
+        ("2025-01-01", "play", 40.0, 30.0, True, False, True, 3.0, "b", np.array(["y"]), None),
+        ("2025-01-01", "play", 5.0, 30.0, True, False, True, np.nan, "a", [], "fave,comment:hi"),
+        (
+            "2025-01-01",
+            "play",
+            5.0,
+            30.0,
+            True,
+            False,
+            False,
+            9.0,
+            "z",
+            ["dropped"],
+            None,
+        ),  # MA failed → out
+        (
+            "2025-01-02",
+            "observe",
+            np.nan,
+            20.0,
+            True,
+            False,
+            True,
+            2.0,
+            "b",
+            ["x", None, "z"],
+            None,
+        ),  # weight = duration
+        (
+            "2025-01-02",
+            "play",
+            np.nan,
+            30.0,
+            True,
+            False,
+            True,
+            2.0,
+            "a",
+            ["x"],
+            None,
+        ),  # no play_dur → out
+        (
+            "2025-01-02",
+            "play",
+            0.0,
+            30.0,
+            True,
+            False,
+            True,
+            4.0,
+            None,
+            None,
+            "save,share:copy_link",
+        ),
+        (
+            "2025-01-03",
+            "play",
+            12.0,
+            10.0,
+            True,
+            False,
+            True,
+            6.0,
+            "c",
+            ["y", "y"],
+            None,
+        ),  # capped at duration
+        (
+            "2025-01-03",
+            "like",
+            12.0,
+            10.0,
+            True,
+            False,
+            True,
+            6.0,
+            "c",
+            ["nope"],
+            None,
+        ),  # not a play → out
+        (
+            "2025-01-03",
+            "play",
+            7.0,
+            10.0,
+            False,
+            True,
+            np.nan,
+            1.0,
+            "c",
+            ["nope"],
+            None,
+        ),  # scrape failed → out
         # A scroll-past: kept by the universe filter with weight 0. Its tag
         # "ghost" is counted but must be ABSENT from the weighted dict — the
         # 2026-09-03 real-data check found the long-format rewrite emitting it
         # as 0.0 where the matrix form had dropped it.
-        ("2025-01-04", "play",      0.0, 30.0, True,  False, True,  2.0, "d", ["ghost"],           None),
+        ("2025-01-04", "play", 0.0, 30.0, True, False, True, 2.0, "d", ["ghost"], None),
     ]
-    df = pd.DataFrame(rows, columns=[
-        "local_date", "activity_type", "play_duration", "duration", "scraped_ok",
-        "scraped_fail", "annotated_ok", "score", "cat", "tags", "extra_data"])
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "local_date",
+            "activity_type",
+            "play_duration",
+            "duration",
+            "scraped_ok",
+            "scraped_fail",
+            "annotated_ok",
+            "score",
+            "cat",
+            "tags",
+            "extra_data",
+        ],
+    )
     df["notags"] = [[] for _ in range(len(df))]
     return df
 
@@ -70,13 +167,18 @@ def _reference(df: pd.DataFrame) -> dict:
     for r in df.itertuples(index=False):
         is_play = r.activity_type in ("play", "observe")
         dur_ok = (not pd.isna(r.play_duration)) or (
-            r.activity_type == "observe" and not pd.isna(r.duration) and r.duration > 0)
+            r.activity_type == "observe" and not pd.isna(r.duration) and r.duration > 0
+        )
         if not (is_play and dur_ok and r.scraped_ok is True and r.annotated_ok is True):
             continue
         if r.activity_type == "observe":
             w = float(r.duration)
         else:
-            w = float(min(r.play_duration, r.duration)) if not pd.isna(r.duration) else float(r.play_duration)
+            w = (
+                float(min(r.play_duration, r.duration))
+                if not pd.isna(r.duration)
+                else float(r.play_duration)
+            )
         kept.append((r.local_date, w, r))
 
     out: dict = defaultdict(dict)
@@ -134,14 +236,16 @@ def test_aggregation_matches_the_reference():
         assert row["cat_valid"] == d.get("cat_valid", 0)
         assert json.loads(row["cat_counts"]) == dict(d.get("cat_counts", {}))
         assert json.loads(row["cat_weighted_counts"]) == {
-            k: round(v, 2) for k, v in d.get("cat_w", {}).items()}
+            k: round(v, 2) for k, v in d.get("cat_w", {}).items()
+        }
         # list
         assert row["tags_valid"] == d.get("tags_valid", 0)
         if d.get("tags_valid"):
             assert row["tags_weighted_valid"] == pytest.approx(d["tags_wvalid"])
             assert json.loads(row["tags_counts"]) == dict(d["tags_counts"])
             assert json.loads(row["tags_weighted_counts"]) == {
-                k: round(v, 2) for k, v in d["tags_w"].items()}
+                k: round(v, 2) for k, v in d["tags_w"].items()
+            }
         else:
             assert pd.isna(row["tags_counts"])
         if row["period"] == "2025-01-04":

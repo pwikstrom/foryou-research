@@ -35,23 +35,27 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
 
     # Init studies
     init_study_defs()
-    studies = fyp_cf.get('study_defs', {})
+    studies = fyp_cf.get("study_defs", {})
 
     # Filter to targeted studies if specified — the consolidate pipeline knows
     # which studies its changes touched, so a full sweep is wasted work.
     target_studies_str = task_args.get("studies")
     if target_studies_str:
-        target_names = [s.strip() for s in target_studies_str.split(',')]
+        target_names = [s.strip() for s in target_studies_str.split(",")]
         studies = {k: v for k, v in studies.items() if k in target_names}
-        reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
+        reporter.log(
+            f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}"
+        )
 
     # System-managed participant studies refresh only when explicitly targeted
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
     from fyp.analysis.studies import is_composed_study, is_system_study
+
     _skipped_system = sorted(
-        k for k, v in studies.items()
+        k
+        for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)
     )
     if _skipped_system:
@@ -83,59 +87,67 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
             # are excluded.
             require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
             if require_annotated:
-                if 'annotated_ok' in df.columns:
-                    df_explorer = df[df['annotated_ok'].fillna(False)].copy()
+                if "annotated_ok" in df.columns:
+                    df_explorer = df[df["annotated_ok"].fillna(False)].copy()
                 else:
                     df_explorer = df.iloc[0:0].copy()
             else:
-                if 'scraped_ok' in df.columns:
-                    df_explorer = df[df['scraped_ok'].fillna(False)].copy()
+                if "scraped_ok" in df.columns:
+                    df_explorer = df[df["scraped_ok"].fillna(False)].copy()
                 else:
                     df_explorer = df.iloc[0:0].copy()
-            df_explorer = df_explorer[df_explorer['activity_type'].isin(['play', 'observe'])]
-            df_explorer = df_explorer[df_explorer['item_id'].notna()]
+            df_explorer = df_explorer[df_explorer["activity_type"].isin(["play", "observe"])]
+            df_explorer = df_explorer[df_explorer["item_id"].notna()]
 
             reporter.log(f"  Generating metadata for {len(df_explorer)} items...")
             meta = get_metadata(df_explorer, col_types)
 
             # Calculate Stats — log/bins decided from the full-study metadata.
             stats_res = get_current_stats(df_explorer, col_types, number_meta=meta)
-            meta['total_stats'] = stats_res['stats']
+            meta["total_stats"] = stats_res["stats"]
 
             # Source Info Injection
             try:
                 the_recoded_file = f"{study_name}_recoded.parquet"
                 if data_io.exists(storage_location="cache", filename=the_recoded_file):
-                    meta['source_file'] = the_recoded_file
-                    mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
-                    meta['source_file_modified'] = mtime.isoformat(timespec='seconds')
+                    meta["source_file"] = the_recoded_file
+                    mtime = datetime.fromtimestamp(
+                        data_io.getmtime(storage_location="cache", filename=the_recoded_file),
+                        tz=UTC,
+                    )
+                    meta["source_file_modified"] = mtime.isoformat(timespec="seconds")
                 else:
-                    meta['source_file'] = "Unknown"
-                    meta['source_file_modified'] = ""
+                    meta["source_file"] = "Unknown"
+                    meta["source_file_modified"] = ""
             except Exception:
-                meta['source_file'] = "Error"
-                meta['source_file_modified'] = ""
+                meta["source_file"] = "Error"
+                meta["source_file_modified"] = ""
 
             meta = load_schema_metadata(meta)
 
             filename = f"{study_name}_explorer_metadata.json"
-            data_io.save_json(data=make_serializable(meta), storage_location="cache", filename=filename, verbose=False)
+            data_io.save_json(
+                data=make_serializable(meta),
+                storage_location="cache",
+                filename=filename,
+                verbose=False,
+            )
             reporter.log(f"  Updated metadata for {study_name}")
 
         except Exception as e:
             reporter.log(f"Error processing {study_name}: {e}")
             import traceback
+
             traceback.print_exc()
 
         # Same message as the emit above: advances the bar without adding a
         # second, content-free line to the run log (the reporter dedupes
         # consecutive identical progress messages).
-        reporter.update_progress(int(((i + 1) / total) * 100),
-                                 f"Study {i + 1}/{total}: {study_name}")
+        reporter.update_progress(
+            int(((i + 1) / total) * 100), f"Study {i + 1}/{total}: {study_name}"
+        )
 
     reporter.log("Group Comparisons Metadata refresh completed.")
-
-
 
 
 if __name__ == "__main__":
@@ -151,8 +163,14 @@ if __name__ == "__main__":
         run_meta_refresh_groups,
         "meta_refresh_groups",
         arg_specs=[
-            (('--studies',), {'type': str, 'default': None,
-                              'help': 'Comma-separated study names to refresh (default: all)'}),
+            (
+                ("--studies",),
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated study names to refresh (default: all)",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Refresh Group comparisons + Video Analysis metadata",

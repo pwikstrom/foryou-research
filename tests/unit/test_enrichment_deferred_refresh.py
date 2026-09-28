@@ -24,8 +24,7 @@ def store(monkeypatch):
     def load_json(storage_location="cache", filename="", **kwargs):
         return files.get(filename)
 
-    def update_json(storage_location="cache", filename="", mutate=None,
-                    default=None, **kwargs):
+    def update_json(storage_location="cache", filename="", mutate=None, default=None, **kwargs):
         files[filename] = mutate(files.get(filename, default))
         return files[filename]
 
@@ -34,10 +33,16 @@ def store(monkeypatch):
     return files
 
 
-IMPACT_A = {"affected_study_names": ["s1"], "affected_collection_ids": ["c1"],
-            "new_annotation_item_count": 100}
-IMPACT_B = {"affected_study_names": ["s1", "s2"], "affected_collection_ids": ["c2"],
-            "new_annotation_item_count": 50}
+IMPACT_A = {
+    "affected_study_names": ["s1"],
+    "affected_collection_ids": ["c1"],
+    "new_annotation_item_count": 100,
+}
+IMPACT_B = {
+    "affected_study_names": ["s1", "s2"],
+    "affected_collection_ids": ["c2"],
+    "new_annotation_item_count": 50,
+}
 
 
 def test_impact_union_merges_lists_and_sums_counts():
@@ -57,16 +62,16 @@ def test_accumulate_and_settle_lifecycle(store):
     assert deferred["affected_study_names"] == ["s1", "s2"]
     assert deferred["new_annotation_item_count"] == 150
     assert deferred["runs"] == 2
-    assert deferred["deferred_since"]          # stamped on the first deferral
+    assert deferred["deferred_since"]  # stamped on the first deferral
     first_since = deferred["deferred_since"]
 
-    dr.accumulate_deferred_impact(None)        # empty impact: untouched
+    dr.accumulate_deferred_impact(None)  # empty impact: untouched
     assert dr.get_deferred_impact()["runs"] == 2
     assert dr.get_deferred_impact()["deferred_since"] == first_since
 
     dr.settle_deferred_impact()
     assert dr.get_deferred_impact() is None
-    assert dr.last_full_refresh()              # stamped by the settle
+    assert dr.last_full_refresh()  # stamped by the settle
 
 
 def test_supervisor_quiet_finalize_dispatches_and_clears(store):
@@ -76,14 +81,17 @@ def test_supervisor_quiet_finalize_dispatches_and_clears(store):
     calls = []
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
-    with patch.object(dr, "dispatch_downstream_refresh",
-                      side_effect=lambda impact, **kw: (calls.append(impact),
-                                                       ("started", "ok"))[1]):
+    with patch.object(
+        dr,
+        "dispatch_downstream_refresh",
+        side_effect=lambda impact, **kw: (calls.append(impact), ("started", "ok"))[1],
+    ):
         out = sup._finalize(Rep())
     assert out and out["action"] == "finalize"
-    assert calls == [None]                     # scope comes from the deferred meta
+    assert calls == [None]  # scope comes from the deferred meta
 
 
 def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
@@ -95,22 +103,24 @@ def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
     import web_interface.services.worker_status as ws
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
-    monkeypatch.setattr(ws, "_workers_blocking_consolidate",
-                        lambda: ["queue_scraper_tiktok"])
+    monkeypatch.setattr(ws, "_workers_blocking_consolidate", lambda: ["queue_scraper_tiktok"])
     with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
         assert sup._finalize(Rep()) is None
     dispatch.assert_not_called()
     assert dr.get_deferred_impact() is not None
 
     # The BACKSTOP path deliberately still fires while lanes are busy.
-    ce.set_meta(dr.LAST_FULL_REFRESH_KEY,
-                (datetime.now(UTC)
-                 - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat())
-    with patch.object(dr, "dispatch_downstream_refresh",
-                      return_value=("started", "ok")) as dispatch:
+    ce.set_meta(
+        dr.LAST_FULL_REFRESH_KEY,
+        (datetime.now(UTC) - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat(),
+    )
+    with patch.object(
+        dr, "dispatch_downstream_refresh", return_value=("started", "ok")
+    ) as dispatch:
         out = sup._finalize(Rep(), require_backstop=True)
     assert out and out["action"] == "finalize"
 
@@ -119,7 +129,8 @@ def test_supervisor_finalize_noops_without_debt(store):
     import web_interface.run_enrichment_supervisor as sup
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
     with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
         assert sup._finalize(Rep()) is None
@@ -130,11 +141,11 @@ def test_backstop_fires_only_after_the_window(store):
     import web_interface.run_enrichment_supervisor as sup
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
     fresh = datetime.now(UTC).isoformat()
-    stale = (datetime.now(UTC)
-             - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat()
+    stale = (datetime.now(UTC) - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat()
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     ce.set_meta(dr.LAST_FULL_REFRESH_KEY, fresh)
@@ -143,8 +154,9 @@ def test_backstop_fires_only_after_the_window(store):
     dispatch.assert_not_called()
 
     ce.set_meta(dr.LAST_FULL_REFRESH_KEY, stale)
-    with patch.object(dr, "dispatch_downstream_refresh",
-                      return_value=("started", "ok")) as dispatch:
+    with patch.object(
+        dr, "dispatch_downstream_refresh", return_value=("started", "ok")
+    ) as dispatch:
         out = sup._finalize(Rep(), require_backstop=True)
     assert out and out["action"] == "finalize"
     dispatch.assert_called_once()
@@ -154,13 +166,13 @@ def test_failed_dispatch_keeps_the_debt(store):
     import web_interface.run_enrichment_supervisor as sup
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
-    with patch.object(dr, "dispatch_downstream_refresh",
-                      return_value=("error", "boom")):
+    with patch.object(dr, "dispatch_downstream_refresh", return_value=("error", "boom")):
         assert sup._finalize(Rep()) is None
-    assert dr.get_deferred_impact() is not None   # retried on a later tick
+    assert dr.get_deferred_impact() is not None  # retried on a later tick
 
 
 def test_noop_dispatch_settles_an_unrefreshable_debt(store):
@@ -169,11 +181,11 @@ def test_noop_dispatch_settles_an_unrefreshable_debt(store):
     import web_interface.run_enrichment_supervisor as sup
 
     class Rep:
-        def log(self, m): pass
+        def log(self, m):
+            pass
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
-    with patch.object(dr, "dispatch_downstream_refresh",
-                      return_value=("noop", "nothing")):
+    with patch.object(dr, "dispatch_downstream_refresh", return_value=("noop", "nothing")):
         assert sup._finalize(Rep()) is None
     assert dr.get_deferred_impact() is None
 
@@ -201,20 +213,24 @@ def test_an_operators_deferral_is_not_the_loops_to_spend(tmp_path, monkeypatch):
 
     store = {}
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: store.get("d"))
-    monkeypatch.setattr(dr, "_set_deferred", lambda v: store.__setitem__("d", v),
-                        raising=False)
+    monkeypatch.setattr(dr, "_set_deferred", lambda v: store.__setitem__("d", v), raising=False)
     import web_interface.services.collection_enrichment as ce
+
     monkeypatch.setattr(ce, "set_meta", lambda k, v: store.__setitem__("d", v))
 
-    impact = {"changed_item_count": 50, "affected_study_names": ["s1"],
-              "affected_collection_ids": ["c1"]}
-    dr.accumulate_deferred_impact(impact)                       # operator
+    impact = {
+        "changed_item_count": 50,
+        "affected_study_names": ["s1"],
+        "affected_collection_ids": ["c1"],
+    }
+    dr.accumulate_deferred_impact(impact)  # operator
     assert store["d"]["from_plan"] is False, "an operator's deferral is theirs"
 
-    dr.accumulate_deferred_impact(impact, from_plan=True)       # then the loop
+    dr.accumulate_deferred_impact(impact, from_plan=True)  # then the loop
     assert store["d"]["from_plan"] is True, (
         "once the loop defers too, its cycle needs the refresh and it covers "
-        "the operator's items as well")
+        "the operator's items as well"
+    )
 
 
 def test_plan_debt_stays_the_loops_to_spend(tmp_path, monkeypatch):
@@ -224,8 +240,10 @@ def test_plan_debt_stays_the_loops_to_spend(tmp_path, monkeypatch):
     store = {}
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: store.get("d"))
     import web_interface.services.collection_enrichment as ce
+
     monkeypatch.setattr(ce, "set_meta", lambda k, v: store.__setitem__("d", v))
 
     dr.accumulate_deferred_impact(
-        {"changed_item_count": 10, "affected_study_names": ["s1"]}, from_plan=True)
+        {"changed_item_count": 10, "affected_study_names": ["s1"]}, from_plan=True
+    )
     assert store["d"]["from_plan"] is True

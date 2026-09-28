@@ -22,7 +22,6 @@ Run:
     python tests/unit/test_polars_ops_migration.py
 """
 
-
 import sys
 import traceback
 import warnings
@@ -40,15 +39,9 @@ from fyp.core.polars_ops import fast_join, fast_vertical_concat
 from fyp.core.types import convert_dtypes_to_pyarrow
 
 
-
-
-
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     """Run the codebase's dtype normalization so comparisons are dtype-stable."""
     return convert_dtypes_to_pyarrow(df).reset_index(drop=True)
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -56,79 +49,80 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-
-
-
 def test_concat_identical_schemas() -> None:
-    a = pd.DataFrame({
-        "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
-        "n":       pd.array([1, 2, 3], dtype="int64[pyarrow]"),
-    })
-    b = pd.DataFrame({
-        "item_id": pd.array(["d", "e"], dtype="string[pyarrow]"),
-        "n":       pd.array([4, 5], dtype="int64[pyarrow]"),
-    })
+    a = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
+            "n": pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+        }
+    )
+    b = pd.DataFrame(
+        {
+            "item_id": pd.array(["d", "e"], dtype="string[pyarrow]"),
+            "n": pd.array([4, 5], dtype="int64[pyarrow]"),
+        }
+    )
 
     got = fast_vertical_concat([a, b])
     want = _normalize(pd.concat([a, b], ignore_index=True))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
-
-
-
 
 
 def test_concat_heterogeneous_schemas() -> None:
-    a = pd.DataFrame({
-        "x": pd.array([1, 2], dtype="int64[pyarrow]"),
-        "y": pd.array(["p", "q"], dtype="string[pyarrow]"),
-    })
-    b = pd.DataFrame({
-        "x": pd.array([3, 4], dtype="int64[pyarrow]"),
-        "z": pd.array([0.5, 1.5], dtype="double[pyarrow]"),
-    })
+    a = pd.DataFrame(
+        {
+            "x": pd.array([1, 2], dtype="int64[pyarrow]"),
+            "y": pd.array(["p", "q"], dtype="string[pyarrow]"),
+        }
+    )
+    b = pd.DataFrame(
+        {
+            "x": pd.array([3, 4], dtype="int64[pyarrow]"),
+            "z": pd.array([0.5, 1.5], dtype="double[pyarrow]"),
+        }
+    )
 
     got = fast_vertical_concat([a, b])
     want = _normalize(pd.concat([a, b], ignore_index=True))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 def test_concat_empty_and_nonempty() -> None:
-    empty = pd.DataFrame({
-        "x": pd.array([], dtype="int64[pyarrow]"),
-        "y": pd.array([], dtype="string[pyarrow]"),
-    })
-    full = pd.DataFrame({
-        "x": pd.array([10, 20], dtype="int64[pyarrow]"),
-        "y": pd.array(["u", "v"], dtype="string[pyarrow]"),
-    })
+    empty = pd.DataFrame(
+        {
+            "x": pd.array([], dtype="int64[pyarrow]"),
+            "y": pd.array([], dtype="string[pyarrow]"),
+        }
+    )
+    full = pd.DataFrame(
+        {
+            "x": pd.array([10, 20], dtype="int64[pyarrow]"),
+            "y": pd.array(["u", "v"], dtype="string[pyarrow]"),
+        }
+    )
 
     got = fast_vertical_concat([empty, full])
     want = _normalize(pd.concat([empty, full], ignore_index=True))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 def test_concat_single_frame_with_empty_siblings() -> None:
-    empty = pd.DataFrame({
-        "x": pd.array([], dtype="int64[pyarrow]"),
-        "y": pd.array([], dtype="string[pyarrow]"),
-    })
-    full = pd.DataFrame({
-        "x": pd.array([1], dtype="int64[pyarrow]"),
-        "y": pd.array(["only"], dtype="string[pyarrow]"),
-    })
+    empty = pd.DataFrame(
+        {
+            "x": pd.array([], dtype="int64[pyarrow]"),
+            "y": pd.array([], dtype="string[pyarrow]"),
+        }
+    )
+    full = pd.DataFrame(
+        {
+            "x": pd.array([1], dtype="int64[pyarrow]"),
+            "y": pd.array(["only"], dtype="string[pyarrow]"),
+        }
+    )
 
     got = fast_vertical_concat([empty, full, empty])
     want = _normalize(pd.concat([empty, full, empty], ignore_index=True))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
-
-
-
 
 
 def test_concat_list_vs_allnull_string_prealigns() -> None:
@@ -141,24 +135,25 @@ def test_concat_list_vs_allnull_string_prealigns() -> None:
     scalar side to the list type and succeed without falling back.
     """
     tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
-    populated = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
-        "tags":    pd.array([["news"], ["music", "pop"]], dtype=tags_type),
-    })
-    all_null_string = pd.DataFrame({
-        "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
-        "tags":    pd.array([None, None], dtype="string[pyarrow]"),
-    })
+    populated = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+            "tags": pd.array([["news"], ["music", "pop"]], dtype=tags_type),
+        }
+    )
+    all_null_string = pd.DataFrame(
+        {
+            "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
+            "tags": pd.array([None, None], dtype="string[pyarrow]"),
+        }
+    )
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         got = fast_vertical_concat([populated, all_null_string])
 
     # Pre-alignment should make this a clean polars concat — no fallback.
-    fallback_warnings = [
-        w for w in caught
-        if "fast_vertical_concat falling back" in str(w.message)
-    ]
+    fallback_warnings = [w for w in caught if "fast_vertical_concat falling back" in str(w.message)]
     assert not fallback_warnings, (
         f"Expected pre-alignment fast path, but fallback was triggered: "
         f"{[str(w.message) for w in fallback_warnings]}"
@@ -166,12 +161,11 @@ def test_concat_list_vs_allnull_string_prealigns() -> None:
     assert len(got) == 4
     assert got["tags"].iloc[0] == ["news"]
     assert got["tags"].iloc[1] == ["music", "pop"]
-    assert got["tags"].iloc[2] is pd.NA or got["tags"].iloc[2] is None or (
-        hasattr(got["tags"].iloc[2], "__len__") and len(got["tags"].iloc[2]) == 0
+    assert (
+        got["tags"].iloc[2] is pd.NA
+        or got["tags"].iloc[2] is None
+        or (hasattr(got["tags"].iloc[2], "__len__") and len(got["tags"].iloc[2]) == 0)
     )
-
-
-
 
 
 def test_concat_list_vs_object_null_falls_back() -> None:
@@ -182,31 +176,29 @@ def test_concat_list_vs_object_null_falls_back() -> None:
     falls back to `pd.concat`, emitting a RuntimeWarning.
     """
     tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
-    populated = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
-        "tags":    pd.array([["a", "b"], ["c"]], dtype=tags_type),
-    })
-    object_null = pd.DataFrame({
-        "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
-        "tags":    pd.Series([None, None], dtype=object),
-    })
+    populated = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+            "tags": pd.array([["a", "b"], ["c"]], dtype=tags_type),
+        }
+    )
+    object_null = pd.DataFrame(
+        {
+            "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
+            "tags": pd.Series([None, None], dtype=object),
+        }
+    )
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         got = fast_vertical_concat([populated, object_null])
 
-    fallback_warnings = [
-        w for w in caught
-        if "fast_vertical_concat falling back" in str(w.message)
-    ]
+    fallback_warnings = [w for w in caught if "fast_vertical_concat falling back" in str(w.message)]
     assert fallback_warnings, "Expected fallback warning; got none"
     assert len(got) == 4
     # First two rows keep their list data regardless of fallback path.
     assert got["tags"].iloc[0] == ["a", "b"]
     assert got["tags"].iloc[1] == ["c"]
-
-
-
 
 
 def test_join_output_with_all_null_list_column_does_not_raise() -> None:
@@ -228,27 +220,26 @@ def test_join_output_with_all_null_list_column_does_not_raise() -> None:
     resilient to this (via per-column dtype normalization) and return a
     usable DataFrame rather than propagating the pyarrow error.
     """
-    activity = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2", "v3"], dtype="string[pyarrow]"),
-        "event":   pd.array([1, 2, 3], dtype="int64[pyarrow]"),
-    })
+    activity = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2", "v3"], dtype="string[pyarrow]"),
+            "event": pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+        }
+    )
     # `enriched` has a list-typed column but no data matches the join key,
     # so every row in the joined output will have `tags` = null.
-    tags_array = pd.arrays.ArrowExtensionArray(
-        pa.nulls(1, type=pa.large_list(pa.large_string()))
+    tags_array = pd.arrays.ArrowExtensionArray(pa.nulls(1, type=pa.large_list(pa.large_string())))
+    enriched = pd.DataFrame(
+        {
+            "item_id": pd.array(["never_matches"], dtype="string[pyarrow]"),
+            "tags": pd.Series(tags_array),
+        }
     )
-    enriched = pd.DataFrame({
-        "item_id": pd.array(["never_matches"], dtype="string[pyarrow]"),
-        "tags":    pd.Series(tags_array),
-    })
 
     got = fast_join(activity, enriched, on="item_id", how="left")
     assert len(got) == 3
     assert "tags" in got.columns
     assert got["tags"].isna().all()
-
-
-
 
 
 def test_concat_output_with_all_null_list_column_does_not_raise() -> None:
@@ -258,22 +249,22 @@ def test_concat_output_with_all_null_list_column_does_not_raise() -> None:
     the concat output inherits that all-null nested column. Must not
     raise `ArrowNotImplementedError` during dtype normalization.
     """
+
     def _null_list_df(item_ids: list[str]) -> pd.DataFrame:
-        return pd.DataFrame({
-            "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
-            "tags": pd.Series(
-                pd.arrays.ArrowExtensionArray(
-                    pa.nulls(len(item_ids), type=pa.large_list(pa.large_string()))
-                )
-            ),
-        })
+        return pd.DataFrame(
+            {
+                "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
+                "tags": pd.Series(
+                    pd.arrays.ArrowExtensionArray(
+                        pa.nulls(len(item_ids), type=pa.large_list(pa.large_string()))
+                    )
+                ),
+            }
+        )
 
     got = fast_vertical_concat([_null_list_df(["v1", "v2"]), _null_list_df(["v3", "v4"])])
     assert len(got) == 4
     assert got["tags"].isna().all()
-
-
-
 
 
 def test_concat_real_conflict_falls_back_cleanly() -> None:
@@ -282,29 +273,27 @@ def test_concat_real_conflict_falls_back_cleanly() -> None:
     the output column becomes object-typed with mixed contents. The helper
     must not crash — fallback covers this edge case."""
     tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
-    left = pd.DataFrame({
-        "item_id": pd.array(["v1"], dtype="string[pyarrow]"),
-        "tags":    pd.array([["actual", "list"]], dtype=tags_type),
-    })
-    right = pd.DataFrame({
-        "item_id": pd.array(["v2"], dtype="string[pyarrow]"),
-        "tags":    pd.array(["scalar string"], dtype="string[pyarrow]"),
-    })
+    left = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1"], dtype="string[pyarrow]"),
+            "tags": pd.array([["actual", "list"]], dtype=tags_type),
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "item_id": pd.array(["v2"], dtype="string[pyarrow]"),
+            "tags": pd.array(["scalar string"], dtype="string[pyarrow]"),
+        }
+    )
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         got = fast_vertical_concat([left, right])
 
-    fallback_warnings = [
-        w for w in caught
-        if "fast_vertical_concat falling back" in str(w.message)
-    ]
+    fallback_warnings = [w for w in caught if "fast_vertical_concat falling back" in str(w.message)]
     assert fallback_warnings, "Expected fallback warning; got none"
     assert len(got) == 2
     assert list(got["item_id"]) == ["v1", "v2"]
-
-
-
 
 
 def test_fast_join_downgrades_large_list_to_list() -> None:
@@ -318,23 +307,25 @@ def test_fast_join_downgrades_large_list_to_list() -> None:
     downgrade to the regular variants so the whole downstream pipeline
     (explode → crosstab → PCA) keeps working."""
     tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
-    activity = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2", "v3"], dtype="string[pyarrow]"),
-        "event":   pd.array([1, 2, 3], dtype="int64[pyarrow]"),
-    })
-    enriched = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
-        "tags":    pd.Series([["news", "politics"], ["music"]], dtype=tags_type),
-    })
+    activity = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2", "v3"], dtype="string[pyarrow]"),
+            "event": pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+        }
+    )
+    enriched = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+            "tags": pd.Series([["news", "politics"], ["music"]], dtype=tags_type),
+        }
+    )
 
     got = fast_join(activity, enriched, on="item_id", how="left")
 
     # After fast_join, the list column must be `list<string>`, not
     # `large_list<large_string>`.
     tags_pa = got["tags"].dtype.pyarrow_dtype
-    assert pa.types.is_list(tags_pa), (
-        f"Expected list<..>, got {tags_pa!r}"
-    )
+    assert pa.types.is_list(tags_pa), f"Expected list<..>, got {tags_pa!r}"
     assert not pa.types.is_large_list(tags_pa)
     assert pa.types.is_string(tags_pa.value_type), (
         f"Expected inner string, got {tags_pa.value_type!r}"
@@ -346,28 +337,27 @@ def test_fast_join_downgrades_large_list_to_list() -> None:
     assert exploded["tags"].dtype == pd.ArrowDtype(pa.string())
     assert exploded["tags"].iloc[0] == "news"
 
-    counts = pd.crosstab(
-        index=[exploded["item_id"]], columns=[exploded["tags"]]
-    )
+    counts = pd.crosstab(index=[exploded["item_id"]], columns=[exploded["tags"]])
     assert counts.loc["v1", "news"] == 1
     assert counts.loc["v1", "politics"] == 1
     assert counts.loc["v2", "music"] == 1
 
 
-
-
-
 def test_fast_join_downgrades_large_string_scalar_columns() -> None:
     """Same downgrade principle applied to scalar string columns."""
     large_str_t = pd.ArrowDtype(pa.large_string())
-    left = pd.DataFrame({
-        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "title":   pd.Series(["First", "Second"], dtype=large_str_t),
-    })
-    right = pd.DataFrame({
-        "item_id": pd.array(["a"], dtype="string[pyarrow]"),
-        "extra":   pd.Series(["X"], dtype=large_str_t),
-    })
+    left = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "title": pd.Series(["First", "Second"], dtype=large_str_t),
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "item_id": pd.array(["a"], dtype="string[pyarrow]"),
+            "extra": pd.Series(["X"], dtype=large_str_t),
+        }
+    )
 
     got = fast_join(left, right, on="item_id", how="left")
 
@@ -380,20 +370,21 @@ def test_fast_join_downgrades_large_string_scalar_columns() -> None:
         )
 
 
-
-
-
 def test_fast_vertical_concat_downgrades_large_types() -> None:
     """Downgrade also applies on the concat path, matching join."""
     tags_type = pd.ArrowDtype(pa.large_list(pa.large_string()))
-    a = pd.DataFrame({
-        "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
-        "tags":    pd.Series([["a", "b"], ["c"]], dtype=tags_type),
-    })
-    b = pd.DataFrame({
-        "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
-        "tags":    pd.Series([["d"], ["e", "f"]], dtype=tags_type),
-    })
+    a = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2"], dtype="string[pyarrow]"),
+            "tags": pd.Series([["a", "b"], ["c"]], dtype=tags_type),
+        }
+    )
+    b = pd.DataFrame(
+        {
+            "item_id": pd.array(["v3", "v4"], dtype="string[pyarrow]"),
+            "tags": pd.Series([["d"], ["e", "f"]], dtype=tags_type),
+        }
+    )
 
     got = fast_vertical_concat([a, b])
 
@@ -406,25 +397,23 @@ def test_fast_vertical_concat_downgrades_large_types() -> None:
     assert exploded["tags"].iloc[0] == "a"
 
 
-
-
-
 def test_concat_preserves_null_semantics() -> None:
-    a = pd.DataFrame({
-        "k": pd.array(["a", None, "c"], dtype="string[pyarrow]"),
-        "v": pd.array([1, None, 3], dtype="int64[pyarrow]"),
-    })
-    b = pd.DataFrame({
-        "k": pd.array([None, "e"], dtype="string[pyarrow]"),
-        "v": pd.array([None, 5], dtype="int64[pyarrow]"),
-    })
+    a = pd.DataFrame(
+        {
+            "k": pd.array(["a", None, "c"], dtype="string[pyarrow]"),
+            "v": pd.array([1, None, 3], dtype="int64[pyarrow]"),
+        }
+    )
+    b = pd.DataFrame(
+        {
+            "k": pd.array([None, "e"], dtype="string[pyarrow]"),
+            "v": pd.array([None, 5], dtype="int64[pyarrow]"),
+        }
+    )
 
     got = fast_vertical_concat([a, b])
     want = _normalize(pd.concat([a, b], ignore_index=True))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -432,80 +421,81 @@ def test_concat_preserves_null_semantics() -> None:
 # ---------------------------------------------------------------------------
 
 
-
-
-
 def test_left_join_basic() -> None:
     # Mimics organize_datasets.py:1198 — activity × enriched on item_id.
-    activity = pd.DataFrame({
-        "item_id":  pd.array(["v1", "v2", "v3", "v4"], dtype="string[pyarrow]"),
-        "event":    pd.array([10, 20, 30, 40], dtype="int64[pyarrow]"),
-    })
-    enriched = pd.DataFrame({
-        "item_id":  pd.array(["v1", "v3"], dtype="string[pyarrow]"),
-        "category": pd.array(["news", "music"], dtype="string[pyarrow]"),
-    })
+    activity = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v2", "v3", "v4"], dtype="string[pyarrow]"),
+            "event": pd.array([10, 20, 30, 40], dtype="int64[pyarrow]"),
+        }
+    )
+    enriched = pd.DataFrame(
+        {
+            "item_id": pd.array(["v1", "v3"], dtype="string[pyarrow]"),
+            "category": pd.array(["news", "music"], dtype="string[pyarrow]"),
+        }
+    )
 
     got = fast_join(activity, enriched, on="item_id", how="left")
     want = _normalize(pd.merge(activity, enriched, on="item_id", how="left"))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 def test_left_join_preserves_left_row_order() -> None:
-    left = pd.DataFrame({
-        "item_id": pd.array(["b", "a", "c", "a", "b"], dtype="string[pyarrow]"),
-        "row":     pd.array([1, 2, 3, 4, 5], dtype="int64[pyarrow]"),
-    })
-    right = pd.DataFrame({
-        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "val":     pd.array([100, 200], dtype="int64[pyarrow]"),
-    })
+    left = pd.DataFrame(
+        {
+            "item_id": pd.array(["b", "a", "c", "a", "b"], dtype="string[pyarrow]"),
+            "row": pd.array([1, 2, 3, 4, 5], dtype="int64[pyarrow]"),
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "val": pd.array([100, 200], dtype="int64[pyarrow]"),
+        }
+    )
 
     got = fast_join(left, right, on="item_id", how="left")
     want = _normalize(pd.merge(left, right, on="item_id", how="left"))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
-
-
-
 
 
 def test_left_join_unmatched_rows_become_null() -> None:
-    left = pd.DataFrame({
-        "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
-        "x":       pd.array([1, 2, 3], dtype="int64[pyarrow]"),
-    })
-    right = pd.DataFrame({
-        "item_id": pd.array(["a"], dtype="string[pyarrow]"),
-        "y":       pd.array([10], dtype="int64[pyarrow]"),
-    })
+    left = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
+            "x": pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "item_id": pd.array(["a"], dtype="string[pyarrow]"),
+            "y": pd.array([10], dtype="int64[pyarrow]"),
+        }
+    )
 
     got = fast_join(left, right, on="item_id", how="left")
     want = _normalize(pd.merge(left, right, on="item_id", how="left"))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 def test_left_join_many_to_many_duplicates_on_right() -> None:
-    left = pd.DataFrame({
-        "k": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "x": pd.array([1, 2], dtype="int64[pyarrow]"),
-    })
-    right = pd.DataFrame({
-        "k": pd.array(["a", "a"], dtype="string[pyarrow]"),
-        "y": pd.array([10, 20], dtype="int64[pyarrow]"),
-    })
+    left = pd.DataFrame(
+        {
+            "k": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "x": pd.array([1, 2], dtype="int64[pyarrow]"),
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "k": pd.array(["a", "a"], dtype="string[pyarrow]"),
+            "y": pd.array([10, 20], dtype="int64[pyarrow]"),
+        }
+    )
 
     got = fast_join(left, right, on="k", how="left")
     want = _normalize(pd.merge(left, right, on="k", how="left"))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -521,12 +511,7 @@ def test_left_join_many_to_many_duplicates_on_right() -> None:
 # surrounding recode-policy logic.
 
 
-
-
-
-def _old_dict_unpack(
-    cool_events: pd.DataFrame, var_schema: pd.DataFrame
-) -> pd.DataFrame:
+def _old_dict_unpack(cool_events: pd.DataFrame, var_schema: pd.DataFrame) -> pd.DataFrame:
     """Reference: in-loop concat (the original pattern pre-fix)."""
     cool_events = cool_events.copy()
     cool_columns = copy(cool_events.columns)
@@ -545,33 +530,21 @@ def _old_dict_unpack(
         new_thing.index = cool_events.index
 
         for new_thing_c in copy(new_thing.columns):
-            if (
-                new_thing_c not in var_schema.index
-                or var_schema.loc[new_thing_c, "role"] == "skip"
-            ):
+            if new_thing_c not in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
                 new_thing = new_thing.drop(columns=new_thing_c)
 
         if var_schema.loc[c, "role"] == "raw":
-            cool_events = pd.concat(
-                [cool_events.drop(columns=[c]), new_thing], axis=1
-            )
+            cool_events = pd.concat([cool_events.drop(columns=[c]), new_thing], axis=1)
         else:
             cool_events = pd.concat([cool_events, new_thing], axis=1)
     return cool_events
 
 
-
-
-
-def _new_dict_unpack(
-    cool_events: pd.DataFrame, var_schema: pd.DataFrame
-) -> pd.DataFrame:
+def _new_dict_unpack(cool_events: pd.DataFrame, var_schema: pd.DataFrame) -> pd.DataFrame:
     """Candidate: deferred-concat (matches the fix in recode_variables.py)."""
     cool_events = cool_events.copy()
     cool_columns = copy(cool_events.columns)
-    remaining_columns_by_index = [
-        set(cool_columns[j + 1 :]) for j in range(len(cool_columns))
-    ]
+    remaining_columns_by_index = [set(cool_columns[j + 1 :]) for j in range(len(cool_columns))]
     deferred_unpacked_frames: list[pd.DataFrame] = []
 
     for i, c in enumerate(cool_columns):
@@ -589,10 +562,7 @@ def _new_dict_unpack(
         new_thing.index = cool_events.index
 
         for new_thing_c in copy(new_thing.columns):
-            if (
-                new_thing_c not in var_schema.index
-                or var_schema.loc[new_thing_c, "role"] == "skip"
-            ):
+            if new_thing_c not in var_schema.index or var_schema.loc[new_thing_c, "role"] == "skip":
                 new_thing = new_thing.drop(columns=new_thing_c)
 
         if var_schema.loc[c, "role"] == "raw":
@@ -604,13 +574,8 @@ def _new_dict_unpack(
             cool_events = pd.concat([cool_events, new_thing], axis=1)
 
     if deferred_unpacked_frames:
-        cool_events = pd.concat(
-            [cool_events, *deferred_unpacked_frames], axis=1
-        )
+        cool_events = pd.concat([cool_events, *deferred_unpacked_frames], axis=1)
     return cool_events
-
-
-
 
 
 def _build_schema(rows: list[tuple[str, str]]) -> pd.DataFrame:
@@ -621,106 +586,99 @@ def _build_schema(rows: list[tuple[str, str]]) -> pd.DataFrame:
     )
 
 
-
-
-
 def test_recode_defer_role_raw() -> None:
     """Dict column with role=raw: original dropped, children kept."""
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
-        "meta":    [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5, "y": 6}],
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("meta",    "raw"),
-        ("meta_x",  "measure"),
-        ("meta_y",  "measure"),
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
+            "meta": [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5, "y": 6}],
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("meta", "raw"),
+            ("meta_x", "measure"),
+            ("meta_y", "measure"),
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 def test_recode_defer_role_nonraw_keeps_original() -> None:
     """Dict column with role!=raw: original kept, children added."""
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "meta":    [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("meta",    "measure"),   # NOT raw
-        ("meta_x",  "measure"),
-        ("meta_y",  "measure"),
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "meta": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("meta", "measure"),  # NOT raw
+            ("meta_x", "measure"),
+            ("meta_y", "measure"),
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 def test_recode_defer_multiple_dict_columns() -> None:
     """The common case that benefits the most: many dict columns in one df."""
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
-        "m1":      [{"a": 1}, {"a": 2}, {"a": 3}],
-        "m2":      [{"b": 10, "c": 100}, {"b": 20, "c": 200}, {"b": 30, "c": 300}],
-        "m3":      [{"d": 0.5}, {"d": 1.5}, {"d": 2.5}],
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("m1",      "raw"),
-        ("m1_a",    "measure"),
-        ("m2",      "raw"),
-        ("m2_b",    "measure"),
-        ("m2_c",    "measure"),
-        ("m3",      "measure"),
-        ("m3_d",    "measure"),
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
+            "m1": [{"a": 1}, {"a": 2}, {"a": 3}],
+            "m2": [{"b": 10, "c": 100}, {"b": 20, "c": 200}, {"b": 30, "c": 300}],
+            "m3": [{"d": 0.5}, {"d": 1.5}, {"d": 2.5}],
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("m1", "raw"),
+            ("m1_a", "measure"),
+            ("m2", "raw"),
+            ("m2_b", "measure"),
+            ("m2_c", "measure"),
+            ("m3", "measure"),
+            ("m3_d", "measure"),
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 def test_recode_defer_skipped_children() -> None:
     """Children whose role is 'skip' are dropped from new_thing in both impls."""
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "meta":    [{"x": 1, "y": 2, "z": 3}, {"x": 4, "y": 5, "z": 6}],
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("meta",    "raw"),
-        ("meta_x",  "measure"),
-        ("meta_y",  "skip"),      # should be dropped from new_thing
-        # meta_z not in schema → also dropped
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "meta": [{"x": 1, "y": 2, "z": 3}, {"x": 4, "y": 5, "z": 6}],
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("meta", "raw"),
+            ("meta_x", "measure"),
+            ("meta_y", "skip"),  # should be dropped from new_thing
+            # meta_z not in schema → also dropped
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 def test_recode_defer_collision_with_future_iteration() -> None:
@@ -733,54 +691,49 @@ def test_recode_defer_collision_with_future_iteration() -> None:
     see the unpacked value. The deferred implementation must detect this
     collision and fall back to in-loop concat for that iteration.
     """
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
-        "meta":    [{"x": 1}, {"x": 2}],
-        "meta_x":  pd.array([99, 99], dtype="int64[pyarrow]"),   # collision!
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("meta",    "raw"),
-        ("meta_x",  "measure"),
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b"], dtype="string[pyarrow]"),
+            "meta": [{"x": 1}, {"x": 2}],
+            "meta_x": pd.array([99, 99], dtype="int64[pyarrow]"),  # collision!
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("meta", "raw"),
+            ("meta_x", "measure"),
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 def test_recode_defer_no_dict_columns_noop() -> None:
     """A DataFrame with no dict columns should round-trip unchanged."""
-    cool_events = pd.DataFrame({
-        "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
-        "n":       pd.array([1, 2, 3], dtype="int64[pyarrow]"),
-    })
-    var_schema = _build_schema([
-        ("item_id", "factor"),
-        ("n",       "measure"),
-    ])
+    cool_events = pd.DataFrame(
+        {
+            "item_id": pd.array(["a", "b", "c"], dtype="string[pyarrow]"),
+            "n": pd.array([1, 2, 3], dtype="int64[pyarrow]"),
+        }
+    )
+    var_schema = _build_schema(
+        [
+            ("item_id", "factor"),
+            ("n", "measure"),
+        ]
+    )
 
     old = _old_dict_unpack(cool_events, var_schema)
     new = _new_dict_unpack(cool_events, var_schema)
-    pd.testing.assert_frame_equal(
-        old.reset_index(drop=True), new.reset_index(drop=True)
-    )
-
-
-
+    pd.testing.assert_frame_equal(old.reset_index(drop=True), new.reset_index(drop=True))
 
 
 # ---------------------------------------------------------------------------
 # Section 4 — smoke tests mirroring the real call sites
 # ---------------------------------------------------------------------------
-
-
-
 
 
 def test_ingest_accumulating_load_processed() -> None:
@@ -790,10 +743,12 @@ def test_ingest_accumulating_load_processed() -> None:
     `self.data`. Compares the final `self.data` against the pandas baseline.
     """
     chunks = [
-        pd.DataFrame({
-            "raw_file": pd.array([f"f{i}_{k}" for k in range(3)], dtype="string[pyarrow]"),
-            "n":        pd.array([i * 3 + k for k in range(3)], dtype="int64[pyarrow]"),
-        })
+        pd.DataFrame(
+            {
+                "raw_file": pd.array([f"f{i}_{k}" for k in range(3)], dtype="string[pyarrow]"),
+                "n": pd.array([i * 3 + k for k in range(3)], dtype="int64[pyarrow]"),
+            }
+        )
         for i in range(5)
     ]
     # New impl: accumulate via fast_vertical_concat one chunk at a time.
@@ -806,20 +761,21 @@ def test_ingest_accumulating_load_processed() -> None:
     # Baseline: a single pandas concat of all chunks.
     want = _normalize(pd.concat(chunks, ignore_index=True))
     pd.testing.assert_frame_equal(
-        self_data.reset_index(drop=True), want.reset_index(drop=True), check_dtype=True,
+        self_data.reset_index(drop=True),
+        want.reset_index(drop=True),
+        check_dtype=True,
     )
-
-
-
 
 
 def test_ingest_many_dfs_bulk_concat() -> None:
     """Mirror fyp/ingest.py:245 — bulk concat of per-file DataFrames."""
     many_dfs = [
-        pd.DataFrame({
-            "raw_file": pd.array([f"fn_{i}"] * 4, dtype="string[pyarrow]"),
-            "event":    pd.array([i, i + 1, i + 2, i + 3], dtype="int64[pyarrow]"),
-        })
+        pd.DataFrame(
+            {
+                "raw_file": pd.array([f"fn_{i}"] * 4, dtype="string[pyarrow]"),
+                "event": pd.array([i, i + 1, i + 2, i + 3], dtype="int64[pyarrow]"),
+            }
+        )
         for i in range(7)
     ]
     got = fast_vertical_concat(many_dfs)
@@ -827,36 +783,31 @@ def test_ingest_many_dfs_bulk_concat() -> None:
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 def test_organize_shebang_merge_shape() -> None:
     """Mirror fyp/organize_datasets.py:1198 — activity × enriched."""
     # 40 events spread across 5 items; 3 of 5 items have enrichment.
-    activity = pd.DataFrame({
-        "item_id":  pd.array([f"item{i % 5}" for i in range(40)], dtype="string[pyarrow]"),
-        "event_n":  pd.array(list(range(40)), dtype="int64[pyarrow]"),
-    })
-    enriched = pd.DataFrame({
-        "item_id":  pd.array(["item0", "item2", "item4"], dtype="string[pyarrow]"),
-        "category": pd.array(["news", "music", "sport"], dtype="string[pyarrow]"),
-        "score":    pd.array([0.1, 0.5, 0.9], dtype="double[pyarrow]"),
-    })
+    activity = pd.DataFrame(
+        {
+            "item_id": pd.array([f"item{i % 5}" for i in range(40)], dtype="string[pyarrow]"),
+            "event_n": pd.array(list(range(40)), dtype="int64[pyarrow]"),
+        }
+    )
+    enriched = pd.DataFrame(
+        {
+            "item_id": pd.array(["item0", "item2", "item4"], dtype="string[pyarrow]"),
+            "category": pd.array(["news", "music", "sport"], dtype="string[pyarrow]"),
+            "score": pd.array([0.1, 0.5, 0.9], dtype="double[pyarrow]"),
+        }
+    )
 
     got = fast_join(activity, enriched, on="item_id", how="left")
     want = _normalize(pd.merge(activity, enriched, on="item_id", how="left"))
     pd.testing.assert_frame_equal(got, want, check_dtype=True)
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
-
-
-
 
 
 TESTS = [
@@ -892,9 +843,6 @@ TESTS = [
 ]
 
 
-
-
-
 def main() -> int:
     fails = 0
     for t in TESTS:
@@ -908,9 +856,6 @@ def main() -> int:
     total = len(TESTS)
     print(f"\n{total - fails}/{total} passed")
     return 0 if fails == 0 else 1
-
-
-
 
 
 if __name__ == "__main__":

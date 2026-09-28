@@ -37,16 +37,14 @@ _PREVIEW_DISK_MAXFILES = 24
 _CELLS_FILENAME = "study_preview_cells.parquet"
 _CELLS_COLL_FILENAME = "study_preview_cells_coll.parquet"
 _preview_cache_lock = threading.Lock()
-_preview_frame_cache: dict = {}    # frozenset(collection_ids) -> (monotonic_ts, df | None, src_mtime)
-_preview_status_cache: dict = {}   # "status" -> (monotonic_ts, df | None, src_mtime)
-_cells_cache: dict = {}            # "cells" -> (cells_df | None, coll_df | None, src_mtime)
+_preview_frame_cache: dict = {}  # frozenset(collection_ids) -> (monotonic_ts, df | None, src_mtime)
+_preview_status_cache: dict = {}  # "status" -> (monotonic_ts, df | None, src_mtime)
+_cells_cache: dict = {}  # "cells" -> (cells_df | None, coll_df | None, src_mtime)
 _cells_build_lock = threading.Lock()
 _SOURCES_MTIME_MEMO_S = 5.0
 _sources_mtime_memo: tuple[float, float] | None = None  # (monotonic_ts, sources_mtime)
-_preview_warming: set = set()      # collection-set keys with a prewarm thread in flight
-_preview_build_locks: dict = {}    # collection-set key -> Lock (one build at a time)
-
-
+_preview_warming: set = set()  # collection-set keys with a prewarm thread in flight
+_preview_build_locks: dict = {}  # collection-set key -> Lock (one build at a time)
 
 
 def _preview_frame_key(selected: list) -> frozenset:
@@ -55,15 +53,13 @@ def _preview_frame_key(selected: list) -> frozenset:
     return frozenset(str(c) for c in selected)
 
 
-
-
 def _preview_frame_filename(selected: list) -> str:
     """Disk filename for the prepared frame of a collection set (hash of sorted ids)."""
 
-    digest = hashlib.sha1("\n".join(sorted(str(c) for c in selected)).encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1("\n".join(sorted(str(c) for c in selected)).encode("utf-8")).hexdigest()[
+        :16
+    ]
     return f"{_PREVIEW_DISK_PREFIX}{digest}.parquet"
-
-
 
 
 def _preview_sources_mtime() -> float:
@@ -89,8 +85,6 @@ def _preview_sources_mtime() -> float:
     return newest
 
 
-
-
 def _preview_sources_mtime_cached() -> float:
     """``_preview_sources_mtime`` behind a short memo.
 
@@ -112,8 +106,6 @@ def _preview_sources_mtime_cached() -> float:
     return value
 
 
-
-
 def _load_prepared_from_disk(filename: str) -> pd.DataFrame | None:
     """Load a persisted prepared frame and restore the dtypes the estimator expects."""
 
@@ -129,8 +121,6 @@ def _load_prepared_from_disk(filename: str) -> pd.DataFrame | None:
     return df
 
 
-
-
 def _save_prepared_to_disk(frame: pd.DataFrame, filename: str) -> None:
     """Persist a prepared frame (write-through) and prune old frames. Best-effort."""
 
@@ -141,19 +131,23 @@ def _save_prepared_to_disk(frame: pd.DataFrame, filename: str) -> None:
     _prune_disk_frames()
 
 
-
-
 def _prune_disk_frames() -> None:
     """Keep only the newest _PREVIEW_DISK_MAXFILES persisted frames. Best-effort."""
 
     try:
-        names = [f for f in data_io.listdir(storage_location="cache") if str(f).startswith(_PREVIEW_DISK_PREFIX)]
+        names = [
+            f
+            for f in data_io.listdir(storage_location="cache")
+            if str(f).startswith(_PREVIEW_DISK_PREFIX)
+        ]
         if len(names) <= _PREVIEW_DISK_MAXFILES:
             return
         with_mtime = []
         for n in names:
             try:
-                with_mtime.append((float(data_io.getmtime(storage_location="cache", filename=n)), n))
+                with_mtime.append(
+                    (float(data_io.getmtime(storage_location="cache", filename=n)), n)
+                )
             except Exception:
                 with_mtime.append((0.0, n))
         with_mtime.sort(reverse=True)
@@ -164,8 +158,6 @@ def _prune_disk_frames() -> None:
                 pass
     except Exception:
         pass
-
-
 
 
 def _get_enrichment_status_cached() -> pd.DataFrame | None:
@@ -184,8 +176,6 @@ def _get_enrichment_status_cached() -> pd.DataFrame | None:
     return df
 
 
-
-
 def _event_window_mask(cid: pd.Series, ts: pd.Series, windows: dict) -> np.ndarray:
     """Boolean mask: True where each row's day is within its collection's event window.
 
@@ -200,16 +190,24 @@ def _event_window_mask(cid: pd.Series, ts: pd.Series, windows: dict) -> np.ndarr
     # Map via dicts (C-level) rather than a python lambda per row.
     first_map = {k: v[0] for k, v in windows.items()}
     last_map = {k: v[1] for k, v in windows.items()}
-    first_arr = pd.to_datetime(cid_s.map(first_map), errors="coerce").dt.normalize().to_numpy(dtype="datetime64[ns]")
-    last_arr = pd.to_datetime(cid_s.map(last_map), errors="coerce").dt.normalize().to_numpy(dtype="datetime64[ns]")
+    first_arr = (
+        pd.to_datetime(cid_s.map(first_map), errors="coerce")
+        .dt.normalize()
+        .to_numpy(dtype="datetime64[ns]")
+    )
+    last_arr = (
+        pd.to_datetime(cid_s.map(last_map), errors="coerce")
+        .dt.normalize()
+        .to_numpy(dtype="datetime64[ns]")
+    )
     has_window = (~pd.isna(first_arr)) & (~pd.isna(last_arr))
     in_window = (ts_arr >= first_arr) & (ts_arr <= last_arr)
     return np.where(has_window, in_window, True)
 
 
-
-
-def _status_flags(iid_keys: np.ndarray, df_status: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
+def _status_flags(
+    iid_keys: np.ndarray, df_status: pd.DataFrame | None
+) -> tuple[np.ndarray, np.ndarray]:
     """Return per-row (scraped, annotated) boolean arrays for an item-id key array.
 
     One combined index lookup against the projected enrichment_status frame; rows
@@ -239,8 +237,6 @@ def _status_flags(iid_keys: np.ndarray, df_status: pd.DataFrame | None) -> tuple
 # once per consumer.
 get_enrichment_status_cached = _get_enrichment_status_cached
 status_flags = _status_flags
-
-
 
 
 def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -289,15 +285,16 @@ def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd
     if raw.empty:
         return None
 
-    frame = raw[["collection_id", "item_id", "_ts", "_ld", "_scraped", "_annotated", "_in_window"]].copy()
+    frame = raw[
+        ["collection_id", "item_id", "_ts", "_ld", "_scraped", "_annotated", "_in_window"]
+    ].copy()
     frame["collection_id"] = frame["collection_id"].astype("category")
     return frame
 
 
-
-
-def _cache_frame_in_memory(key: frozenset, frame: pd.DataFrame | None, now: float,
-                           src_mtime: float) -> None:
+def _cache_frame_in_memory(
+    key: frozenset, frame: pd.DataFrame | None, now: float, src_mtime: float
+) -> None:
     """Store a frame in the in-process cache, expiring stale entries and capping size.
 
     ``src_mtime`` is the sources mtime the frame was built against — a read
@@ -306,13 +303,13 @@ def _cache_frame_in_memory(key: frozenset, frame: pd.DataFrame | None, now: floa
 
     with _preview_cache_lock:
         _preview_frame_cache[key] = (now, frame, src_mtime)
-        for stale in [k for k, v in _preview_frame_cache.items() if (now - v[0]) >= _PREVIEW_CACHE_TTL_S]:
+        for stale in [
+            k for k, v in _preview_frame_cache.items() if (now - v[0]) >= _PREVIEW_CACHE_TTL_S
+        ]:
             _preview_frame_cache.pop(stale, None)
         while len(_preview_frame_cache) > _PREVIEW_WINDOW_CACHE_MAXSIZE:
             oldest = min(_preview_frame_cache, key=lambda k: _preview_frame_cache[k][0])
             _preview_frame_cache.pop(oldest, None)
-
-
 
 
 def _build_lock_for(key: frozenset) -> threading.Lock:
@@ -324,8 +321,6 @@ def _build_lock_for(key: frozenset) -> threading.Lock:
             lk = threading.Lock()
             _preview_build_locks[key] = lk
         return lk
-
-
 
 
 def _read_cached_frame(key: frozenset, disk_fn: str) -> tuple[bool, pd.DataFrame | None]:
@@ -350,9 +345,9 @@ def _read_cached_frame(key: frozenset, disk_fn: str) -> tuple[bool, pd.DataFrame
     return False, None
 
 
-
-
-def _get_prepared_frame_cached(selected: list, df_status: pd.DataFrame | None) -> pd.DataFrame | None:
+def _get_prepared_frame_cached(
+    selected: list, df_status: pd.DataFrame | None
+) -> pd.DataFrame | None:
     """Return the preprocessed preview frame for `selected`: memory → disk → build.
 
     1. In-process cache (TTL) — serves the tweak-and-recheck loop in ~ms.
@@ -393,8 +388,6 @@ def _get_prepared_frame_cached(selected: list, df_status: pd.DataFrame | None) -
         return frame
 
 
-
-
 def _load_collections_window(selected: list) -> pd.DataFrame | None:
     """Read the selected collections' raw activities from collections_recoded once.
 
@@ -413,7 +406,9 @@ def _load_collections_window(selected: list) -> pd.DataFrame | None:
 
     if not selected:
         return None
-    if not data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+    if not data_io.exists(
+        storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"
+    ):
         return None
     df = data_io.load_parquet_selective(
         storage_location="recoded",
@@ -424,8 +419,6 @@ def _load_collections_window(selected: list) -> pd.DataFrame | None:
     if df is None or df.empty:
         return None
     return df
-
-
 
 
 def _load_enrichment_status_min() -> pd.DataFrame | None:
@@ -447,9 +440,9 @@ def _load_enrichment_status_min() -> pd.DataFrame | None:
     )
 
 
-
-
-def _load_study_raw_window(selected: list, df_window: pd.DataFrame | None = None) -> pd.DataFrame | None:
+def _load_study_raw_window(
+    selected: list, df_window: pd.DataFrame | None = None
+) -> pd.DataFrame | None:
     """Load raw activities for the selected collections, within their event windows.
 
     Restricts to each collection's first/last event window and to play/observe rows —
@@ -468,7 +461,9 @@ def _load_study_raw_window(selected: list, df_window: pd.DataFrame | None = None
     if not selected:
         return None
     if df_window is None:
-        if not data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+        if not data_io.exists(
+            storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"
+        ):
             return None
         df_raw = data_io.load_parquet_selective(
             storage_location="recoded",
@@ -484,8 +479,6 @@ def _load_study_raw_window(selected: list, df_window: pd.DataFrame | None = None
     df_raw = _filter_to_event_windows(df_raw, windows)
     df_raw = _filter_to_play_observe(df_raw)
     return df_raw if not df_raw.empty else None
-
-
 
 
 def _prewarm_preview_frame(selected: list) -> None:
@@ -509,15 +502,11 @@ def _prewarm_preview_frame(selected: list) -> None:
             _preview_warming.discard(key)
 
 
-
-
 def _collections_hash(selected: list) -> str:
     """Return a short stable hash of a selected-collections list."""
 
     ids = sorted(str(x) for x in (selected or []))
     return hashlib.sha256(",".join(ids).encode("utf-8")).hexdigest()[:16]
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -532,17 +521,27 @@ def _collections_hash(selected: list) -> str:
 # sampling combination from it in milliseconds.
 
 _CELLS_INT_COLS = [
-    "n_act", "n_act_scraped", "n_act_annotated",
-    "n_act_inwin", "n_act_inwin_scraped", "n_act_inwin_annotated",
-    "n_items", "n_items_scraped", "n_items_annotated",
+    "n_act",
+    "n_act_scraped",
+    "n_act_annotated",
+    "n_act_inwin",
+    "n_act_inwin_scraped",
+    "n_act_inwin_annotated",
+    "n_items",
+    "n_items_scraped",
+    "n_items_annotated",
 ]
 _COLL_INT_COLS = [
-    "u_items", "u_items_scraped", "u_items_annotated",
-    "sum_cell_items", "sum_cell_items_scraped", "sum_cell_items_annotated",
-    "u_items_shared", "u_items_shared_scraped", "u_items_shared_annotated",
+    "u_items",
+    "u_items_scraped",
+    "u_items_annotated",
+    "sum_cell_items",
+    "sum_cell_items_scraped",
+    "sum_cell_items_annotated",
+    "u_items_shared",
+    "u_items_shared_scraped",
+    "u_items_shared_annotated",
 ]
-
-
 
 
 def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
@@ -562,7 +561,9 @@ def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     """
 
     t0 = _time.perf_counter()
-    if not data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+    if not data_io.exists(
+        storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"
+    ):
         return None, None
     raw = data_io.load_parquet_selective(
         storage_location="recoded",
@@ -580,14 +581,16 @@ def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     scraped_flag, annotated_flag = _status_flags(iid_keys, _get_enrichment_status_cached())
     windows = _load_collection_event_windows([])  # empty list -> all collections
 
-    work = pd.DataFrame({
-        "collection_id": raw["collection_id"].astype(str).to_numpy(),
-        "day": ts.dt.normalize().to_numpy(),
-        "item_id": iid_keys,
-        "_scraped": scraped_flag,
-        "_annotated": annotated_flag,
-        "_inwin": _event_window_mask(raw["collection_id"], ts, windows),
-    })
+    work = pd.DataFrame(
+        {
+            "collection_id": raw["collection_id"].astype(str).to_numpy(),
+            "day": ts.dt.normalize().to_numpy(),
+            "item_id": iid_keys,
+            "_scraped": scraped_flag,
+            "_annotated": annotated_flag,
+            "_inwin": _event_window_mask(raw["collection_id"], ts, windows),
+        }
+    )
     work = work[pd.notna(work["day"])]
     if work.empty:
         return None, None
@@ -663,17 +666,19 @@ def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
         "sum_cell_items": int(coll["u_items_shared"].sum()),
         "sum_cell_items_scraped": int(coll["u_items_shared_scraped"].sum()),
         "sum_cell_items_annotated": int(coll["u_items_shared_annotated"].sum()),
-        "u_items_shared": 0, "u_items_shared_scraped": 0, "u_items_shared_annotated": 0,
+        "u_items_shared": 0,
+        "u_items_shared_scraped": 0,
+        "u_items_shared_annotated": 0,
     }
     coll = pd.concat([coll, pd.DataFrame([shared_row])], ignore_index=True)
     for col in _COLL_INT_COLS:
         coll[col] = coll[col].astype("int64")
 
-    print(f"[preview-cells] built {len(cells):,} cells / {len(coll):,} collections "
-          f"from {len(work):,} rows in {_time.perf_counter() - t0:.1f}s")
+    print(
+        f"[preview-cells] built {len(cells):,} cells / {len(coll):,} collections "
+        f"from {len(work):,} rows in {_time.perf_counter() - t0:.1f}s"
+    )
     return cells, coll
-
-
 
 
 def _restore_cells_dtypes(cells: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -688,8 +693,6 @@ def _restore_cells_dtypes(cells: pd.DataFrame | None) -> pd.DataFrame | None:
         if col in cells.columns:
             cells[col] = pd.to_numeric(cells[col], errors="coerce").fillna(0).astype("int64")
     return cells
-
-
 
 
 def preview_cells_warm() -> bool:
@@ -707,8 +710,6 @@ def preview_cells_warm() -> bool:
     with _preview_cache_lock:
         hit = _cells_cache.get("cells")
         return hit is not None and hit[2] >= src_mtime
-
-
 
 
 def get_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
@@ -735,13 +736,19 @@ def get_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
                 return hit[0], hit[1]
 
         try:
-            if data_io.exists(storage_location="cache", filename=_CELLS_FILENAME) and \
-                    float(data_io.getmtime(storage_location="cache", filename=_CELLS_FILENAME)) >= src_mtime:
+            if (
+                data_io.exists(storage_location="cache", filename=_CELLS_FILENAME)
+                and float(data_io.getmtime(storage_location="cache", filename=_CELLS_FILENAME))
+                >= src_mtime
+            ):
                 cells = _restore_cells_dtypes(
-                    data_io.load_parquet(storage_location="cache", filename=_CELLS_FILENAME))
+                    data_io.load_parquet(storage_location="cache", filename=_CELLS_FILENAME)
+                )
                 coll = None
                 if data_io.exists(storage_location="cache", filename=_CELLS_COLL_FILENAME):
-                    coll = data_io.load_parquet(storage_location="cache", filename=_CELLS_COLL_FILENAME)
+                    coll = data_io.load_parquet(
+                        storage_location="cache", filename=_CELLS_COLL_FILENAME
+                    )
                 if cells is not None:
                     with _preview_cache_lock:
                         _cells_cache["cells"] = (cells, coll, src_mtime)
@@ -759,13 +766,13 @@ def get_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
             try:
                 data_io.save_parquet(cells, storage_location="cache", filename=_CELLS_FILENAME)
                 if coll is not None:
-                    data_io.save_parquet(coll, storage_location="cache", filename=_CELLS_COLL_FILENAME)
+                    data_io.save_parquet(
+                        coll, storage_location="cache", filename=_CELLS_COLL_FILENAME
+                    )
             except Exception as e:
                 print(f"[preview-cells] disk save failed: {e}")
             _remove_legacy_disk_frames()
         return cells, coll
-
-
 
 
 def _remove_legacy_disk_frames() -> None:

@@ -76,14 +76,30 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 ROUTES = {
     "ddp": {"group": "ddp", "folder": "ddp_raw", "platform": "tiktok", "source": "ddp"},
     "aio": {"group": "aio", "folder": "aio_raw", "platform": "tiktok", "source": "aio"},
-    "instagram": {"group": "instagram", "folder": "instagram_raw", "platform": "instagram", "source": "ddp"},
-    "youtube": {"group": "youtube", "folder": "youtube_raw", "platform": "youtube", "source": "ddp"},
+    "instagram": {
+        "group": "instagram",
+        "folder": "instagram_raw",
+        "platform": "instagram",
+        "source": "ddp",
+    },
+    "youtube": {
+        "group": "youtube",
+        "folder": "youtube_raw",
+        "platform": "youtube",
+        "source": "ddp",
+    },
 }
 ROUTE_FOLDERS = {route: (r["group"], r["folder"]) for route, r in ROUTES.items()}
 PLATFORM_ORDER = ("tiktok", "instagram", "youtube")
 MANIFEST_FILENAME = "ingestion_manifest.json"
-ORDER_SOURCES = ("uploaded_at", "name_stamp", "aio_date", "table_first_added",
-                 "ledger_first_seen", "last_event")
+ORDER_SOURCES = (
+    "uploaded_at",
+    "name_stamp",
+    "aio_date",
+    "table_first_added",
+    "ledger_first_seen",
+    "last_event",
+)
 NAME_STAMP_RE = re.compile(r"_(\d{8}T\d{6}Z)_[0-9a-f]{8}")
 ENGAGEMENT = ("fave", "save", "comment", "share")
 CHAT_PREFIX = "chat history with"
@@ -91,40 +107,91 @@ MIN_FILES_TO_NAME_SECTION = 3
 PLAY_CAP_SECONDS = 600
 OVERLAP_THRESHOLD = 0.2
 MIN_SHARED_SECONDS = 3
-DT_BINS = (("within 1 min", 60), ("1 min to 1 h", 3600), ("1 h to 1 day", 86400),
-           ("1 to 30 days", 30 * 86400), ("over 30 days", None))
+DT_BINS = (
+    ("within 1 min", 60),
+    ("1 min to 1 h", 3600),
+    ("1 h to 1 day", 86400),
+    ("1 to 30 days", 30 * 86400),
+    ("over 30 days", None),
+)
 FILL_WINDOWS = (60, 180, 300)
 SESSION_GAPS = (300, 900, 1800)
 PRODUCTION_SESSION_GAP = 900
 VIEWING = ("play", "observe")
-GAP_BINS = (("under 10 s", 10), ("10 to 30 s", 30), ("30 to 60 s", 60), ("1 to 2 min", 120),
-            ("2 to 5 min", 300), ("5 to 15 min", 900), ("15 to 30 min", 1800), ("30 to 60 min", 3600),
-            ("1 to 3 h", 10800), ("over 3 h", None))
+GAP_BINS = (
+    ("under 10 s", 10),
+    ("10 to 30 s", 30),
+    ("30 to 60 s", 60),
+    ("1 to 2 min", 120),
+    ("2 to 5 min", 300),
+    ("5 to 15 min", 900),
+    ("15 to 30 min", 1800),
+    ("30 to 60 min", 3600),
+    ("1 to 3 h", 10800),
+    ("over 3 h", None),
+)
 # Australian postcode ranges -> IANA zone. Broken Hill (2880) keeps South
 # Australian time and Lord Howe Island (2898) its own half-hour zone.
 POSTCODE_ZONES = (
-    ((200, 299), "Australia/Sydney"), ((800, 999), "Australia/Darwin"),
-    ((1000, 2599), "Australia/Sydney"), ((2600, 2618), "Australia/Sydney"),
-    ((2619, 2879), "Australia/Sydney"), ((2880, 2880), "Australia/Broken_Hill"),
-    ((2881, 2897), "Australia/Sydney"), ((2898, 2898), "Australia/Lord_Howe"),
-    ((2899, 2999), "Australia/Sydney"), ((3000, 3999), "Australia/Melbourne"),
-    ((4000, 4999), "Australia/Brisbane"), ((5000, 5999), "Australia/Adelaide"),
-    ((6000, 6999), "Australia/Perth"), ((7000, 7999), "Australia/Hobart"),
-    ((8000, 8999), "Australia/Melbourne"), ((9000, 9999), "Australia/Brisbane"),
+    ((200, 299), "Australia/Sydney"),
+    ((800, 999), "Australia/Darwin"),
+    ((1000, 2599), "Australia/Sydney"),
+    ((2600, 2618), "Australia/Sydney"),
+    ((2619, 2879), "Australia/Sydney"),
+    ((2880, 2880), "Australia/Broken_Hill"),
+    ((2881, 2897), "Australia/Sydney"),
+    ((2898, 2898), "Australia/Lord_Howe"),
+    ((2899, 2999), "Australia/Sydney"),
+    ((3000, 3999), "Australia/Melbourne"),
+    ((4000, 4999), "Australia/Brisbane"),
+    ((5000, 5999), "Australia/Adelaide"),
+    ((6000, 6999), "Australia/Perth"),
+    ((7000, 7999), "Australia/Hobart"),
+    ((8000, 8999), "Australia/Melbourne"),
+    ((9000, 9999), "Australia/Brisbane"),
 )
 STEP_COLUMNS = (
-    "rank", "raw_file", "route", "platform", "order_source", "order_ts", "records", "viewing_records",
-    "outside_whitelist", "not_parseable", "share_copies_merged", "missing_required",
-    "processed_rows", "within_file_duplicates", "rows_replaced_in_older_files",
-    "final_rows", "outcome", "copy_of_rank", "merged_with_earlier", "merged_with_ranks", "max_overlap", "max_overlap_rank",
-    "files_touching", "table_rows_after", "collections_after", "census_matches_parser",
-    "tokens_match", "sentinel_baseline_n", "sentinel_status", "sentinel_findings",
-    "sentinel_withheld_sections", "sentinel_review", "inferred_offset", "median_utc", "tz_zone", "tz_basis", "tz_true_offset",
-    "tz_diff", "tz_other_dst_pct", "seconds",
+    "rank",
+    "raw_file",
+    "route",
+    "platform",
+    "order_source",
+    "order_ts",
+    "records",
+    "viewing_records",
+    "outside_whitelist",
+    "not_parseable",
+    "share_copies_merged",
+    "missing_required",
+    "processed_rows",
+    "within_file_duplicates",
+    "rows_replaced_in_older_files",
+    "final_rows",
+    "outcome",
+    "copy_of_rank",
+    "merged_with_earlier",
+    "merged_with_ranks",
+    "max_overlap",
+    "max_overlap_rank",
+    "files_touching",
+    "table_rows_after",
+    "collections_after",
+    "census_matches_parser",
+    "tokens_match",
+    "sentinel_baseline_n",
+    "sentinel_status",
+    "sentinel_findings",
+    "sentinel_withheld_sections",
+    "sentinel_review",
+    "inferred_offset",
+    "median_utc",
+    "tz_zone",
+    "tz_basis",
+    "tz_true_offset",
+    "tz_diff",
+    "tz_other_dst_pct",
+    "seconds",
 )
-
-
-
 
 
 def parse_iso(value) -> datetime | None:
@@ -140,18 +207,12 @@ def parse_iso(value) -> datetime | None:
     return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
 
 
-
-
-
 def stamp_from_name(name: str) -> datetime | None:
     """The UTC upload stamp in a generated stored name (``tiktok_ddp_<stamp>_<hex>.json``)."""
     m = NAME_STAMP_RE.search(name)
     if not m:
         return None
     return datetime.strptime(m.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
-
-
-
 
 
 def choose_order_time(candidates: dict[str, datetime | None]) -> tuple[datetime | None, str | None]:
@@ -161,9 +222,6 @@ def choose_order_time(candidates: dict[str, datetime | None]) -> tuple[datetime 
         if ts is not None:
             return ts, source
     return None, None
-
-
-
 
 
 def donation_order(files: list[dict], order: str = "donation", seed: int = 0) -> list[dict]:
@@ -204,9 +262,6 @@ def donation_order(files: list[dict], order: str = "donation", seed: int = 0) ->
     return rows
 
 
-
-
-
 def zone_from_postcode(postcode, country) -> tuple[str | None, str]:
     """The donor's zone from an Australian postcode, and why when there is none.
 
@@ -229,17 +284,11 @@ def zone_from_postcode(postcode, country) -> tuple[str | None, str]:
     return None, "unrecognised_postcode"
 
 
-
-
-
 def _gap_bin(seconds: float) -> str:
     for label, upper in GAP_BINS:
         if upper is None or seconds < upper:
             return label
     return GAP_BINS[-1][0]
-
-
-
 
 
 def _session_ids(collection: np.ndarray, ts_seconds: np.ndarray, gap: int) -> np.ndarray:
@@ -249,11 +298,11 @@ def _session_ids(collection: np.ndarray, ts_seconds: np.ndarray, gap: int) -> np
     return np.cumsum(new_collection | (step > gap))
 
 
-
-
-
-def session_census(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS,
-                   production_gap: int = PRODUCTION_SESSION_GAP) -> dict:
+def session_census(
+    df: pd.DataFrame,
+    gaps: tuple[int, ...] = SESSION_GAPS,
+    production_gap: int = PRODUCTION_SESSION_GAP,
+) -> dict:
     """How sessions come out of the table, and how they depend on what counts as activity.
 
     ``assign_session_ids`` splits each collection's rows at any gap over
@@ -273,19 +322,30 @@ def session_census(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS,
     Returns:
         A JSON-serialisable dict.
     """
-    frame = pd.DataFrame({
-        "c": df["collection_id"].astype(str).to_numpy(),
-        "t": pd.to_datetime(df["utc_timestamp"], utc=True).astype("int64").to_numpy() // 1_000_000_000,
-        "a": df["activity_type"].astype("string").fillna("").to_numpy(),
-    }).sort_values(["c", "t"], kind="mergesort").reset_index(drop=True)
+    frame = (
+        pd.DataFrame(
+            {
+                "c": df["collection_id"].astype(str).to_numpy(),
+                "t": pd.to_datetime(df["utc_timestamp"], utc=True).astype("int64").to_numpy()
+                // 1_000_000_000,
+                "a": df["activity_type"].astype("string").fillna("").to_numpy(),
+            }
+        )
+        .sort_values(["c", "t"], kind="mergesort")
+        .reset_index(drop=True)
+    )
     is_view = frame["a"].isin(VIEWING).to_numpy()
     definitions = {
         "all_rows": np.ones(len(frame), dtype=bool),
         "without_followed_by": (frame["a"] != "followed_by").to_numpy(),
         "viewing_only": is_view,
     }
-    out: dict = {"rows": len(frame), "viewing_rows": int(is_view.sum()),
-                 "collections": int(frame["c"].nunique()), "definitions": {}}
+    out: dict = {
+        "rows": len(frame),
+        "viewing_rows": int(is_view.sum()),
+        "collections": int(frame["c"].nunique()),
+        "definitions": {},
+    }
     view_ids_by_def: dict[str, np.ndarray] = {}
     for label, mask in definitions.items():
         sub = frame[mask]
@@ -305,8 +365,11 @@ def session_census(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS,
                 "sessions_without_viewing": int((~has_view).sum()),
                 "viewing_sessions": int(has_view.sum()),
                 "single_view_sessions_pct": round(100.0 * float((n_view[has_view] == 1).mean()), 1)
-                if has_view.any() else None,
-                "median_views_per_session": float(n_view[has_view].median()) if has_view.any() else None,
+                if has_view.any()
+                else None,
+                "median_views_per_session": float(n_view[has_view].median())
+                if has_view.any()
+                else None,
                 "median_duration_s": float(span[has_view].median()) if has_view.any() else None,
                 "p90_duration_s": float(span[has_view].quantile(0.9)) if has_view.any() else None,
                 "median_sessions_per_collection": float(per_c.median()) if len(per_c) else None,
@@ -321,13 +384,11 @@ def session_census(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS,
     views = frame[is_view]
     same = views["c"].to_numpy()[1:] == views["c"].to_numpy()[:-1]
     gaps_s = np.diff(views["t"].to_numpy())[same]
-    out["viewing_gap_bins"] = {label: int(n) for label, n in
-                               Counter(_gap_bin(float(g)) for g in gaps_s).items()}
+    out["viewing_gap_bins"] = {
+        label: int(n) for label, n in Counter(_gap_bin(float(g)) for g in gaps_s).items()
+    }
     out["viewing_gaps"] = len(gaps_s)
     return out
-
-
-
 
 
 def sentinel_summary(steps: list[dict]) -> dict:
@@ -340,27 +401,47 @@ def sentinel_summary(steps: list[dict]) -> dict:
         for f in filter(None, str(s.get("sentinel_findings") or "").split(";")):
             codes[f] += 1
         if s["sentinel_status"] in ("warn", "quarantined"):
-            flagged.append({k: s.get(k) for k in ("rank", "route", "sentinel_status", "sentinel_findings",
-                                                  "sentinel_baseline_n", "copy_of_rank", "records",
-                                                  "processed_rows", "outcome", "sentinel_review")})
+            flagged.append(
+                {
+                    k: s.get(k)
+                    for k in (
+                        "rank",
+                        "route",
+                        "sentinel_status",
+                        "sentinel_findings",
+                        "sentinel_baseline_n",
+                        "copy_of_rank",
+                        "records",
+                        "processed_rows",
+                        "outcome",
+                        "sentinel_review",
+                    )
+                }
+            )
     return {
         "files_evaluated": len(evaluated),
         "by_status": dict(by_status),
         "past_learning": sum(1 for s in evaluated if s["sentinel_status"] != "learning"),
         "findings": dict(codes.most_common()),
-        "withheld_sections_files": sum(1 for s in evaluated if (s.get("sentinel_withheld_sections") or 0) > 0),
+        "withheld_sections_files": sum(
+            1 for s in evaluated if (s.get("sentinel_withheld_sections") or 0) > 0
+        ),
         "flagged": flagged,
     }
 
 
-
-
-
 def tz_summary(steps: list[dict]) -> dict:
     """The inferred offset against the zone of the donor's postcode, per distinct file."""
-    rows = [s for s in steps if s.get("tz_zone") and s.get("tz_diff") is not None and not s.get("copy_of_rank")]
-    basis = Counter(s.get("tz_basis") or "no_participant_record" for s in steps
-                    if s["route"] == "aio" and not s.get("copy_of_rank") and s["processed_rows"])
+    rows = [
+        s
+        for s in steps
+        if s.get("tz_zone") and s.get("tz_diff") is not None and not s.get("copy_of_rank")
+    ]
+    basis = Counter(
+        s.get("tz_basis") or "no_participant_record"
+        for s in steps
+        if s["route"] == "aio" and not s.get("copy_of_rank") and s["processed_rows"]
+    )
     diffs = [float(s["tz_diff"]) for s in rows]
     return {
         "aio_files_by_location_basis": dict(basis),
@@ -371,12 +452,10 @@ def tz_summary(steps: list[dict]) -> dict:
         "off_by_one_hour": sum(1 for d in diffs if 0.75 <= abs(d) <= 1.25),
         "off_by_more": sum(1 for d in diffs if abs(d) > 1.25),
         "diff_hours": dict(Counter(round(d, 1) for d in diffs)),
-        "rows_in_other_dst_half_pct": _dist([float(s["tz_other_dst_pct"]) for s in rows
-                                             if s.get("tz_other_dst_pct") is not None]),
+        "rows_in_other_dst_half_pct": _dist(
+            [float(s["tz_other_dst_pct"]) for s in rows if s.get("tz_other_dst_pct") is not None]
+        ),
     }
-
-
-
 
 
 def copy_of_earlier(rows: list[dict]) -> dict[str, int]:
@@ -402,9 +481,6 @@ def copy_of_earlier(rows: list[dict]) -> dict[str, int]:
     return out
 
 
-
-
-
 def order_agreement(rows: list[dict]) -> dict:
     """How the ordering sources agree where a file has more than one.
 
@@ -417,26 +493,31 @@ def order_agreement(rows: list[dict]) -> dict:
     used = Counter(r["order_source"] for r in rows)
     pairs: dict[str, dict] = {}
     for i, a in enumerate(ORDER_SOURCES):
-        for b in ORDER_SOURCES[i + 1:]:
-            gaps = [abs((r["candidates"][a] - r["candidates"][b]).total_seconds()) / 86400
-                    for r in rows if r["candidates"].get(a) and r["candidates"].get(b)]
+        for b in ORDER_SOURCES[i + 1 :]:
+            gaps = [
+                abs((r["candidates"][a] - r["candidates"][b]).total_seconds()) / 86400
+                for r in rows
+                if r["candidates"].get(a) and r["candidates"].get(b)
+            ]
             if gaps:
-                pairs[f"{a}~{b}"] = {"files": len(gaps), "median_days": statistics.median(gaps),
-                                     "max_days": max(gaps)}
-    after_table = sum(1 for r in rows if r["order_ts"] and r["candidates"].get("table_first_added")
-                      and r["order_ts"] > r["candidates"]["table_first_added"] + timedelta(minutes=5))
+                pairs[f"{a}~{b}"] = {
+                    "files": len(gaps),
+                    "median_days": statistics.median(gaps),
+                    "max_days": max(gaps),
+                }
+    after_table = sum(
+        1
+        for r in rows
+        if r["order_ts"]
+        and r["candidates"].get("table_first_added")
+        and r["order_ts"] > r["candidates"]["table_first_added"] + timedelta(minutes=5)
+    )
     return {"source_used": dict(used), "pairs": pairs, "chosen_after_first_in_table": after_table}
-
-
-
 
 
 def section_label(name: str) -> str:
     """Section name safe to report: direct-message sections are named after a username."""
     return f"{CHAT_PREFIX} …" if CHAT_PREFIX in (name or "") else (name or "")
-
-
-
 
 
 def section_census(records: list[dict], parser_cls) -> dict:
@@ -486,8 +567,11 @@ def section_census(records: list[dict], parser_cls) -> dict:
         if CHAT_PREFIX in name:
             fail["direct_message"] += 1
             continue
-        when = pd.to_datetime(parser_cls._strip_zone_suffix(values[0]), format=parser_cls._DATE_FORMAT,
-                              errors="coerce")
+        when = pd.to_datetime(
+            parser_cls._strip_zone_suffix(values[0]),
+            format=parser_cls._DATE_FORMAT,
+            errors="coerce",
+        )
         if pd.isna(when):
             fail["unreadable_date"] += 1
             continue
@@ -515,11 +599,10 @@ def section_census(records: list[dict], parser_cls) -> dict:
         "not_parseable": dict(fail),
         "share_copies_merged": share_copies,
         "kept_by_type": dict(kept),
-        "last_event": last_event.tz_localize(UTC).to_pydatetime() if last_event is not None else None,
+        "last_event": last_event.tz_localize(UTC).to_pydatetime()
+        if last_event is not None
+        else None,
     }
-
-
-
 
 
 def _dt_bin(seconds: float) -> str:
@@ -527,9 +610,6 @@ def _dt_bin(seconds: float) -> str:
         if upper is None or seconds < upper:
             return label
     return DT_BINS[-1][0]
-
-
-
 
 
 def link_census(df: pd.DataFrame, cap_seconds: int = PLAY_CAP_SECONDS) -> dict:
@@ -704,26 +784,25 @@ def link_census(df: pd.DataFrame, cap_seconds: int = PLAY_CAP_SECONDS) -> dict:
     }
 
 
-
-
-
 def tokens_written(df: pd.DataFrame) -> int:
     """Tokens ``derive_play_duration`` wrote onto plays (the check on ``link_census``)."""
     if "link_method" not in df.columns or len(df) == 0:
         return 0
     lm = df["link_method"].astype("string")
-    folded = ((df["activity_type"].astype("string") == "play").fillna(False)
-              & lm.str.contains("adjacent|nearest_play", regex=True).fillna(False))
+    folded = (df["activity_type"].astype("string") == "play").fillna(False) & lm.str.contains(
+        "adjacent|nearest_play", regex=True
+    ).fillna(False)
     if not folded.any():
         return 0
     return int(df.loc[folded, "extra_data"].astype("string").fillna("").str.count(",").add(1).sum())
 
 
-
-
-
-def prior_overlap(new_seconds: set[int], prior: dict[str, set[int]],
-                  threshold: float = OVERLAP_THRESHOLD, min_shared: int = MIN_SHARED_SECONDS) -> dict:
+def prior_overlap(
+    new_seconds: set[int],
+    prior: dict[str, set[int]],
+    threshold: float = OVERLAP_THRESHOLD,
+    min_shared: int = MIN_SHARED_SECONDS,
+) -> dict:
     """Second-level overlap of a new file with every file already stored.
 
     The statistic ``identify_similar_file_content`` clusters on: shared
@@ -747,25 +826,26 @@ def prior_overlap(new_seconds: set[int], prior: dict[str, set[int]],
             best, partner = ratio, name
         if shared >= min_shared and ratio > threshold:
             cluster.append(name)
-    return {"files_touching": touching, "would_cluster": cluster, "max_overlap": best, "max_partner": partner}
-
-
-
+    return {
+        "files_touching": touching,
+        "would_cluster": cluster,
+        "max_overlap": best,
+        "max_partner": partner,
+    }
 
 
 def seconds_of(frame: pd.DataFrame) -> dict[str, set[int]]:
     """Distinct whole seconds per raw file, as the donor merge builds them."""
     if len(frame) == 0:
         return {}
-    secs = pd.to_datetime(frame["utc_timestamp"], utc=True).astype("int64").to_numpy() // 1_000_000_000
+    secs = (
+        pd.to_datetime(frame["utc_timestamp"], utc=True).astype("int64").to_numpy() // 1_000_000_000
+    )
     names = frame["raw_file"].astype(str).to_numpy()
     out: dict[str, set[int]] = defaultdict(set)
     for name, sec in zip(names, secs, strict=True):
         out[name].add(int(sec))
     return dict(out)
-
-
-
 
 
 def _sum_counters(dicts) -> dict:
@@ -775,22 +855,27 @@ def _sum_counters(dicts) -> dict:
     return dict(total)
 
 
-
-
-
 def _dist(values: list[float]) -> dict:
     if not values:
         return {"n": 0}
     arr = np.asarray(values, dtype=float)
-    return {"n": int(arr.size), "median": float(np.median(arr)), "p90": float(np.percentile(arr, 90)),
-            "max": float(arr.max()), "bins": dict(Counter(_dt_bin(v) for v in arr))}
+    return {
+        "n": int(arr.size),
+        "median": float(np.median(arr)),
+        "p90": float(np.percentile(arr, 90)),
+        "max": float(arr.max()),
+        "bins": dict(Counter(_dt_bin(v) for v in arr)),
+    }
 
 
-
-
-
-def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict],
-              unification: dict[str, dict], order_rows: list[dict], files_seen: dict[str, int]) -> dict:
+def aggregate(
+    steps: list[dict],
+    census: dict[str, dict],
+    links: dict[str, dict],
+    unification: dict[str, dict],
+    order_rows: list[dict],
+    files_seen: dict[str, int],
+) -> dict:
     """Fold the per-step records into the figures the paper reports.
 
     Args:
@@ -819,8 +904,11 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
             "records": sum(r["records"] for r in rows),
             "outside_whitelist": sum(r["outside_whitelist"] for r in rows),
             "not_parseable": sum(r["not_parseable"] for r in rows),
-            "not_parseable_by_kind": _sum_counters(census[n]["not_parseable"] for n in names
-                                                   if n in census and n not in {t["raw_file"] for t in too_small}),
+            "not_parseable_by_kind": _sum_counters(
+                census[n]["not_parseable"]
+                for n in names
+                if n in census and n not in {t["raw_file"] for t in too_small}
+            ),
             "share_copies_merged": sum(r["share_copies_merged"] for r in rows),
             "missing_required": sum(r["missing_required"] for r in rows),
             "too_small_files": len(too_small),
@@ -837,41 +925,66 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
     report: dict = {"intake": {route: intake(rows) for route, rows in by_route.items()}}
 
     last = max(steps, key=lambda s: s["_step"]) if steps else {}
-    report["table"] = {"rows": last.get("table_rows_after", 0), "collections": last.get("collections_after", 0)}
+    report["table"] = {
+        "rows": last.get("table_rows_after", 0),
+        "collections": last.get("collections_after", 0),
+    }
 
     merged = [s for s in steps if s["merged_with_earlier"]]
     rank_ts = {r["rank"]: r["order_ts"] for r in order_rows}
     donated_gaps = []
     for s in merged:
         mine = rank_ts.get(s["rank"])
-        others = [rank_ts.get(int(x)) for x in str(s["merged_with_ranks"] or "").split(";") if x.isdigit()]
+        others = [
+            rank_ts.get(int(x)) for x in str(s["merged_with_ranks"] or "").split(";") if x.isdigit()
+        ]
         others = [o for o in others if o and mine and o <= mine]
         if others:
             donated_gaps.append((mine - max(others)).total_seconds() / 86400)
-    replaced_share = [s["rows_replaced_in_older_files"] / s["processed_rows"]
-                      for s in merged if s["processed_rows"]]
+    replaced_share = [
+        s["rows_replaced_in_older_files"] / s["processed_rows"]
+        for s in merged
+        if s["processed_rows"]
+    ]
     copies = [s for s in steps if s.get("copy_of_rank")]
     genuine = [s for s in merged if not s.get("copy_of_rank")]
     report["overlap"] = {
         "distinct_contents": len(steps) - len(copies),
         "byte_copies_of_an_earlier_file": len(copies),
         "byte_copies_merged": sum(1 for s in copies if s["merged_with_earlier"]),
-        "byte_copies_discarded_too_small": sum(1 for s in copies if s["outcome"] == "discarded_at_load"),
+        "byte_copies_discarded_too_small": sum(
+            1 for s in copies if s["outcome"] == "discarded_at_load"
+        ),
         "rows_superseded_by_byte_copies": sum(s["rows_replaced_in_older_files"] for s in copies),
         "redonations_with_new_content": len(genuine),
-        "rows_superseded_by_new_content_files": sum(s["rows_replaced_in_older_files"] for s in genuine),
-        "new_rows_added_by_new_content_files": sum(max(s["final_rows"] - s["rows_replaced_in_older_files"], 0)
-                                                   for s in genuine),
+        "rows_superseded_by_new_content_files": sum(
+            s["rows_replaced_in_older_files"] for s in genuine
+        ),
+        "new_rows_added_by_new_content_files": sum(
+            max(s["final_rows"] - s["rows_replaced_in_older_files"], 0) for s in genuine
+        ),
         "files_merged_with_earlier": len(merged),
-        "merged_but_summary_says_added_as_new": sum(1 for s in merged if s["outcome"] == "added_as_new"),
+        "merged_but_summary_says_added_as_new": sum(
+            1 for s in merged if s["outcome"] == "added_as_new"
+        ),
         "files_fully_deduplicated": sum(1 for s in steps if s["outcome"] == "fully_deduped"),
         "files_touching_any_earlier": sum(1 for s in steps if s["files_touching"]),
         "days_since_previous_donation": _dist(donated_gaps),
         "share_of_new_rows_already_held": _dist(replaced_share),
-        "max_overlap_of_unmerged_files": _dist([s["max_overlap"] for s in steps if s["final_rows"]
-                                                and not s["merged_with_earlier"] and s["files_touching"]]),
-        "unmerged_files_over_threshold": sum(1 for s in steps if s["final_rows"] and not s["merged_with_earlier"]
-                                             and s["max_overlap"] > OVERLAP_THRESHOLD),
+        "max_overlap_of_unmerged_files": _dist(
+            [
+                s["max_overlap"]
+                for s in steps
+                if s["final_rows"] and not s["merged_with_earlier"] and s["files_touching"]
+            ]
+        ),
+        "unmerged_files_over_threshold": sum(
+            1
+            for s in steps
+            if s["final_rows"]
+            and not s["merged_with_earlier"]
+            and s["max_overlap"] > OVERLAP_THRESHOLD
+        ),
     }
 
     section_totals: Counter = Counter()
@@ -884,12 +997,19 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
     other = {"records": 0, "sections": 0}
     for label, n in section_totals.most_common():
         if files_seen.get(label, 0) >= MIN_FILES_TO_NAME_SECTION:
-            named[label] = {"records": n, "files": files_seen[label], "fate": section_fate.get(label, "-")}
+            named[label] = {
+                "records": n,
+                "files": files_seen[label],
+                "fate": section_fate.get(label, "-"),
+            }
         else:
             other["records"] += n
             other["sections"] += 1
     report["sections"] = {"named": named, "rare_sections": other}
-    report["unification"] = {"rows_by_type": _sum_counters(unification.values()), "files": len(unification)}
+    report["unification"] = {
+        "rows_by_type": _sum_counters(unification.values()),
+        "files": len(unification),
+    }
 
     by_type = {t: Counter() for t in ENGAGEMENT}
     nearest_by_type: dict[str, list[float]] = {t: [] for t in ENGAGEMENT}
@@ -917,7 +1037,9 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
         "fill_reach": _dist(reach),
         "fill_reach_over_180s": sum(1 for r in reach if r > 180),
         "fill_source_types": dict(fill_sources),
-        "fill_check_on_observed_ids": {w: dict(c) for w, c in sorted(fill_check.items(), key=lambda kv: int(kv[0]))},
+        "fill_check_on_observed_ids": {
+            w: dict(c) for w, c in sorted(fill_check.items(), key=lambda kv: int(kv[0]))
+        },
         "plays": dict(play_totals),
     }
     platform_of = {s["raw_file"]: s.get("platform") for s in steps}
@@ -927,14 +1049,14 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
         if not mine:
             continue
         report["linking_by_platform"][plat] = {
-            t: dict(_sum_counters(lc["by_type"].get(t, {}) for lc in mine)) for t in ENGAGEMENT}
+            t: dict(_sum_counters(lc["by_type"].get(t, {}) for lc in mine)) for t in ENGAGEMENT
+        }
         report.setdefault("linkage_by_platform", {})[plat] = {
-            t: dict(_sum_counters(lc.get("linkage", {}).get(t, {}) for lc in mine)) for t in ENGAGEMENT}
+            t: dict(_sum_counters(lc.get("linkage", {}).get(t, {}) for lc in mine))
+            for t in ENGAGEMENT
+        }
     report["order"] = order_agreement(order_rows)
     return report
-
-
-
 
 
 def _arrow_type(dtype):
@@ -955,9 +1077,6 @@ def _arrow_type(dtype):
         return None
 
 
-
-
-
 def same_arrow_type(actual, declared: str) -> bool:
     """Whether a column's dtype is the contract's Arrow type (string widths alike)."""
     import pyarrow as pa
@@ -969,11 +1088,9 @@ def same_arrow_type(actual, declared: str) -> bool:
     return a == b or (a in strings and b in strings)
 
 
-
-
-
-def platform_mapping(data: pd.DataFrame, steps: list[dict], contract: dict,
-                     declared: dict[str, frozenset]) -> dict:
+def platform_mapping(
+    data: pd.DataFrame, steps: list[dict], contract: dict, declared: dict[str, frozenset]
+) -> dict:
     """How each platform's exports landed in the unified activity table.
 
     For every platform: files, records read and rows kept, rows by activity
@@ -1000,7 +1117,9 @@ def platform_mapping(data: pd.DataFrame, steps: list[dict], contract: dict,
         d = data[data["source_platform"].astype(str) == plat] if len(data) else data
         if not mine and not len(d):
             continue
-        types = d["activity_type"].astype("string").value_counts() if len(d) else pd.Series(dtype=int)
+        types = (
+            d["activity_type"].astype("string").value_counts() if len(d) else pd.Series(dtype=int)
+        )
         by_type = {}
         for atype, n in types.items():
             sel = d[d["activity_type"].astype("string") == atype]
@@ -1013,46 +1132,77 @@ def platform_mapping(data: pd.DataFrame, steps: list[dict], contract: dict,
         for f in fields:
             name = f["name"]
             present = name in d.columns
-            columns[name] = {"present": present, "dtype": str(d[name].dtype) if present else None,
-                             "dtype_ok": present and same_arrow_type(d[name].dtype, f.get("dtype"))}
+            columns[name] = {
+                "present": present,
+                "dtype": str(d[name].dtype) if present else None,
+                "dtype_ok": present and same_arrow_type(d[name].dtype, f.get("dtype")),
+            }
         plays = d[d["activity_type"].astype("string").isin(VIEWING)] if len(d) else d
         eng = d[d["activity_type"].astype("string").isin(ENGAGEMENT)] if len(d) else d
-        utc = pd.to_datetime(d["utc_timestamp"], utc=True) if len(d) else pd.Series(dtype="datetime64[ns, UTC]")
+        utc = (
+            pd.to_datetime(d["utc_timestamp"], utc=True)
+            if len(d)
+            else pd.Series(dtype="datetime64[ns, UTC]")
+        )
         out[plat] = {
             "files": len(mine),
             "outcomes": dict(Counter(s["outcome"] for s in mine)),
             "records_read": sum(int(s.get("records") or 0) for s in mine),
             "rows_kept": int(len(d)),
             "collections": int(d["collection_id"].nunique()) if len(d) else 0,
-            "dropped": {k: sum(int(s.get(k) or 0) for s in mine)
-                        for k in ("outside_whitelist", "not_parseable", "share_copies_merged", "missing_required")},
+            "dropped": {
+                k: sum(int(s.get(k) or 0) for s in mine)
+                for k in (
+                    "outside_whitelist",
+                    "not_parseable",
+                    "share_copies_merged",
+                    "missing_required",
+                )
+            },
             "rows_by_type": by_type,
             "undeclared_types": sorted(t for t, v in by_type.items() if not v["declared"]),
             "contract_columns": len(columns),
             "columns_missing": sorted(c for c, v in columns.items() if not v["present"]),
-            "columns_wrong_type": sorted(c for c, v in columns.items() if v["present"] and not v["dtype_ok"]),
+            "columns_wrong_type": sorted(
+                c for c, v in columns.items() if v["present"] and not v["dtype_ok"]
+            ),
             "required_nulls": {c: int(d[c].isna().sum()) for c in required if c in d.columns},
-            "plays_with_duration_pct": round(100 * plays["play_duration"].notna().mean(), 1) if len(plays) else None,
-            "link_method": {str(k): int(v) for k, v in
-                            d["link_method"].astype("string").value_counts(dropna=True).items()} if len(d) else {},
+            "plays_with_duration_pct": round(100 * plays["play_duration"].notna().mean(), 1)
+            if len(plays)
+            else None,
+            "link_method": {
+                str(k): int(v)
+                for k, v in d["link_method"].astype("string").value_counts(dropna=True).items()
+            }
+            if len(d)
+            else {},
             "engagement_rows": int(len(eng)),
-            "sessions": int(d["session_id"].nunique()) if len(d) and "session_id" in d.columns else 0,
+            "sessions": int(d["session_id"].nunique())
+            if len(d) and "session_id" in d.columns
+            else 0,
             "first_utc": utc.min().isoformat() if len(d) else None,
             "last_utc": utc.max().isoformat() if len(d) else None,
-            "tz_offsets": {str(k): int(v) for k, v in
-                           d["tz_offset"].astype("string").value_counts().items()} if len(d) else {},
-            "contract_versions": {str(k): int(v) for k, v in
-                                  d["activity_contract_version"].astype("string").value_counts().items()}
-                                 if len(d) and "activity_contract_version" in d.columns else {},
+            "tz_offsets": {
+                str(k): int(v) for k, v in d["tz_offset"].astype("string").value_counts().items()
+            }
+            if len(d)
+            else {},
+            "contract_versions": {
+                str(k): int(v)
+                for k, v in d["activity_contract_version"].astype("string").value_counts().items()
+            }
+            if len(d) and "activity_contract_version" in d.columns
+            else {},
         }
     return out
 
 
-
-
-
-def fidelity(prod_rows: dict[str, int], prod_cid: dict[str, str],
-             replay_rows: dict[str, int], replay_cid: dict[str, str]) -> dict:
+def fidelity(
+    prod_rows: dict[str, int],
+    prod_cid: dict[str, str],
+    replay_rows: dict[str, int],
+    replay_cid: dict[str, str],
+) -> dict:
     """Compare the replayed table with the production table file by file.
 
     Returns counts of files in both or only one, files whose kept rows match
@@ -1067,7 +1217,12 @@ def fidelity(prod_rows: dict[str, int], prod_cid: dict[str, str],
         for f in files:
             if cid.get(f) is not None:
                 groups[cid[f]].append(f)
-        return {tuple(sorted((a, b))) for g in groups.values() for i, a in enumerate(g) for b in g[i + 1:]}
+        return {
+            tuple(sorted((a, b)))
+            for g in groups.values()
+            for i, a in enumerate(g)
+            for b in g[i + 1 :]
+        }
 
     p_prod, p_replay = pairs(prod_cid, both), pairs(replay_cid, both)
     return {
@@ -1086,13 +1241,7 @@ def fidelity(prod_rows: dict[str, int], prod_cid: dict[str, str],
     }
 
 
-
-
-
 LEGACY_TYPE_NAMES = {"following": "follow"}
-
-
-
 
 
 def rows_by_type_comparison(prod: dict[str, int], replay: dict[str, int]) -> dict:
@@ -1110,11 +1259,14 @@ def rows_by_type_comparison(prod: dict[str, int], replay: dict[str, int]) -> dic
     for c in (p, r):
         c["fave+save"] = c.get("fave", 0) + c.get("save", 0)
     types = sorted(set(p) | set(r), key=lambda t: -max(p.get(t, 0), r.get(t, 0)))
-    return {t: {"production": p.get(t, 0), "replay": r.get(t, 0), "difference": r.get(t, 0) - p.get(t, 0)}
-            for t in types}
-
-
-
+    return {
+        t: {
+            "production": p.get(t, 0),
+            "replay": r.get(t, 0),
+            "difference": r.get(t, 0) - p.get(t, 0),
+        }
+        for t in types
+    }
 
 
 def compare_runs(a: list[dict], b: list[dict]) -> dict:
@@ -1135,13 +1287,12 @@ def compare_runs(a: list[dict], b: list[dict]) -> dict:
     return {
         "table_rows": [sum(int(r["final_rows"]) for r in a), sum(int(r["final_rows"]) for r in b)],
         "files": [len(ra), len(rb)],
-        "files_with_different_rows": sum(1 for f in both if int(ra[f]["final_rows"]) != int(rb[f]["final_rows"])),
+        "files_with_different_rows": sum(
+            1 for f in both if int(ra[f]["final_rows"]) != int(rb[f]["final_rows"])
+        ),
         "collections": [len(ga), len(gb)],
         "identical_collections": len(ga & gb),
     }
-
-
-
 
 
 def _fmt(value) -> str:
@@ -1154,9 +1305,6 @@ def _fmt(value) -> str:
     return str(value)
 
 
-
-
-
 def _md_table(headers: list[str], rows: list[list]) -> str:
     lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
     for row in rows:
@@ -1164,14 +1312,8 @@ def _md_table(headers: list[str], rows: list[list]) -> str:
     return "\n".join(lines)
 
 
-
-
-
 def _pct(part: float, whole: float) -> float | None:
     return 100.0 * part / whole if whole else None
-
-
-
 
 
 def render_tables_md(report: dict) -> str:
@@ -1179,51 +1321,115 @@ def render_tables_md(report: dict) -> str:
     out = ["# Replay of the donated export corpus", ""]
     intake = report["intake"]
     routes = [r for r in (*ROUTES, "all") if r in intake]
-    keys = [("Files", "files"), ("Records read", "records"), ("Outside the whitelist", "outside_whitelist"),
-            ("Not parseable", "not_parseable"), ("Identical shares merged", "share_copies_merged"),
-            ("Missing a required field", "missing_required"), ("Too-small files", "too_small_files"),
-            ("Records in too-small files", "too_small_records"), ("Unreadable files", "load_failed_files"),
-            ("Rows produced", "processed_rows"), ("Duplicates within a file", "within_file_duplicates"),
-            ("Rows superseded in older files", "rows_replaced_in_older_files"),
-            ("Census/parser mismatches", "census_mismatches"), ("Fold-token mismatches", "token_mismatches")]
-    out += ["## Intake by route", "",
-            _md_table(["", *routes], [[label, *[intake[r][k] for r in routes]] for label, k in keys]), "",
-            "Outcomes: " + "; ".join(f"{r}: {json.dumps(intake[r]['outcomes'])}" for r in routes), "",
-            "Not parseable by kind (all): " + json.dumps(intake["all"]["not_parseable_by_kind"]), ""]
+    keys = [
+        ("Files", "files"),
+        ("Records read", "records"),
+        ("Outside the whitelist", "outside_whitelist"),
+        ("Not parseable", "not_parseable"),
+        ("Identical shares merged", "share_copies_merged"),
+        ("Missing a required field", "missing_required"),
+        ("Too-small files", "too_small_files"),
+        ("Records in too-small files", "too_small_records"),
+        ("Unreadable files", "load_failed_files"),
+        ("Rows produced", "processed_rows"),
+        ("Duplicates within a file", "within_file_duplicates"),
+        ("Rows superseded in older files", "rows_replaced_in_older_files"),
+        ("Census/parser mismatches", "census_mismatches"),
+        ("Fold-token mismatches", "token_mismatches"),
+    ]
+    out += [
+        "## Intake by route",
+        "",
+        _md_table(["", *routes], [[label, *[intake[r][k] for r in routes]] for label, k in keys]),
+        "",
+        "Outcomes: " + "; ".join(f"{r}: {json.dumps(intake[r]['outcomes'])}" for r in routes),
+        "",
+        "Not parseable by kind (all): " + json.dumps(intake["all"]["not_parseable_by_kind"]),
+        "",
+    ]
     t = report["table"]
     out += [f"Final table: {t['rows']:,} rows in {t['collections']:,} collections.", ""]
     if report.get("byte_copies_left_out"):
-        out += [f"Byte-identical repeats left out: {json.dumps(report['byte_copies_left_out'])}", ""]
+        out += [
+            f"Byte-identical repeats left out: {json.dumps(report['byte_copies_left_out'])}",
+            "",
+        ]
     pm = report.get("platform_mapping") or {}
     if pm:
         plats = list(pm)
-        out += ["## Mapping to the activity table, by platform", "",
-                _md_table(["", *plats], [
+        out += [
+            "## Mapping to the activity table, by platform",
+            "",
+            _md_table(
+                ["", *plats],
+                [
                     ["Files", *[pm[p]["files"] for p in plats]],
                     ["Records read", *[pm[p]["records_read"] for p in plats]],
                     ["Rows kept", *[pm[p]["rows_kept"] for p in plats]],
                     ["Collections", *[pm[p]["collections"] for p in plats]],
                     ["Engagement rows", *[pm[p]["engagement_rows"] for p in plats]],
-                    ["Plays with a duration (%)", *[pm[p]["plays_with_duration_pct"] for p in plats]],
+                    [
+                        "Plays with a duration (%)",
+                        *[pm[p]["plays_with_duration_pct"] for p in plats],
+                    ],
                     ["Sessions", *[pm[p]["sessions"] for p in plats]],
                     ["Contract columns missing", *[len(pm[p]["columns_missing"]) for p in plats]],
-                    ["Columns of the wrong type", *[len(pm[p]["columns_wrong_type"]) for p in plats]],
-                    ["Required values missing", *[sum(pm[p]["required_nulls"].values()) for p in plats]],
+                    [
+                        "Columns of the wrong type",
+                        *[len(pm[p]["columns_wrong_type"]) for p in plats],
+                    ],
+                    [
+                        "Required values missing",
+                        *[sum(pm[p]["required_nulls"].values()) for p in plats],
+                    ],
                     ["Undeclared activity types", *[len(pm[p]["undeclared_types"]) for p in plats]],
-                ]), ""]
-        types = sorted({a for p in plats for a in pm[p]["rows_by_type"]},
-                       key=lambda a: -sum(pm[p]["rows_by_type"].get(a, {}).get("rows", 0) for p in plats))
-        out += ["Rows by activity type (percent naming an item):", "",
-                _md_table(["type", *plats], [[a, *[
-                    (f"{pm[p]['rows_by_type'][a]['rows']:,} ({pm[p]['rows_by_type'][a]['with_item_id_pct']:.0f}%)"
-                     if a in pm[p]["rows_by_type"] else "-") for p in plats]] for a in types]), ""]
-        out += ["Link methods: " + "; ".join(f"{p}: {json.dumps(pm[p]['link_method'])}" for p in plats), "",
-                "Missing/wrong-type columns: " + "; ".join(
-                    f"{p}: {pm[p]['columns_missing']}/{pm[p]['columns_wrong_type']}" for p in plats), ""]
+                ],
+            ),
+            "",
+        ]
+        types = sorted(
+            {a for p in plats for a in pm[p]["rows_by_type"]},
+            key=lambda a: -sum(pm[p]["rows_by_type"].get(a, {}).get("rows", 0) for p in plats),
+        )
+        out += [
+            "Rows by activity type (percent naming an item):",
+            "",
+            _md_table(
+                ["type", *plats],
+                [
+                    [
+                        a,
+                        *[
+                            (
+                                f"{pm[p]['rows_by_type'][a]['rows']:,} ({pm[p]['rows_by_type'][a]['with_item_id_pct']:.0f}%)"
+                                if a in pm[p]["rows_by_type"]
+                                else "-"
+                            )
+                            for p in plats
+                        ],
+                    ]
+                    for a in types
+                ],
+            ),
+            "",
+        ]
+        out += [
+            "Link methods: " + "; ".join(f"{p}: {json.dumps(pm[p]['link_method'])}" for p in plats),
+            "",
+            "Missing/wrong-type columns: "
+            + "; ".join(
+                f"{p}: {pm[p]['columns_missing']}/{pm[p]['columns_wrong_type']}" for p in plats
+            ),
+            "",
+        ]
 
     o = report["overlap"]
-    out += ["## Overlap with earlier donations", "",
-            _md_table(["Measure", "Value"], [
+    out += [
+        "## Overlap with earlier donations",
+        "",
+        _md_table(
+            ["Measure", "Value"],
+            [
                 ["Distinct file contents", o["distinct_contents"]],
                 ["Byte-identical copies of an earlier file", o["byte_copies_of_an_earlier_file"]],
                 ["... merged with it", o["byte_copies_merged"]],
@@ -1233,114 +1439,294 @@ def render_tables_md(report: dict) -> str:
                 ["Rows they superseded", o["rows_superseded_by_new_content_files"]],
                 ["Rows they added", o["new_rows_added_by_new_content_files"]],
                 ["Files merged with an earlier donation", o["files_merged_with_earlier"]],
-                ["... of which the per-file summary calls added_as_new", o["merged_but_summary_says_added_as_new"]],
+                [
+                    "... of which the per-file summary calls added_as_new",
+                    o["merged_but_summary_says_added_as_new"],
+                ],
                 ["Files fully deduplicated", o["files_fully_deduplicated"]],
                 ["Files sharing any second with an earlier file", o["files_touching_any_earlier"]],
-                ["Median days since the previous donation (merged)", o["days_since_previous_donation"].get("median")],
-                ["Median share of a merged file's rows already held",
-                 o["share_of_new_rows_already_held"].get("median")],
-                ["Median overlap of unmerged files that touch", o["max_overlap_of_unmerged_files"].get("median")],
+                [
+                    "Median days since the previous donation (merged)",
+                    o["days_since_previous_donation"].get("median"),
+                ],
+                [
+                    "Median share of a merged file's rows already held",
+                    o["share_of_new_rows_already_held"].get("median"),
+                ],
+                [
+                    "Median overlap of unmerged files that touch",
+                    o["max_overlap_of_unmerged_files"].get("median"),
+                ],
                 ["Max overlap of unmerged files", o["max_overlap_of_unmerged_files"].get("max")],
                 ["Unmerged files over the threshold", o["unmerged_files_over_threshold"]],
-            ]), ""]
+            ],
+        ),
+        "",
+    ]
 
-    rows = [[label, v["files"], v["records"], v["fate"]] for label, v in report["sections"]["named"].items()]
+    rows = [
+        [label, v["files"], v["records"], v["fate"]]
+        for label, v in report["sections"]["named"].items()
+    ]
     rare = report["sections"]["rare_sections"]
-    rows.append([f"{rare['sections']} sections in fewer than {MIN_FILES_TO_NAME_SECTION} files", "-",
-                 rare["records"], "-"])
-    out += ["## Export sections and what they became", "",
-            _md_table(["Section", "Files", "Records", "Became"], rows), "",
-            "Rows produced by type: " + json.dumps(report["unification"]["rows_by_type"]), ""]
+    rows.append(
+        [
+            f"{rare['sections']} sections in fewer than {MIN_FILES_TO_NAME_SECTION} files",
+            "-",
+            rare["records"],
+            "-",
+        ]
+    )
+    out += [
+        "## Export sections and what they became",
+        "",
+        _md_table(["Section", "Files", "Records", "Became"], rows),
+        "",
+        "Rows produced by type: " + json.dumps(report["unification"]["rows_by_type"]),
+        "",
+    ]
 
     lk = report["linking"]
     rows = []
     for t, c in lk["by_type"].items():
         n = c.get("rows", 0)
-        rows.append([t, n, c.get("adjacent", 0), _pct(c.get("adjacent", 0), n), c.get("nearest_play", 0),
-                     _pct(c.get("nearest_play", 0), n), c.get("before_watch_history", 0),
-                     _pct(c.get("before_watch_history", 0), n), c.get("no_play_of_item", 0),
-                     _pct(c.get("no_play_of_item", 0), n), c.get("no_item_id", 0),
-                     _pct(c.get("no_item_id", 0), n), lk["nearest_dt_by_type"][t].get("median")])
+        rows.append(
+            [
+                t,
+                n,
+                c.get("adjacent", 0),
+                _pct(c.get("adjacent", 0), n),
+                c.get("nearest_play", 0),
+                _pct(c.get("nearest_play", 0), n),
+                c.get("before_watch_history", 0),
+                _pct(c.get("before_watch_history", 0), n),
+                c.get("no_play_of_item", 0),
+                _pct(c.get("no_play_of_item", 0), n),
+                c.get("no_item_id", 0),
+                _pct(c.get("no_item_id", 0), n),
+                lk["nearest_dt_by_type"][t].get("median"),
+            ]
+        )
     c = lk["comments"]
-    out += ["## Engagement linking", "",
-            _md_table(["Type", "Rows", "Adjacent", "%", "Nearest play", "%", "Before watch history", "%",
-                       "No play of item", "%", "No video id", "%", "Median gap to nearest play (s)"], rows), "",
-            "Nearest-play gap bins (all types): " + json.dumps(lk["nearest_dt_all"].get("bins", {})), "",
-            _md_table(["Comments", "Value"], [
-                ["Comments", c.get("comments")], ["Video id in the export", c.get("observed_id")],
-                ["Video id filled from the burst", c.get("filled_id")], ["No video id", c.get("no_id")],
+    out += [
+        "## Engagement linking",
+        "",
+        _md_table(
+            [
+                "Type",
+                "Rows",
+                "Adjacent",
+                "%",
+                "Nearest play",
+                "%",
+                "Before watch history",
+                "%",
+                "No play of item",
+                "%",
+                "No video id",
+                "%",
+                "Median gap to nearest play (s)",
+            ],
+            rows,
+        ),
+        "",
+        "Nearest-play gap bins (all types): " + json.dumps(lk["nearest_dt_all"].get("bins", {})),
+        "",
+        _md_table(
+            ["Comments", "Value"],
+            [
+                ["Comments", c.get("comments")],
+                ["Video id in the export", c.get("observed_id")],
+                ["Video id filled from the burst", c.get("filled_id")],
+                ["No video id", c.get("no_id")],
                 ["Before the file's first play", c.get("before_first_play")],
                 ["Median reach of a fill (s)", lk["fill_reach"].get("median")],
                 ["Fills reaching back over 180 s", lk["fill_reach_over_180s"]],
                 ["Fill source types", json.dumps(lk["fill_source_types"])],
-            ]), "",
-            "The fill checked on comments whose export names the video (what it would have borrowed):", "",
-            _md_table(["Burst gap (s)", "Same video", "Different video", "No fill"],
-                      [[w, v.get("same_video", 0), v.get("different_video", 0), v.get("no_fill", 0)]
-                       for w, v in lk["fill_check_on_observed_ids"].items()]), "",
-            "Plays: " + json.dumps(lk["plays"]), ""]
+            ],
+        ),
+        "",
+        "The fill checked on comments whose export names the video (what it would have borrowed):",
+        "",
+        _md_table(
+            ["Burst gap (s)", "Same video", "Different video", "No fill"],
+            [
+                [w, v.get("same_video", 0), v.get("different_video", 0), v.get("no_fill", 0)]
+                for w, v in lk["fill_check_on_observed_ids"].items()
+            ],
+        ),
+        "",
+        "Plays: " + json.dumps(lk["plays"]),
+        "",
+    ]
 
     if "sentinel" in report:
         sn = report["sentinel"]
-        out += ["## Structure sentinel (learning from the first donation)", "",
-                f"Files evaluated: {sn['files_evaluated']}; by status: {json.dumps(sn['by_status'])}; "
-                f"past learning: {sn['past_learning']}; files with withheld sections: {sn['withheld_sections_files']}", "",
-                _md_table(["Finding (layer:code:severity)", "Files"], [[k, v] for k, v in sn["findings"].items()]), "",
-                _md_table(["Rank", "Route", "Status", "Findings", "Baseline n", "Copy of", "Records", "Outcome", "Review"],
-                          [[f["rank"], f["route"], f["sentinel_status"], f["sentinel_findings"],
-                            f["sentinel_baseline_n"], f["copy_of_rank"], f["records"], f["outcome"],
-                            f["sentinel_review"]] for f in sn["flagged"]]), ""]
+        out += [
+            "## Structure sentinel (learning from the first donation)",
+            "",
+            f"Files evaluated: {sn['files_evaluated']}; by status: {json.dumps(sn['by_status'])}; "
+            f"past learning: {sn['past_learning']}; files with withheld sections: {sn['withheld_sections_files']}",
+            "",
+            _md_table(
+                ["Finding (layer:code:severity)", "Files"],
+                [[k, v] for k, v in sn["findings"].items()],
+            ),
+            "",
+            _md_table(
+                [
+                    "Rank",
+                    "Route",
+                    "Status",
+                    "Findings",
+                    "Baseline n",
+                    "Copy of",
+                    "Records",
+                    "Outcome",
+                    "Review",
+                ],
+                [
+                    [
+                        f["rank"],
+                        f["route"],
+                        f["sentinel_status"],
+                        f["sentinel_findings"],
+                        f["sentinel_baseline_n"],
+                        f["copy_of_rank"],
+                        f["records"],
+                        f["outcome"],
+                        f["sentinel_review"],
+                    ]
+                    for f in sn["flagged"]
+                ],
+            ),
+            "",
+        ]
     if "sessions" in report:
         ss = report["sessions"]
-        out += ["## Sessions", "", f"Rows {ss['rows']:,}; viewing rows {ss['viewing_rows']:,}; "
-                f"collections {ss['collections']}.", ""]
+        out += [
+            "## Sessions",
+            "",
+            f"Rows {ss['rows']:,}; viewing rows {ss['viewing_rows']:,}; "
+            f"collections {ss['collections']}.",
+            "",
+        ]
         rows = []
         for label, per_gap in ss["definitions"].items():
             for gap, v in per_gap.items():
-                rows.append([label, gap, v["sessions"], v["viewing_sessions"], v["sessions_without_viewing"],
-                             v["single_view_sessions_pct"], v["median_views_per_session"],
-                             v["median_duration_s"], v["p90_duration_s"], v["median_sessions_per_collection"]])
-        out += [_md_table(["Rows counted", "Gap (s)", "Sessions", "With viewing", "Without viewing",
-                           "Single-view %", "Median views", "Median duration (s)", "p90 duration (s)",
-                           "Median sessions per collection"], rows), "",
-                f"Viewing sittings joined by non-viewing rows at the production gap: all rows "
-                f"{ss['viewing_sittings_joined_by_all_rows']:,}; without followed_by "
-                f"{ss['viewing_sittings_joined_by_without_followed_by']:,}.", "",
-                _md_table(["Gap between consecutive views", "Gaps"],
-                          [[label, ss["viewing_gap_bins"].get(label, 0)] for label, _u in GAP_BINS]), ""]
+                rows.append(
+                    [
+                        label,
+                        gap,
+                        v["sessions"],
+                        v["viewing_sessions"],
+                        v["sessions_without_viewing"],
+                        v["single_view_sessions_pct"],
+                        v["median_views_per_session"],
+                        v["median_duration_s"],
+                        v["p90_duration_s"],
+                        v["median_sessions_per_collection"],
+                    ]
+                )
+        out += [
+            _md_table(
+                [
+                    "Rows counted",
+                    "Gap (s)",
+                    "Sessions",
+                    "With viewing",
+                    "Without viewing",
+                    "Single-view %",
+                    "Median views",
+                    "Median duration (s)",
+                    "p90 duration (s)",
+                    "Median sessions per collection",
+                ],
+                rows,
+            ),
+            "",
+            f"Viewing sittings joined by non-viewing rows at the production gap: all rows "
+            f"{ss['viewing_sittings_joined_by_all_rows']:,}; without followed_by "
+            f"{ss['viewing_sittings_joined_by_without_followed_by']:,}.",
+            "",
+            _md_table(
+                ["Gap between consecutive views", "Gaps"],
+                [[label, ss["viewing_gap_bins"].get(label, 0)] for label, _u in GAP_BINS],
+            ),
+            "",
+        ]
     if "time_zone" in report:
         tz = report["time_zone"]
-        out += ["## Time zone: inference against the donor's postcode", "",
-                "AIO files by location basis: " + json.dumps(tz["aio_files_by_location_basis"]), "",
-                _md_table(["Measure", "Value"], [
+        out += [
+            "## Time zone: inference against the donor's postcode",
+            "",
+            "AIO files by location basis: " + json.dumps(tz["aio_files_by_location_basis"]),
+            "",
+            _md_table(
+                ["Measure", "Value"],
+                [
                     ["Files calibrated (distinct content)", tz["files_calibrated"]],
-                    ["By zone", json.dumps(tz["by_zone"])], ["Agree", tz["agree"]],
-                    ["Off by half an hour", tz["off_by_half_hour"]], ["Off by one hour", tz["off_by_one_hour"]],
-                    ["Off by more", tz["off_by_more"]], ["Differences (h)", json.dumps(tz["diff_hours"])],
-                    ["Median rows in the other daylight-saving half (%)",
-                     tz["rows_in_other_dst_half_pct"].get("median")],
-                ]), ""]
+                    ["By zone", json.dumps(tz["by_zone"])],
+                    ["Agree", tz["agree"]],
+                    ["Off by half an hour", tz["off_by_half_hour"]],
+                    ["Off by one hour", tz["off_by_one_hour"]],
+                    ["Off by more", tz["off_by_more"]],
+                    ["Differences (h)", json.dumps(tz["diff_hours"])],
+                    [
+                        "Median rows in the other daylight-saving half (%)",
+                        tz["rows_in_other_dst_half_pct"].get("median"),
+                    ],
+                ],
+            ),
+            "",
+        ]
     od = report["order"]
-    out += ["## Donation order", "", "Source used: " + json.dumps(od["source_used"]),
-            "", "Chosen time after first appearance in the table: " + str(od["chosen_after_first_in_table"]), "",
-            _md_table(["Sources", "Files", "Median |gap| days", "Max |gap| days"],
-                      [[k, v["files"], v["median_days"], v["max_days"]] for k, v in od["pairs"].items()])]
+    out += [
+        "## Donation order",
+        "",
+        "Source used: " + json.dumps(od["source_used"]),
+        "",
+        "Chosen time after first appearance in the table: "
+        + str(od["chosen_after_first_in_table"]),
+        "",
+        _md_table(
+            ["Sources", "Files", "Median |gap| days", "Max |gap| days"],
+            [[k, v["files"], v["median_days"], v["max_days"]] for k, v in od["pairs"].items()],
+        ),
+    ]
     if "fidelity" in report:
-        out += ["", "## Fidelity against the production table", "",
-                _md_table(["Measure", "Value"], [[k, v] for k, v in report["fidelity"].items()])]
+        out += [
+            "",
+            "## Fidelity against the production table",
+            "",
+            _md_table(["Measure", "Value"], [[k, v] for k, v in report["fidelity"].items()]),
+        ]
     if "rows_by_type_vs_production" in report:
-        out += ["", "## Whole table by type, production against replay", "",
-                _md_table(["Type", "Production", "Replay", "Difference"],
-                          [[t, v["production"], v["replay"], v["difference"]]
-                           for t, v in report["rows_by_type_vs_production"].items()]),
-                "", "Collections: " + json.dumps(report.get("collections_vs_production"))]
+        out += [
+            "",
+            "## Whole table by type, production against replay",
+            "",
+            _md_table(
+                ["Type", "Production", "Replay", "Difference"],
+                [
+                    [t, v["production"], v["replay"], v["difference"]]
+                    for t, v in report["rows_by_type_vs_production"].items()
+                ],
+            ),
+            "",
+            "Collections: " + json.dumps(report.get("collections_vs_production")),
+        ]
     if "order_dependence" in report:
-        out += ["", "## Order dependence", "",
-                _md_table(["Measure", "Value"], [[k, json.dumps(v)] for k, v in report["order_dependence"].items()])]
+        out += [
+            "",
+            "## Order dependence",
+            "",
+            _md_table(
+                ["Measure", "Value"],
+                [[k, json.dumps(v)] for k, v in report["order_dependence"].items()],
+            ),
+        ]
     return "\n".join(out) + "\n"
-
-
-
 
 
 def render_growth_svg(steps: list[dict]) -> str:
@@ -1349,40 +1735,51 @@ def render_growth_svg(steps: list[dict]) -> str:
     ordered = sorted(steps, key=lambda s: s["rank"])
     read = np.cumsum([s["records"] for s in ordered]) if ordered else np.zeros(1)
     produced = np.cumsum([s["processed_rows"] for s in ordered]) if ordered else np.zeros(1)
-    held = np.cumsum([s["final_rows"] - s["rows_replaced_in_older_files"] for s in ordered]) \
-        if ordered else np.zeros(1)
+    held = (
+        np.cumsum([s["final_rows"] - s["rows_replaced_in_older_files"] for s in ordered])
+        if ordered
+        else np.zeros(1)
+    )
     ymax = max(float(read.max()), 1.0)
     n = max(len(ordered), 1)
 
     def path(values: np.ndarray) -> str:
-        pts = [f"{left + plot_w * (i + 1) / n:.1f},{top + plot_h * (1 - v / ymax):.1f}"
-               for i, v in enumerate(values)]
+        pts = [
+            f"{left + plot_w * (i + 1) / n:.1f},{top + plot_h * (1 - v / ymax):.1f}"
+            for i, v in enumerate(values)
+        ]
         return "M" + " L".join(pts) if pts else ""
 
-    series = (("records read", read, "#8f9a95"), ("rows produced", produced, "#5b7f73"),
-              ("rows held after deduplication", held, "#2f5d50"))
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-           f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="12">',
-           f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
-           f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#6b6b6b"/>',
-           f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="#6b6b6b"/>']
+    series = (
+        ("records read", read, "#8f9a95"),
+        ("rows produced", produced, "#5b7f73"),
+        ("rows held after deduplication", held, "#2f5d50"),
+    )
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="12">',
+        f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#6b6b6b"/>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="#6b6b6b"/>',
+    ]
     for frac in (0, 0.25, 0.5, 0.75, 1.0):
         y = top + plot_h * (1 - frac)
-        out.append(f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="#3a3a3a">'
-                   f'{ymax * frac / 1e6:.1f}M</text>')
+        out.append(
+            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end" fill="#3a3a3a">'
+            f"{ymax * frac / 1e6:.1f}M</text>"
+        )
     x = left
     for label, values, colour in series:
         out.append(f'<path d="{path(values)}" fill="none" stroke="{colour}" stroke-width="2"/>')
         out.append(f'<rect x="{x}" y="18" width="12" height="12" fill="{colour}"/>')
         out.append(f'<text x="{x + 16}" y="28" fill="#1a1a1a" font-size="11">{label}</text>')
         x += 16 + 7 * len(label) + 24
-    out.append(f'<text x="{left + plot_w / 2}" y="{top + plot_h + 36}" text-anchor="middle" fill="#1a1a1a">'
-               f'donations in the order received (1 to {len(ordered)})</text>')
+    out.append(
+        f'<text x="{left + plot_w / 2}" y="{top + plot_h + 36}" text-anchor="middle" fill="#1a1a1a">'
+        f"donations in the order received (1 to {len(ordered)})</text>"
+    )
     out.append("</svg>")
     return "\n".join(out)
-
-
-
 
 
 def render_intake_svg(report: dict) -> str:
@@ -1404,9 +1801,11 @@ def render_intake_svg(report: dict) -> str:
     width, left, bar_w, row_h, top = 1000, 330, 470, 34, 20
     height = top + row_h * len(steps) + 20
     scale = bar_w / max(a["records"], 1)
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-           f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="13">',
-           f'<rect width="{width}" height="{height}" fill="#ffffff"/>']
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="13">',
+        f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
+    ]
     level = 0
     for i, (label, value, kind) in enumerate(steps):
         y = top + i * row_h
@@ -1416,15 +1815,18 @@ def render_intake_svg(report: dict) -> str:
             w = -value * scale
             x0, colour = left + (level + value) * scale, "#c9a227"
             level += value
-        out.append(f'<text x="{left - 12}" y="{y + 19}" text-anchor="end" fill="#1a1a1a">{label}</text>')
-        out.append(f'<rect x="{x0:.1f}" y="{y + 4}" width="{max(w, 1.0):.1f}" height="{row_h - 10}" fill="{colour}"/>')
+        out.append(
+            f'<text x="{left - 12}" y="{y + 19}" text-anchor="end" fill="#1a1a1a">{label}</text>'
+        )
+        out.append(
+            f'<rect x="{x0:.1f}" y="{y + 4}" width="{max(w, 1.0):.1f}" height="{row_h - 10}" fill="{colour}"/>'
+        )
         pct = f" ({100 * abs(value) / a['records']:.2f}%)" if kind == "loss" else ""
-        out.append(f'<text x="{left + bar_w + 12}" y="{y + 19}" fill="#3a3a3a">{abs(value):,}{pct}</text>')
+        out.append(
+            f'<text x="{left + bar_w + 12}" y="{y + 19}" fill="#3a3a3a">{abs(value):,}{pct}</text>'
+        )
     out.append("</svg>")
     return "\n".join(out)
-
-
-
 
 
 def render_gap_svg(report: dict) -> str:
@@ -1436,32 +1838,43 @@ def render_gap_svg(report: dict) -> str:
     width, height, left, top, plot_w, plot_h = 1000, 420, 80, 30, 880, 300
     bar = plot_w / len(labels)
     ymax = max(counts) / total * 100
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-           f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="12">',
-           f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
-           f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#6b6b6b"/>']
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" font-family="Helvetica, Arial, sans-serif" font-size="12">',
+        f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#6b6b6b"/>',
+    ]
     for i, (label, n) in enumerate(zip(labels, counts, strict=True)):
         share = n / total * 100
         h = plot_h * share / ymax
         x = left + i * bar
-        out.append(f'<rect x="{x + 6:.1f}" y="{top + plot_h - h:.1f}" width="{bar - 12:.1f}" height="{h:.1f}" '
-                   f'fill="#2f5d50"/>')
-        out.append(f'<text x="{x + bar / 2:.1f}" y="{top + plot_h - h - 6:.1f}" text-anchor="middle" '
-                   f'fill="#3a3a3a">{share:.1f}%</text>')
-        out.append(f'<text x="{x + bar / 2:.1f}" y="{top + plot_h + 18}" text-anchor="middle" '
-                   f'fill="#1a1a1a" font-size="11">{label}</text>')
+        out.append(
+            f'<rect x="{x + 6:.1f}" y="{top + plot_h - h:.1f}" width="{bar - 12:.1f}" height="{h:.1f}" '
+            f'fill="#2f5d50"/>'
+        )
+        out.append(
+            f'<text x="{x + bar / 2:.1f}" y="{top + plot_h - h - 6:.1f}" text-anchor="middle" '
+            f'fill="#3a3a3a">{share:.1f}%</text>'
+        )
+        out.append(
+            f'<text x="{x + bar / 2:.1f}" y="{top + plot_h + 18}" text-anchor="middle" '
+            f'fill="#1a1a1a" font-size="11">{label}</text>'
+        )
     for edge, label in ((5, "5 min"), (6, "15 min (production)"), (7, "30 min")):
         x = left + edge * bar
-        out.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" stroke="#a03530" '
-                   f'stroke-dasharray="4 3"/>')
-        out.append(f'<text x="{x + 4:.1f}" y="{top + 12 + 14 * (edge - 5)}" fill="#a03530" font-size="11">{label}</text>')
-    out.append(f'<text x="{left + plot_w / 2}" y="{height - 12}" text-anchor="middle" fill="#1a1a1a">'
-               f'gap between consecutive viewing events in a collection ({total:,} gaps)</text>')
+        out.append(
+            f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" stroke="#a03530" '
+            f'stroke-dasharray="4 3"/>'
+        )
+        out.append(
+            f'<text x="{x + 4:.1f}" y="{top + 12 + 14 * (edge - 5)}" fill="#a03530" font-size="11">{label}</text>'
+        )
+    out.append(
+        f'<text x="{left + plot_w / 2}" y="{height - 12}" text-anchor="middle" fill="#1a1a1a">'
+        f"gap between consecutive viewing events in a collection ({total:,} gaps)</text>"
+    )
     out.append("</svg>")
     return "\n".join(out)
-
-
-
 
 
 def write_rendered(out_dir: Path, report: dict, steps: list[dict] | None = None) -> None:
@@ -1474,23 +1887,20 @@ def write_rendered(out_dir: Path, report: dict, steps: list[dict] | None = None)
         (out_dir / "fig_replay_growth.svg").write_text(render_growth_svg(steps))
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # I/O: snapshot inputs, scratch store, the replay loop.
 # ---------------------------------------------------------------------------
 
+
 def load_intake_report_module(repo_root: Path):
     """Import ``scripts/intake_report.py`` for its snapshot-wiring helpers."""
-    spec = importlib.util.spec_from_file_location("fyp_intake_report", repo_root / "scripts" / "intake_report.py")
+    spec = importlib.util.spec_from_file_location(
+        "fyp_intake_report", repo_root / "scripts" / "intake_report.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-
 
 
 def write_scratch_config(repo_root: Path, store: Path, out_dir: Path, ir) -> Path:
@@ -1499,9 +1909,6 @@ def write_scratch_config(repo_root: Path, store: Path, out_dir: Path, ir) -> Pat
     overlay = config_path.parent / "config.local.toml"
     overlay.write_text(overlay.read_text() + "[features]\naio_aws_fetch = false\n")
     return config_path
-
-
-
 
 
 def snapshot_inputs(snapshot: Path) -> dict:
@@ -1514,7 +1921,9 @@ def snapshot_inputs(snapshot: Path) -> dict:
     """
     import polars as pl
 
-    ledger = json.loads((snapshot / "recoded" / "ingestion_ledger.json").read_text()).get("files", {})
+    ledger = json.loads((snapshot / "recoded" / "ingestion_ledger.json").read_text()).get(
+        "files", {}
+    )
     aio_dates: dict[str, datetime] = {}
     zones: dict[str, tuple] = {}
     aio_dir = snapshot / "activity_data" / "aio" / "aio_participants"
@@ -1525,39 +1934,62 @@ def snapshot_inputs(snapshot: Path) -> dict:
             if did and when:
                 aio_dates[did] = min(when, aio_dates.get(did, when))
             if did:
-                postcode = (item.get("postCode") or {}).get("S") or (item.get("postCode") or {}).get("N")
+                postcode = (item.get("postCode") or {}).get("S") or (
+                    item.get("postCode") or {}
+                ).get("N")
                 country = (item.get("country") or {}).get("S")
                 zones[did] = zone_from_postcode(postcode, country)
-    table = (pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-             .filter(pl.col("data_source") != "zeeschuimer")
-             .group_by("raw_file")
-             .agg(pl.col("ts_added_to_dataset").min().alias("first_added"), pl.len().alias("rows"),
-                  pl.col("collection_id").first().alias("collection_id"))
-             .collect())
+    table = (
+        pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
+        .filter(pl.col("data_source") != "zeeschuimer")
+        .group_by("raw_file")
+        .agg(
+            pl.col("ts_added_to_dataset").min().alias("first_added"),
+            pl.len().alias("rows"),
+            pl.col("collection_id").first().alias("collection_id"),
+        )
+        .collect()
+    )
     rows = list(table.iter_rows(named=True))
     return {
         "ledger": ledger,
         "aio_dates": aio_dates,
         "zones": zones,
-        "first_added": {r["raw_file"]: r["first_added"].replace(tzinfo=UTC) for r in rows if r["first_added"]},
+        "first_added": {
+            r["raw_file"]: r["first_added"].replace(tzinfo=UTC) for r in rows if r["first_added"]
+        },
         "prod_rows": {r["raw_file"]: int(r["rows"]) for r in rows},
         "prod_cid": {r["raw_file"]: r["collection_id"] for r in rows},
-        "prod_by_type": {str(k): int(v) for k, v in (
-            pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-            .filter(pl.col("data_source") != "zeeschuimer")
-            .group_by("activity_type").len().collect().iter_rows())},
-        "prod_by_platform_type": {f"{p}:{a}": int(n) for p, a, n in (
-            pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-            .filter(pl.col("data_source") != "zeeschuimer")
-            .group_by("source_platform", "activity_type").len().collect().iter_rows())},
+        "prod_by_type": {
+            str(k): int(v)
+            for k, v in (
+                pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
+                .filter(pl.col("data_source") != "zeeschuimer")
+                .group_by("activity_type")
+                .len()
+                .collect()
+                .iter_rows()
+            )
+        },
+        "prod_by_platform_type": {
+            f"{p}:{a}": int(n)
+            for p, a, n in (
+                pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
+                .filter(pl.col("data_source") != "zeeschuimer")
+                .group_by("source_platform", "activity_type")
+                .len()
+                .collect()
+                .iter_rows()
+            )
+        },
         "prod_collections": int(
             pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
             .filter(pl.col("data_source") != "zeeschuimer")
-            .select(pl.col("collection_id").n_unique()).collect().item()),
+            .select(pl.col("collection_id").n_unique())
+            .collect()
+            .item()
+        ),
     }
-
-
-
 
 
 def list_raw_files(snapshot: Path) -> list[dict]:
@@ -1567,11 +1999,10 @@ def list_raw_files(snapshot: Path) -> list[dict]:
         d = snapshot / "activity_data" / spec["group"] / spec["folder"]
         for p in sorted(d.iterdir()) if d.is_dir() else []:
             if p.is_file() and not p.name.startswith(".") and p.name != MANIFEST_FILENAME:
-                files.append({"raw_file": p.name, "route": route, "platform": spec["platform"], "path": p})
+                files.append(
+                    {"raw_file": p.name, "route": route, "platform": spec["platform"], "path": p}
+                )
     return files
-
-
-
 
 
 def census_all(files: list[dict], parser_cls) -> tuple[dict[str, dict], dict[str, str]]:
@@ -1588,9 +2019,6 @@ def census_all(files: list[dict], parser_cls) -> tuple[dict[str, dict], dict[str
         except Exception as exc:  # the replay records the parser's own verdict on these files
             errors[f["raw_file"]] = str(exc)
     return census, errors
-
-
-
 
 
 def _ingest_pass(main, use_sentinel: bool) -> dict:
@@ -1646,33 +2074,55 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
         for sub in main.collections:
             quarantined.update(sub.quarantined_this_run)
 
-    frames = {(sub.source_platform, sub.data_source): sub.data.copy() for sub in main.collections
-              if sub.state == "processed" and len(sub.data)}
-    load_failed = {fn: {"error": err, "platform": s.source_platform, "source": s.data_source}
-                   for s in main.collections for fn, err in s.load_failed_this_run.items()}
+    frames = {
+        (sub.source_platform, sub.data_source): sub.data.copy()
+        for sub in main.collections
+        if sub.state == "processed" and len(sub.data)
+    }
+    load_failed = {
+        fn: {"error": err, "platform": s.source_platform, "source": s.data_source}
+        for s in main.collections
+        for fn, err in s.load_failed_this_run.items()
+    }
     file_stats: dict[str, dict] = {}
     for sub in main.collections:
         file_stats.update(getattr(sub, "file_stats_this_run", {}) or {})
 
     main.migrate_sub_collections()
     summary = _build_per_file_summary(
-        main, raw_counts=raw_counts, processed_counts=processed_counts,
-        discarded_at_load=discarded_after - discarded_before, existing_raw_files=existing,
-        quarantined=quarantined, load_failed=load_failed, file_stats=file_stats,
-        pre_cids=pre_cids, cid_remap=getattr(main, "last_cid_remap", {}) or {},
+        main,
+        raw_counts=raw_counts,
+        processed_counts=processed_counts,
+        discarded_at_load=discarded_after - discarded_before,
+        existing_raw_files=existing,
+        quarantined=quarantined,
+        load_failed=load_failed,
+        file_stats=file_stats,
+        pre_cids=pre_cids,
+        cid_remap=getattr(main, "last_cid_remap", {}) or {},
     )
     main.update_ledger(summary)
     if sentinel is not None:
-        sentinel.commit(ingested_filenames={e["filename"] for e in summary
-                                            if e.get("outcome") in ("added_as_new", "merged_with_existing")})
+        sentinel.commit(
+            ingested_filenames={
+                e["filename"]
+                for e in summary
+                if e.get("outcome") in ("added_as_new", "merged_with_existing")
+            }
+        )
     replaced, _elsewhere = _removed_rows_breakdown(
-        main.data, pre_counts, pre_cids, getattr(main, "last_cid_remap", {}) or {}, summary)
+        main.data, pre_counts, pre_cids, getattr(main, "last_cid_remap", {}) or {}, summary
+    )
     observations = dict(sentinel.observations) if sentinel is not None else {}
-    return {"summary": summary, "frames": frames, "replaced": int(replaced), "existing": existing,
-            "pre_counts": pre_counts, "pre_cids": pre_cids, "observations": observations}
-
-
-
+    return {
+        "summary": summary,
+        "frames": frames,
+        "replaced": int(replaced),
+        "existing": existing,
+        "pre_counts": pre_counts,
+        "pre_cids": pre_cids,
+        "observations": observations,
+    }
 
 
 def _verdict_record(verdict: dict | None) -> dict:
@@ -1681,18 +2131,25 @@ def _verdict_record(verdict: dict | None) -> dict:
         return {"status": None, "findings": []}
     return {
         "status": verdict.get("status"),
-        "findings": [f"{f.get('layer')}:{f.get('code')}:{f.get('severity')}" for f in verdict.get("findings") or []],
+        "findings": [
+            f"{f.get('layer')}:{f.get('code')}:{f.get('severity')}"
+            for f in verdict.get("findings") or []
+        ],
         "withheld_sections": len(verdict.get("withheld_sections") or []),
     }
 
 
-
-
-
-def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, dict],
-           limit: int | None, log, use_sentinel: bool = True,
-           review: str = "approve", zones: dict[str, tuple] | None = None,
-           calibrate=None) -> tuple[list[dict], dict, dict, object]:
+def replay(
+    order_rows: list[dict],
+    census: dict[str, dict],
+    ledger: dict[str, dict],
+    limit: int | None,
+    log,
+    use_sentinel: bool = True,
+    review: str = "approve",
+    zones: dict[str, tuple] | None = None,
+    calibrate=None,
+) -> tuple[list[dict], dict, dict, object]:
     """Ingest the files one at a time, in ``order_rows`` order, into the configured store.
 
     ``main`` points the configuration at the scratch store before calling
@@ -1739,7 +2196,12 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
         mod.derive_play_duration = instrumented_fold
     main = ForYouCollection(verbose=False)
     main.collections = []
-    for cls in (TikTokDDPCollection, TikTokAIOCollection, InstagramDDPCollection, YouTubeDDPCollection):
+    for cls in (
+        TikTokDDPCollection,
+        TikTokAIOCollection,
+        InstagramDDPCollection,
+        YouTubeDDPCollection,
+    ):
         main.register_collection_class(cls)
 
     rank_of = {r["raw_file"]: r["rank"] for r in order_rows}
@@ -1766,8 +2228,13 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             (raw_dir / MANIFEST_FILENAME).write_text(json.dumps({name: entry}))
             baseline_n = None
             if use_sentinel:
-                key = sentinel_mod.baseline_key(platform, source, "reviewed" if led.get("client_reviewed") else None)
-                baseline_n = int((sentinel_mod.load_baselines()["baselines"].get(key) or {}).get("n_accepted") or 0)
+                key = sentinel_mod.baseline_key(
+                    platform, source, "reviewed" if led.get("client_reviewed") else None
+                )
+                baseline_n = int(
+                    (sentinel_mod.load_baselines()["baselines"].get(key) or {}).get("n_accepted")
+                    or 0
+                )
 
             first = _ingest_pass(main, use_sentinel)
             first_verdict = _verdict_record(first["observations"].get(name))
@@ -1778,7 +2245,9 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                 if review == "approve":
                     sentinel_mod.approve_file(name, reviewed_by="replay")
                     main.remove_from_ledger(name)
-                    for lst in [main.discarded_raw_files] + [sub.discarded_raw_files for sub in main.collections]:
+                    for lst in [main.discarded_raw_files] + [
+                        sub.discarded_raw_files for sub in main.collections
+                    ]:
                         while name in lst:
                             lst.remove(name)
                     final = _ingest_pass(main, use_sentinel)
@@ -1788,10 +2257,18 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                     sentinel_mod.reject_file(name, reviewed_by="replay")
             summary = final["summary"]
             replaced = final["replaced"]
-            existing, pre_counts, pre_cids = final["existing"], final["pre_counts"], final["pre_cids"]
+            existing, pre_counts, pre_cids = (
+                final["existing"],
+                final["pre_counts"],
+                final["pre_cids"],
+            )
             mine = next((e for e in summary if e["filename"] == name), None) or {
-                "outcome": "not_seen", "processed_rows": 0, "final_rows": 0, "dropped": {},
-                "merged_with_siblings": []}
+                "outcome": "not_seen",
+                "processed_rows": 0,
+                "final_rows": 0,
+                "dropped": {},
+                "merged_with_siblings": [],
+            }
             dest.unlink(missing_ok=True)
             (raw_dir / MANIFEST_FILENAME).write_text("{}")
 
@@ -1808,13 +2285,20 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             if len(new_frame):
                 new_frame = new_frame[new_frame["raw_file"].astype(str) == name]
             if len(new_frame):
-                unification[name] = {str(k): int(v) for k, v in
-                                     new_frame["activity_type"].astype("string").value_counts().items()}
-            overlap = prior_overlap(seconds_of(new_frame).get(name, set()) if len(new_frame) else set(), prior_sets)
+                unification[name] = {
+                    str(k): int(v)
+                    for k, v in new_frame["activity_type"].astype("string").value_counts().items()
+                }
+            overlap = prior_overlap(
+                seconds_of(new_frame).get(name, set()) if len(new_frame) else set(), prior_sets
+            )
 
             post = main.data
             if len(post):
-                post_counts = {str(f): int(c) for f, c in post.groupby("raw_file", observed=True).size().items()}
+                post_counts = {
+                    str(f): int(c)
+                    for f, c in post.groupby("raw_file", observed=True).size().items()
+                }
                 for f in set(pre_counts) - set(post_counts):
                     prior_sets.pop(f, None)
                 changed = {f for f, c in post_counts.items() if pre_counts.get(f) != c}
@@ -1825,9 +2309,11 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             cen = census.get(name)
             matches = None
             if cen and mine["outcome"] in ("added_as_new", "merged_with_existing", "fully_deduped"):
-                matches = (int(dropped.get("outside_whitelist", 0)) == cen["outside_whitelist"]
-                           and int(dropped.get("not_parseable", 0)) == sum(cen["not_parseable"].values())
-                           and int(dropped.get("share_copies_merged", 0)) == cen["share_copies_merged"])
+                matches = (
+                    int(dropped.get("outside_whitelist", 0)) == cen["outside_whitelist"]
+                    and int(dropped.get("not_parseable", 0)) == sum(cen["not_parseable"].values())
+                    and int(dropped.get("share_copies_merged", 0)) == cen["share_copies_merged"]
+                )
             lc = links.get(name)
             processed = int(mine.get("processed_rows") or 0)
             final_rows = int(mine.get("final_rows") or 0)
@@ -1837,12 +2323,17 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             cal: dict = {}
             if len(new_frame):
                 tz_mode = float(new_frame["tz_offset"].astype("float64").mode().iloc[0])
-                median_utc = pd.to_datetime(new_frame["utc_timestamp"], utc=True).median().isoformat()
+                median_utc = (
+                    pd.to_datetime(new_frame["utc_timestamp"], utc=True).median().isoformat()
+                )
                 if zone and calibrate is not None:
                     cal = calibrate(new_frame["utc_timestamp"], zone)
             step = {
                 "_step": step_no,
-                "rank": row["rank"], "raw_file": name, "route": route, "platform": platform,
+                "rank": row["rank"],
+                "raw_file": name,
+                "route": route,
+                "platform": platform,
                 "order_source": row["order_source"],
                 "order_ts": row["order_ts"].isoformat() if row["order_ts"] else None,
                 "records": cen["records"] if cen else int(mine.get("raw_rows") or 0),
@@ -1860,7 +2351,9 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                 "merged_with_earlier": bool(set(partners) & existing),
                 "merged_with_ranks": ";".join(str(rank_of.get(s, "?")) for s in partners),
                 "max_overlap": round(overlap["max_overlap"], 4),
-                "max_overlap_rank": rank_of.get(overlap["max_partner"]) if overlap["max_partner"] else None,
+                "max_overlap_rank": rank_of.get(overlap["max_partner"])
+                if overlap["max_partner"]
+                else None,
                 "files_touching": overlap["files_touching"],
                 "table_rows_after": len(post),
                 "collections_after": int(post["collection_id"].nunique()) if len(post) else 0,
@@ -1881,17 +2374,20 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                 "seconds": round(time.perf_counter() - t0, 2),
             }
             steps.append(step)
-            flag = f" [sentinel {first_verdict['status']}]" if first_verdict["status"] in ("warn", "quarantined") else ""
-            log(f"[{step_no}/{len(todo)}] rank {row['rank']} {route} {mine['outcome']}{flag}: "
+            flag = (
+                f" [sentinel {first_verdict['status']}]"
+                if first_verdict["status"] in ("warn", "quarantined")
+                else ""
+            )
+            log(
+                f"[{step_no}/{len(todo)}] rank {row['rank']} {route} {mine['outcome']}{flag}: "
                 f"{step['records']:,} records -> {processed:,} rows, {replaced:,} superseded in older files, "
-                f"table {len(post):,} ({step['seconds']}s)")
+                f"table {len(post):,} ({step['seconds']}s)"
+            )
     finally:
         for mod in fold_modules:
             mod.derive_play_duration = original_fold
     return steps, links, unification, main
-
-
-
 
 
 def write_csv(path: Path, rows: list[dict], columns) -> None:
@@ -1900,9 +2396,6 @@ def write_csv(path: Path, rows: list[dict], columns) -> None:
         writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
-
-
-
 
 
 def _json_default(value):
@@ -1917,28 +2410,46 @@ def _json_default(value):
     return str(value)
 
 
-
-
-
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--snapshot", help="snapshot root holding recoded/ and activity_data/")
-    parser.add_argument("--out", required=True, help="output directory (the scratch store lives inside it)")
-    parser.add_argument("--render", action="store_true",
-                        help="only redraw the tables and figures from <out>/replay_report.json")
+    parser.add_argument(
+        "--out", required=True, help="output directory (the scratch store lives inside it)"
+    )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="only redraw the tables and figures from <out>/replay_report.json",
+    )
     parser.add_argument("--order", choices=("donation", "reverse", "shuffle"), default="donation")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--limit", type=int, help="replay only the first N files of the order")
-    parser.add_argument("--compare-with", help="another replay's --out, for the order-dependence check")
-    parser.add_argument("--no-sentinel", action="store_true", help="replay without the structure sentinel")
-    parser.add_argument("--keep-copies", action="store_true",
-                        help="also replay files that repeat an earlier file byte for byte (test uploads)")
-    parser.add_argument("--save-table", action="store_true",
-                        help="also write the final activity table to <out>/_final_table.parquet (participant data: "
-                             "keep it local and delete it with the snapshot)")
-    parser.add_argument("--review", choices=("approve", "reject"), default="approve",
-                        help="what the simulated operator does with a quarantined file")
+    parser.add_argument(
+        "--compare-with", help="another replay's --out, for the order-dependence check"
+    )
+    parser.add_argument(
+        "--no-sentinel", action="store_true", help="replay without the structure sentinel"
+    )
+    parser.add_argument(
+        "--keep-copies",
+        action="store_true",
+        help="also replay files that repeat an earlier file byte for byte (test uploads)",
+    )
+    parser.add_argument(
+        "--save-table",
+        action="store_true",
+        help="also write the final activity table to <out>/_final_table.parquet (participant data: "
+        "keep it local and delete it with the snapshot)",
+    )
+    parser.add_argument(
+        "--review",
+        choices=("approve", "reject"),
+        default="approve",
+        help="what the simulated operator does with a quarantined file",
+    )
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args(argv)
 
@@ -1995,8 +2506,16 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.perf_counter()
     steps, links, unification, main_collection = replay(
-        order_rows, census, inputs["ledger"], args.limit, log, use_sentinel=not args.no_sentinel,
-        review=args.review, zones=inputs["zones"], calibrate=ir.calibrate_one_file)
+        order_rows,
+        census,
+        inputs["ledger"],
+        args.limit,
+        log,
+        use_sentinel=not args.no_sentinel,
+        review=args.review,
+        zones=inputs["zones"],
+        calibrate=ir.calibrate_one_file,
+    )
     elapsed = time.perf_counter() - t0
     # What run_ingest_refresh does after the merge and before saving.
     main_collection.add_local_time_features()
@@ -2006,24 +2525,40 @@ def main(argv: list[str] | None = None) -> int:
     files_seen: Counter = Counter()
     for name in replayed:
         files_seen.update(set((census.get(name) or {}).get("by_section", {})))
-    report = aggregate(steps, {k: v for k, v in census.items() if k in replayed},
-                       {k: v for k, v in links.items() if k in replayed}, unification,
-                       [r for r in order_rows if r["raw_file"] in replayed], dict(files_seen))
+    report = aggregate(
+        steps,
+        {k: v for k, v in census.items() if k in replayed},
+        {k: v for k, v in links.items() if k in replayed},
+        unification,
+        [r for r in order_rows if r["raw_file"] in replayed],
+        dict(files_seen),
+    )
     data = main_collection.data
     final_files: list[dict] = []
     if len(data):
         grp = data.groupby("raw_file", observed=True)["collection_id"]
-        final_files = [{"raw_file": str(f), "final_rows": int(n), "collection_id": str(c)}
-                       for (f, n), c in zip(grp.size().items(), grp.first().tolist(), strict=True)]
+        final_files = [
+            {"raw_file": str(f), "final_rows": int(n), "collection_id": str(c)}
+            for (f, n), c in zip(grp.size().items(), grp.first().tolist(), strict=True)
+        ]
         report["rows_by_type_vs_production"] = rows_by_type_comparison(
             inputs["prod_by_type"],
-            {str(k): int(v) for k, v in data["activity_type"].astype("string").value_counts().items()})
-        report["collections_vs_production"] = {"production": inputs["prod_collections"],
-                                               "replay": int(data["collection_id"].nunique())}
-        report["final_link_method"] = {str(k): int(v) for k, v in
-                                       data["link_method"].astype("string").value_counts(dropna=False).items()}
+            {
+                str(k): int(v)
+                for k, v in data["activity_type"].astype("string").value_counts().items()
+            },
+        )
+        report["collections_vs_production"] = {
+            "production": inputs["prod_collections"],
+            "replay": int(data["collection_id"].nunique()),
+        }
+        report["final_link_method"] = {
+            str(k): int(v)
+            for k, v in data["link_method"].astype("string").value_counts(dropna=False).items()
+        }
     report["fidelity"] = fidelity(
-        {k: v for k, v in inputs["prod_rows"].items() if k in replayed}, inputs["prod_cid"],
+        {k: v for k, v in inputs["prod_rows"].items() if k in replayed},
+        inputs["prod_cid"],
         {r["raw_file"]: r["final_rows"] for r in final_files},
         {r["raw_file"]: r["collection_id"] for r in final_files},
     )
@@ -2032,23 +2567,36 @@ def main(argv: list[str] | None = None) -> int:
     report["time_zone"] = tz_summary(steps)
     if len(data):
         report["sessions"] = session_census(data)
-    report["raw_files_found"] = {route: sum(1 for f in files if f["route"] == route) for route in ROUTES}
+    report["raw_files_found"] = {
+        route: sum(1 for f in files if f["route"] == route) for route in ROUTES
+    }
     report["byte_copies_left_out"] = {} if args.keep_copies else dict(excluded)
     if len(data):
         from fyp.core.activity_contract import load_contract
         from fyp.ingest.instagram import InstagramDDPCollection
         from fyp.ingest.tiktok import TikTokAIOCollection, TikTokDDPCollection
         from fyp.ingest.youtube import YouTubeDDPCollection
-        declared = {"tiktok": TikTokDDPCollection.emitted_activity_types | TikTokAIOCollection.emitted_activity_types,
-                    "instagram": InstagramDDPCollection.emitted_activity_types,
-                    "youtube": YouTubeDDPCollection.emitted_activity_types}
+
+        declared = {
+            "tiktok": TikTokDDPCollection.emitted_activity_types
+            | TikTokAIOCollection.emitted_activity_types,
+            "instagram": InstagramDDPCollection.emitted_activity_types,
+            "youtube": YouTubeDDPCollection.emitted_activity_types,
+        }
         report["platform_mapping"] = platform_mapping(data, steps, load_contract(), declared)
-    report["production_files_without_raw"] = len(set(inputs["prod_rows"]) - {f["raw_file"] for f in files})
+    report["production_files_without_raw"] = len(
+        set(inputs["prod_rows"]) - {f["raw_file"] for f in files}
+    )
     if args.compare_with:
         with (Path(args.compare_with).expanduser() / "final_files.csv").open() as fh:
             report["order_dependence"] = compare_runs(final_files, list(csv.DictReader(fh)))
-    report["run"] = {"git_head": ir.git_head(repo_root), "run_at": datetime.now(UTC).isoformat(),
-                     "seconds": round(elapsed, 1), "files_replayed": len(steps), "args": vars(args)}
+    report["run"] = {
+        "git_head": ir.git_head(repo_root),
+        "run_at": datetime.now(UTC).isoformat(),
+        "seconds": round(elapsed, 1),
+        "files_replayed": len(steps),
+        "args": vars(args),
+    }
 
     out_dir.mkdir(parents=True, exist_ok=True)
     if args.save_table and len(data):
@@ -2057,17 +2605,33 @@ def main(argv: list[str] | None = None) -> int:
     write_rendered(out_dir, report, steps)
     write_csv(out_dir / "replay_steps.csv", steps, STEP_COLUMNS)
     write_csv(out_dir / "final_files.csv", final_files, ("raw_file", "final_rows", "collection_id"))
-    write_csv(out_dir / "donation_order.csv",
-              [{"rank": r["rank"], "raw_file": r["raw_file"], "route": r["route"],
-                "order_source": r["order_source"], "order_ts": r["order_ts"],
-                **{f"cand_{k}": v for k, v in r["candidates"].items()}} for r in order_rows],
-              ["rank", "raw_file", "route", "order_source", "order_ts", *[f"cand_{k}" for k in ORDER_SOURCES]])
-    log(f"wrote replay_report.json, replay_tables.md, fig_replay_growth.svg, replay_steps.csv, "
-        f"final_files.csv and donation_order.csv to {out_dir} ({elapsed:.0f}s)")
+    write_csv(
+        out_dir / "donation_order.csv",
+        [
+            {
+                "rank": r["rank"],
+                "raw_file": r["raw_file"],
+                "route": r["route"],
+                "order_source": r["order_source"],
+                "order_ts": r["order_ts"],
+                **{f"cand_{k}": v for k, v in r["candidates"].items()},
+            }
+            for r in order_rows
+        ],
+        [
+            "rank",
+            "raw_file",
+            "route",
+            "order_source",
+            "order_ts",
+            *[f"cand_{k}" for k in ORDER_SOURCES],
+        ],
+    )
+    log(
+        f"wrote replay_report.json, replay_tables.md, fig_replay_growth.svg, replay_steps.csv, "
+        f"final_files.csv and donation_order.csv to {out_dir} ({elapsed:.0f}s)"
+    )
     return 0
-
-
-
 
 
 if __name__ == "__main__":

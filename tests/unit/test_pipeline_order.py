@@ -107,7 +107,8 @@ def test_dependency_invariants():
     # its own input has not written yet.
     violations = [
         (step.name, parent)
-        for step in rp.STEPS for parent in step.parents
+        for step in rp.STEPS
+        for parent in step.parents
         if _idx(parent) >= _idx(step.name)
     ]
     # The two multi-parent steps that a fixed chain got wrong: timelines joins
@@ -117,8 +118,11 @@ def test_dependency_invariants():
         "video_map_refresh" in rp.BY_NAME["timelines_refresh"].parents
         and "video_map_refresh" in rp.BY_NAME["sessions_refresh"].parents
     )
-    _check("test_dependency_invariants", not violations and reads_map,
-           f"violations={violations} reads_map={reads_map}")
+    _check(
+        "test_dependency_invariants",
+        not violations and reads_map,
+        f"violations={violations} reads_map={reads_map}",
+    )
 
 
 def test_every_step_has_a_stage_label():
@@ -131,18 +135,31 @@ def test_every_step_has_a_local_script():
     script_map = local_pipeline_script_map()
     missing = [s for s in rp.DOWNSTREAM_ORDER if s not in script_map]
     extra = [s for s in script_map if s not in rp.DOWNSTREAM_ORDER]
-    _check("test_every_step_has_a_local_script", not missing and not extra,
-           f"missing={missing} extra={extra}")
+    _check(
+        "test_every_step_has_a_local_script",
+        not missing and not extra,
+        f"missing={missing} extra={extra}",
+    )
 
 
 def test_dependents_of_each_origin():
     expected = {
         "consolidate_enrichment": rp.DOWNSTREAM_ORDER,
-        "embeddings_refresh": ["video_map_refresh", "recode_refresh_studies",
-                               "meta_refresh_groups", "pca_refresh",
-                               "timelines_refresh", "sessions_refresh"],
-        "video_map_refresh": ["recode_refresh_studies", "meta_refresh_groups",
-                              "pca_refresh", "timelines_refresh", "sessions_refresh"],
+        "embeddings_refresh": [
+            "video_map_refresh",
+            "recode_refresh_studies",
+            "meta_refresh_groups",
+            "pca_refresh",
+            "timelines_refresh",
+            "sessions_refresh",
+        ],
+        "video_map_refresh": [
+            "recode_refresh_studies",
+            "meta_refresh_groups",
+            "pca_refresh",
+            "timelines_refresh",
+            "sessions_refresh",
+        ],
         "recode_refresh_studies": ["meta_refresh_groups", "pca_refresh"],
         "meta_refresh_groups": [],
         "pca_refresh": [],
@@ -159,8 +176,9 @@ def test_dependents_of_each_origin():
 def test_consolidate_plans_everything():
     record = rp.plan_run("consolidate_enrichment", kind="consolidate")
     states = _states(record)
-    ok = (states["consolidate_enrichment"] == "origin"
-          and all(states[s] == "planned" for s in rp.DOWNSTREAM_ORDER))
+    ok = states["consolidate_enrichment"] == "origin" and all(
+        states[s] == "planned" for s in rp.DOWNSTREAM_ORDER
+    )
     _check("test_consolidate_plans_everything", ok, str(states))
 
 
@@ -169,27 +187,30 @@ def test_card_origin_marks_earlier_steps_upstream():
     # run" rather than "not needed", which would imply a judgement was made.
     record = rp.plan_run("video_map_refresh", kind="card")
     states = _states(record)
-    ok = (states["consolidate_enrichment"] == "upstream"
-          and states["embeddings_refresh"] == "upstream"
-          and states["video_map_refresh"] == "origin"
-          and states["recode_refresh_studies"] == "planned"
-          and states["sessions_refresh"] == "planned")
+    ok = (
+        states["consolidate_enrichment"] == "upstream"
+        and states["embeddings_refresh"] == "upstream"
+        and states["video_map_refresh"] == "origin"
+        and states["recode_refresh_studies"] == "planned"
+        and states["sessions_refresh"] == "planned"
+    )
     _check("test_card_origin_marks_earlier_steps_upstream", ok, str(states))
 
 
 def test_leaf_origin_plans_nothing():
     record = rp.plan_run("timelines_refresh", kind="card")
     states = _states(record)
-    ok = (states["timelines_refresh"] == "origin"
-          and not any(v == "planned" for v in states.values())
-          # sessions comes after timelines but reads nothing it writes.
-          and states["sessions_refresh"] == "not_planned")
+    ok = (
+        states["timelines_refresh"] == "origin"
+        and not any(v == "planned" for v in states.values())
+        # sessions comes after timelines but reads nothing it writes.
+        and states["sessions_refresh"] == "not_planned"
+    )
     _check("test_leaf_origin_plans_nothing", ok, str(states))
 
 
 def test_consolidate_only_plans_nothing():
-    record = rp.plan_run("consolidate_enrichment", kind="consolidate",
-                         mode="consolidate_only")
+    record = rp.plan_run("consolidate_enrichment", kind="consolidate", mode="consolidate_only")
     states = _states(record)
     ok = all(states[s] == "not_planned" for s in rp.DOWNSTREAM_ORDER)
     _check("test_consolidate_only_plans_nothing", ok, str(states))
@@ -200,11 +221,16 @@ def test_stage_total_is_tree_depth():
     full = rp.plan_run("consolidate_enrichment", kind="consolidate")
     from_map = rp.plan_run("video_map_refresh", kind="card")
     from_recode = rp.plan_run("recode_refresh_studies", kind="card")
-    ok = (full["stage_total"] == 5          # consolidate, embeddings, map, recode, leaves
-          and from_map["stage_total"] == 3  # map, recode, leaves
-          and from_recode["stage_total"] == 2)  # recode, leaves
-    _check("test_stage_total_is_tree_depth",
-           ok, f"{full['stage_total']}/{from_map['stage_total']}/{from_recode['stage_total']}")
+    ok = (
+        full["stage_total"] == 5  # consolidate, embeddings, map, recode, leaves
+        and from_map["stage_total"] == 3  # map, recode, leaves
+        and from_recode["stage_total"] == 2
+    )  # recode, leaves
+    _check(
+        "test_stage_total_is_tree_depth",
+        ok,
+        f"{full['stage_total']}/{from_map['stage_total']}/{from_recode['stage_total']}",
+    )
 
 
 # -------- Pruning --------
@@ -214,54 +240,74 @@ def test_map_that_moved_nothing_prunes_everything():
     # The whole point: a warm-started rebuild that moves no video between
     # niches leaves every downstream cache correct.
     record = rp.plan_run("video_map_refresh", kind="card")
-    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 0,
-                                              "map_cold_start": False}})
+    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 0, "map_cold_start": False}})
     action = rp.next_actions(record, ctx)
     states = _states(record)
-    ok = (action["action"] == "finish"
-          and all(states[s] == "pruned" for s in rp.dependents_of("video_map_refresh"))
-          and "niche" in (action["prunes"].get("recode_refresh_studies") or ""))
-    _check("test_map_that_moved_nothing_prunes_everything", ok,
-           str((action["action"], action["prunes"])))
+    ok = (
+        action["action"] == "finish"
+        and all(states[s] == "pruned" for s in rp.dependents_of("video_map_refresh"))
+        and "niche" in (action["prunes"].get("recode_refresh_studies") or "")
+    )
+    _check(
+        "test_map_that_moved_nothing_prunes_everything",
+        ok,
+        str((action["action"], action["prunes"])),
+    )
 
 
 def test_map_that_moved_dispatches_recode_for_all_studies():
     record = rp.plan_run("video_map_refresh", kind="card")
     ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 3120}})
     action = rp.next_actions(record, ctx)
-    ok = (action["action"] == "spine"
-          and action["step"] == "recode_refresh_studies"
-          # No study filter: a moved partition re-niches every study.
-          and action["task_args"] == {})
+    ok = (
+        action["action"] == "spine"
+        and action["step"] == "recode_refresh_studies"
+        # No study filter: a moved partition re-niches every study.
+        and action["task_args"] == {}
+    )
     _check("test_map_that_moved_dispatches_recode_for_all_studies", ok, str(action))
 
 
 def test_meta_and_pca_scoped_to_changed_studies():
     record = rp.plan_run("video_map_refresh", kind="card")
     record["steps"]["recode_refresh_studies"] = {"state": "dispatched"}
-    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 10},
-                        "recode_refresh_studies": {"studies_changed": ["a", "b"],
-                                                   "studies_unchanged": ["c"]}})
+    ctx = _ctx(
+        record,
+        {
+            "video_map_refresh": {"map_niche_changed": 10},
+            "recode_refresh_studies": {"studies_changed": ["a", "b"], "studies_unchanged": ["c"]},
+        },
+    )
     action = rp.next_actions(record, ctx)
     leaves = dict(action["leaves"])
-    ok = (action["action"] == "fork"
-          and leaves.get("meta_refresh_groups") == {"studies": "a,b"}
-          and leaves.get("pca_refresh") == {"studies": "a,b"})
+    ok = (
+        action["action"] == "fork"
+        and leaves.get("meta_refresh_groups") == {"studies": "a,b"}
+        and leaves.get("pca_refresh") == {"studies": "a,b"}
+    )
     _check("test_meta_and_pca_scoped_to_changed_studies", ok, str(action["leaves"]))
 
 
 def test_unchanged_studies_prune_meta_and_pca():
     record = rp.plan_run("video_map_refresh", kind="card")
     record["steps"]["recode_refresh_studies"] = {"state": "dispatched"}
-    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 10},
-                        "recode_refresh_studies": {"studies_changed": []}})
+    ctx = _ctx(
+        record,
+        {
+            "video_map_refresh": {"map_niche_changed": 10},
+            "recode_refresh_studies": {"studies_changed": []},
+        },
+    )
     action = rp.next_actions(record, ctx)
     leaves = dict(action["leaves"])
     states = _states(record)
-    ok = (states["meta_refresh_groups"] == "pruned"
-          and states["pca_refresh"] == "pruned"
-          # timelines and sessions still run: they read the map, not the studies.
-          and "timelines_refresh" in leaves and "sessions_refresh" in leaves)
+    ok = (
+        states["meta_refresh_groups"] == "pruned"
+        and states["pca_refresh"] == "pruned"
+        # timelines and sessions still run: they read the map, not the studies.
+        and "timelines_refresh" in leaves
+        and "sessions_refresh" in leaves
+    )
     _check("test_unchanged_studies_prune_meta_and_pca", ok, str((states, list(leaves))))
 
 
@@ -269,13 +315,21 @@ def test_embeddings_that_wrote_nothing_prune_the_map():
     record = rp.plan_run("consolidate_enrichment", kind="consolidate")
     record["steps"]["consolidate_enrichment"] = {"state": "origin"}
     record["steps"]["embeddings_refresh"] = {"state": "dispatched"}
-    ctx = _ctx(record,
-               {"consolidate_enrichment": {}, "embeddings_refresh": {"embeddings_embedded_run": 0}},
-               {"new_annotation_item_count": 40, "affected_study_names": [],
-                "affected_collection_ids": []})
+    ctx = _ctx(
+        record,
+        {"consolidate_enrichment": {}, "embeddings_refresh": {"embeddings_embedded_run": 0}},
+        {
+            "new_annotation_item_count": 40,
+            "affected_study_names": [],
+            "affected_collection_ids": [],
+        },
+    )
     rp.next_actions(record, ctx)
-    _check("test_embeddings_that_wrote_nothing_prune_the_map",
-           _states(record)["video_map_refresh"] == "pruned", str(_states(record)))
+    _check(
+        "test_embeddings_that_wrote_nothing_prune_the_map",
+        _states(record)["video_map_refresh"] == "pruned",
+        str(_states(record)),
+    )
 
 
 def test_missing_signal_never_prunes():
@@ -293,31 +347,46 @@ def test_fork_comes_from_the_last_step_that_ran():
     record = rp.plan_run("embeddings_refresh", kind="card")
     record["steps"]["embeddings_refresh"] = {"state": "origin"}
     record["steps"]["video_map_refresh"] = {"state": "dispatched"}
-    ctx = _ctx(record, {"embeddings_refresh": {"embeddings_embedded_run": 900},
-                        "video_map_refresh": {"map_niche_changed": 7}})
+    ctx = _ctx(
+        record,
+        {
+            "embeddings_refresh": {"embeddings_embedded_run": 900},
+            "video_map_refresh": {"map_niche_changed": 7},
+        },
+    )
     # recode would run here (the map moved), so prune it by hand to isolate the
     # fan-out rule: with no spine step left, the leaves go together.
     record["steps"]["recode_refresh_studies"] = {"state": "pruned"}
     action = rp.next_actions(record, ctx)
     leaves = [n for n, _ in action["leaves"]]
-    ok = (action["action"] == "fork"
-          and leaves == ["timelines_refresh", "sessions_refresh"]
-          and _states(record)["meta_refresh_groups"] == "pruned")
+    ok = (
+        action["action"] == "fork"
+        and leaves == ["timelines_refresh", "sessions_refresh"]
+        and _states(record)["meta_refresh_groups"] == "pruned"
+    )
     _check("test_fork_comes_from_the_last_step_that_ran", ok, str((action["action"], leaves)))
 
 
 def test_collection_only_impact_forks_from_consolidate():
     record = rp.plan_run("consolidate_enrichment", kind="consolidate")
     record["steps"]["consolidate_enrichment"] = {"state": "origin"}
-    ctx = _ctx(record, {"consolidate_enrichment": {}},
-               {"new_annotation_item_count": 0, "affected_study_names": [],
-                "affected_collection_ids": ["c1", "c2"]})
+    ctx = _ctx(
+        record,
+        {"consolidate_enrichment": {}},
+        {
+            "new_annotation_item_count": 0,
+            "affected_study_names": [],
+            "affected_collection_ids": ["c1", "c2"],
+        },
+    )
     action = rp.next_actions(record, ctx)
     leaves = dict(action["leaves"])
-    ok = (action["action"] == "fork"
-          and leaves.get("timelines_refresh") == {"collections": "c1,c2"}
-          and "sessions_refresh" in leaves
-          and _states(record)["embeddings_refresh"] == "pruned")
+    ok = (
+        action["action"] == "fork"
+        and leaves.get("timelines_refresh") == {"collections": "c1,c2"}
+        and "sessions_refresh" in leaves
+        and _states(record)["embeddings_refresh"] == "pruned"
+    )
     _check("test_collection_only_impact_forks_from_consolidate", ok, str(action))
 
 
@@ -342,11 +411,13 @@ class _BarrierHarness:
         def _finish(partial=False, failed_at=None, reason=None, prunes=None, run_id=None):
             self.summary_calls.append({"partial": partial, "failed_at": failed_at})
             return {"partial": partial, "failed_at": failed_at}
+
         rp.finish_run = _finish
         pr._publish_run_summary = lambda record: None
 
         def _stamp(name, state, message="", error=None, stage=None):
             self.stamp_calls.append({"name": name, "state": state, "message": message})
+
         pr.stamp_task_status = _stamp
         return self
 
@@ -502,8 +573,13 @@ def test_a_replayed_refresh_acts_on_the_impact_it_inherits():
         "affected_collection_ids": ["c1", "c2"],
         "affected_study_names": ["standard_study", "scraped_ones"],
     }
-    record = rp.plan_run("consolidate_enrichment", kind="refresh_downstream",
-                         started_by="supervisor", impact=impact, origin_ran=False)
+    record = rp.plan_run(
+        "consolidate_enrichment",
+        kind="refresh_downstream",
+        started_by="supervisor",
+        impact=impact,
+        origin_ran=False,
+    )
     action = rp.next_actions(record)
     _check(
         "test_a_replayed_refresh_acts_on_the_impact_it_inherits",
@@ -516,15 +592,21 @@ def test_a_replayed_refresh_scopes_to_what_actually_changed():
     """Inheriting the consolidation must not mean rebuilding everything: a debt
     of collections only has no study to recode and no annotation to embed."""
     record = rp.plan_run(
-        "consolidate_enrichment", kind="refresh_downstream", origin_ran=False,
-        impact={"new_annotation_item_count": 0,
-                "affected_collection_ids": ["c1"],
-                "affected_study_names": []})
+        "consolidate_enrichment",
+        kind="refresh_downstream",
+        origin_ran=False,
+        impact={
+            "new_annotation_item_count": 0,
+            "affected_collection_ids": ["c1"],
+            "affected_study_names": [],
+        },
+    )
     action = rp.next_actions(record)
     leaves = [s for s, _ in action.get("leaves", [])]
     _check(
         "test_a_replayed_refresh_scopes_to_what_actually_changed",
-        action["action"] == "fork" and "timelines_refresh" in leaves
+        action["action"] == "fork"
+        and "timelines_refresh" in leaves
         and "recode_refresh_studies" not in leaves,
         f"expected a timelines-side fork, got {action['action']} {leaves}",
     )
@@ -544,23 +626,35 @@ def test_the_consolidations_scope_survives_a_moved_map():
     hourly, and the code before this planner existed always scoped to the
     impact too.
     """
-    record = rp.plan_run("consolidate_enrichment", kind="armed",
-                         impact={"new_annotation_item_count": 202,
-                                 "affected_study_names": ["s%d" % i for i in range(8)],
-                                 "affected_collection_ids": ["c%d" % i for i in range(36)]})
+    record = rp.plan_run(
+        "consolidate_enrichment",
+        kind="armed",
+        impact={
+            "new_annotation_item_count": 202,
+            "affected_study_names": ["s%d" % i for i in range(8)],
+            "affected_collection_ids": ["c%d" % i for i in range(36)],
+        },
+    )
     for step in ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"):
         record["steps"][step]["state"] = "dispatched"
-    ctx = _ctx(record,
-               {"consolidate_enrichment": {}, "embeddings_refresh": {},
-                "video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
-               impact=record["impact"])
+    ctx = _ctx(
+        record,
+        {
+            "consolidate_enrichment": {},
+            "embeddings_refresh": {},
+            "video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False},
+        },
+        impact=record["impact"],
+    )
 
     recode = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
     timelines = rp.BY_NAME["timelines_refresh"].needs(ctx)
-    _check("test_the_consolidations_scope_survives_a_moved_map",
-           rp.scope_note("recode_refresh_studies", recode.task_args) == "8 studies"
-           and rp.scope_note("timelines_refresh", timelines.task_args) == "36 collections",
-           f"recode={recode.task_args} timelines={timelines.task_args}")
+    _check(
+        "test_the_consolidations_scope_survives_a_moved_map",
+        rp.scope_note("recode_refresh_studies", recode.task_args) == "8 studies"
+        and rp.scope_note("timelines_refresh", timelines.task_args) == "36 collections",
+        f"recode={recode.task_args} timelines={timelines.task_args}",
+    )
 
 
 def test_a_map_origin_run_has_no_impact_so_it_refreshes_everything():
@@ -572,37 +666,56 @@ def test_a_map_origin_run_has_no_impact_so_it_refreshes_everything():
     """
     record = rp.plan_run("video_map_refresh", kind="card")
     record["steps"]["video_map_refresh"]["state"] = "dispatched"
-    ctx = _ctx(record,
-               {"video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
-               impact=None)
+    ctx = _ctx(
+        record,
+        {"video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
+        impact=None,
+    )
 
     recode = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
     timelines = rp.BY_NAME["timelines_refresh"].needs(ctx)
-    _check("test_a_map_origin_run_has_no_impact_so_it_refreshes_everything",
-           recode.run and not (recode.task_args or {}).get("studies")
-           and timelines.run and not (timelines.task_args or {}).get("collections")
-           and "15,371" in recode.reason,
-           f"recode={recode.task_args} reason={recode.reason!r}")
+    _check(
+        "test_a_map_origin_run_has_no_impact_so_it_refreshes_everything",
+        recode.run
+        and not (recode.task_args or {}).get("studies")
+        and timelines.run
+        and not (timelines.task_args or {}).get("collections")
+        and "15,371" in recode.reason,
+        f"recode={recode.task_args} reason={recode.reason!r}",
+    )
 
 
 def test_an_unmoved_map_keeps_the_consolidations_scope():
     """The flip side: without a niche change the impact's list is honoured."""
-    record = rp.plan_run("consolidate_enrichment", kind="armed",
-                         impact={"new_annotation_item_count": 202,
-                                 "affected_study_names": ["s1", "s2"],
-                                 "affected_collection_ids": ["c1"]})
+    record = rp.plan_run(
+        "consolidate_enrichment",
+        kind="armed",
+        impact={
+            "new_annotation_item_count": 202,
+            "affected_study_names": ["s1", "s2"],
+            "affected_collection_ids": ["c1"],
+        },
+    )
     for step in ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"):
         record["steps"][step]["state"] = "dispatched"
-    ctx = _ctx(record,
-               {"consolidate_enrichment": {}, "embeddings_refresh": {},
-                "video_map_refresh": {"map_niche_changed": 0, "map_cold_start": False}},
-               impact=record["impact"])
+    ctx = _ctx(
+        record,
+        {
+            "consolidate_enrichment": {},
+            "embeddings_refresh": {},
+            "video_map_refresh": {"map_niche_changed": 0, "map_cold_start": False},
+        },
+        impact=record["impact"],
+    )
 
     verdict = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
-    _check("test_an_unmoved_map_keeps_the_consolidations_scope",
-           verdict.run and (verdict.task_args or {}).get("studies") == "s1,s2"
-           and rp.scope_note("recode_refresh_studies", verdict.task_args) == "2 studies",
-           f"task_args={verdict.task_args}")
+    _check(
+        "test_an_unmoved_map_keeps_the_consolidations_scope",
+        verdict.run
+        and (verdict.task_args or {}).get("studies") == "s1,s2"
+        and rp.scope_note("recode_refresh_studies", verdict.task_args) == "2 studies",
+        f"task_args={verdict.task_args}",
+    )
 
 
 TESTS = [

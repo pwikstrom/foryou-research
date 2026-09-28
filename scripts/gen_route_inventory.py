@@ -55,7 +55,10 @@ def main(check: bool = False) -> int:
     content = render(app)
     if check:
         if ROUTES_DOC.read_text(encoding="utf-8") != content:
-            print(f"{ROUTES_DOC} is stale — run: python scripts/gen_route_inventory.py", file=sys.stderr)
+            print(
+                f"{ROUTES_DOC} is stale — run: python scripts/gen_route_inventory.py",
+                file=sys.stderr,
+            )
             return 1
         print(f"{ROUTES_DOC} is current", file=sys.stderr)
         return 0

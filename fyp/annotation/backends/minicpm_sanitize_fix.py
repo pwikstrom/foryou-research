@@ -34,10 +34,6 @@ _CANONICAL_TO_RAW = (
 )
 
 
-
-
-
-
 def _version_needs_patch() -> bool:
     """Whether the installed mlx-vlm is one this patch is validated for."""
     try:
@@ -47,10 +43,6 @@ def _version_needs_patch() -> bool:
     except ImportError:
         return False
     return any(version.startswith(prefix) for prefix in _PATCHED_VERSION_PREFIXES)
-
-
-
-
 
 
 def apply_patches() -> bool:
@@ -68,9 +60,11 @@ def apply_patches() -> bool:
         try:
             import mlx_vlm
 
-            logger.info(f"minicpm_sanitize_fix: skipping patch for mlx-vlm "
-                        f"{getattr(mlx_vlm, '__version__', '?')} (outside validated 0.6.x; "
-                        f"verify canonical-named checkpoints load upstream)")
+            logger.info(
+                f"minicpm_sanitize_fix: skipping patch for mlx-vlm "
+                f"{getattr(mlx_vlm, '__version__', '?')} (outside validated 0.6.x; "
+                f"verify canonical-named checkpoints load upstream)"
+            )
         except ImportError:
             pass
         return False
@@ -84,7 +78,7 @@ def apply_patches() -> bool:
         for key, value in weights.items():
             for canonical, raw in _CANONICAL_TO_RAW:
                 if key.startswith(canonical):
-                    key = raw + key[len(canonical):]
+                    key = raw + key[len(canonical) :]
                     break
             remapped[key] = value
         return orig_sanitize(self, remapped)

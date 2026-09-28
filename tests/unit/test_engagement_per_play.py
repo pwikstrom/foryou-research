@@ -13,15 +13,15 @@ from fyp.scrape import scrape_contract as sc
 from fyp.scrape.platform_scraper import get_scraper
 
 
-
-
 def test_derive_engagement_rates() -> None:
     """Verify per-K derivation handles the -1 sentinel, zero/negative plays, dtype."""
     scraper = get_scraper()
-    df = pd.DataFrame({
-        "play_count": pd.Series([1000, 0, -1, 500, 200], dtype="int64[pyarrow]"),
-        "comment_count": pd.Series([10, 5, 5, -1, 50], dtype="int64[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "play_count": pd.Series([1000, 0, -1, 500, 200], dtype="int64[pyarrow]"),
+            "comment_count": pd.Series([10, 5, 5, -1, 50], dtype="int64[pyarrow]"),
+        }
+    )
 
     result = scraper.derive_engagement_rates(df.copy())["comments_per_K_play"]
 
@@ -40,8 +40,6 @@ def test_derive_engagement_rates() -> None:
     print("test_derive_engagement_rates PASSED")
 
 
-
-
 def test_perk_mapping() -> None:
     """The per-K rate fields map to the generic base counts."""
     contract = sc.load_contract()
@@ -52,8 +50,6 @@ def test_perk_mapping() -> None:
         "saves_per_K_play": "save_count",
     }
     print("test_perk_mapping PASSED")
-
-
 
 
 if __name__ == "__main__":

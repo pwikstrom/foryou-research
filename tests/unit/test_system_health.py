@@ -24,15 +24,17 @@ def _isolate_state(monkeypatch, tmp_path):
     yield
 
 
-
-
-
-
 class FakeScraper:
     """Configurable stand-in for a platform scraper."""
 
-    def __init__(self, fetch_result=None, canonical_columns=None,
-                 canonicalize_error=None, probe_target=None, probe_error=None):
+    def __init__(
+        self,
+        fetch_result=None,
+        canonical_columns=None,
+        canonicalize_error=None,
+        probe_target=None,
+        probe_error=None,
+    ):
         self._fetch_result = fetch_result
         self._canonical_columns = canonical_columns
         self._canonicalize_error = canonicalize_error
@@ -41,7 +43,6 @@ class FakeScraper:
         # Item ids this scraper was asked to fetch, in order.
         self.fetched = []
 
-
     def fetch(self, item_id, *, save_media, save_path, stream_to_bucket=None, verbose=False):
         assert save_media is False
         self.fetched.append(item_id)
@@ -49,17 +50,14 @@ class FakeScraper:
             return self._fetch_result[item_id]
         return self._fetch_result
 
-
     def prepare_raw_batch(self, df):
         return df
-
 
     def canonicalize_batch(self, df):
         if self._canonicalize_error is not None:
             raise self._canonicalize_error
         cols = self._canonical_columns if self._canonical_columns is not None else df.columns
         return pd.DataFrame([{c: "x" for c in cols}])
-
 
     def classify_error(self, error_type):
         if error_type is None:
@@ -68,34 +66,21 @@ class FakeScraper:
         bucket = "permanent" if error_type in permanent else "transient"
         return f"{bucket}:{error_type}"
 
-
     def media_probe_url(self, item_id):
         if self._probe_error is not None:
             raise self._probe_error
         return self._probe_target
 
 
-
-
-
-
 def _status_frame():
     return pd.DataFrame(
-        {"source_platform": ["tiktok", "instagram", "tiktok"],
-         "scraped_ok": [True, True, True]},
-        index=pd.Index(["111", "222", "333"], name="item_id"))
-
-
-
-
+        {"source_platform": ["tiktok", "instagram", "tiktok"], "scraped_ok": [True, True, True]},
+        index=pd.Index(["111", "222", "333"], name="item_id"),
+    )
 
 
 def _patch_scraper(monkeypatch, scraper):
     monkeypatch.setattr(sh, "get_scraper", lambda platform: scraper)
-
-
-
-
 
 
 def test_overall_precedence():
@@ -103,10 +88,6 @@ def test_overall_precedence():
     assert sh._overall({"a": {"status": "ok"}, "b": {"status": "warn"}}) == "warn"
     assert sh._overall({"a": {"status": "warn"}, "b": {"status": "fail"}}) == "fail"
     assert sh._overall({}) == "fail"
-
-
-
-
 
 
 def test_pick_test_items_newest_first():
@@ -119,21 +100,14 @@ def test_pick_test_items_newest_first():
     assert sh._pick_test_items(pd.DataFrame(), "tiktok") == []
 
 
-
-
-
-
 def test_pick_test_items_respects_limit():
     """At most `limit` candidates, still newest-first."""
     df = pd.DataFrame(
         {"source_platform": ["tiktok"] * 5, "scraped_ok": [True] * 5},
-        index=pd.Index(["1", "2", "3", "4", "5"], name="item_id"))
+        index=pd.Index(["1", "2", "3", "4", "5"], name="item_id"),
+    )
     assert sh._pick_test_items(df, "tiktok", limit=2) == ["5", "4"]
     assert len(sh._pick_test_items(df, "tiktok")) == sh._MAX_TEST_ITEMS
-
-
-
-
 
 
 def test_check_platform_ok(monkeypatch):
@@ -147,32 +121,23 @@ def test_check_platform_ok(monkeypatch):
     assert result["media"]["status"] == "skipped"
 
 
-
-
-
-
 def test_check_platform_fill_drift_warns(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
     _patch_scraper(monkeypatch, FakeScraper(fetch_result=raw, canonical_columns=["desc"]))
-    result = sh._check_platform("tiktok", _status_frame(),
-                                expected_fields=["desc", "play_count"])
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc", "play_count"])
     assert result["status"] == "warn"
     assert "1 of 2 expected fields filled OK" in result["detail"]
     assert "play_count" in result["detail"]
-
-
-
-
 
 
 def test_fill_drift_all_play_count_derived_gets_environment_message(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
     _patch_scraper(monkeypatch, FakeScraper(fetch_result=raw, canonical_columns=["desc"]))
     monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
-    monkeypatch.setattr(sh.sc, "per_k_sources",
-                        lambda contract: {"faves_per_K_play": "fave_count"})
-    result = sh._check_platform("tiktok", _status_frame(),
-                                expected_fields=["desc", "faves_per_K_play", "plays_per_day"])
+    monkeypatch.setattr(sh.sc, "per_k_sources", lambda contract: {"faves_per_K_play": "fave_count"})
+    result = sh._check_platform(
+        "tiktok", _status_frame(), expected_fields=["desc", "faves_per_K_play", "plays_per_day"]
+    )
     assert result["status"] == "warn"
     assert "play_count unavailable in this environment" in result["message"]
     assert "1 of 3 expected fields filled OK" in result["detail"]
@@ -180,11 +145,15 @@ def test_fill_drift_all_play_count_derived_gets_environment_message(monkeypatch)
 
 def test_fill_drift_with_bot_walled_media_probe_notes_environment(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
-    _patch_scraper(monkeypatch, FakeScraper(
-        fetch_result=raw, canonical_columns=["desc"],
-        probe_error=RuntimeError("Sign in to confirm you’re not a bot")))
-    result = sh._check_platform("tiktok", _status_frame(),
-                                expected_fields=["desc", "duration"])
+    _patch_scraper(
+        monkeypatch,
+        FakeScraper(
+            fetch_result=raw,
+            canonical_columns=["desc"],
+            probe_error=RuntimeError("Sign in to confirm you’re not a bot"),
+        ),
+    )
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc", "duration"])
     assert result["status"] == "warn"
     assert "Metadata format drift" in result["message"]
     assert "likely environmental" in result["message"]
@@ -192,45 +161,51 @@ def test_fill_drift_with_bot_walled_media_probe_notes_environment(monkeypatch):
 
 def test_media_probe_bot_walled_helper():
     assert sh._media_probe_bot_walled(
-        {"status": "warn", "message": "Media URL resolution failed",
-         "detail": "DownloadError('Sign in to confirm you’re not a bot')"})
+        {
+            "status": "warn",
+            "message": "Media URL resolution failed",
+            "detail": "DownloadError('Sign in to confirm you’re not a bot')",
+        }
+    )
     assert sh._media_probe_bot_walled(
-        {"status": "warn", "message": "CDN responded HTTP 429 with 0 bytes", "detail": None})
+        {"status": "warn", "message": "CDN responded HTTP 429 with 0 bytes", "detail": None}
+    )
     assert not sh._media_probe_bot_walled(
-        {"status": "warn", "message": "Media probe request failed",
-         "detail": "OSError('connection reset')"})
+        {
+            "status": "warn",
+            "message": "Media probe request failed",
+            "detail": "OSError('connection reset')",
+        }
+    )
     assert not sh._media_probe_bot_walled(
-        {"status": "ok", "message": "CDN served 64KB in 1s", "detail": None})
+        {"status": "ok", "message": "CDN served 64KB in 1s", "detail": None}
+    )
 
 
 def test_check_platform_canonicalization_failure_fails(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
-    _patch_scraper(monkeypatch, FakeScraper(
-        fetch_result=raw, canonicalize_error=ValueError("bad dtype")))
+    _patch_scraper(
+        monkeypatch, FakeScraper(fetch_result=raw, canonicalize_error=ValueError("bad dtype"))
+    )
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=[])
     assert result["status"] == "fail"
     assert "bad dtype" in result["detail"]
 
 
-
-
-
-
-@pytest.mark.parametrize("error_type,expected_status", [
-    ("bot_check", "warn"),
-    ("rate_limited", "warn"),
-    ("network", "warn"),       # other transient
-    ("not_found", "fail"),     # permanent
-])
+@pytest.mark.parametrize(
+    "error_type,expected_status",
+    [
+        ("bot_check", "warn"),
+        ("rate_limited", "warn"),
+        ("network", "warn"),  # other transient
+        ("not_found", "fail"),  # permanent
+    ],
+)
 def test_check_platform_fetch_failure_classification(monkeypatch, error_type, expected_status):
     _patch_scraper(monkeypatch, FakeScraper(fetch_result=empty_fail(error_type, "boom")))
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=[])
     assert result["status"] == expected_status
     assert "boom" in result["detail"]
-
-
-
-
 
 
 def test_check_platform_skips_a_deleted_canary(monkeypatch):
@@ -240,9 +215,12 @@ def test_check_platform_skips_a_deleted_canary(monkeypatch):
     been deleted, and the check has no other candidate to fall back on.
     """
     scraper = FakeScraper(
-        fetch_result={"333": empty_fail("removed", "post is gone"),
-                      "111": pd.DataFrame([{"desc": "hello"}])},
-        canonical_columns=["desc"])
+        fetch_result={
+            "333": empty_fail("removed", "post is gone"),
+            "111": pd.DataFrame([{"desc": "hello"}]),
+        },
+        canonical_columns=["desc"],
+    )
     _patch_scraper(monkeypatch, scraper)
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
     assert result["status"] == "ok"
@@ -250,10 +228,6 @@ def test_check_platform_skips_a_deleted_canary(monkeypatch):
     assert scraper.fetched == ["333", "111"]
     assert result["items_tried"] == ["333", "111"]
     assert "after 1 unavailable item" in result["message"]
-
-
-
-
 
 
 def test_check_platform_skips_inconclusive_empty_media_response(monkeypatch):
@@ -264,18 +238,16 @@ def test_check_platform_skips_inconclusive_empty_media_response(monkeypatch):
     taken as proof the platform is throttled.
     """
     scraper = FakeScraper(
-        fetch_result={"333": empty_fail("rate_limited",
-                                        "Instagram sent an empty media response"),
-                      "111": pd.DataFrame([{"desc": "hello"}])},
-        canonical_columns=["desc"])
+        fetch_result={
+            "333": empty_fail("rate_limited", "Instagram sent an empty media response"),
+            "111": pd.DataFrame([{"desc": "hello"}]),
+        },
+        canonical_columns=["desc"],
+    )
     _patch_scraper(monkeypatch, scraper)
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
     assert result["status"] == "ok"
     assert result["item_id"] == "111"
-
-
-
-
 
 
 def test_check_platform_reports_throttle_without_burning_candidates(monkeypatch):
@@ -289,10 +261,6 @@ def test_check_platform_reports_throttle_without_burning_candidates(monkeypatch)
     assert "tried" not in result["message"]
 
 
-
-
-
-
 def test_check_platform_all_candidates_unavailable_keeps_last_verdict(monkeypatch):
     """Every canary gone: the last verdict stands, and the message says so."""
     scraper = FakeScraper(fetch_result=empty_fail("removed", "post is gone"))
@@ -303,23 +271,15 @@ def test_check_platform_all_candidates_unavailable_keeps_last_verdict(monkeypatc
     assert "tried 2 previously-scraped items" in result["message"]
 
 
-
-
-
-
 def test_check_platform_fill_drift_does_not_skip_to_next_item(monkeypatch):
     """Format drift is a real finding — it must not be retried away."""
-    scraper = FakeScraper(fetch_result=pd.DataFrame([{"desc": "hello"}]),
-                          canonical_columns=["desc"])
+    scraper = FakeScraper(
+        fetch_result=pd.DataFrame([{"desc": "hello"}]), canonical_columns=["desc"]
+    )
     _patch_scraper(monkeypatch, scraper)
-    result = sh._check_platform("tiktok", _status_frame(),
-                                expected_fields=["desc", "author_name"])
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc", "author_name"])
     assert result["status"] == "warn"
     assert scraper.fetched == ["333"]
-
-
-
-
 
 
 def test_check_platform_no_test_item_warns(monkeypatch):
@@ -327,10 +287,6 @@ def test_check_platform_no_test_item_warns(monkeypatch):
     result = sh._check_platform("youtube", _status_frame(), expected_fields=[])
     assert result["status"] == "warn"
     assert result["item_id"] is None
-
-
-
-
 
 
 class _FakeResponse:
@@ -345,56 +301,44 @@ class _FakeResponse:
         pass
 
 
-
-
-
-
 def test_media_probe_ok(monkeypatch):
     scraper = FakeScraper(probe_target={"url": "https://cdn/x.mp4", "headers": {}})
-    monkeypatch.setattr(sh.requests, "get",
-                        lambda url, **kwargs: _FakeResponse(206, b"x" * 4096))
+    monkeypatch.setattr(sh.requests, "get", lambda url, **kwargs: _FakeResponse(206, b"x" * 4096))
     result = sh._probe_media(scraper, "111")
     assert result["status"] == "ok"
     assert result["bytes_read"] == 4096
 
 
-
-
-
-
 def test_media_probe_failures_only_warn(monkeypatch):
     scraper = FakeScraper(probe_target={"url": "https://cdn/x.mp4", "headers": {}})
-    monkeypatch.setattr(sh.requests, "get",
-                        lambda url, **kwargs: _FakeResponse(403, b""))
+    monkeypatch.setattr(sh.requests, "get", lambda url, **kwargs: _FakeResponse(403, b""))
     assert sh._probe_media(scraper, "111")["status"] == "warn"
 
     def _boom(url, **kwargs):
         raise OSError("connection reset")
+
     monkeypatch.setattr(sh.requests, "get", _boom)
     assert sh._probe_media(scraper, "111")["status"] == "warn"
 
     assert sh._probe_media(FakeScraper(probe_target=None), "111")["status"] == "skipped"
-    assert sh._probe_media(FakeScraper(probe_error=ValueError("no formats")), "111")["status"] == "warn"
-
-
-
-
+    assert (
+        sh._probe_media(FakeScraper(probe_error=ValueError("no formats")), "111")["status"]
+        == "warn"
+    )
 
 
 def test_media_probe_warn_bubbles_into_platform_status(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
-    scraper = FakeScraper(fetch_result=raw, canonical_columns=["desc"],
-                          probe_target={"url": "https://cdn/x.mp4", "headers": {}})
+    scraper = FakeScraper(
+        fetch_result=raw,
+        canonical_columns=["desc"],
+        probe_target={"url": "https://cdn/x.mp4", "headers": {}},
+    )
     _patch_scraper(monkeypatch, scraper)
-    monkeypatch.setattr(sh.requests, "get",
-                        lambda url, **kwargs: _FakeResponse(403, b""))
+    monkeypatch.setattr(sh.requests, "get", lambda url, **kwargs: _FakeResponse(403, b""))
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
     assert result["status"] == "warn"
     assert result["media"]["status"] == "warn"
-
-
-
-
 
 
 def test_load_fill_profiles_thresholds(monkeypatch):
@@ -402,11 +346,13 @@ def test_load_fill_profiles_thresholds(monkeypatch):
     monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
     monkeypatch.setattr(sh.sc, "base_field_names", lambda contract: list(base_cols))
     monkeypatch.setattr(sh, "get_config", lambda: {"labels": {"SCRAPES_LABEL": "scrapes"}})
-    frame = pd.DataFrame({
-        "source_platform": ["tiktok"] * 10 + ["instagram"] * 10,
-        "desc": ["d"] * 20,
-        "play_count": [1] * 10 + [pd.NA] * 10,
-    })
+    frame = pd.DataFrame(
+        {
+            "source_platform": ["tiktok"] * 10 + ["instagram"] * 10,
+            "desc": ["d"] * 20,
+            "play_count": [1] * 10 + [pd.NA] * 10,
+        }
+    )
     monkeypatch.setattr(sh.data_io, "exists", lambda **kwargs: True)
     monkeypatch.setattr(sh.data_io, "load_parquet_selective", lambda **kwargs: frame)
 
@@ -418,27 +364,15 @@ def test_load_fill_profiles_thresholds(monkeypatch):
     assert "storage_link" not in profiles["tiktok"]
 
 
-
-
-
-
 def test_load_fill_profiles_missing_file(monkeypatch):
     monkeypatch.setattr(sh, "get_config", lambda: {"labels": {"SCRAPES_LABEL": "scrapes"}})
     assert sh._load_fill_profiles() == {}
-
-
-
-
 
 
 def test_check_gemini_no_client(monkeypatch):
     monkeypatch.setattr(sh.machine_annotation, "initialize_machine", lambda: None)
     monkeypatch.setattr(sh, "get_config", lambda: {"machine": {"gemini": {"client": None}}})
     assert sh._check_gemini()["status"] == "fail"
-
-
-
-
 
 
 def test_check_gemini_ok_and_fail(monkeypatch):
@@ -456,53 +390,50 @@ def test_check_gemini_ok_and_fail(monkeypatch):
             self.models = FakeModels(error)
 
     monkeypatch.setattr(sh.machine_annotation, "initialize_machine", lambda: None)
-    monkeypatch.setattr(sh, "get_config",
-                        lambda: {"machine": {"gemini": {"client": FakeClient(), "model": "gemini-test"}}})
+    monkeypatch.setattr(
+        sh,
+        "get_config",
+        lambda: {"machine": {"gemini": {"client": FakeClient(), "model": "gemini-test"}}},
+    )
     result = sh._check_gemini()
     assert result["status"] == "ok"
     assert "gemini-test" in result["message"]
 
-    monkeypatch.setattr(sh, "get_config",
-                        lambda: {"machine": {"gemini": {
-                            "client": FakeClient(RuntimeError("quota")),
-                            "model": "gemini-test"}}})
+    monkeypatch.setattr(
+        sh,
+        "get_config",
+        lambda: {
+            "machine": {
+                "gemini": {"client": FakeClient(RuntimeError("quota")), "model": "gemini-test"}
+            }
+        },
+    )
     result = sh._check_gemini()
     assert result["status"] == "fail"
     assert "quota" in result["detail"]
 
 
-
-
-
-
 def test_boot_gate_skips_fresh_result(monkeypatch):
     calls = []
     monkeypatch.setattr(sh, "start_health_check", lambda trigger: calls.append(trigger))
-    monkeypatch.setattr(sh, "get_config",
-                        lambda: {"web": {"health_check_max_age_hours": 6}})
+    monkeypatch.setattr(sh, "get_config", lambda: {"web": {"health_check_max_age_hours": 6}})
 
-    monkeypatch.setattr(sh, "get_health",
-                        lambda: {"finished_at": sh._now_iso(), "checks": {}})
+    monkeypatch.setattr(sh, "get_health", lambda: {"finished_at": sh._now_iso(), "checks": {}})
     sh.maybe_start_boot_check()
     assert calls == []
 
-    monkeypatch.setattr(sh, "get_health",
-                        lambda: {"finished_at": "2020-01-01T00:00:00+00:00", "checks": {}})
+    monkeypatch.setattr(
+        sh, "get_health", lambda: {"finished_at": "2020-01-01T00:00:00+00:00", "checks": {}}
+    )
     sh.maybe_start_boot_check()
     assert calls == ["boot"]
 
     # max_age 0 forces a run even with a fresh result.
     calls.clear()
-    monkeypatch.setattr(sh, "get_config",
-                        lambda: {"web": {"health_check_max_age_hours": 0}})
-    monkeypatch.setattr(sh, "get_health",
-                        lambda: {"finished_at": sh._now_iso(), "checks": {}})
+    monkeypatch.setattr(sh, "get_config", lambda: {"web": {"health_check_max_age_hours": 0}})
+    monkeypatch.setattr(sh, "get_health", lambda: {"finished_at": sh._now_iso(), "checks": {}})
     sh.maybe_start_boot_check()
     assert calls == ["boot"]
-
-
-
-
 
 
 def test_start_health_check_concurrency_guard(monkeypatch):
@@ -515,22 +446,18 @@ def test_start_health_check_concurrency_guard(monkeypatch):
     assert sh.is_running() is False
 
 
-
-
-
-
 def test_get_health_downgrades_interrupted_run(monkeypatch):
-    stale_doc = {"schema_version": 1, "overall": "running", "finished_at": None,
-                 "checks": {"gemini": {"status": "ok"}}}
+    stale_doc = {
+        "schema_version": 1,
+        "overall": "running",
+        "finished_at": None,
+        "checks": {"gemini": {"status": "ok"}},
+    }
     with open(sh._HEALTH_PATH, "w", encoding="utf-8") as f:
         json.dump(stale_doc, f)
     doc = sh.get_health()
     assert doc["overall"] == "ok"
     assert doc["interrupted"] is True
-
-
-
-
 
 
 def test_run_all_checks_survives_crashing_checks(monkeypatch):
@@ -542,10 +469,19 @@ def test_run_all_checks_survives_crashing_checks(monkeypatch):
 
     def _crash(*args, **kwargs):
         raise RuntimeError("kaboom")
+
     monkeypatch.setattr(sh, "_check_platform", _crash)
-    monkeypatch.setattr(sh, "_check_gemini",
-                        lambda: {"status": "ok", "message": "", "detail": None,
-                                 "duration_s": 0.1, "checked_at": sh._now_iso()})
+    monkeypatch.setattr(
+        sh,
+        "_check_gemini",
+        lambda: {
+            "status": "ok",
+            "message": "",
+            "detail": None,
+            "duration_s": 0.1,
+            "checked_at": sh._now_iso(),
+        },
+    )
 
     sh._run_all_checks("manual")
     doc = sh.get_health()
@@ -556,10 +492,6 @@ def test_run_all_checks_survives_crashing_checks(monkeypatch):
     assert doc["finished_at"] is not None
 
 
-
-
-
-
 def test_worst_chip_severity():
     assert sh._worst_chip("ok", "warn") == "warn"
     assert sh._worst_chip("ok", "fail", "warn") == "fail"
@@ -568,37 +500,46 @@ def test_worst_chip_severity():
     assert sh._worst_chip() == "unknown"
 
 
-
-
-
-
 def _card_doc():
-    return {"overall": "warn", "checks": {
-        "scrape_tiktok": {"status": "ok", "message": "Fetched X",
-                          "checked_at": "2026-07-13T00:00:00+00:00",
-                          "cookie": {"status": "healthy"}, "media": {"status": "ok"}},
-        "scrape_youtube": {"status": "warn", "message": "drift",
-                           "checked_at": "2026-07-13T00:00:00+00:00",
-                           "media": {"status": "warn", "message": "bot wall"}},
-        "scrape_instagram": {"status": "ok", "message": "Fetched Y",
-                             "checked_at": "2026-07-13T00:00:00+00:00"},
-        "gemini": {"status": "fail", "message": "quota",
-                   "checked_at": "2026-07-13T00:00:00+00:00"},
-    }}
-
-
-
-
+    return {
+        "overall": "warn",
+        "checks": {
+            "scrape_tiktok": {
+                "status": "ok",
+                "message": "Fetched X",
+                "checked_at": "2026-07-13T00:00:00+00:00",
+                "cookie": {"status": "healthy"},
+                "media": {"status": "ok"},
+            },
+            "scrape_youtube": {
+                "status": "warn",
+                "message": "drift",
+                "checked_at": "2026-07-13T00:00:00+00:00",
+                "media": {"status": "warn", "message": "bot wall"},
+            },
+            "scrape_instagram": {
+                "status": "ok",
+                "message": "Fetched Y",
+                "checked_at": "2026-07-13T00:00:00+00:00",
+            },
+            "gemini": {
+                "status": "fail",
+                "message": "quota",
+                "checked_at": "2026-07-13T00:00:00+00:00",
+            },
+        },
+    }
 
 
 def test_derive_card_health_combines_scrape_cookie_annotation(monkeypatch):
     monkeypatch.setattr(sh, "get_health", lambda: _card_doc())
     monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
-    monkeypatch.setattr(sh.sc, "platforms",
-                        lambda contract: ["tiktok", "instagram", "youtube"])
-    live = {"tiktok": {"status": "healthy"},
-            "youtube": {"status": "healthy"},
-            "instagram": {"status": "expired", "message": "Session expired"}}
+    monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok", "instagram", "youtube"])
+    live = {
+        "tiktok": {"status": "healthy"},
+        "youtube": {"status": "healthy"},
+        "instagram": {"status": "expired", "message": "Session expired"},
+    }
 
     result = sh.derive_card_health(live_cookie=live)
     assert result["ran"] is True
@@ -615,13 +556,8 @@ def test_derive_card_health_combines_scrape_cookie_annotation(monkeypatch):
     assert result["annotation"]["summary"] == "quota"
 
 
-
-
-
-
 def test_derive_card_health_never_run_falls_back_to_cookie(monkeypatch):
-    monkeypatch.setattr(sh, "get_health",
-                        lambda: {"overall": "never_run", "checks": {}})
+    monkeypatch.setattr(sh, "get_health", lambda: {"overall": "never_run", "checks": {}})
     monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
     monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok"])
 

@@ -48,6 +48,7 @@ def skip_reason() -> str | None:
     ``"setting_off"`` or ``"mail_unconfigured"``.
     """
     from .auth import EMAIL_VERIFIED_MAIL_UNCONFIGURED, EMAIL_VERIFIED_SETTING_OFF
+
     if not get_signup_email_verification_required():
         return EMAIL_VERIFIED_SETTING_OFF
     if not mail_configured():
@@ -109,8 +110,9 @@ def _seconds_since(iso: str | None) -> float | None:
     return (datetime.now(UTC) - then).total_seconds()
 
 
-def send_verification_link(user_manager, user, next_target: str | None = None,
-                           force: bool = False) -> bool:
+def send_verification_link(
+    user_manager, user, next_target: str | None = None, force: bool = False
+) -> bool:
     """Email ``user`` a fresh verification link (background thread).
 
     Honours :data:`RESEND_COOLDOWN_S` unless ``force`` (an admin's explicit
@@ -141,6 +143,7 @@ def _absolute_verify_url(token: str) -> str:
     host may be the internal run.app one) and falls back to the request host.
     """
     from .mail_utils import _site
+
     path = url_for("auth_bp.verify_email", token=token)
     app_url = str(_site().get("app_url", "") or "").strip().rstrip("/")
     if app_url:

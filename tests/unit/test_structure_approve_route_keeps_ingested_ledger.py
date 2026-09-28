@@ -20,8 +20,10 @@ def client(monkeypatch):
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
     from web_interface import auth
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions",
-                        lambda role: ["tab.data_management.ingestion"])
+
+    monkeypatch.setattr(
+        auth.role_manager, "get_role_permissions", lambda role: ["tab.data_management.ingestion"]
+    )
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
     with app.test_client() as test_client:
@@ -49,16 +51,22 @@ def _wire(monkeypatch, main):
     from fyp.core import structure_sentinel as ss
     from web_interface.routes.management import ingestion as mod
 
-    monkeypatch.setattr(ss, "approve_file", lambda filename, reviewed_by: {
-        "status": "approved", "platform": "tiktok", "source": "ddp"})
+    monkeypatch.setattr(
+        ss,
+        "approve_file",
+        lambda filename, reviewed_by: {"status": "approved", "platform": "tiktok", "source": "ddp"},
+    )
     monkeypatch.setattr(mod, "get_main_collection", lambda verbose=False: main)
     monkeypatch.setattr(mod.activity_log, "record", lambda **kw: None)
 
 
-@pytest.mark.parametrize("outcome,removed", [
-    ("quarantined_structure", True),   # withheld: drop so the next run reloads it
-    ("added_as_new", False),           # ingested with a warning: the record stays
-])
+@pytest.mark.parametrize(
+    "outcome,removed",
+    [
+        ("quarantined_structure", True),  # withheld: drop so the next run reloads it
+        ("added_as_new", False),  # ingested with a warning: the record stays
+    ],
+)
 def test_approve_drops_ledger_entry_only_for_withheld_files(client, monkeypatch, outcome, removed):
     main = _Main({"f.json": {"outcome": outcome, "uploaded_by": "someone"}})
     _wire(monkeypatch, main)

@@ -6,6 +6,7 @@ exhausted a 16 GiB instance on a 2.4M-row study. These tests pin the
 replacement to the old results — the reference implementation below is the
 previous code path — and assert that the new one materialises nothing.
 """
+
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -21,21 +22,28 @@ def _arrow(values, pa_type):
 @pytest.fixture
 def frame():
     """A frame with every column shape the search has to handle."""
-    return pd.DataFrame({
-        "desc": _arrow(["Eriksson at the beach", None, "nothing here",
-                        "ERIKSSON again", "eriksson"], pa.string()),
-        "video_story": _arrow(["a long story", "mentions Eriksson", None,
-                               "no match", ""], pa.large_string()),
-        "desc_hashtags": _arrow([["eriksson", "beach"], None, [],
-                                 ["sunset"], ["Eriksson"]],
-                                pa.list_(pa.string())),
-        "play_count": _arrow([1, 42, 7, 42, 0], pa.int64()),
-        "scraped_ok": _arrow([True, False, True, True, False], pa.bool_()),
-        "utc_timestamp": _arrow(
-            pd.to_datetime(["2026-08-17", "2026-08-16", "2026-08-15",
-                            "2026-08-14", "2026-08-13"]).tolist(),
-            pa.timestamp("ns")),
-    })
+    return pd.DataFrame(
+        {
+            "desc": _arrow(
+                ["Eriksson at the beach", None, "nothing here", "ERIKSSON again", "eriksson"],
+                pa.string(),
+            ),
+            "video_story": _arrow(
+                ["a long story", "mentions Eriksson", None, "no match", ""], pa.large_string()
+            ),
+            "desc_hashtags": _arrow(
+                [["eriksson", "beach"], None, [], ["sunset"], ["Eriksson"]], pa.list_(pa.string())
+            ),
+            "play_count": _arrow([1, 42, 7, 42, 0], pa.int64()),
+            "scraped_ok": _arrow([True, False, True, True, False], pa.bool_()),
+            "utc_timestamp": _arrow(
+                pd.to_datetime(
+                    ["2026-08-17", "2026-08-16", "2026-08-15", "2026-08-14", "2026-08-13"]
+                ).tolist(),
+                pa.timestamp("ns"),
+            ),
+        }
+    )
 
 
 @pytest.fixture
@@ -53,8 +61,7 @@ def col_types():
 def _reference_search(df, column_types, terms):
     """The pre-2026-08-17 cast-based path, kept as the behavioural oracle."""
     mask = pd.Series(True, index=df.index)
-    searchable = [c for c in df.columns
-                  if column_types.get(c) in ("category", "long_text", "list")]
+    searchable = [c for c in df.columns if column_types.get(c) in ("category", "long_text", "list")]
     for term in terms:
         term_mask = pd.Series(False, index=df.index)
         cols = list(searchable)
@@ -64,29 +71,33 @@ def _reference_search(df, column_types, terms):
             try:
                 if column_types.get(col) == "list":
                     import pyarrow.compute as pc
-                    joined = pd.Series(pd.arrays.ArrowExtensionArray(
-                        pc.binary_join(df[col].array._pa_array, " ")),
-                        index=df.index)
+
+                    joined = pd.Series(
+                        pd.arrays.ArrowExtensionArray(pc.binary_join(df[col].array._pa_array, " ")),
+                        index=df.index,
+                    )
                     series = joined
                 else:
                     series = df[col].astype("string[pyarrow]")
-                term_mask |= series.str.contains(term, case=False, regex=False,
-                                                 na=False)
+                term_mask |= series.str.contains(term, case=False, regex=False, na=False)
             except Exception:
                 continue
         mask &= term_mask
     return df[mask]
 
 
-@pytest.mark.parametrize("query", [
-    "eriksson",              # hits long_text and a list column, mixed case
-    "ERIKSSON",              # the term arrives lowercased either way
-    "beach",                 # list element only
-    "42",                    # numeric term also sweeps number columns
-    "eriksson,beach",        # two terms: AND across terms, OR across columns
-    "nothing here",          # term containing a space
-    "no-such-value",         # empty result
-])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "eriksson",  # hits long_text and a list column, mixed case
+        "ERIKSSON",  # the term arrives lowercased either way
+        "beach",  # list element only
+        "42",  # numeric term also sweeps number columns
+        "eriksson,beach",  # two terms: AND across terms, OR across columns
+        "nothing here",  # term containing a space
+        "no-such-value",  # empty result
+    ],
+)
 def test_matches_reference_implementation(frame, col_types, query):
     terms = [t.strip().lower() for t in query.split(",") if t.strip()]
     expected = _reference_search(frame, col_types, terms)
@@ -96,13 +107,14 @@ def test_matches_reference_implementation(frame, col_types, query):
 
 def test_search_composes_with_a_column_filter(frame, col_types):
     got = explorer.filter_dataframe(
-        frame, col_types, {"scraped_ok": {"value": ["True"]}}, "eriksson")
+        frame, col_types, {"scraped_ok": {"value": ["True"]}}, "eriksson"
+    )
     assert list(got.index) == [0, 3]
 
 
 def test_nulls_and_empty_lists_never_match(frame, col_types):
     got = explorer.filter_dataframe(frame, col_types, {}, "eriksson")
-    assert 2 not in got.index          # null hashtags, no textual match
+    assert 2 not in got.index  # null hashtags, no textual match
 
 
 def test_list_term_spanning_two_elements_still_matches(frame, col_types):
@@ -157,10 +169,12 @@ def test_column_search_mask_shapes(frame):
 
 def test_multi_chunk_list_column_maps_rows_correctly():
     """list_parent_indices is chunk-local; the running offset must fix it."""
-    chunked = pa.chunked_array([
-        pa.array([["eriksson"], ["x"]], type=pa.list_(pa.string())),
-        pa.array([["y"], ["z", "Eriksson"]], type=pa.list_(pa.string())),
-    ])
+    chunked = pa.chunked_array(
+        [
+            pa.array([["eriksson"], ["x"]], type=pa.list_(pa.string())),
+            pa.array([["y"], ["z", "Eriksson"]], type=pa.list_(pa.string())),
+        ]
+    )
     series = pd.Series(pd.arrays.ArrowExtensionArray(chunked))
     mask = explorer._column_search_mask(series, "eriksson")
     assert list(mask) == [True, False, False, True]

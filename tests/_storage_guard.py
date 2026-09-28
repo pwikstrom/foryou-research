@@ -29,8 +29,7 @@ def assert_local_storage() -> None:
     from fyp.core.fyp_config import get_config
 
     data_io_cf = get_config().get("data_io", {})
-    gcs_flags = sorted(k for k, v in data_io_cf.items()
-                       if k.startswith("use_gcs") and v)
+    gcs_flags = sorted(k for k, v in data_io_cf.items() if k.startswith("use_gcs") and v)
     if gcs_flags:
         raise SystemExit(
             f"REFUSING to run tests: config resolves storage to GCS "

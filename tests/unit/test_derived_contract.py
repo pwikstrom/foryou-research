@@ -7,13 +7,23 @@ metadata / digest accessors.
 from fyp.core import derived_contract as dc
 
 _EXPECTED = {
-    "days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name",
-    "typicality_pct", "niche_isolation_pct",
-    "desc_hashtags", "desc_raw", "scraped_ok", "annotated_ok", "annotated_fail",
-    "engaged", "rewatched", "is_weekend", "videos_watched",
+    "days_since_created",
+    "completion_rate",
+    "scraped_fail",
+    "niche",
+    "niche_name",
+    "typicality_pct",
+    "niche_isolation_pct",
+    "desc_hashtags",
+    "desc_raw",
+    "scraped_ok",
+    "annotated_ok",
+    "annotated_fail",
+    "engaged",
+    "rewatched",
+    "is_weekend",
+    "videos_watched",
 }
-
-
 
 
 def test_contract_loads_and_validates() -> None:
@@ -23,14 +33,12 @@ def test_contract_loads_and_validates() -> None:
     print("test_contract_loads_and_validates PASSED")
 
 
-
-
 def test_owns_the_calc_and_niche_columns() -> None:
     """The derived contract owns the 5 merge-time columns, not plays_per_day."""
     contract = dc.load_contract()
     meta = dc.contract_column_metadata(contract)
     assert set(meta) == _EXPECTED, set(meta) ^ _EXPECTED
-    assert "plays_per_day" not in meta                       # scrape-owned
+    assert "plays_per_day" not in meta  # scrape-owned
     assert meta["completion_rate"]["role"] == "measure"
     assert meta["niche_name"]["role"] == "measure"
     assert meta["niche"]["role"] == "skip" and meta["niche"]["scale"] == "raw"
@@ -48,16 +56,12 @@ def test_owns_the_calc_and_niche_columns() -> None:
     print("test_owns_the_calc_and_niche_columns PASSED")
 
 
-
-
 def test_derived_fields_and_digest() -> None:
     """derived_fields and the digest cover all five columns."""
     contract = dc.load_contract()
     assert dc.derived_fields(contract) == _EXPECTED
     assert set(dc.contract_field_digest(contract)["fields"]) == _EXPECTED
     print("test_derived_fields_and_digest PASSED")
-
-
 
 
 if __name__ == "__main__":

@@ -5,10 +5,6 @@ import pytest
 import fyp.analysis.embedding_backends as embedding_backends
 
 
-
-
-
-
 def test_gemini_backend_registers_and_caches():
     b1 = embedding_backends.get_backend("gemini")
     b2 = embedding_backends.get_backend("gemini")
@@ -19,26 +15,14 @@ def test_gemini_backend_registers_and_caches():
     assert b1.dim() == 1536
 
 
-
-
-
-
 def test_unknown_backend_raises():
     with pytest.raises(ValueError, match="Unknown embedding backend"):
         embedding_backends.get_backend("nope")
 
 
-
-
-
-
 def test_backend_ids_closed_set():
     assert embedding_backends.BACKEND_IDS == ("gemini", "qwen_api", "qwen_local")
     assert set(embedding_backends._BACKEND_MODULES) == set(embedding_backends.BACKEND_IDS)
-
-
-
-
 
 
 def test_active_backend_name_defaults_to_gemini(monkeypatch):
@@ -48,10 +32,6 @@ def test_active_backend_name_defaults_to_gemini(monkeypatch):
     assert embedding_backends.active_backend_name() == "gemini"
 
 
-
-
-
-
 def test_active_backend_name_reads_setting(monkeypatch):
     from fyp.analysis.embedding_backends import settings as embed_settings
 
@@ -59,19 +39,11 @@ def test_active_backend_name_reads_setting(monkeypatch):
     assert embedding_backends.active_backend_name() == "qwen_local"
 
 
-
-
-
-
 def test_active_backend_name_rejects_unknown_value(monkeypatch):
     from fyp.analysis.embedding_backends import settings as embed_settings
 
     monkeypatch.setattr(embed_settings, "get_embedding_backend", lambda: "not_a_backend")
     assert embedding_backends.active_backend_name() == "gemini"
-
-
-
-
 
 
 def test_get_embedding_backend_survives_missing_store(monkeypatch):
@@ -82,10 +54,6 @@ def test_get_embedding_backend_survives_missing_store(monkeypatch):
     assert embed_settings.get_embedding_backend() == "gemini"
 
 
-
-
-
-
 def test_gemini_availability_shape():
     """availability() returns the (ok, reason, checks) contract."""
     result = embedding_backends.get_backend("gemini").availability()
@@ -93,10 +61,6 @@ def test_gemini_availability_shape():
     assert isinstance(result.reason, str)
     assert isinstance(result.checks, list)
     assert all({"name", "ok", "detail", "fix"} <= set(c) for c in result.checks)
-
-
-
-
 
 
 def test_admin_settings_validation_for_embedding_backend():

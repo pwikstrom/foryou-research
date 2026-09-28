@@ -58,16 +58,20 @@ from fyp.core.fyp_config import (
 
 META_COLS = ("role", "scale", "display_name", "description")
 # Contract-owned columns whose final name differs from the contract field name.
-EXPECTED_RENAMED = {"transcript_no_repetitions", "speech_vs_music",
-                    "background_music", "notable_sounds",
-                    "faces_gender", "faces_age_estimate", "faces_ethnicity"}
+EXPECTED_RENAMED = {
+    "transcript_no_repetitions",
+    "speech_vs_music",
+    "background_music",
+    "notable_sounds",
+    "faces_gender",
+    "faces_age_estimate",
+    "faces_ethnicity",
+}
 
 
 def _skeleton() -> pd.DataFrame:
     """The empty typed frame load_var_schema starts the synthesis from."""
-    return pd.DataFrame(
-        {c: pd.Series(dtype="string[pyarrow]") for c in VAR_SCHEMA_COLUMNS}
-    )
+    return pd.DataFrame({c: pd.Series(dtype="string[pyarrow]") for c in VAR_SCHEMA_COLUMNS})
 
 
 @contextlib.contextmanager
@@ -145,7 +149,9 @@ def test_overlay_is_idempotent() -> None:
     with _swapped(once.copy()):
         _apply_contract_variable_metadata(fyp_cf)
         twice = fyp_cf["var_schema"]
-    key = lambda df: df.sort_values("variable_name").reset_index(drop=True).astype(str).to_csv(index=False)
+    key = lambda df: (
+        df.sort_values("variable_name").reset_index(drop=True).astype(str).to_csv(index=False)
+    )
     assert len(twice) == len(once), "second overlay pass injected duplicate rows"
     assert key(twice) == key(once), "second overlay pass changed the frame"
 
@@ -156,19 +162,27 @@ def test_column_mapping_matches_flattener() -> None:
     assert len(keys) == 27, f"expected 27 contract-owned columns, got {len(keys)}"
     # The renamed/exploded columns must be present (and the raw field names absent).
     assert EXPECTED_RENAMED <= keys, f"missing renamed columns: {EXPECTED_RENAMED - keys}"
-    for raw_name in ("transcript", "faces", "audio_summary",
-                     "audio_summary_speech_vs_music"):
+    for raw_name in ("transcript", "faces", "audio_summary", "audio_summary_speech_vs_music"):
         assert raw_name not in keys, f"{raw_name} should not be a final column"
     # Cross-check the object explode/strip against the real flattener + rename chain.
     response = {
         "faces": [{"gender": "Female", "age_estimate": 30, "ethnicity": "Caucasian"}],
-        "audio_summary": {"speech_vs_music": 50, "background_music": "upbeat",
-                          "notable_sounds": ["siren"]},
+        "audio_summary": {
+            "speech_vs_music": 50,
+            "background_music": "upbeat",
+            "notable_sounds": ["siren"],
+        },
     }
     flat = flatten_structured(response)
     renamed = set(rv.rename_columns(pd.DataFrame([flat])).columns)
-    for col in ("faces_gender", "faces_age_estimate", "faces_ethnicity",
-                "speech_vs_music", "background_music", "notable_sounds"):
+    for col in (
+        "faces_gender",
+        "faces_age_estimate",
+        "faces_ethnicity",
+        "speech_vs_music",
+        "background_music",
+        "notable_sounds",
+    ):
         assert col in renamed, f"flattener did not emit {col}"
         assert col in keys, f"{col} emitted by flattener but not in metadata"
 
@@ -190,8 +204,7 @@ def test_synthesized_schema_carries_owned_rows() -> None:
         "non-Gemini row must keep its contract section"
     )
     # load_var_schema re-coerces the injected metadata columns to pyarrow strings.
-    for col in ("variable_name", "role", "scale", "display_name",
-                "description", "section"):
+    for col in ("variable_name", "role", "scale", "display_name", "description", "section"):
         assert str(vs[col].dtype) == "string", f"{col} dtype degraded to {vs[col].dtype}"
     # The retired ``source`` column must be gone; its replacement is a typed bool.
     assert "source" not in vs.columns, "retired source column resurfaced"
@@ -225,8 +238,7 @@ def test_hash_deterministic_and_prios_never_hash() -> None:
     )
     flipped = fyp_cf["var_schema"].copy()
     for col in vp.SURFACE_TO_PRIO_COLUMN.values():
-        flipped[col] = pd.Series(["1"] * len(flipped), dtype="string[pyarrow]",
-                                 index=flipped.index)
+        flipped[col] = pd.Series(["1"] * len(flipped), dtype="string[pyarrow]", index=flipped.index)
     with _swapped(flipped):
         hash_flipped = rv.compute_var_schema_hash()
     assert hash_flipped == hash_live, (
@@ -282,8 +294,7 @@ def test_list_scale_requires_a_multi_valued_response_schema() -> None:
                 multi = parent_is_array or str(raw).startswith("list:")
                 _check(ac.contract_output_column(name, key), scale, multi)
         else:
-            _check(ac.contract_output_column(name), field.get("scale"),
-                   bool(field.get("array")))
+            _check(ac.contract_output_column(name), field.get("scale"), bool(field.get("array")))
 
     assert not offenders, "scale/response-schema mismatch:\n  " + "\n  ".join(offenders)
 

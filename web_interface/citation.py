@@ -75,8 +75,11 @@ def get_citation() -> dict:
 
         raw = yaml.safe_load(_CITATION_FILE.read_text(encoding="utf-8"))
     except Exception:
-        logger.warning("Could not read %s; citation blocks fall back to the repo link.",
-                       _CITATION_FILE, exc_info=True)
+        logger.warning(
+            "Could not read %s; citation blocks fall back to the repo link.",
+            _CITATION_FILE,
+            exc_info=True,
+        )
         return dict(_UNAVAILABLE)
 
     if not isinstance(raw, dict):

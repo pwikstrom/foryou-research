@@ -45,13 +45,12 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
+
 
 TASK_TYPES = ("coding", "vote")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"
@@ -69,13 +68,9 @@ _INDEX_LOCK = threading.Lock()
 _ENUM_SPEC_RE = re.compile(r"enum:([A-Za-z0-9_]+)")
 
 
-
-
 def _now_iso() -> str:
     """Return the current UTC time as a seconds-precision ISO string."""
     return datetime.now(UTC).isoformat(timespec="seconds")
-
-
 
 
 def coder_slug(username: str) -> str:
@@ -95,13 +90,9 @@ def coder_slug(username: str) -> str:
     return f"{sanitized}_{digest}"
 
 
-
-
 def _human_file(run_id: str, name: str) -> str:
     """Return the storage filename for one human-task artifact of a run."""
     return f"runs/{run_id}/human/{name}"
-
-
 
 
 def _task_filename(task_type: str) -> str:
@@ -109,13 +100,9 @@ def _task_filename(task_type: str) -> str:
     return f"task_{task_type}.json"
 
 
-
-
 def _coder_filename(task_type: str, username: str) -> str:
     """Return a coder's response filename for a task type."""
     return f"{task_type}_{coder_slug(username)}.json"
-
-
 
 
 def _results_filename(task_type: str) -> str:
@@ -123,14 +110,10 @@ def _results_filename(task_type: str) -> str:
     return f"results_{task_type}.json"
 
 
-
-
 def _check_task_type(task_type: str) -> None:
     """Raise ``ValueError`` on an unknown task type."""
     if task_type not in TASK_TYPES:
         raise ValueError(f"unknown task type: {task_type!r}")
-
-
 
 
 def _contract_enum_values(contract: dict) -> dict[str, list[str]]:
@@ -157,8 +140,6 @@ def _contract_enum_values(contract: dict) -> dict[str, list[str]]:
         elif field.get("enum") and field["enum"] in enums:
             out[ac.contract_output_column(name)] = ac.enum_values(contract, field["enum"])
     return out
-
-
 
 
 def available_variables(run_id: str) -> list[dict]:
@@ -211,21 +192,26 @@ def available_variables(run_id: str) -> list[dict]:
             for arm_counts in (distributions.get(col, {}).get("arms") or {}).values():
                 observed |= {v for v in arm_counts if not ab._is_sentinel(v)}
             values = sorted(observed) if observed else None
-        out.append({
-            "name": col,
-            "kind": kind,
-            "label": str(label) if pd.notna(label) else col,
-            "description": str(description) if pd.notna(description) else "",
-            "values": values,
-        })
+        out.append(
+            {
+                "name": col,
+                "kind": kind,
+                "label": str(label) if pd.notna(label) else col,
+                "description": str(description) if pd.notna(description) else "",
+                "values": values,
+            }
+        )
     return sorted(out, key=lambda v: v["label"].lower())
 
 
-
-
-def create_task(run_id: str, task_type: str, variables: list[str],
-                coders: list[str], created_by: str = "",
-                arms: list[str] | None = None) -> dict:
+def create_task(
+    run_id: str,
+    task_type: str,
+    variables: list[str],
+    coders: list[str],
+    created_by: str = "",
+    arms: list[str] | None = None,
+) -> dict:
     """Create a human task on a finished run.
 
     Snapshots the run's items (with platforms, for the video player) and each
@@ -320,20 +306,20 @@ def create_task(run_id: str, task_type: str, variables: list[str],
         task["arms"] = arm_names
         task["order_seed"] = secrets.token_hex(16)
     with _INDEX_LOCK:
-        data_io.save_json(data=task, storage_location=ab.LOCATION,
-                          filename=_human_file(run_id, _task_filename(task_type)))
+        data_io.save_json(
+            data=task,
+            storage_location=ab.LOCATION,
+            filename=_human_file(run_id, _task_filename(task_type)),
+        )
         _update_tasks_index(_index_entry(task))
     return task
 
 
-
-
 def _kind_to_scale(kind: str) -> str:
     """Map a report comparison kind back onto a declared-scale string."""
-    return {"numeric": "numeric", "enum": "categorical",
-            "list": "list", "freetext": "text"}.get(kind, "text")
-
-
+    return {"numeric": "numeric", "enum": "categorical", "list": "list", "freetext": "text"}.get(
+        kind, "text"
+    )
 
 
 def load_task(run_id: str, task_type: str) -> dict | None:
@@ -351,8 +337,6 @@ def load_task(run_id: str, task_type: str) -> dict | None:
     return None
 
 
-
-
 def delete_task(run_id: str, task_type: str) -> bool:
     """Delete a task, its coder files and results; drop it from the index."""
     _check_task_type(task_type)
@@ -360,8 +344,7 @@ def delete_task(run_id: str, task_type: str) -> bool:
     task = load_task(run_id, task_type)
     filenames = [_task_filename(task_type), _results_filename(task_type)]
     filenames += [
-        _coder_filename(task_type, username)
-        for username in (task or {}).get("coders", {})
+        _coder_filename(task_type, username) for username in (task or {}).get("coders", {})
     ]
     removed = False
     for name in filenames:
@@ -374,14 +357,12 @@ def delete_task(run_id: str, task_type: str) -> bool:
             pass
     with _INDEX_LOCK:
         index = [
-            t for t in list_tasks()
+            t
+            for t in list_tasks()
             if not (t.get("run_id") == run_id and t.get("task_type") == task_type)
         ]
-        data_io.save_json(data=index, storage_location=ab.LOCATION,
-                          filename=TASKS_INDEX_FILENAME)
+        data_io.save_json(data=index, storage_location=ab.LOCATION, filename=TASKS_INDEX_FILENAME)
     return removed
-
-
 
 
 def list_tasks() -> list[dict]:
@@ -389,15 +370,12 @@ def list_tasks() -> list[dict]:
     ab.ensure_locations()
     try:
         if data_io.exists(storage_location=ab.LOCATION, filename=TASKS_INDEX_FILENAME):
-            index = data_io.load_json(storage_location=ab.LOCATION,
-                                      filename=TASKS_INDEX_FILENAME)
+            index = data_io.load_json(storage_location=ab.LOCATION, filename=TASKS_INDEX_FILENAME)
             if isinstance(index, list):
                 return sorted(index, key=lambda t: t.get("created_at") or "", reverse=True)
     except Exception:
         pass
     return []
-
-
 
 
 def _index_entry(task: dict) -> dict:
@@ -414,8 +392,6 @@ def _index_entry(task: dict) -> dict:
     }
 
 
-
-
 def _update_tasks_index(entry: dict, submitted: list[str] | None = None) -> None:
     """Insert/replace one task's index entry (keyed by run_id + task_type).
 
@@ -424,8 +400,11 @@ def _update_tasks_index(entry: dict, submitted: list[str] | None = None) -> None
     """
     index = list_tasks()
     previous = next(
-        (t for t in index
-         if t.get("run_id") == entry["run_id"] and t.get("task_type") == entry["task_type"]),
+        (
+            t
+            for t in index
+            if t.get("run_id") == entry["run_id"] and t.get("task_type") == entry["task_type"]
+        ),
         None,
     )
     if submitted is not None:
@@ -433,14 +412,12 @@ def _update_tasks_index(entry: dict, submitted: list[str] | None = None) -> None
     elif previous is not None:
         entry = {**entry, "submitted": previous.get("submitted", [])}
     index = [
-        t for t in index
+        t
+        for t in index
         if not (t.get("run_id") == entry["run_id"] and t.get("task_type") == entry["task_type"])
     ]
     index.append(entry)
-    data_io.save_json(data=index, storage_location=ab.LOCATION,
-                      filename=TASKS_INDEX_FILENAME)
-
-
+    data_io.save_json(data=index, storage_location=ab.LOCATION, filename=TASKS_INDEX_FILENAME)
 
 
 def tasks_for_user(username: str, is_admin: bool = False) -> list[dict]:
@@ -451,17 +428,12 @@ def tasks_for_user(username: str, is_admin: bool = False) -> list[dict]:
     return [t for t in tasks if str(username) in (t.get("coders") or [])]
 
 
-
-
 def is_invited(task: dict, username: str, is_admin: bool = False) -> bool:
     """True when a user may access a task (admins always may)."""
     return bool(is_admin) or str(username) in (task.get("coders") or {})
 
 
-
-
-def add_coders(run_id: str, task_type: str, usernames: list[str],
-               invited_by: str = "") -> dict:
+def add_coders(run_id: str, task_type: str, usernames: list[str], invited_by: str = "") -> dict:
     """Invite additional coders to an existing task.
 
     Args:
@@ -485,14 +457,17 @@ def add_coders(run_id: str, task_type: str, usernames: list[str],
             username = str(username)
             if username not in task["coders"]:
                 task["coders"][username] = {
-                    "invited_at": now, "invited_by": invited_by, "notified": False,
+                    "invited_at": now,
+                    "invited_by": invited_by,
+                    "notified": False,
                 }
-        data_io.save_json(data=task, storage_location=ab.LOCATION,
-                          filename=_human_file(run_id, _task_filename(task_type)))
+        data_io.save_json(
+            data=task,
+            storage_location=ab.LOCATION,
+            filename=_human_file(run_id, _task_filename(task_type)),
+        )
         _update_tasks_index(_index_entry(task))
     return task
-
-
 
 
 def load_coder_state(run_id: str, task_type: str, username: str) -> dict:
@@ -517,8 +492,6 @@ def load_coder_state(run_id: str, task_type: str, username: str) -> dict:
     }
 
 
-
-
 # ---------------------------------------------------------------------------
 # Vote tasks: blind option permutation + payload.
 # ---------------------------------------------------------------------------
@@ -527,8 +500,6 @@ def load_coder_state(run_id: str, task_type: str, username: str) -> dict:
 def vote_option_letters(n: int) -> list[str]:
     """Return the option labels for ``n`` arms (``["A", "B", ...]``)."""
     return [chr(ord("A") + i) for i in range(n)]
-
-
 
 
 def _vote_permutation(task: dict, item_id: str, username: str) -> list[str]:
@@ -542,12 +513,8 @@ def _vote_permutation(task: dict, item_id: str, username: str) -> list[str]:
     seed = task.get("order_seed", "")
     return sorted(
         task.get("arms", []),
-        key=lambda arm: hashlib.sha256(
-            f"{seed}|{item_id}|{username}|{arm}".encode()
-        ).hexdigest(),
+        key=lambda arm: hashlib.sha256(f"{seed}|{item_id}|{username}|{arm}".encode()).hexdigest(),
     )
-
-
 
 
 def resolve_vote_choice(task: dict, item_id: str, username: str, choice: str) -> str:
@@ -569,8 +536,6 @@ def resolve_vote_choice(task: dict, item_id: str, username: str, choice: str) ->
     raise ValueError(f"invalid vote choice: {choice!r}")
 
 
-
-
 def letter_for_arm(task: dict, item_id: str, username: str, arm: str) -> str:
     """Inverse of :func:`resolve_vote_choice` for re-serving saved responses."""
     if arm == "tie":
@@ -581,8 +546,6 @@ def letter_for_arm(task: dict, item_id: str, username: str, arm: str) -> str:
         return letters[order.index(arm)]
     except ValueError:
         return ""
-
-
 
 
 def vote_options_payload(task: dict, username: str) -> dict[str, list[dict]]:
@@ -616,14 +579,14 @@ def vote_options_payload(task: dict, username: str) -> dict[str, list[dict]]:
         options = []
         for letter, arm in zip(letters, order, strict=True):
             row = rows_by_arm.get(arm, {}).get(item_id, {})
-            options.append({
-                "option": letter,
-                "values": {v: row.get(v, "") for v in variables},
-            })
+            options.append(
+                {
+                    "option": letter,
+                    "values": {v: row.get(v, "") for v in variables},
+                }
+            )
         out[item_id] = options
     return out
-
-
 
 
 def _validate_values(task: dict, values: dict) -> dict:
@@ -671,10 +634,14 @@ def _validate_values(task: dict, values: dict) -> dict:
     return cleaned
 
 
-
-
-def save_response(run_id: str, task_type: str, username: str,
-                  item_id: str, values: dict | None, note: str | None = None) -> dict:
+def save_response(
+    run_id: str,
+    task_type: str,
+    username: str,
+    item_id: str,
+    values: dict | None,
+    note: str | None = None,
+) -> dict:
     """Save one coder's response for one item (autosave granularity).
 
     Writes only that coder's own file, so concurrent coders never collide.
@@ -716,8 +683,7 @@ def save_response(run_id: str, task_type: str, username: str,
         # the underlying arm name here so the client never learns the mapping.
         if set(values or {}) != {"choice"}:
             raise ValueError("a vote must be exactly {'choice': <option>}")
-        cleaned = {"choice": resolve_vote_choice(task, item_id, username,
-                                                 values["choice"])}
+        cleaned = {"choice": resolve_vote_choice(task, item_id, username, values["choice"])}
     else:
         cleaned = _validate_values(task, values)
 
@@ -726,18 +692,22 @@ def save_response(run_id: str, task_type: str, username: str,
     state["updated_at"] = now
     response = {
         "values": cleaned,
-        "note": (str(note).strip()[:MAX_NOTE_CHARS] if note is not None
-                 else str(existing.get("note") or "")),
+        "note": (
+            str(note).strip()[:MAX_NOTE_CHARS]
+            if note is not None
+            else str(existing.get("note") or "")
+        ),
         "updated_at": now,
     }
     if not response["note"]:
         response.pop("note")
     state["responses"][str(item_id)] = response
-    data_io.save_json(data=state, storage_location=ab.LOCATION,
-                      filename=_human_file(run_id, _coder_filename(task_type, username)))
+    data_io.save_json(
+        data=state,
+        storage_location=ab.LOCATION,
+        filename=_human_file(run_id, _coder_filename(task_type, username)),
+    )
     return state
-
-
 
 
 def submit(run_id: str, task_type: str, username: str) -> dict:
@@ -765,14 +735,16 @@ def submit(run_id: str, task_type: str, username: str) -> dict:
     state["status"] = "submitted"
     state["submitted_at"] = now
     state["updated_at"] = now
-    data_io.save_json(data=state, storage_location=ab.LOCATION,
-                      filename=_human_file(run_id, _coder_filename(task_type, username)))
+    data_io.save_json(
+        data=state,
+        storage_location=ab.LOCATION,
+        filename=_human_file(run_id, _coder_filename(task_type, username)),
+    )
 
     with _INDEX_LOCK:
         index = list_tasks()
         previous = next(
-            (t for t in index
-             if t.get("run_id") == run_id and t.get("task_type") == task_type),
+            (t for t in index if t.get("run_id") == run_id and t.get("task_type") == task_type),
             None,
         )
         submitted = set((previous or {}).get("submitted", [])) | {str(username)}
@@ -786,16 +758,9 @@ def submit(run_id: str, task_type: str, username: str) -> dict:
     return {"n_answered": _n_answered(state), "n_items": len(task.get("item_ids", []))}
 
 
-
-
 def _n_answered(state: dict) -> int:
     """Count the items a coder actually answered (a bare note is not an answer)."""
-    return sum(
-        1 for response in (state.get("responses") or {}).values()
-        if response.get("values")
-    )
-
-
+    return sum(1 for response in (state.get("responses") or {}).values() if response.get("values"))
 
 
 def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
@@ -810,7 +775,7 @@ def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
     for item_id, response in (state.get("responses") or {}).items():
         values = response.get("values") or {}
         if not values:
-            continue   # note-only response — not a coded item
+            continue  # note-only response — not a coded item
         row: dict = {"item_id": str(item_id)}
         for var in variables:
             row[var] = values.get(var)
@@ -818,8 +783,6 @@ def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
     frame = pd.DataFrame(rows, columns=["item_id", *variables])
     frame["item_id"] = frame["item_id"].astype(str)
     return frame
-
-
 
 
 def _arm_frame(run_id: str, arm: str, variables: list[str]) -> pd.DataFrame | None:
@@ -839,8 +802,6 @@ def _arm_frame(run_id: str, arm: str, variables: list[str]) -> pd.DataFrame | No
     return frame
 
 
-
-
 def _aligned_canon(df_a: pd.DataFrame, df_b: pd.DataFrame, column: str) -> tuple[list, list]:
     """Return the two frames' canonicalized value lists for one enum column.
 
@@ -852,8 +813,6 @@ def _aligned_canon(df_a: pd.DataFrame, df_b: pd.DataFrame, column: str) -> tuple
     ca = a.loc[common, column].map(ab._normalize_cell).map(ab._canon)
     cb = b.loc[common, column].map(ab._normalize_cell).map(ab._canon)
     return list(ca), list(cb)
-
-
 
 
 def _inject_kappa(comparison: dict, df_a: pd.DataFrame, df_b: pd.DataFrame) -> dict:
@@ -893,8 +852,6 @@ def _inject_kappa(comparison: dict, df_a: pd.DataFrame, df_b: pd.DataFrame) -> d
     return comparison
 
 
-
-
 def compute_results(run_id: str, task_type: str) -> dict:
     """(Re)compute a task's ICR metrics and persist them.
 
@@ -927,7 +884,7 @@ def compute_results(run_id: str, task_type: str) -> dict:
         if state.get("status") == "submitted" and state.get("responses"):
             coder_frames[username] = _coder_frame(task, state)
 
-    manifest = (ab.load_run(run_id).get("manifest") or {})
+    manifest = ab.load_run(run_id).get("manifest") or {}
     arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
     arm_frames: dict[str, pd.DataFrame] = {}
     for arm in arm_names:
@@ -946,21 +903,27 @@ def compute_results(run_id: str, task_type: str) -> dict:
     for i in range(len(coders)):
         for j in range(i + 1, len(coders)):
             key = f"{coders[i]}|{coders[j]}"
-            comp = ab.compare_arms(coder_frames[coders[i]], coder_frames[coders[j]],
-                                   scales=scales)
+            comp = ab.compare_arms(coder_frames[coders[i]], coder_frames[coders[j]], scales=scales)
             human_vs_human[key] = _inject_kappa(
                 comp, coder_frames[coders[i]], coder_frames[coders[j]]
             )
 
     per_coder: dict[str, dict] = {}
     for username in coders:
-        own = [comp["summary"] for key, comp in human_vs_machine.items()
-               if key.split("|", 1)[0] == username]
+        own = [
+            comp["summary"]
+            for key, comp in human_vs_machine.items()
+            if key.split("|", 1)[0] == username
+        ]
         per_coder[username] = {
             metric: _mean_of(own, metric)
-            for metric in ("mean_enum_agreement", "mean_enum_agreement_filled",
-                           "mean_enum_kappa", "mean_list_jaccard",
-                           "mean_numeric_correlation")
+            for metric in (
+                "mean_enum_agreement",
+                "mean_enum_agreement_filled",
+                "mean_enum_kappa",
+                "mean_list_jaccard",
+                "mean_numeric_correlation",
+            )
         }
         per_coder[username]["n_items_coded"] = int(len(coder_frames[username]))
 
@@ -973,11 +936,12 @@ def compute_results(run_id: str, task_type: str) -> dict:
         "human_vs_human": human_vs_human,
         "summary": {"per_coder": per_coder},
     }
-    data_io.save_json(data=results, storage_location=ab.LOCATION,
-                      filename=_human_file(run_id, _results_filename(task_type)))
+    data_io.save_json(
+        data=results,
+        storage_location=ab.LOCATION,
+        filename=_human_file(run_id, _results_filename(task_type)),
+    )
     return results
-
-
 
 
 def _compute_vote_results(run_id: str, task: dict) -> dict:
@@ -1005,7 +969,9 @@ def _compute_vote_results(run_id: str, task: dict) -> dict:
             elif choice in wins:
                 wins[choice] += 1
         per_coder[username] = {
-            "wins": wins, "ties": ties, "n_votes": sum(wins.values()) + ties,
+            "wins": wins,
+            "ties": ties,
+            "n_votes": sum(wins.values()) + ties,
         }
         for arm, n in wins.items():
             pooled_wins[arm] += n
@@ -1013,9 +979,7 @@ def _compute_vote_results(run_id: str, task: dict) -> dict:
 
     n_non_tie = sum(pooled_wins.values())
     n_votes = n_non_tie + pooled_ties
-    win_rates = {
-        arm: (n / n_non_tie if n_non_tie else None) for arm, n in pooled_wins.items()
-    }
+    win_rates = {arm: (n / n_non_tie if n_non_tie else None) for arm, n in pooled_wins.items()}
 
     sign_test = None
     if len(arms) == 2 and n_non_tie > 0:
@@ -1035,16 +999,21 @@ def _compute_vote_results(run_id: str, task: dict) -> dict:
         "coders": sorted(per_coder),
         "n_items": len(task.get("item_ids", [])),
         "per_coder": per_coder,
-        "pooled": {"wins": pooled_wins, "ties": pooled_ties, "n_votes": n_votes,
-                   "win_rates": win_rates},
+        "pooled": {
+            "wins": pooled_wins,
+            "ties": pooled_ties,
+            "n_votes": n_votes,
+            "win_rates": win_rates,
+        },
         "tie_rate": (pooled_ties / n_votes) if n_votes else None,
         "sign_test": sign_test,
     }
-    data_io.save_json(data=results, storage_location=ab.LOCATION,
-                      filename=_human_file(run_id, _results_filename(task["task_type"])))
+    data_io.save_json(
+        data=results,
+        storage_location=ab.LOCATION,
+        filename=_human_file(run_id, _results_filename(task["task_type"])),
+    )
     return results
-
-
 
 
 def set_notified(run_id: str, task_type: str, username: str) -> None:
@@ -1060,18 +1029,17 @@ def set_notified(run_id: str, task_type: str, username: str) -> None:
             return
         task["coders"][str(username)]["notified"] = True
         task["coders"][str(username)]["notified_at"] = _now_iso()
-        data_io.save_json(data=task, storage_location=ab.LOCATION,
-                          filename=_human_file(run_id, _task_filename(task_type)))
-
-
+        data_io.save_json(
+            data=task,
+            storage_location=ab.LOCATION,
+            filename=_human_file(run_id, _task_filename(task_type)),
+        )
 
 
 def _mean_of(summaries: list[dict], metric: str) -> float | None:
     """Mean of one summary metric across comparisons, ignoring ``None``s."""
     values = [s.get(metric) for s in summaries if s.get(metric) is not None]
     return float(np.mean(values)) if values else None
-
-
 
 
 def load_results(run_id: str, task_type: str) -> dict | None:
@@ -1087,8 +1055,6 @@ def load_results(run_id: str, task_type: str) -> dict | None:
     except Exception:
         pass
     return None
-
-
 
 
 def coder_rows(run_id: str, task_type: str, username: str) -> list[dict]:
@@ -1111,8 +1077,6 @@ def coder_rows(run_id: str, task_type: str, username: str) -> list[dict]:
             row["note"] = note
         rows.append(row)
     return rows
-
-
 
 
 def coder_status(run_id: str, task_type: str, task: dict | None = None) -> dict:
@@ -1144,8 +1108,6 @@ def coder_status(run_id: str, task_type: str, task: dict | None = None) -> dict:
     return out
 
 
-
-
 def collect_notes(run_id: str, task_type: str, task: dict | None = None) -> list[dict]:
     """Return every coder note on a task, newest first.
 
@@ -1159,15 +1121,15 @@ def collect_notes(run_id: str, task_type: str, task: dict | None = None) -> list
         for item_id, response in (state.get("responses") or {}).items():
             note = str(response.get("note") or "").strip()
             if note:
-                notes.append({
-                    "username": username,
-                    "item_id": str(item_id),
-                    "note": note,
-                    "updated_at": response.get("updated_at"),
-                })
+                notes.append(
+                    {
+                        "username": username,
+                        "item_id": str(item_id),
+                        "note": note,
+                        "updated_at": response.get("updated_at"),
+                    }
+                )
     return sorted(notes, key=lambda n: n.get("updated_at") or "", reverse=True)
-
-
 
 
 def load_human(run_id: str) -> dict | None:

@@ -23,32 +23,42 @@ import fyp.annotation.recode_variables as rv
 
 
 def _amap(df: pd.DataFrame) -> dict:
-    return dict(zip(df["item_id"].astype(str),
-                    df["australian_relevance"].astype("string")))
+    return dict(zip(df["item_id"].astype(str), df["australian_relevance"].astype("string")))
 
 
 def test_coalesces_old_and_new_rows() -> None:
     # o* = old rows (have australian_relevance, no primary_country);
     # n* = new rows (have primary_country, no australian_relevance).
-    df = pd.DataFrame({
-        "item_id": ["o1", "o2", "n1", "n2", "n3", "n4"],
-        "australian_relevance": ["yes", "no", pd.NA, pd.NA, pd.NA, pd.NA],
-        "primary_country": [pd.NA, pd.NA, "australia", "united states", "-", "unable to detect"],
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": ["o1", "o2", "n1", "n2", "n3", "n4"],
+            "australian_relevance": ["yes", "no", pd.NA, pd.NA, pd.NA, pd.NA],
+            "primary_country": [
+                pd.NA,
+                pd.NA,
+                "australia",
+                "united states",
+                "-",
+                "unable to detect",
+            ],
+        }
+    )
     out = rv.derive_australian_relevance(df.copy())
     m = _amap(out)
-    assert m["o1"] == "yes" and m["o2"] == "no"      # old values untouched
-    assert m["n1"] == "yes"                           # Australia -> yes
-    assert m["n2"] == "no"                            # other country -> no
-    assert m["n3"] == "no" and m["n4"] == "no"        # no clear country -> no
+    assert m["o1"] == "yes" and m["o2"] == "no"  # old values untouched
+    assert m["n1"] == "yes"  # Australia -> yes
+    assert m["n2"] == "no"  # other country -> no
+    assert m["n3"] == "no" and m["n4"] == "no"  # no clear country -> no
 
 
 def test_case_insensitive_and_whitespace() -> None:
-    df = pd.DataFrame({
-        "item_id": ["a", "b"],
-        "australian_relevance": [pd.NA, pd.NA],
-        "primary_country": ["  Australia ", "AUSTRALIA"],
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": ["a", "b"],
+            "australian_relevance": [pd.NA, pd.NA],
+            "primary_country": ["  Australia ", "AUSTRALIA"],
+        }
+    )
     out = rv.derive_australian_relevance(df.copy())
     assert all(v == "yes" for v in out["australian_relevance"].astype("string"))
 
@@ -79,6 +89,7 @@ def _main() -> int:
         except Exception:
             failures += 1
             import traceback
+
             print(f"ERROR {t.__name__}")
             traceback.print_exc()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")

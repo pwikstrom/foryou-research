@@ -22,16 +22,16 @@ from fyp.annotation import var_presentation as vp
 from fyp.scrape import _coalesce_retired_columns
 
 
-
-
 def test_coalesce_single_platform_frame():
     """A legacy TikTok frame's stats_*/author_uniqueId land in the generic columns."""
-    df = pd.DataFrame({
-        "item_id": pd.Series(["1", "2"], dtype="string[pyarrow]"),
-        "stats_diggCount": pd.Series([50, -1], dtype="int64[pyarrow]"),
-        "stats_commentCount": pd.Series([10, 3], dtype="int64[pyarrow]"),
-        "author_uniqueId": pd.Series(["bob", "eve"], dtype="string[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.Series(["1", "2"], dtype="string[pyarrow]"),
+            "stats_diggCount": pd.Series([50, -1], dtype="int64[pyarrow]"),
+            "stats_commentCount": pd.Series([10, 3], dtype="int64[pyarrow]"),
+            "author_uniqueId": pd.Series(["bob", "eve"], dtype="string[pyarrow]"),
+        }
+    )
     out = _coalesce_retired_columns(df)
 
     for retired in ("stats_diggCount", "stats_commentCount", "author_uniqueId"):
@@ -47,17 +47,17 @@ def test_coalesce_single_platform_frame():
     print("PASS: single-platform coalesce")
 
 
-
-
 def test_coalesce_mixed_frame_combines_without_duplicates():
     """Several retired sources sharing one target coalesce row-wise, no duplicate labels."""
-    df = pd.DataFrame({
-        "item_id": pd.Series(["t1", "i1"], dtype="string[pyarrow]"),
-        "stats_diggCount": pd.Series([50, None], dtype="int64[pyarrow]"),
-        "ig_like_count": pd.Series([None, 70], dtype="int64[pyarrow]"),
-        "author_uniqueId": pd.Series(["bob", None], dtype="string[pyarrow]"),
-        "ig_author_handle": pd.Series([None, "alice"], dtype="string[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.Series(["t1", "i1"], dtype="string[pyarrow]"),
+            "stats_diggCount": pd.Series([50, None], dtype="int64[pyarrow]"),
+            "ig_like_count": pd.Series([None, 70], dtype="int64[pyarrow]"),
+            "author_uniqueId": pd.Series(["bob", None], dtype="string[pyarrow]"),
+            "ig_author_handle": pd.Series([None, "alice"], dtype="string[pyarrow]"),
+        }
+    )
     out = _coalesce_retired_columns(df)
 
     assert not out.columns.duplicated().any()
@@ -67,34 +67,32 @@ def test_coalesce_mixed_frame_combines_without_duplicates():
     print("PASS: mixed-frame coalesce")
 
 
-
-
 def test_coalesce_keeps_existing_generic_values():
     """An already-populated generic column wins over a retired source."""
-    df = pd.DataFrame({
-        "item_id": pd.Series(["1"], dtype="string[pyarrow]"),
-        "fave_count": pd.Series([99], dtype="int64[pyarrow]"),
-        "stats_diggCount": pd.Series([50], dtype="int64[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.Series(["1"], dtype="string[pyarrow]"),
+            "fave_count": pd.Series([99], dtype="int64[pyarrow]"),
+            "stats_diggCount": pd.Series([50], dtype="int64[pyarrow]"),
+        }
+    )
     out = _coalesce_retired_columns(df)
     assert int(out["fave_count"].iloc[0]) == 99
     assert "stats_diggCount" not in out.columns
     print("PASS: existing generic value wins")
 
 
-
-
 def test_coalesce_noop_on_canonical_frame():
     """A frame with no retired columns passes through unchanged."""
-    df = pd.DataFrame({
-        "item_id": pd.Series(["1"], dtype="string[pyarrow]"),
-        "fave_count": pd.Series([5], dtype="int64[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.Series(["1"], dtype="string[pyarrow]"),
+            "fave_count": pd.Series([5], dtype="int64[pyarrow]"),
+        }
+    )
     out = _coalesce_retired_columns(df)
     assert list(out.columns) == ["item_id", "fave_count"]
     print("PASS: canonical frame no-op")
-
-
 
 
 class _StubDataIO:
@@ -105,8 +103,6 @@ class _StubDataIO:
 
     def save_json(self, data=None, storage_location=None, filename=None):
         self.saved = data
-
-
 
 
 def test_presentation_migration_unions_and_persists(monkeypatch=None):
@@ -121,14 +117,27 @@ def test_presentation_migration_unions_and_persists(monkeypatch=None):
                 "filter": ["author_uniqueId", "play_count"],
                 "timeline": [],
                 "viz": [],
-                "display": ["stats_diggCount", "stats_commentCount", "author_uniqueId",
-                            "stats_shareCount", "stats_collectCount", "play_count"],
+                "display": [
+                    "stats_diggCount",
+                    "stats_commentCount",
+                    "author_uniqueId",
+                    "stats_shareCount",
+                    "stats_collectCount",
+                    "play_count",
+                ],
             },
         }
         out = vp._migrate_retired_names(payload)
         assert out["surfaces"]["filter"] == ["author_handle", "play_count"]
         assert out["surfaces"]["display"] == sorted(
-            ["fave_count", "comment_count", "share_count", "save_count", "author_handle", "play_count"]
+            [
+                "fave_count",
+                "comment_count",
+                "share_count",
+                "save_count",
+                "author_handle",
+                "play_count",
+            ]
         )
         assert out["updated_by"] == "retired-column-migration"
         assert stub.saved is not None, "migrated payload must persist"
@@ -143,8 +152,6 @@ def test_presentation_migration_unions_and_persists(monkeypatch=None):
     print("PASS: presentation migration")
 
 
-
-
 def test_retirement_map_matches_contract():
     """Every retirement target is a generic base field of the current contract."""
     contract = sc.load_contract()
@@ -153,8 +160,6 @@ def test_retirement_map_matches_contract():
     field_names = {f["name"] for f in contract.get("fields", [])}
     assert not set(sc.RETIRED_TO_GENERIC) & field_names
     print("PASS: retirement map consistent with contract")
-
-
 
 
 if __name__ == "__main__":

@@ -22,21 +22,15 @@ _ENDPOINT = "/api/video_analysis/ids"
 _N_ROWS = 2500
 
 
-
-
-
-
 def _frame():
     """Chronological rows; item ids are zero-padded so order is unambiguous."""
-    return pd.DataFrame({
-        "item_id": [f"v{i:05d}" for i in range(_N_ROWS)],
-        "utc_timestamp": pd.date_range("2026-01-01", periods=_N_ROWS, freq="h"),
-        "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers" for i in range(_N_ROWS)],
-    })
-
-
-
-
+    return pd.DataFrame(
+        {
+            "item_id": [f"v{i:05d}" for i in range(_N_ROWS)],
+            "utc_timestamp": pd.date_range("2026-01-01", periods=_N_ROWS, freq="h"),
+            "niche_name": ["Cat Mischief" if i % 2 else "Guitar Covers" for i in range(_N_ROWS)],
+        }
+    )
 
 
 @pytest.fixture
@@ -60,10 +54,6 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 @pytest.fixture
 def viewer(client, monkeypatch):
     """Logged-in viewer with the tab permission and one accessible study."""
@@ -71,10 +61,13 @@ def viewer(client, monkeypatch):
     from web_interface.routes import api_viewer_routes as routes
 
     monkeypatch.setattr(
-        auth.role_manager, "get_role_permissions", lambda role: ["tab.video_analysis"],
+        auth.role_manager,
+        "get_role_permissions",
+        lambda role: ["tab.video_analysis"],
     )
     monkeypatch.setattr(
-        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: [_STUDY],
+        "web_interface.routes._access.get_accessible_studies",
+        lambda *a, **k: [_STUDY],
     )
     # Real column classification, so `niche_name` is filterable exactly as it is
     # in production (the category branch of filter_dataframe is dtype-gated).
@@ -101,20 +94,12 @@ def viewer(client, monkeypatch):
     return client
 
 
-
-
-
-
 def _post(client, **extra):
     body = {"study": _STUDY, "filters": {}, "offset": 0, "limit": 1000}
     body.update(extra)
     res = client.post(_ENDPOINT, json=body)
     assert res.status_code == 200, res.data
     return res.get_json()
-
-
-
-
 
 
 def test_focus_index_beyond_the_first_chunk(viewer):
@@ -127,10 +112,6 @@ def test_focus_index_beyond_the_first_chunk(viewer):
     assert "v01777" not in data["ids"]
 
 
-
-
-
-
 def test_focus_index_respects_active_filters(viewer):
     """The index is a position in the filtered order, not in the raw frame."""
     filters = {"niche_name": {"type": "category", "value": ["Cat Mischief"]}}
@@ -141,21 +122,13 @@ def test_focus_index_respects_active_filters(viewer):
     assert data["count"] == _N_ROWS // 2
 
 
-
-
-
-
 def test_focus_index_is_none_when_the_filters_exclude_the_item(viewer):
     """Present in the study but filtered out — the caller must not land on row 0."""
     filters = {"niche_name": {"type": "category", "value": ["Cat Mischief"]}}
-    data = _post(viewer, filters=filters, focus_item_id="v00100")   # even id => other niche
+    data = _post(viewer, filters=filters, focus_item_id="v00100")  # even id => other niche
 
     assert data["focus_index"] is None
     assert data["count"] > 0
-
-
-
-
 
 
 def test_focus_index_is_none_for_an_item_outside_the_study(viewer):
@@ -163,10 +136,6 @@ def test_focus_index_is_none_for_an_item_outside_the_study(viewer):
     data = _post(viewer, focus_item_id="not-in-this-study")
 
     assert data["focus_index"] is None
-
-
-
-
 
 
 def test_key_is_absent_when_not_requested(viewer):

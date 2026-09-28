@@ -38,10 +38,6 @@ def sink():
     logging_setup.remove_sink(handler)
 
 
-
-
-
-
 def test_io_lines_are_silent_at_info(sink):
     logger = data_io.logger
     previous = logger.level
@@ -66,10 +62,6 @@ def test_io_lines_return_at_debug(sink):
     io_lines = [m for m in sink.messages if m.startswith("[IO]")]
     assert len(io_lines) == 1
     assert "op=load_json" in io_lines[0] and "file=thing.json" in io_lines[0]
-
-
-
-
 
 
 def test_add_sink_reaches_loggers_created_after_it(sink):

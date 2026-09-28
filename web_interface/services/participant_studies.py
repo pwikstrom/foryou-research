@@ -91,10 +91,6 @@ def _remove_study(name: str, *, drop_artifacts: bool) -> bool:
     return existed
 
 
-
-
-
-
 def _forget_refresh_stats(name: str) -> None:
     """Drop a removed study's ``study_refresh__<name>`` worker entry.
 
@@ -102,6 +98,7 @@ def _forget_refresh_stats(name: str) -> None:
     """
     try:
         from web_interface.process_manager import forget_process_stats
+
         forget_process_stats(f"study_refresh__{name}")
     except Exception as exc:
         logger.warning(f"Could not drop worker stats for removed study {name!r}: {exc}")
@@ -136,13 +133,14 @@ def ensure_participant_studies(username: str, *, log=logger.info) -> dict:
         if removed_me or removed_plus:
             save_study_defs()
             log(f"Participant studies removed for {username} (no owned collections).")
-        return {"me_changed": False, "removed": removed_me or removed_plus,
-                "collections": 0}
+        return {"me_changed": False, "removed": removed_me or removed_plus, "collections": 0}
 
     changed = False
     me_changed = False
-    for name, template in ((me_name, _me_def(username, cids)),
-                           (plus_name, _plus_def(username, cids))):
+    for name, template in (
+        (me_name, _me_def(username, cids)),
+        (plus_name, _plus_def(username, cids)),
+    ):
         existing = defs.get(name)
         if not isinstance(existing, dict):
             defs[name] = template
@@ -163,8 +161,10 @@ def ensure_participant_studies(username: str, *, log=logger.info) -> dict:
 
     if changed:
         save_study_defs()
-        log(f"Participant studies ensured for {username} "
-            f"({len(cids)} collection(s), refresh_needed={me_changed}).")
+        log(
+            f"Participant studies ensured for {username} "
+            f"({len(cids)} collection(s), refresh_needed={me_changed})."
+        )
     return {"me_changed": me_changed, "removed": False, "collections": len(cids)}
 
 
@@ -188,8 +188,9 @@ def dispatch_me_refresh(username: str, *, wait: bool = False, log=logger.info) -
     if is_cloud_run():
         from web_interface.process_manager import start_process
 
-        ok, msg = start_process("study_refresh", None, task_args=task_args,
-                                started_by="system (participant studies)")
+        ok, msg = start_process(
+            "study_refresh", None, task_args=task_args, started_by="system (participant studies)"
+        )
         if not ok:
             log(f"Just Me refresh dispatch failed for {username}: {msg}")
         return ok
@@ -212,8 +213,7 @@ def dispatch_me_refresh(username: str, *, wait: bool = False, log=logger.info) -
     if wait:
         _run()
     else:
-        threading.Thread(target=_run, daemon=True,
-                         name=f"study_refresh__{study_name}").start()
+        threading.Thread(target=_run, daemon=True, name=f"study_refresh__{study_name}").start()
     return True
 
 
@@ -314,7 +314,8 @@ def refresh_stale_participant_studies(*, wait: bool = True, log=logger.info) -> 
     owners = {u for u in owner_map.values() if u}
     init_study_defs()
     def_owners = {
-        cfg.get("OWNER") for cfg in (fyp_cf.get("study_defs") or {}).values()
+        cfg.get("OWNER")
+        for cfg in (fyp_cf.get("study_defs") or {}).values()
         if isinstance(cfg, dict) and cfg.get("SYSTEM")
     }
     all_owners = sorted(o for o in owners | def_owners if o)

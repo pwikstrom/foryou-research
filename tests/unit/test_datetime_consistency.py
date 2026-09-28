@@ -27,7 +27,7 @@ STATIC = WEB / "static"
 # building opaque ids; it is only a problem when the value is serialised for
 # display. These are the audited exceptions.
 NAIVE_NOW_ALLOWED = {
-    "explorer_backend.py",        # elapsed-time deltas in progress logging
+    "explorer_backend.py",  # elapsed-time deltas in progress logging
     "run_queue_annotator_batch.py",  # batch-id digits + a config-TZ log clock
 }
 
@@ -41,16 +41,8 @@ def _py_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.py") if not SKIP_DIRS.intersection(p.parts))
 
 
-
-
-
-
 def _calls(tree: ast.AST) -> list[ast.Call]:
     return [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
-
-
-
-
 
 
 def _func_name(call: ast.Call) -> str:
@@ -63,10 +55,6 @@ def _func_name(call: ast.Call) -> str:
     if isinstance(node, ast.Name):
         parts.append(node.id)
     return ".".join(reversed(parts))
-
-
-
-
 
 
 def test_no_naive_now_in_web_layer():
@@ -90,10 +78,6 @@ def test_no_naive_now_in_web_layer():
     )
 
 
-
-
-
-
 def test_fromtimestamp_always_passes_a_timezone():
     """An epoch is UTC; parsing it without ``tz=`` yields the machine's local time."""
     offenders: list[str] = []
@@ -113,27 +97,30 @@ def test_fromtimestamp_always_passes_a_timezone():
     )
 
 
-
-
-
-
 @pytest.mark.parametrize(
     "helper",
     [
-        "fypParseInstant", "fypIsWallClock", "fypFmtDateTime", "fypFmtDateTimeShort",
-        "fypFmtDate", "fypFmtDateShort", "fypFmtDateTimeFull", "fypFmtTime", "fypFmtRelative",
-        "fypFmtAuto", "fypTimeZoneLabel", "fypWallDateTime", "fypWallDate",
-        "fypWallDateShort", "fypWallIsoDate",
+        "fypParseInstant",
+        "fypIsWallClock",
+        "fypFmtDateTime",
+        "fypFmtDateTimeShort",
+        "fypFmtDate",
+        "fypFmtDateShort",
+        "fypFmtDateTimeFull",
+        "fypFmtTime",
+        "fypFmtRelative",
+        "fypFmtAuto",
+        "fypTimeZoneLabel",
+        "fypWallDateTime",
+        "fypWallDate",
+        "fypWallDateShort",
+        "fypWallIsoDate",
     ],
 )
 def test_datetime_helper_is_exported(helper):
     """Every helper the tabs call has to be on ``window``; there is no bundler."""
     source = (STATIC / "js" / "datetime_format.js").read_text()
     assert f"global.{helper} = {helper};" in source, f"{helper} is not exported"
-
-
-
-
 
 
 def test_datetime_helper_loads_before_every_tab_script():
@@ -145,10 +132,6 @@ def test_datetime_helper_loads_before_every_tab_script():
         "datetime_format.js must load in <head> — tab templates emit non-deferred "
         "scripts in <body> that run before the {% block scripts %} bundle."
     )
-
-
-
-
 
 
 def test_no_adhoc_datetime_formatting_in_tab_scripts():

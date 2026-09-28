@@ -20,43 +20,41 @@ from flask import abort, current_app
 from flask_login import current_user
 
 
-
-
 PERMISSION_CATALOG: list[dict] = [
-    {"key": "tab.explore",                          "label": "Explore"},
-    {"key": "tab.timelines",                        "label": "Timelines"},
-    {"key": "tab.video_analysis",                   "label": "Video Analysis"},
-    {"key": "tab.correlations",                     "label": "Correlations"},
-    {"key": "tab.semantic_space",                   "label": "Semantic Space"},
-    {"key": "tab.sessions",                         "label": "Sessions"},
-    {"key": "tab.my_stuff.my_studies",              "label": "My stuff — My Studies"},
-    {"key": "tab.my_stuff.tasks",                   "label": "My stuff — My Tasks"},
-    {"key": "tab.my_stuff.preferences",             "label": "My stuff — Preferences"},
-    {"key": "tab.my_stuff.video_tags",              "label": "My stuff — My Video Tags"},
-    {"key": "tab.my_stuff.profile",                 "label": "My stuff — Profile"},
-    {"key": "tab.my_stuff.my_collections",          "label": "My stuff — My Collections"},
-    {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
+    {"key": "tab.explore", "label": "Explore"},
+    {"key": "tab.timelines", "label": "Timelines"},
+    {"key": "tab.video_analysis", "label": "Video Analysis"},
+    {"key": "tab.correlations", "label": "Correlations"},
+    {"key": "tab.semantic_space", "label": "Semantic Space"},
+    {"key": "tab.sessions", "label": "Sessions"},
+    {"key": "tab.my_stuff.my_studies", "label": "My stuff — My Studies"},
+    {"key": "tab.my_stuff.tasks", "label": "My stuff — My Tasks"},
+    {"key": "tab.my_stuff.preferences", "label": "My stuff — Preferences"},
+    {"key": "tab.my_stuff.video_tags", "label": "My stuff — My Video Tags"},
+    {"key": "tab.my_stuff.profile", "label": "My stuff — Profile"},
+    {"key": "tab.my_stuff.my_collections", "label": "My stuff — My Collections"},
+    {"key": "tab.data_management.ingestion", "label": "Data Management — Ingest Collections"},
     {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
-    {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
-    {"key": "tab.data_management.scrape",           "label": "Data Management — Scrape"},
-    {"key": "tab.data_management.annotation",       "label": "Data Management — Annotation"},
-    {"key": "tab.data_management.refresh",          "label": "Data Management — Dataset Assembly"},
-    {"key": "tab.admin.new_users",                  "label": "Admin — New Users"},
-    {"key": "tab.admin.active_users",               "label": "Admin — Active Users"},
-    {"key": "tab.admin.roles",                      "label": "Admin — User Roles"},
-    {"key": "tab.admin.annotations",                "label": "Admin — User Annotations"},
-    {"key": "tab.admin.backends",                   "label": "Admin — Backends"},
-    {"key": "tab.admin.versions",                   "label": "Admin — Versions"},
-    {"key": "tab.admin.ab_eval",                    "label": "Admin — Contracts"},
-    {"key": "tab.admin.human_eval",                 "label": "Admin — Reliability Control"},
-    {"key": "tab.admin.schema",                     "label": "Admin — Variable Visibility"},
-    {"key": "tab.admin.data_contracts",             "label": "Admin — Data Contracts"},
-    {"key": "tab.admin.stoplist",                   "label": "Admin — Hashtag Stoplist"},
-    {"key": "tab.admin.scrapers",                   "label": "Admin — Scrapers"},
-    {"key": "tab.admin.general",                    "label": "Admin — Site Settings"},
-    {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
-    {"key": "tab.admin.ops_report",                 "label": "Admin — Daily Ops Report"},
-    {"key": "feature.annotation_votes",             "label": "Voting — annotation demand signals"},
+    {"key": "tab.data_management.studies", "label": "Data Management — Define Studies"},
+    {"key": "tab.data_management.scrape", "label": "Data Management — Scrape"},
+    {"key": "tab.data_management.annotation", "label": "Data Management — Annotation"},
+    {"key": "tab.data_management.refresh", "label": "Data Management — Dataset Assembly"},
+    {"key": "tab.admin.new_users", "label": "Admin — New Users"},
+    {"key": "tab.admin.active_users", "label": "Admin — Active Users"},
+    {"key": "tab.admin.roles", "label": "Admin — User Roles"},
+    {"key": "tab.admin.annotations", "label": "Admin — User Annotations"},
+    {"key": "tab.admin.backends", "label": "Admin — Backends"},
+    {"key": "tab.admin.versions", "label": "Admin — Versions"},
+    {"key": "tab.admin.ab_eval", "label": "Admin — Contracts"},
+    {"key": "tab.admin.human_eval", "label": "Admin — Reliability Control"},
+    {"key": "tab.admin.schema", "label": "Admin — Variable Visibility"},
+    {"key": "tab.admin.data_contracts", "label": "Admin — Data Contracts"},
+    {"key": "tab.admin.stoplist", "label": "Admin — Hashtag Stoplist"},
+    {"key": "tab.admin.scrapers", "label": "Admin — Scrapers"},
+    {"key": "tab.admin.general", "label": "Admin — Site Settings"},
+    {"key": "tab.admin.system_info", "label": "Admin — System Information"},
+    {"key": "tab.admin.ops_report", "label": "Admin — Daily Ops Report"},
+    {"key": "feature.annotation_votes", "label": "Voting — annotation demand signals"},
 ]
 
 
@@ -166,8 +164,6 @@ PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
 }
 
 
-
-
 # --- Pipeline tour (home pane / public guide) ---------------------------------
 
 # The Hub presents itself as a five-stage pipeline (Ingest -> Enrich -> Annotate
@@ -223,7 +219,8 @@ def visible_pipeline_steps(user) -> list[str]:
         tour entirely rather than rendering an empty stepper.
     """
     return [
-        step for step in PIPELINE_STEPS
+        step
+        for step in PIPELINE_STEPS
         if any(user_has_permission(user, key) for key in PIPELINE_STEP_PERMISSIONS[step])
     ]
 
@@ -262,8 +259,6 @@ def user_has_permission(user, perm_key: str) -> bool:
     return False
 
 
-
-
 def get_user_permissions(user) -> list[str]:
     """Return the effective permission list for ``user``.
 
@@ -292,8 +287,6 @@ def get_user_permissions(user) -> list[str]:
     return sorted(effective)
 
 
-
-
 def permission_required(*perm_keys: str):
     """Decorator that gates a Flask route on one or more permission keys.
 
@@ -307,6 +300,7 @@ def permission_required(*perm_keys: str):
     Args:
         *perm_keys: One or more permission keys from the catalog.
     """
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -315,5 +309,7 @@ def permission_required(*perm_keys: str):
             if not any(user_has_permission(current_user, key) for key in perm_keys):
                 abort(403)
             return f(*args, **kwargs)
+
         return decorated_function
+
     return decorator

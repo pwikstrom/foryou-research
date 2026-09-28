@@ -60,7 +60,12 @@ VERDICTS_FILENAME = "structure_verdicts.json"
 BASELINES_FILENAME = "structure_baselines.json"
 TAGS_FILENAME = "collections_tags.json"
 PARQUET_FILENAME = "collections_recoded.parquet"
-PARSER_PATHS = ("fyp/ingest", "fyp/ingest.py", "fyp/core/structure_sentinel.py", "fyp/structure_sentinel.py")
+PARSER_PATHS = (
+    "fyp/ingest",
+    "fyp/ingest.py",
+    "fyp/core/structure_sentinel.py",
+    "fyp/structure_sentinel.py",
+)
 SESSION_GAPS = (300, 900, 1800)
 COMMENT_GAPS = (60, 180, 300)
 OVERLAP_THRESHOLDS = (0.1, 0.2, 0.4)
@@ -75,24 +80,45 @@ CLASS_LABELS = {
 }
 WITHHELD_PREFIX = "Uploader withheld:"
 TZ_NOTE_PREFIX = "Time zone:"
-PROVENANCE_KEYS = ("original_filename", "display_collection_id", "user_id", "tz",
-                   "client_reviewed", "uploaded_by", "uploaded_at")
+PROVENANCE_KEYS = (
+    "original_filename",
+    "display_collection_id",
+    "user_id",
+    "tz",
+    "client_reviewed",
+    "uploaded_by",
+    "uploaded_at",
+)
 QUARANTINE_STATUSES = ("quarantined", "approved", "rejected")
 _FIXED_OFFSET_RE = re.compile(r"^([+-])(\d{1,2})(?::?(\d{2}))?$")
 WORKSHEET_COLUMNS = (
-    "filename", "platform", "source", "variant", "status", "review_action", "reviewed_by",
-    "quarantine_start", "start_source", "ts_evaluated", "reviewed_at", "days_in_quarantine",
-    "findings_codes", "findings_digest", "withheld", "in_accepted_structures", "was_warn_only",
-    "parser_commits", "suggested_class", "class",
+    "filename",
+    "platform",
+    "source",
+    "variant",
+    "status",
+    "review_action",
+    "reviewed_by",
+    "quarantine_start",
+    "start_source",
+    "ts_evaluated",
+    "reviewed_at",
+    "days_in_quarantine",
+    "findings_codes",
+    "findings_digest",
+    "withheld",
+    "in_accepted_structures",
+    "was_warn_only",
+    "parser_commits",
+    "suggested_class",
+    "class",
 )
-
-
-
 
 
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
 
 def parse_iso(value: str | None) -> datetime | None:
     """Parse an ISO-8601 timestamp into an aware UTC datetime, or None."""
@@ -107,9 +133,6 @@ def parse_iso(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-
-
-
 def route_of(entry: dict) -> str:
     """Return ``"{platform}_{source}"`` for a ledger entry, or ``"unknown"``."""
     platform = entry.get("platform")
@@ -119,9 +142,6 @@ def route_of(entry: dict) -> str:
     return f"{platform}_{source or 'unknown'}"
 
 
-
-
-
 def baseline_key_of(verdict: dict) -> str:
     """Baseline key a verdict was evaluated against (mirrors ``structure_sentinel.baseline_key``)."""
     key = f"{verdict.get('platform')}_{verdict.get('source')}"
@@ -129,27 +149,19 @@ def baseline_key_of(verdict: dict) -> str:
     return f"{key}__{variant}" if variant else key
 
 
-
-
-
 def has_provenance(entry: dict) -> bool:
     """True when the ledger entry carries any upload-manifest provenance."""
     return any(entry.get(k) not in (None, "", False) for k in PROVENANCE_KEYS)
-
-
-
 
 
 def _median(values: list[float]) -> float | None:
     return float(statistics.median(values)) if values else None
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # 5.1 Intake attrition
 # ---------------------------------------------------------------------------
+
 
 def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
     """Rows read, dropped by reason, deduplicated and kept, per route and in total.
@@ -180,7 +192,9 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
         c["deduped"] += int(entry.get("deduped_rows") or 0)
         if entry.get("dropped") is None and entry.get("processed_rows") is None:
             c["files_without_breakdown"] += 1
-            c["unattributed_pre_breakdown"] += max(int(entry.get("raw_rows") or 0) - int(entry.get("kept_rows") or 0), 0)
+            c["unattributed_pre_breakdown"] += max(
+                int(entry.get("raw_rows") or 0) - int(entry.get("kept_rows") or 0), 0
+            )
             continue
         c["files_with_breakdown"] += 1
         dropped = entry.get("dropped") or {}
@@ -197,20 +211,38 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for route, c in per_route.items():
         row = {k: int(v) for k, v in c.items()}
-        for k in ("files", "files_with_counts", "files_without_counts", "files_with_breakdown",
-                  "files_without_breakdown", "rows_read", "processed_rows", "kept", "deduped",
-                  "dropped_not_parseable", "dropped_missing_required", "dropped_outside_whitelist", "dropped_other",
-                  "unattributed_pre_breakdown"):
+        for k in (
+            "files",
+            "files_with_counts",
+            "files_without_counts",
+            "files_with_breakdown",
+            "files_without_breakdown",
+            "rows_read",
+            "processed_rows",
+            "kept",
+            "deduped",
+            "dropped_not_parseable",
+            "dropped_missing_required",
+            "dropped_outside_whitelist",
+            "dropped_other",
+            "unattributed_pre_breakdown",
+        ):
             row.setdefault(k, 0)
-        row["unaccounted"] = row["rows_read"] - row["kept"] - row["deduped"] - row["dropped_not_parseable"] \
-            - row["dropped_missing_required"] - row["dropped_outside_whitelist"] - row["dropped_other"] \
+        row["unaccounted"] = (
+            row["rows_read"]
+            - row["kept"]
+            - row["deduped"]
+            - row["dropped_not_parseable"]
+            - row["dropped_missing_required"]
+            - row["dropped_outside_whitelist"]
+            - row["dropped_other"]
             - row["unattributed_pre_breakdown"]
-        row["kept_pct"] = round(100.0 * row["kept"] / row["rows_read"], 2) if row["rows_read"] else None
+        )
+        row["kept_pct"] = (
+            round(100.0 * row["kept"] / row["rows_read"], 2) if row["rows_read"] else None
+        )
         out[route] = row
     return out
-
-
-
 
 
 def table_reconciliation(ledger_files: dict[str, dict], files_in_table: dict[str, str]) -> dict:
@@ -241,18 +273,15 @@ def table_reconciliation(ledger_files: dict[str, dict], files_in_table: dict[str
     }
 
 
-
-
-
 def null_activity_type_counts(df: pd.DataFrame) -> dict:
     """Rows whose ``activity_type`` is null, and the files they came from."""
     if df.empty or "activity_type" not in df.columns:
         return {"rows": 0, "files": 0}
     null = df["activity_type"].isna()
-    return {"rows": int(null.sum()), "files": int(df.loc[null, "raw_file"].nunique()) if null.any() else 0}
-
-
-
+    return {
+        "rows": int(null.sum()),
+        "files": int(df.loc[null, "raw_file"].nunique()) if null.any() else 0,
+    }
 
 
 def outcomes_by_route(ledger_files: dict[str, dict]) -> dict[str, dict[str, int]]:
@@ -267,12 +296,10 @@ def outcomes_by_route(ledger_files: dict[str, dict]) -> dict[str, dict[str, int]
     return {route: dict(sorted(c.items())) for route, c in per_route.items()}
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # 5.2 Sentinel
 # ---------------------------------------------------------------------------
+
 
 def sentinel_denominators(verdicts: dict[str, dict], baselines: dict[str, dict]) -> dict[str, dict]:
     """Per baseline key: how many files each sentinel layer actually evaluated.
@@ -307,9 +334,6 @@ def sentinel_denominators(verdicts: dict[str, dict], baselines: dict[str, dict])
     return out
 
 
-
-
-
 def parse_git_log(text: str) -> list[dict]:
     """Parse ``git log --format=%H%x09%ad%x09%s`` output into commit dicts."""
     commits = []
@@ -323,9 +347,6 @@ def parse_git_log(text: str) -> list[dict]:
             continue
         commits.append({"sha": sha[:8], "date": when.isoformat(), "subject": subject})
     return commits
-
-
-
 
 
 def commits_between(commits: list[dict], start: str | None, end: str | None) -> list[dict]:
@@ -345,17 +366,11 @@ def commits_between(commits: list[dict], start: str | None, end: str | None) -> 
     return picked
 
 
-
-
-
 def findings_digest(findings: list[dict]) -> str:
     """One-line digest of a findings list (same rule as the sentinel's ledger note)."""
     if not findings:
         return ""
     return "; ".join(f.get("detail", f.get("code", "?")) for f in findings[:6])
-
-
-
 
 
 def parse_withheld_note(note: str | None) -> list[str]:
@@ -365,12 +380,9 @@ def parse_withheld_note(note: str | None) -> list[str]:
     for part in str(note).split(" | "):
         part = part.strip()
         if part.startswith(WITHHELD_PREFIX):
-            body = part[len(WITHHELD_PREFIX):].strip()
+            body = part[len(WITHHELD_PREFIX) :].strip()
             return [s.strip() for s in body.split(",") if s.strip()]
     return []
-
-
-
 
 
 def quarantine_rows(
@@ -408,7 +420,9 @@ def quarantine_rows(
         if candidates["uploaded_at"] is not None:
             start, start_source = candidates["uploaded_at"], "uploaded_at"
         else:
-            fallbacks = {k: t for k, t in candidates.items() if k != "uploaded_at" and t is not None}
+            fallbacks = {
+                k: t for k, t in candidates.items() if k != "uploaded_at" and t is not None
+            }
             if fallbacks:
                 start_source = min(fallbacks, key=fallbacks.get)
                 start = fallbacks[start_source]
@@ -422,33 +436,40 @@ def quarantine_rows(
         status = v.get("status")
         suggested = {"rejected": "d", "quarantined": "e"}.get(status, "")
         window_end = reviewed.isoformat() if reviewed else now.isoformat()
-        rows.append({
-            "filename": filename,
-            "platform": v.get("platform"),
-            "source": v.get("source"),
-            "variant": v.get("variant") or "",
-            "status": status,
-            "review_action": v.get("review_action") or "",
-            "reviewed_by": v.get("reviewed_by") or "",
-            "quarantine_start": start.isoformat() if start else "",
-            "start_source": start_source,
-            "ts_evaluated": v.get("ts_evaluated") or "",
-            "reviewed_at": v.get("reviewed_at") or "",
-            "days_in_quarantine": days,
-            "findings_codes": ";".join(sorted({f"{f.get('layer')}:{f.get('code')}" for f in findings})),
-            "findings_digest": findings_digest(findings),
-            "withheld": ", ".join(v.get("withheld_sections") or []),
-            "in_accepted_structures": filename in accepted_by_key.get(baseline_key_of(v), set()),
-            "was_warn_only": status == "approved" and not any(f.get("severity") == "quarantine" for f in findings),
-            "parser_commits": "; ".join(f"{c['sha']} {c['date'][:10]} {c['subject']}"
-                                        for c in commits_between(commits, start.isoformat() if start else None, window_end)),
-            "suggested_class": suggested,
-            "class": "",
-        })
+        rows.append(
+            {
+                "filename": filename,
+                "platform": v.get("platform"),
+                "source": v.get("source"),
+                "variant": v.get("variant") or "",
+                "status": status,
+                "review_action": v.get("review_action") or "",
+                "reviewed_by": v.get("reviewed_by") or "",
+                "quarantine_start": start.isoformat() if start else "",
+                "start_source": start_source,
+                "ts_evaluated": v.get("ts_evaluated") or "",
+                "reviewed_at": v.get("reviewed_at") or "",
+                "days_in_quarantine": days,
+                "findings_codes": ";".join(
+                    sorted({f"{f.get('layer')}:{f.get('code')}" for f in findings})
+                ),
+                "findings_digest": findings_digest(findings),
+                "withheld": ", ".join(v.get("withheld_sections") or []),
+                "in_accepted_structures": filename
+                in accepted_by_key.get(baseline_key_of(v), set()),
+                "was_warn_only": status == "approved"
+                and not any(f.get("severity") == "quarantine" for f in findings),
+                "parser_commits": "; ".join(
+                    f"{c['sha']} {c['date'][:10]} {c['subject']}"
+                    for c in commits_between(
+                        commits, start.isoformat() if start else None, window_end
+                    )
+                ),
+                "suggested_class": suggested,
+                "class": "",
+            }
+        )
     return rows
-
-
-
 
 
 def quarantine_summary(rows: list[dict], classification: dict[str, str] | None = None) -> dict:
@@ -484,9 +505,6 @@ def quarantine_summary(rows: list[dict], classification: dict[str, str] | None =
     }
 
 
-
-
-
 def findings_by_layer_code(verdicts: dict[str, dict]) -> dict[str, dict[str, int]]:
     """Per verdict status: files carrying each ``layer:code`` and total findings.
 
@@ -508,9 +526,6 @@ def findings_by_layer_code(verdicts: dict[str, dict]) -> dict[str, dict[str, int
         "files_with_code": {s: dict(sorted(c.items())) for s, c in files.items()},
         "findings": {s: dict(sorted(c.items())) for s, c in findings.items()},
     }
-
-
-
 
 
 def withheld_counts(verdicts: dict[str, dict], ledger_files: dict[str, dict]) -> dict:
@@ -535,9 +550,6 @@ def withheld_counts(verdicts: dict[str, dict], ledger_files: dict[str, dict]) ->
     }
 
 
-
-
-
 def region_of_tz(tz: str | None) -> str:
     """Coarse region from a donor zone: IANA continent, ``fixed_offset`` or ``unknown``."""
     if not tz:
@@ -548,9 +560,6 @@ def region_of_tz(tz: str | None) -> str:
     if "/" in tz:
         return tz.split("/", 1)[0]
     return tz if tz in ("UTC", "GMT") else "other"
-
-
-
 
 
 def contingency(table: dict[str, tuple[int, int]]) -> dict:
@@ -567,29 +576,33 @@ def contingency(table: dict[str, tuple[int, int]]) -> dict:
 
     keys = [k for k, (q, a) in table.items() if q + a > 0]
     if len(keys) < 2:
-        return {"table": {k: list(v) for k, v in table.items()}, "test": None,
-                "note": "fewer than two non-empty rows"}
+        return {
+            "table": {k: list(v) for k, v in table.items()},
+            "test": None,
+            "note": "fewer than two non-empty rows",
+        }
     observed = np.array([[table[k][0], table[k][1]] for k in keys], dtype=float)
     result: dict = {"table": {k: [int(table[k][0]), int(table[k][1])] for k in keys}}
     if observed.sum(axis=0).min() == 0:
         result.update({"test": None, "note": "one column is empty"})
         return result
     chi2, p, dof, expected = stats.chi2_contingency(observed, correction=len(keys) == 2)
-    result.update({
-        "test": "chi2",
-        "statistic": round(float(chi2), 3),
-        "p": round(float(p), 4),
-        "dof": int(dof),
-        "expected": {k: [round(float(e), 2) for e in row] for k, row in zip(keys, expected, strict=False)},
-        "min_expected": round(float(expected.min()), 2),
-    })
+    result.update(
+        {
+            "test": "chi2",
+            "statistic": round(float(chi2), 3),
+            "p": round(float(p), 4),
+            "dof": int(dof),
+            "expected": {
+                k: [round(float(e), 2) for e in row] for k, row in zip(keys, expected, strict=False)
+            },
+            "min_expected": round(float(expected.min()), 2),
+        }
+    )
     if observed.shape == (2, 2):
         _, fisher_p = stats.fisher_exact(observed)
         result["fisher_p"] = round(float(fisher_p), 4)
     return result
-
-
-
 
 
 def quarantine_contingencies(verdicts: dict[str, dict], ledger_files: dict[str, dict]) -> dict:
@@ -612,12 +625,10 @@ def quarantine_contingencies(verdicts: dict[str, dict], ledger_files: dict[str, 
     }
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # 5.3 Time zone resolution
 # ---------------------------------------------------------------------------
+
 
 def resolution_level(entry: dict) -> str:
     """Which resolution level a ledger entry's offset came from."""
@@ -639,9 +650,6 @@ def resolution_level(entry: dict) -> str:
     return "unknown_no_provenance"
 
 
-
-
-
 def resolution_levels(ledger_files: dict[str, dict]) -> dict[str, dict[str, int]]:
     """Files per resolution level, per route and in total."""
     per_route: dict[str, Counter] = defaultdict(Counter)
@@ -652,9 +660,6 @@ def resolution_levels(ledger_files: dict[str, dict]) -> dict[str, dict[str, int]
         total.update(c)
     per_route["all"] = total
     return {route: dict(sorted(c.items())) for route, c in per_route.items()}
-
-
-
 
 
 def stored_offset_distribution(df: pd.DataFrame, ledger_files: dict[str, dict]) -> dict:
@@ -673,14 +678,17 @@ def stored_offset_distribution(df: pd.DataFrame, ledger_files: dict[str, dict]) 
     file_offset = sub_df.drop_duplicates(["raw_file", "tz_offset"])
     files_per_offset = {int(k): int(v) for k, v in file_offset.groupby("tz_offset").size().items()}
     rows_per_offset = {int(k): int(v) for k, v in sub_df.groupby("tz_offset").size().items()}
-    offsets = {str(k): {"files": files_per_offset[k], "rows": rows_per_offset.get(k, 0)}
-               for k in sorted(files_per_offset)}
+    offsets = {
+        str(k): {"files": files_per_offset[k], "rows": rows_per_offset.get(k, 0)}
+        for k in sorted(files_per_offset)
+    }
     per_file_n = file_offset.groupby("raw_file").size()
-    return {"n_files": int(sub_df["raw_file"].nunique()), "n_distinct_offsets": len(offsets), "offsets": offsets,
-            "n_files_with_several_offsets": int((per_file_n > 1).sum())}
-
-
-
+    return {
+        "n_files": int(sub_df["raw_file"].nunique()),
+        "n_distinct_offsets": len(offsets),
+        "offsets": offsets,
+        "n_files_with_several_offsets": int((per_file_n > 1).sum()),
+    }
 
 
 def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None = None) -> dict:
@@ -701,12 +709,22 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
     # Materialise as a numpy tz-aware series: an Arrow-backed column from the
     # parquet reader compares per-row offsets differently and misreports the
     # daylight-saving share.
-    utc = (pd.to_datetime(pd.Series(utc).dropna(), utc=True).astype("datetime64[ns, UTC]")
-           .sort_values().reset_index(drop=True))
+    utc = (
+        pd.to_datetime(pd.Series(utc).dropna(), utc=True)
+        .astype("datetime64[ns, UTC]")
+        .sort_values()
+        .reset_index(drop=True)
+    )
     zone = parse_donor_timezone(tz_str)
     if zone is None or len(utc) == 0:
-        return {"n_events": len(utc), "inferred": None, "zone_offset": None,
-                "diff": None, "agree": None, "off_gt_1h": None}
+        return {
+            "n_events": len(utc),
+            "inferred": None,
+            "zone_offset": None,
+            "diff": None,
+            "agree": None,
+            "off_gt_1h": None,
+        }
     inferred = float(infer_timezone_offset(utc))
     median_ts = utc.iloc[len(utc) // 2]
     zone_offset = float(_zone_offset_hours(pd.Series([median_ts]), zone).iloc[0])
@@ -723,11 +741,10 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
         "agree": abs(diff) < 0.25,
         "off_gt_1h": abs(diff) > 1.0,
         "rows_in_other_dst_half_pct": round(other_half, 1),
-        "stored_offsets": sorted(int(v) for v in stored_offsets) if stored_offsets is not None else None,
+        "stored_offsets": sorted(int(v) for v in stored_offsets)
+        if stored_offsets is not None
+        else None,
     }
-
-
-
 
 
 def calibration_summary(per_file: list[dict]) -> dict:
@@ -738,19 +755,23 @@ def calibration_summary(per_file: list[dict]) -> dict:
         "n_files_with_supplied_zone": len(per_file),
         "n_calibrated": n,
         "agree_pct": round(100.0 * sum(1 for r in usable if r["agree"]) / n, 1) if n else None,
-        "off_gt_1h_pct": round(100.0 * sum(1 for r in usable if r["off_gt_1h"]) / n, 1) if n else None,
+        "off_gt_1h_pct": round(100.0 * sum(1 for r in usable if r["off_gt_1h"]) / n, 1)
+        if n
+        else None,
         "median_abs_diff_h": _median([abs(r["diff"]) for r in usable]),
-        "rows_in_other_dst_half_pct_range": [min(r["rows_in_other_dst_half_pct"] for r in usable),
-                                             max(r["rows_in_other_dst_half_pct"] for r in usable)] if usable else None,
+        "rows_in_other_dst_half_pct_range": [
+            min(r["rows_in_other_dst_half_pct"] for r in usable),
+            max(r["rows_in_other_dst_half_pct"] for r in usable),
+        ]
+        if usable
+        else None,
     }
-
-
-
 
 
 # ---------------------------------------------------------------------------
 # 5.4 Sensitivity
 # ---------------------------------------------------------------------------
+
 
 def session_stats(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS) -> dict:
     """Session counts and lengths at several gap thresholds from one gap series.
@@ -759,7 +780,10 @@ def session_stats(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS) -> dic
     every threshold to the same series; equivalent to
     ``fyp.ingest.base.assign_session_ids`` run per threshold.
     """
-    out: dict = {"n_rows": len(df), "n_collections": int(df["collection_id"].nunique()) if len(df) else 0}
+    out: dict = {
+        "n_rows": len(df),
+        "n_collections": int(df["collection_id"].nunique()) if len(df) else 0,
+    }
     if df.empty:
         return out
     ordered = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort")
@@ -783,9 +807,6 @@ def session_stats(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS) -> dic
     return out
 
 
-
-
-
 def comment_gap_stats(df: pd.DataFrame, gaps: tuple[int, ...] = COMMENT_GAPS) -> dict:
     """How many TikTok comments the forward fill links at several windows.
 
@@ -804,14 +825,20 @@ def comment_gap_stats(df: pd.DataFrame, gaps: tuple[int, ...] = COMMENT_GAPS) ->
     is_comment = ordered["activity_type"] == "comment"
     out["n_comments"] = int(is_comment.sum())
     out["n_comments_null_item_id"] = int((is_comment & ordered["item_id"].isna()).sum())
-    first_play = ts.where(ordered["activity_type"] == "play").groupby(ordered["raw_file"]).transform("min")
+    first_play = (
+        ts.where(ordered["activity_type"] == "play").groupby(ordered["raw_file"]).transform("min")
+    )
     before = is_comment & first_play.notna() & (ts < first_play)
     out["n_comments_before_first_play"] = int(before.sum())
     out["n_comments_in_files_without_plays"] = int((is_comment & first_play.isna()).sum())
     if out["n_comments"]:
-        out["before_first_play_pct"] = round(100.0 * out["n_comments_before_first_play"] / out["n_comments"], 1)
+        out["before_first_play_pct"] = round(
+            100.0 * out["n_comments_before_first_play"] / out["n_comments"], 1
+        )
     if "link_method" in ordered.columns:
-        out["n_comments_marked_ffill_180s"] = int((is_comment & (ordered["link_method"] == "ffill_180s")).sum())
+        out["n_comments_marked_ffill_180s"] = int(
+            (is_comment & (ordered["link_method"] == "ffill_180s")).sum()
+        )
     if out["n_comments"] == 0:
         return out
     source_id = ordered["item_id"].where(~is_comment)
@@ -825,7 +852,9 @@ def comment_gap_stats(df: pd.DataFrame, gaps: tuple[int, ...] = COMMENT_GAPS) ->
             "linked": linked,
             "linked_pct": round(100.0 * linked / out["n_comments"], 1),
         }
-    by_coll = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").reset_index(drop=True)
+    by_coll = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").reset_index(
+        drop=True
+    )
     ts_c = pd.to_datetime(by_coll["utc_timestamp"], utc=True)
     play_ts = ts_c.where(by_coll["activity_type"] == "play")
     last_play = play_ts.groupby(by_coll["collection_id"]).ffill()
@@ -833,12 +862,10 @@ def comment_gap_stats(df: pd.DataFrame, gaps: tuple[int, ...] = COMMENT_GAPS) ->
     is_comment_c = by_coll["activity_type"] == "comment"
     for window in gaps:
         linked = int((is_comment_c & (gap_to_play <= window)).sum())
-        out[f"window_{window}s"]["linked_to_preceding_play_same_collection_pct"] = \
-            round(100.0 * linked / out["n_comments"], 1)
+        out[f"window_{window}s"]["linked_to_preceding_play_same_collection_pct"] = round(
+            100.0 * linked / out["n_comments"], 1
+        )
     return out
-
-
-
 
 
 def timestamp_overlaps(frame, min_events: int = 1):
@@ -870,7 +897,9 @@ def timestamp_overlaps(frame, min_events: int = 1):
     pairs = (
         secs.join(secs, on="sec", suffix="_b")
         .filter(pl.col("raw_file") < pl.col("raw_file_b"))
-        .group_by(["raw_file", "raw_file_b"]).len().rename({"len": "shared"})
+        .group_by(["raw_file", "raw_file_b"])
+        .len()
+        .rename({"len": "shared"})
         .join(counts.rename({"raw_file": "raw_file", "n": "n_a"}), on="raw_file")
         .join(counts.rename({"raw_file": "raw_file_b", "n": "n_b"}), on="raw_file_b")
         .with_columns((pl.col("shared") / pl.min_horizontal("n_a", "n_b")).alias("overlap"))
@@ -878,9 +907,6 @@ def timestamp_overlaps(frame, min_events: int = 1):
         .sort("overlap", descending=True)
     )
     return pairs
-
-
-
 
 
 def union_find_merges(
@@ -929,7 +955,13 @@ def union_find_merges(
         if shared_per_pair and shared_per_pair.get((a, b), 3) <= 2:
             n_tiny += 1
         ua, ub = user_id_per_file.get(a), user_id_per_file.get(b)
-        relation["same_account" if ua and ub and ua == ub else "different_accounts" if ua and ub else "account_unknown"] += 1
+        relation[
+            "same_account"
+            if ua and ub and ua == ub
+            else "different_accounts"
+            if ua and ub
+            else "account_unknown"
+        ] += 1
         parent[find(a)] = find(b)
     clusters: dict[str, list[str]] = defaultdict(list)
     for x in list(parent):
@@ -959,9 +991,6 @@ def union_find_merges(
     }
 
 
-
-
-
 def ledger_merge_truth(ledger_files: dict[str, dict]) -> dict:
     """Production merges as the ledger recorded them (the 20 % rule at ingest)."""
     merged_files = {fn for fn, e in ledger_files.items() if e.get("merged_with_siblings")}
@@ -978,11 +1007,11 @@ def ledger_merge_truth(ledger_files: dict[str, dict]) -> dict:
     }
 
 
-
-
-
-def account_per_file(ledger_files: dict[str, dict], collection_per_file: dict[str, str] | None,
-                     tags: dict[str, dict] | None) -> dict[str, str | None]:
+def account_per_file(
+    ledger_files: dict[str, dict],
+    collection_per_file: dict[str, str] | None,
+    tags: dict[str, dict] | None,
+) -> dict[str, str | None]:
     """The participant account behind each file: the ledger's ``user_id``, else
     the collection's ``user_id`` in ``collections_tags.json``."""
     out: dict[str, str | None] = {fn: e.get("user_id") for fn, e in ledger_files.items()}
@@ -992,15 +1021,16 @@ def account_per_file(ledger_files: dict[str, dict], collection_per_file: dict[st
     return out
 
 
-
-
-
-def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[str, dict],
-                        events_per_file: dict[str, int], platform_per_file: dict[str, str] | None = None,
-                        collection_per_file: dict[str, str] | None = None,
-                        shared_per_pair: dict[tuple[str, str], int] | None = None,
-                        route_per_file: dict[str, str] | None = None,
-                        tags: dict[str, dict] | None = None) -> dict:
+def overlap_sensitivity(
+    pairs: list[tuple[str, str, float]],
+    ledger_files: dict[str, dict],
+    events_per_file: dict[str, int],
+    platform_per_file: dict[str, str] | None = None,
+    collection_per_file: dict[str, str] | None = None,
+    shared_per_pair: dict[tuple[str, str], int] | None = None,
+    route_per_file: dict[str, str] | None = None,
+    tags: dict[str, dict] | None = None,
+) -> dict:
     """Merges at each threshold plus the overlap distribution and the ledger's ground truth.
 
     ``thresholds`` counts every pair in the table, which is what production
@@ -1012,31 +1042,52 @@ def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[
     overlaps = sorted(o for _, _, o in pairs)
     out = {
         "note": "recomputed on the post-deduplication activity table, so shared rows of a merged "
-                "re-donation are already collapsed; the ledger figures are what production did",
+        "re-donation are already collapsed; the ledger figures are what production did",
         "n_pairs": len(pairs),
-        "overlap_quantiles": {q: round(float(np.quantile(overlaps, q)), 4) for q in (0.5, 0.9, 0.99)} if overlaps else {},
+        "overlap_quantiles": {
+            q: round(float(np.quantile(overlaps, q)), 4) for q in (0.5, 0.9, 0.99)
+        }
+        if overlaps
+        else {},
         "n_pairs_over_0_05": sum(1 for o in overlaps if o > 0.05),
         "ledger": ledger_merge_truth(ledger_files),
-        "thresholds": {str(t): union_find_merges(pairs, t, events_per_file, users, platform_per_file,
-                                                  collection_per_file, shared_per_pair, route_per_file)
-                       for t in OVERLAP_THRESHOLDS},
+        "thresholds": {
+            str(t): union_find_merges(
+                pairs,
+                t,
+                events_per_file,
+                users,
+                platform_per_file,
+                collection_per_file,
+                shared_per_pair,
+                route_per_file,
+            )
+            for t in OVERLAP_THRESHOLDS
+        },
     }
     if route_per_file:
         within = [(a, b, o) for a, b, o in pairs if route_per_file.get(a) == route_per_file.get(b)]
         out["n_pairs_within_route"] = len(within)
         out["thresholds_within_route"] = {
-            str(t): union_find_merges(within, t, events_per_file, users, platform_per_file,
-                                      collection_per_file, shared_per_pair, route_per_file)
-            for t in OVERLAP_THRESHOLDS}
+            str(t): union_find_merges(
+                within,
+                t,
+                events_per_file,
+                users,
+                platform_per_file,
+                collection_per_file,
+                shared_per_pair,
+                route_per_file,
+            )
+            for t in OVERLAP_THRESHOLDS
+        }
     return out
-
-
-
 
 
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
+
 
 def _fmt(value) -> str:
     if value is None:
@@ -1048,9 +1099,6 @@ def _fmt(value) -> str:
     return str(value)
 
 
-
-
-
 def _md_table(headers: list[str], rows: list[list]) -> str:
     lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
     for row in rows:
@@ -1058,154 +1106,415 @@ def _md_table(headers: list[str], rows: list[list]) -> str:
     return "\n".join(lines)
 
 
-
-
-
 def render_tables_md(report: dict) -> str:
     """Render the report as markdown, one section per part of §5, with caveats."""
-    parts = ["# Intake report", "",
-             f"Snapshot: `{report['snapshot'].get('snapshot_root')}` · repo `{report['snapshot'].get('git_head')}` · "
-             f"run {report['snapshot'].get('run_at')}", ""]
+    parts = [
+        "# Intake report",
+        "",
+        f"Snapshot: `{report['snapshot'].get('snapshot_root')}` · repo `{report['snapshot'].get('git_head')}` · "
+        f"run {report['snapshot'].get('run_at')}",
+        "",
+    ]
     att = report["attrition"]
     routes = [r for r in att if r != "all"] + ["all"]
-    parts += ["## 5.1 Intake by route (Table 3)", "",
-              _md_table(["Route", "Files", "No counts", "No breakdown", "Rows read", "Outside whitelist", "Not parseable",
-                         "Missing required", "Deduplicated", "Lost, pre-breakdown ledger", "Kept", "Kept %", "Unaccounted"],
-                        [[r, att[r]["files"], att[r]["files_without_counts"], att[r]["files_without_breakdown"],
-                          att[r]["rows_read"], att[r]["dropped_outside_whitelist"], att[r]["dropped_not_parseable"],
-                          att[r]["dropped_missing_required"], att[r]["deduped"], att[r]["unattributed_pre_breakdown"],
-                          att[r]["kept"], att[r]["kept_pct"], att[r]["unaccounted"]] for r in routes]),
-              "", "Files without counts were migrated from the legacy discard list and contribute no rows. "
-              "Files without breakdown were ledgered before drop reasons were recorded: their rows read minus rows kept "
-              "is reported as lost without attribution.", ""]
+    parts += [
+        "## 5.1 Intake by route (Table 3)",
+        "",
+        _md_table(
+            [
+                "Route",
+                "Files",
+                "No counts",
+                "No breakdown",
+                "Rows read",
+                "Outside whitelist",
+                "Not parseable",
+                "Missing required",
+                "Deduplicated",
+                "Lost, pre-breakdown ledger",
+                "Kept",
+                "Kept %",
+                "Unaccounted",
+            ],
+            [
+                [
+                    r,
+                    att[r]["files"],
+                    att[r]["files_without_counts"],
+                    att[r]["files_without_breakdown"],
+                    att[r]["rows_read"],
+                    att[r]["dropped_outside_whitelist"],
+                    att[r]["dropped_not_parseable"],
+                    att[r]["dropped_missing_required"],
+                    att[r]["deduped"],
+                    att[r]["unattributed_pre_breakdown"],
+                    att[r]["kept"],
+                    att[r]["kept_pct"],
+                    att[r]["unaccounted"],
+                ]
+                for r in routes
+            ],
+        ),
+        "",
+        "Files without counts were migrated from the legacy discard list and contribute no rows. "
+        "Files without breakdown were ledgered before drop reasons were recorded: their rows read minus rows kept "
+        "is reported as lost without attribution.",
+        "",
+    ]
     comp = report.get("composition")
     if comp:
-        parts += ["### Activity table composition", "",
-                  _md_table(["Route", "Rows", "Collections", "Raw files", "First event", "Last event", "Null activity type"],
-                            [[r, c["rows"], c["collections"], c["raw_files"], c["first_event"], c["last_event"],
-                              f"{c['null_activity_type']['rows']} rows / {c['null_activity_type']['files']} files"]
-                             for r, c in comp.items()]), ""]
+        parts += [
+            "### Activity table composition",
+            "",
+            _md_table(
+                [
+                    "Route",
+                    "Rows",
+                    "Collections",
+                    "Raw files",
+                    "First event",
+                    "Last event",
+                    "Null activity type",
+                ],
+                [
+                    [
+                        r,
+                        c["rows"],
+                        c["collections"],
+                        c["raw_files"],
+                        c["first_event"],
+                        c["last_event"],
+                        f"{c['null_activity_type']['rows']} rows / {c['null_activity_type']['files']} files",
+                    ]
+                    for r, c in comp.items()
+                ],
+            ),
+            "",
+        ]
         for r, c in comp.items():
             parts += [f"{r} by activity type: {c['activity_types']}", ""]
     rec = report.get("table_reconciliation")
     if rec:
-        parts += ["### Table vs ledger", "",
-                  f"Files in the table {rec['n_files_in_table']}: with a ledger entry {rec['n_in_table_with_entry']} "
-                  f"(with counts {rec['n_in_table_with_counts']}), without {rec['n_in_table_without_entry']}. "
-                  f"Counted ledger entries {rec['n_counted_entries']}; not in the table by outcome: "
-                  f"{rec['counted_entries_not_in_table_by_outcome']}.", ""]
+        parts += [
+            "### Table vs ledger",
+            "",
+            f"Files in the table {rec['n_files_in_table']}: with a ledger entry {rec['n_in_table_with_entry']} "
+            f"(with counts {rec['n_in_table_with_counts']}), without {rec['n_in_table_without_entry']}. "
+            f"Counted ledger entries {rec['n_counted_entries']}; not in the table by outcome: "
+            f"{rec['counted_entries_not_in_table_by_outcome']}.",
+            "",
+        ]
     outc = report["outcomes"]
     all_outcomes = sorted({o for r in outc.values() for o in r})
-    parts += ["## 5.2 Outcomes (Table 4)", "",
-              _md_table(["Route", *all_outcomes],
-                        [[r] + [outc[r].get(o, 0) for o in all_outcomes] for r in routes if r in outc]), ""]
+    parts += [
+        "## 5.2 Outcomes (Table 4)",
+        "",
+        _md_table(
+            ["Route", *all_outcomes],
+            [[r] + [outc[r].get(o, 0) for o in all_outcomes] for r in routes if r in outc],
+        ),
+        "",
+    ]
     sd = report["sentinel"]["denominators"]
-    parts += ["### Sentinel denominators", "",
-              _md_table(["Baseline", "Verdicts", "Learning", "Structure-eligible", "Stats-eligible", "Bootstrapped"],
-                        [[k, v["n_verdicts"], v["n_learning"], v["n_structure_eligible"], v["n_stats_eligible"],
-                          v["n_bootstrapped"]] for k, v in sd.items()]), ""]
+    parts += [
+        "### Sentinel denominators",
+        "",
+        _md_table(
+            [
+                "Baseline",
+                "Verdicts",
+                "Learning",
+                "Structure-eligible",
+                "Stats-eligible",
+                "Bootstrapped",
+            ],
+            [
+                [
+                    k,
+                    v["n_verdicts"],
+                    v["n_learning"],
+                    v["n_structure_eligible"],
+                    v["n_stats_eligible"],
+                    v["n_bootstrapped"],
+                ]
+                for k, v in sd.items()
+            ],
+        ),
+        "",
+    ]
     q = report["sentinel"]["quarantine"]
-    parts += ["### Quarantine", "",
-              _md_table(["Class", "Meaning", "Files"],
-                        [[c, CLASS_LABELS[c], q["classes"][c]] for c in CLASS_CODES]),
-              "",
-              f"Ever quarantined: {q['n_files_ever_quarantined']} · pending: {q['n_pending']} · "
-              f"approved: {q['n_approved']} (of which warn-only: {q['n_warn_only_approvals']}) · "
-              f"rejected: {q['n_rejected']} · unclassified approved: {q['n_unclassified_approved']} "
-              f"({q['classification_source']}).",
-              f"Time in quarantine (reviewed files, days): median {_fmt(q['days_in_quarantine_median'])}, "
-              f"max {_fmt(q['days_in_quarantine_max'])}, n={q['n_reviewed_with_duration']}; "
-              f"negative durations (contradicting timestamps): {q['n_negative_durations']}; "
-              f"start sources: {q['start_sources']}.",
-              "", "Findings on a stored verdict are those of the latest evaluation.", ""]
+    parts += [
+        "### Quarantine",
+        "",
+        _md_table(
+            ["Class", "Meaning", "Files"],
+            [[c, CLASS_LABELS[c], q["classes"][c]] for c in CLASS_CODES],
+        ),
+        "",
+        f"Ever quarantined: {q['n_files_ever_quarantined']} · pending: {q['n_pending']} · "
+        f"approved: {q['n_approved']} (of which warn-only: {q['n_warn_only_approvals']}) · "
+        f"rejected: {q['n_rejected']} · unclassified approved: {q['n_unclassified_approved']} "
+        f"({q['classification_source']}).",
+        f"Time in quarantine (reviewed files, days): median {_fmt(q['days_in_quarantine_median'])}, "
+        f"max {_fmt(q['days_in_quarantine_max'])}, n={q['n_reviewed_with_duration']}; "
+        f"negative durations (contradicting timestamps): {q['n_negative_durations']}; "
+        f"start sources: {q['start_sources']}.",
+        "",
+        "Findings on a stored verdict are those of the latest evaluation.",
+        "",
+    ]
     fc = report["sentinel"]["findings"]["files_with_code"]
-    parts += ["### Findings by layer and code (files)", "",
-              _md_table(["Status", "layer:code", "Files"],
-                        [[s, code, n] for s, codes in fc.items() for code, n in codes.items()]), ""]
+    parts += [
+        "### Findings by layer and code (files)",
+        "",
+        _md_table(
+            ["Status", "layer:code", "Files"],
+            [[s, code, n] for s, codes in fc.items() for code, n in codes.items()],
+        ),
+        "",
+    ]
     for name in ("by_route", "by_region"):
         ct = report["sentinel"]["contingency"][name]
-        parts += [f"### Quarantined vs accepted {name.replace('_', ' ')}", "",
-                  _md_table(["Key", "Quarantined", "Accepted"], [[k, v[0], v[1]] for k, v in ct["table"].items()]),
-                  "", f"Test: {ct.get('test')} statistic {ct.get('statistic')} p={ct.get('p')} "
-                      f"(min expected {ct.get('min_expected')}; Fisher p={ct.get('fisher_p', 'n/a')}). {ct.get('note', '')}", ""]
+        parts += [
+            f"### Quarantined vs accepted {name.replace('_', ' ')}",
+            "",
+            _md_table(
+                ["Key", "Quarantined", "Accepted"],
+                [[k, v[0], v[1]] for k, v in ct["table"].items()],
+            ),
+            "",
+            f"Test: {ct.get('test')} statistic {ct.get('statistic')} p={ct.get('p')} "
+            f"(min expected {ct.get('min_expected')}; Fisher p={ct.get('fisher_p', 'n/a')}). {ct.get('note', '')}",
+            "",
+        ]
     wh = report["sentinel"]["withheld"]
-    parts += [f"Withheld sections: {wh['n_files_with_withheld_sections']} files; most common: "
-              f"{list(wh['sections'].items())[:5]}", ""]
+    parts += [
+        f"Withheld sections: {wh['n_files_with_withheld_sections']} files; most common: "
+        f"{list(wh['sections'].items())[:5]}",
+        "",
+    ]
     res = report["resolution"]
     levels = sorted({lvl for r in res.values() for lvl in r})
-    parts += ["## 5.3 Time zone resolution", "",
-              _md_table(["Route", *levels], [[r] + [res[r].get(level, 0) for level in levels] for r in routes if r in res]), ""]
+    parts += [
+        "## 5.3 Time zone resolution",
+        "",
+        _md_table(
+            ["Route", *levels],
+            [[r] + [res[r].get(level, 0) for level in levels] for r in routes if r in res],
+        ),
+        "",
+    ]
     cal = report.get("calibration")
     if cal:
-        parts += [f"Calibration of the inference against supplied zones: n={cal['n_calibrated']} of "
-                  f"{cal['n_files_with_supplied_zone']} files; agree (<15 min) {cal['agree_pct']} %; "
-                  f"off by more than 1 h {cal['off_gt_1h_pct']} %; median |diff| {cal['median_abs_diff_h']} h; "
-                  f"rows in the other daylight-saving half {cal.get('rows_in_other_dst_half_pct_range')} %.", ""]
+        parts += [
+            f"Calibration of the inference against supplied zones: n={cal['n_calibrated']} of "
+            f"{cal['n_files_with_supplied_zone']} files; agree (<15 min) {cal['agree_pct']} %; "
+            f"off by more than 1 h {cal['off_gt_1h_pct']} %; median |diff| {cal['median_abs_diff_h']} h; "
+            f"rows in the other daylight-saving half {cal.get('rows_in_other_dst_half_pct_range')} %.",
+            "",
+        ]
         per = report.get("calibration_per_file") or []
         if per:
-            parts += [_md_table(["Zone", "Events", "Inferred", "Zone offset at median", "Diff", "Stored", "Other DST half %"],
-                                [[r.get("tz"), r["n_events"], r["inferred"], r["zone_offset"], r["diff"],
-                                  r.get("stored_offsets"), r.get("rows_in_other_dst_half_pct")] for r in per]), ""]
+            parts += [
+                _md_table(
+                    [
+                        "Zone",
+                        "Events",
+                        "Inferred",
+                        "Zone offset at median",
+                        "Diff",
+                        "Stored",
+                        "Other DST half %",
+                    ],
+                    [
+                        [
+                            r.get("tz"),
+                            r["n_events"],
+                            r["inferred"],
+                            r["zone_offset"],
+                            r["diff"],
+                            r.get("stored_offsets"),
+                            r.get("rows_in_other_dst_half_pct"),
+                        ]
+                        for r in per
+                    ],
+                ),
+                "",
+            ]
     so = report.get("stored_offsets")
     if so:
         for route, d in so.items():
-            parts += [f"Stored per-file offsets, {route}, files without a supplied zone: {d['n_files']} files, "
-                      f"{d['n_distinct_offsets']} distinct offsets, {d.get('n_files_with_several_offsets', 0)} files with several; "
-                      f"{d['offsets']}", ""]
+            parts += [
+                f"Stored per-file offsets, {route}, files without a supplied zone: {d['n_files']} files, "
+                f"{d['n_distinct_offsets']} distinct offsets, {d.get('n_files_with_several_offsets', 0)} files with several; "
+                f"{d['offsets']}",
+                "",
+            ]
     ses = report.get("sessions")
     if ses:
         parts += ["## 5.4 Sensitivity", "", "### Session gap (all activity rows)", ""]
         for platform, s in ses.items():
-            rows = [[f"{g} s", s[f'gap_{g}s']["n_sessions"], s[f'gap_{g}s']["sessions_per_collection_median"],
-                     s[f'gap_{g}s']["session_length_median_s"], s[f'gap_{g}s']["session_events_median"],
-                     s[f'gap_{g}s']["singleton_share_pct"]] for g in SESSION_GAPS if f"gap_{g}s" in s]
-            parts += [f"{platform}: {s['n_rows']:,} rows, {s['n_collections']} collections", "",
-                      _md_table(["Gap", "Sessions", "Per collection (median)", "Length median s",
-                                 "Events median", "Singletons %"], rows), ""]
+            rows = [
+                [
+                    f"{g} s",
+                    s[f"gap_{g}s"]["n_sessions"],
+                    s[f"gap_{g}s"]["sessions_per_collection_median"],
+                    s[f"gap_{g}s"]["session_length_median_s"],
+                    s[f"gap_{g}s"]["session_events_median"],
+                    s[f"gap_{g}s"]["singleton_share_pct"],
+                ]
+                for g in SESSION_GAPS
+                if f"gap_{g}s" in s
+            ]
+            parts += [
+                f"{platform}: {s['n_rows']:,} rows, {s['n_collections']} collections",
+                "",
+                _md_table(
+                    [
+                        "Gap",
+                        "Sessions",
+                        "Per collection (median)",
+                        "Length median s",
+                        "Events median",
+                        "Singletons %",
+                    ],
+                    rows,
+                ),
+                "",
+            ]
     ses_p = report.get("sessions_plays_only")
     if ses_p:
         parts += ["### Session gap (play and observe rows only)", ""]
         for platform, s in ses_p.items():
-            rows = [[f"{g} s", s[f'gap_{g}s']["n_sessions"], s[f'gap_{g}s']["sessions_per_collection_median"],
-                     s[f'gap_{g}s']["session_length_median_s"], s[f'gap_{g}s']["session_events_median"],
-                     s[f'gap_{g}s']["singleton_share_pct"]] for g in SESSION_GAPS if f"gap_{g}s" in s]
-            parts += [f"{platform}: {s['n_rows']:,} rows, {s['n_collections']} collections", "",
-                      _md_table(["Gap", "Sessions", "Per collection (median)", "Length median s",
-                                 "Events median", "Singletons %"], rows), ""]
+            rows = [
+                [
+                    f"{g} s",
+                    s[f"gap_{g}s"]["n_sessions"],
+                    s[f"gap_{g}s"]["sessions_per_collection_median"],
+                    s[f"gap_{g}s"]["session_length_median_s"],
+                    s[f"gap_{g}s"]["session_events_median"],
+                    s[f"gap_{g}s"]["singleton_share_pct"],
+                ]
+                for g in SESSION_GAPS
+                if f"gap_{g}s" in s
+            ]
+            parts += [
+                f"{platform}: {s['n_rows']:,} rows, {s['n_collections']} collections",
+                "",
+                _md_table(
+                    [
+                        "Gap",
+                        "Sessions",
+                        "Per collection (median)",
+                        "Length median s",
+                        "Events median",
+                        "Singletons %",
+                    ],
+                    rows,
+                ),
+                "",
+            ]
     com = report.get("comments")
     if com and com.get("n_comments"):
-        parts += ["### Comment link window (TikTok)", "",
-                  f"Comments {com['n_comments']:,}; null item id {com['n_comments_null_item_id']:,}; "
-                  f"marked ffill_180s {com.get('n_comments_marked_ffill_180s', 0):,} (rows ingested from v0.4 only); "
-                  f"timestamped before the file's first play {com.get('n_comments_before_first_play', 0):,} "
-                  f"({com.get('before_first_play_pct')} %); in files without plays {com.get('n_comments_in_files_without_plays', 0):,}.", "",
-                  _md_table(["Window", "Linked", "Linked %", "Preceding play in collection %"],
-                            [[f"{w} s", com[f'window_{w}s']["linked"], com[f'window_{w}s']["linked_pct"],
-                              com[f'window_{w}s'].get("linked_to_preceding_play_same_collection_pct")] for w in COMMENT_GAPS]), ""]
+        parts += [
+            "### Comment link window (TikTok)",
+            "",
+            f"Comments {com['n_comments']:,}; null item id {com['n_comments_null_item_id']:,}; "
+            f"marked ffill_180s {com.get('n_comments_marked_ffill_180s', 0):,} (rows ingested from v0.4 only); "
+            f"timestamped before the file's first play {com.get('n_comments_before_first_play', 0):,} "
+            f"({com.get('before_first_play_pct')} %); in files without plays {com.get('n_comments_in_files_without_plays', 0):,}.",
+            "",
+            _md_table(
+                ["Window", "Linked", "Linked %", "Preceding play in collection %"],
+                [
+                    [
+                        f"{w} s",
+                        com[f"window_{w}s"]["linked"],
+                        com[f"window_{w}s"]["linked_pct"],
+                        com[f"window_{w}s"].get("linked_to_preceding_play_same_collection_pct"),
+                    ]
+                    for w in COMMENT_GAPS
+                ],
+            ),
+            "",
+        ]
     ov = report.get("overlap")
     if ov:
-        parts += ["### Donor-merge overlap", "", ov["note"], "",
-                  f"Pairs {ov['n_pairs']:,}; overlap quantiles {ov['overlap_quantiles']}; pairs over 0.05: {ov['n_pairs_over_0_05']}; "
-                  f"ledger: {ov['ledger']}", "",
-                  _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Cross-route pairs", "Merges", "Files merged",
-                             "Spanning collections", "With a file <30 events", "Different accounts", "Cross-platform pairs",
-                             "Pairs by account relation"],
-                            [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_cross_route_pairs"],
-                              v["n_merges"], v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
-                              v["n_false_merges_different_accounts"], v["n_cross_platform_pairs"], v["pairs_by_account_relation"]]
-                             for t, v in ov["thresholds"].items()]), ""]
+        parts += [
+            "### Donor-merge overlap",
+            "",
+            ov["note"],
+            "",
+            f"Pairs {ov['n_pairs']:,}; overlap quantiles {ov['overlap_quantiles']}; pairs over 0.05: {ov['n_pairs_over_0_05']}; "
+            f"ledger: {ov['ledger']}",
+            "",
+            _md_table(
+                [
+                    "Threshold",
+                    "Pairs above",
+                    "On <=2 shared seconds",
+                    "Cross-route pairs",
+                    "Merges",
+                    "Files merged",
+                    "Spanning collections",
+                    "With a file <30 events",
+                    "Different accounts",
+                    "Cross-platform pairs",
+                    "Pairs by account relation",
+                ],
+                [
+                    [
+                        t,
+                        v["n_pairs_above_threshold"],
+                        v["n_pairs_on_two_shared_seconds_or_fewer"],
+                        v["n_cross_route_pairs"],
+                        v["n_merges"],
+                        v["n_files_merged"],
+                        v["n_merges_spanning_collections"],
+                        v["n_merges_involving_small_file"],
+                        v["n_false_merges_different_accounts"],
+                        v["n_cross_platform_pairs"],
+                        v["pairs_by_account_relation"],
+                    ]
+                    for t, v in ov["thresholds"].items()
+                ],
+            ),
+            "",
+        ]
         if ov.get("thresholds_within_route"):
-            parts += [f"Within-route pairs only: {ov['n_pairs_within_route']:,} pairs", "",
-                      _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Merges", "Files merged",
-                                 "Spanning collections", "With a file <30 events", "Different accounts", "Pairs by account relation"],
-                                [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_merges"],
-                                  v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
-                                  v["n_false_merges_different_accounts"], v["pairs_by_account_relation"]]
-                                 for t, v in ov["thresholds_within_route"].items()]), ""]
+            parts += [
+                f"Within-route pairs only: {ov['n_pairs_within_route']:,} pairs",
+                "",
+                _md_table(
+                    [
+                        "Threshold",
+                        "Pairs above",
+                        "On <=2 shared seconds",
+                        "Merges",
+                        "Files merged",
+                        "Spanning collections",
+                        "With a file <30 events",
+                        "Different accounts",
+                        "Pairs by account relation",
+                    ],
+                    [
+                        [
+                            t,
+                            v["n_pairs_above_threshold"],
+                            v["n_pairs_on_two_shared_seconds_or_fewer"],
+                            v["n_merges"],
+                            v["n_files_merged"],
+                            v["n_merges_spanning_collections"],
+                            v["n_merges_involving_small_file"],
+                            v["n_false_merges_different_accounts"],
+                            v["pairs_by_account_relation"],
+                        ]
+                        for t, v in ov["thresholds_within_route"].items()
+                    ],
+                ),
+                "",
+            ]
     return "\n".join(parts)
-
-
-
 
 
 def render_funnel_svg(attrition: dict[str, dict], placeholder: bool = False) -> str:
@@ -1214,11 +1523,16 @@ def render_funnel_svg(attrition: dict[str, dict], placeholder: bool = False) -> 
     routes.sort(key=lambda r: -attrition[r]["rows_read"])
     row_h, top, left, bar_w = 78, 70, 250, 520
     height = top + row_h * max(len(routes), 1) + 40
-    segs = [("kept", "Rows kept", "#2f5d50"), ("deduped", "duplicates of rows already held", "#8f9a95"),
-            ("dropped_missing_required", "missing a required field", "#b7bfbb"),
-            ("dropped_not_parseable", "not interpretable by the parser", "#d6dbd8")]
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="{height}" viewBox="0 0 1000 {height}" '
-           'font-family="Helvetica, Arial, sans-serif" font-size="12">']
+    segs = [
+        ("kept", "Rows kept", "#2f5d50"),
+        ("deduped", "duplicates of rows already held", "#8f9a95"),
+        ("dropped_missing_required", "missing a required field", "#b7bfbb"),
+        ("dropped_not_parseable", "not interpretable by the parser", "#d6dbd8"),
+    ]
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="{height}" viewBox="0 0 1000 {height}" '
+        'font-family="Helvetica, Arial, sans-serif" font-size="12">'
+    ]
     x = left
     for _key, label, colour in segs:
         out.append(f'<rect x="{x}" y="24" width="12" height="12" fill="{colour}"/>')
@@ -1227,43 +1541,53 @@ def render_funnel_svg(attrition: dict[str, dict], placeholder: bool = False) -> 
     for i, route in enumerate(routes):
         a = attrition[route]
         y = top + i * row_h
-        out.append(f'<text x="{left - 14}" y="{y + 22}" text-anchor="end" fill="#1a1a1a">{route.replace("_", " ")}</text>')
-        out.append(f'<text x="{left - 14}" y="{y + 38}" text-anchor="end" fill="#6b6b6b" font-size="11">'
-                   f'{a["files"]:,} files · {a["rows_read"]:,} rows read</text>')
+        out.append(
+            f'<text x="{left - 14}" y="{y + 22}" text-anchor="end" fill="#1a1a1a">{route.replace("_", " ")}</text>'
+        )
+        out.append(
+            f'<text x="{left - 14}" y="{y + 38}" text-anchor="end" fill="#6b6b6b" font-size="11">'
+            f"{a['files']:,} files · {a['rows_read']:,} rows read</text>"
+        )
         cx = left
         notes = []
         for key, label, colour in segs:
             share = a[key] / a["rows_read"]
             w = bar_w * share
             if w > 0:
-                out.append(f'<rect x="{cx:.1f}" y="{y + 8}" width="{max(w, 0.5):.1f}" height="40" fill="{colour}" stroke="#fff"/>')
+                out.append(
+                    f'<rect x="{cx:.1f}" y="{y + 8}" width="{max(w, 0.5):.1f}" height="40" fill="{colour}" stroke="#fff"/>'
+                )
             if key == "kept":
-                out.append(f'<text x="{cx + w / 2:.1f}" y="{y + 33}" text-anchor="middle" fill="#fff">{100 * share:.1f}% kept</text>')
+                out.append(
+                    f'<text x="{cx + w / 2:.1f}" y="{y + 33}" text-anchor="middle" fill="#fff">{100 * share:.1f}% kept</text>'
+                )
             else:
                 notes.append(f"{100 * share:.1f}% {label}")
             cx += w
         unacc = a["unaccounted"] / a["rows_read"] if a["rows_read"] else 0
         if unacc > 0.0005:
-            out.append(f'<rect x="{cx:.1f}" y="{y + 8}" width="{bar_w * unacc:.1f}" height="40" fill="#fff" stroke="#6b6b6b" stroke-dasharray="3 2"/>')
+            out.append(
+                f'<rect x="{cx:.1f}" y="{y + 8}" width="{bar_w * unacc:.1f}" height="40" fill="#fff" stroke="#6b6b6b" stroke-dasharray="3 2"/>'
+            )
             notes.append(f"{100 * unacc:.1f}% unaccounted")
         for j, note in enumerate(notes):
-            out.append(f'<text x="{left + bar_w + 14}" y="{y + 20 + 14 * j}" fill="#3a3a3a" font-size="11">{note}</text>')
+            out.append(
+                f'<text x="{left + bar_w + 14}" y="{y + 20 + 14 * j}" fill="#3a3a3a" font-size="11">{note}</text>'
+            )
     if placeholder:
-        out.append(f'<text x="500" y="{height / 2:.0f}" text-anchor="middle" fill="#a03530" fill-opacity="0.35" '
-                   'font-size="28" font-weight="bold" transform="rotate(-12 500 300)">PLACEHOLDER: SYNTHETIC LEDGER</text>')
+        out.append(
+            f'<text x="500" y="{height / 2:.0f}" text-anchor="middle" fill="#a03530" fill-opacity="0.35" '
+            'font-size="28" font-weight="bold" transform="rotate(-12 500 300)">PLACEHOLDER: SYNTHETIC LEDGER</text>'
+        )
     out.append("</svg>")
     return "\n".join(out)
 
 
-
-
-
 def worksheet_rows(rows: list[dict]) -> list[dict]:
     """Project quarantine rows onto the worksheet columns, in order."""
-    return [{col: ("" if r.get(col) is None else r.get(col)) for col in WORKSHEET_COLUMNS} for r in rows]
-
-
-
+    return [
+        {col: ("" if r.get(col) is None else r.get(col)) for col in WORKSHEET_COLUMNS} for r in rows
+    ]
 
 
 def read_classification(text: str, approved_files: set[str]) -> dict[str, str]:
@@ -1287,12 +1611,10 @@ def read_classification(text: str, approved_files: set[str]) -> dict[str, str]:
     return classes
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def write_snapshot_config(repo_root: Path, snapshot_root: Path, out_dir: Path) -> Path:
     """Write a throwaway config dir that points every storage location at the snapshot.
@@ -1322,25 +1644,25 @@ def write_snapshot_config(repo_root: Path, snapshot_root: Path, out_dir: Path) -
     return cfg_dir / "config.toml"
 
 
-
-
-
 def assert_snapshot_storage(snapshot_root: Path) -> None:
     """Refuse unless every storage location resolves inside the snapshot."""
     if os.environ.get("FYP_FORCE_GCS") or os.environ.get("K_SERVICE"):
-        raise SystemExit("REFUSING: FYP_FORCE_GCS or K_SERVICE is set; this script reads snapshots only.")
+        raise SystemExit(
+            "REFUSING: FYP_FORCE_GCS or K_SERVICE is set; this script reads snapshots only."
+        )
     from tests._storage_guard import assert_local_storage
+
     assert_local_storage()
     from fyp.core.fyp_config import get_config
+
     cf = get_config()
     recoded = Path(cf["paths"]["recoded"]).resolve()
     if snapshot_root.resolve() not in recoded.parents:
-        raise SystemExit(f"REFUSING: 'recoded' resolves to {recoded}, not inside the snapshot {snapshot_root}.")
+        raise SystemExit(
+            f"REFUSING: 'recoded' resolves to {recoded}, not inside the snapshot {snapshot_root}."
+        )
     if cf.get("data_io", {}).get("bucket"):
         raise SystemExit("REFUSING: a GCS bucket is configured.")
-
-
-
 
 
 @dataclass
@@ -1352,9 +1674,6 @@ class Inputs:
     baselines: dict[str, dict]
     tags: dict[str, dict]
     provenance: dict[str, dict] = field(default_factory=dict)
-
-
-
 
 
 def load_inputs() -> Inputs:
@@ -1369,11 +1688,19 @@ def load_inputs() -> Inputs:
         return data_io.load_json(RECODED, name) or {}
 
     provenance = {}
-    for name in (LEDGER_FILENAME, VERDICTS_FILENAME, BASELINES_FILENAME, TAGS_FILENAME, PARQUET_FILENAME):
+    for name in (
+        LEDGER_FILENAME,
+        VERDICTS_FILENAME,
+        BASELINES_FILENAME,
+        TAGS_FILENAME,
+        PARQUET_FILENAME,
+    ):
         st = data_io.stat(RECODED, name)
         if st:
-            provenance[name] = {"size": int(st["size"]),
-                                "mtime": datetime.fromtimestamp(st["mtime"], tz=UTC).isoformat()}
+            provenance[name] = {
+                "size": int(st["size"]),
+                "mtime": datetime.fromtimestamp(st["mtime"], tz=UTC).isoformat(),
+            }
     ledger = load(LEDGER_FILENAME, required=True)
     verdicts = load(VERDICTS_FILENAME, required=False)
     baselines = load(BASELINES_FILENAME, required=False)
@@ -1387,48 +1714,44 @@ def load_inputs() -> Inputs:
     )
 
 
-
-
-
 def git_parser_commits(repo_root: Path) -> list[dict]:
     """Commits touching the parsers or the sentinel, newest first."""
     proc = subprocess.run(
         ["git", "log", "--date=iso-strict", "--format=%H%x09%ad%x09%s", "--", *PARSER_PATHS],
-        cwd=repo_root, capture_output=True, text=True, check=False,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return parse_git_log(proc.stdout) if proc.returncode == 0 else []
 
 
-
-
-
 def git_head(repo_root: Path) -> str:
-    proc = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root,
-                          capture_output=True, text=True, check=False)
+    proc = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return proc.stdout.strip() if proc.returncode == 0 else "unknown"
-
-
-
 
 
 def load_platform_frame(platform: str, columns: list[str]) -> pd.DataFrame:
     """One platform's activity rows with only the requested columns."""
     import fyp.core.data_io as data_io
-    return data_io.load_parquet_selective(RECODED, PARQUET_FILENAME, columns=columns,
-                                          filters=[("source_platform", "==", platform)])
 
-
-
+    return data_io.load_parquet_selective(
+        RECODED, PARQUET_FILENAME, columns=columns, filters=[("source_platform", "==", platform)]
+    )
 
 
 def list_platforms() -> list[str]:
     """Distinct ``source_platform`` values in the activity table."""
     import fyp.core.data_io as data_io
+
     df = data_io.load_parquet_selective(RECODED, PARQUET_FILENAME, columns=["source_platform"])
     return sorted(str(p) for p in df["source_platform"].dropna().unique())
-
-
-
 
 
 def overlap_frame():
@@ -1438,13 +1761,14 @@ def overlap_frame():
 
     import fyp.core.data_io as data_io
 
-    batches = list(data_io.iter_parquet_batches(RECODED, PARQUET_FILENAME, columns=["raw_file", "utc_timestamp"]))
+    batches = list(
+        data_io.iter_parquet_batches(
+            RECODED, PARQUET_FILENAME, columns=["raw_file", "utc_timestamp"]
+        )
+    )
     if not batches:
         return pl.DataFrame({"raw_file": [], "utc_timestamp": []})
     return pl.from_arrow(pa.Table.from_batches(batches))
-
-
-
 
 
 def write_outputs(out_dir: Path, report: dict, tables_md: str, svg: str, rows: list[dict]) -> None:
@@ -1459,17 +1783,24 @@ def write_outputs(out_dir: Path, report: dict, tables_md: str, svg: str, rows: l
         writer.writerows(rows)
 
 
-
-
-
-def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, str] | None,
-                 platforms: list[str] | None, skip_parquet: bool,
-                 exclude_routes: tuple[str, ...] = ()) -> tuple[dict, list[dict]]:
+def build_report(
+    inputs: Inputs,
+    commits: list[dict],
+    classification: dict[str, str] | None,
+    platforms: list[str] | None,
+    skip_parquet: bool,
+    exclude_routes: tuple[str, ...] = (),
+) -> tuple[dict, list[dict]]:
     """Compute every part of the report; returns the report and the worksheet rows."""
     if exclude_routes:
-        inputs.ledger = {fn: e for fn, e in inputs.ledger.items() if route_of(e) not in exclude_routes}
-        inputs.verdicts = {fn: v for fn, v in inputs.verdicts.items()
-                           if f"{v.get('platform')}_{v.get('source')}" not in exclude_routes}
+        inputs.ledger = {
+            fn: e for fn, e in inputs.ledger.items() if route_of(e) not in exclude_routes
+        }
+        inputs.verdicts = {
+            fn: v
+            for fn, v in inputs.verdicts.items()
+            if f"{v.get('platform')}_{v.get('source')}" not in exclude_routes
+        }
     rows = quarantine_rows(inputs.verdicts, inputs.ledger, inputs.baselines, commits)
     report: dict = {
         "attrition": attrition_by_route(inputs.ledger),
@@ -1497,24 +1828,42 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     comments: dict = {}
     composition: dict[str, dict] = {}
     for platform in platforms:
-        df = load_platform_frame(platform, ["raw_file", "collection_id", "utc_timestamp", "activity_type",
-                                            "item_id", "link_method", "data_source", "tz_offset"])
+        df = load_platform_frame(
+            platform,
+            [
+                "raw_file",
+                "collection_id",
+                "utc_timestamp",
+                "activity_type",
+                "item_id",
+                "link_method",
+                "data_source",
+                "tz_offset",
+            ],
+        )
         if exclude_routes and "data_source" in df.columns:
             df = df[~(platform + "_" + df["data_source"].astype(str)).isin(exclude_routes)]
         if df.empty:
             continue
         for (src,), grp in df.groupby(["data_source"]):
             composition[f"{platform}_{src}"] = {
-                "rows": len(grp), "collections": int(grp["collection_id"].nunique()),
+                "rows": len(grp),
+                "collections": int(grp["collection_id"].nunique()),
                 "raw_files": int(grp["raw_file"].nunique()),
-                "first_event": str(grp["utc_timestamp"].min())[:10], "last_event": str(grp["utc_timestamp"].max())[:10],
-                "activity_types": {str(k): int(v) for k, v in grp["activity_type"].value_counts(dropna=False).items()},
+                "first_event": str(grp["utc_timestamp"].min())[:10],
+                "last_event": str(grp["utc_timestamp"].max())[:10],
+                "activity_types": {
+                    str(k): int(v)
+                    for k, v in grp["activity_type"].value_counts(dropna=False).items()
+                },
                 "null_activity_type": null_activity_type_counts(grp),
             }
             for fn in grp["raw_file"].unique():
                 route_per_file[str(fn)] = f"{platform}_{src}"
         for (src,), grp in df.groupby(["data_source"]):
-            stored_offsets[f"{platform}_{src}"] = stored_offset_distribution(grp[["raw_file", "tz_offset"]], inputs.ledger)
+            stored_offsets[f"{platform}_{src}"] = stored_offset_distribution(
+                grp[["raw_file", "tz_offset"]], inputs.ledger
+            )
         counts = df.groupby("raw_file").size()
         for fn, n in counts.items():
             events_per_file[str(fn)] = int(n)
@@ -1528,8 +1877,11 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
             comments = comment_gap_stats(df)
         supplied = {fn: e.get("tz") for fn, e in inputs.ledger.items() if e.get("tz")}
         for fn, sub in df[df["raw_file"].isin(list(supplied))].groupby("raw_file"):
-            rec = calibrate_one_file(sub["utc_timestamp"], supplied[str(fn)],
-                                     stored_offsets=sub["tz_offset"].dropna().unique().tolist())
+            rec = calibrate_one_file(
+                sub["utc_timestamp"],
+                supplied[str(fn)],
+                stored_offsets=sub["tz_offset"].dropna().unique().tolist(),
+            )
             rec.update({"raw_file": str(fn), "platform": platform, "tz": supplied[str(fn)]})
             calibration.append(rec)
         del df
@@ -1537,12 +1889,27 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     # The overlap frame is read whole; keep only files on the routes reported
     # (excluded routes and platforms are not part of the sensitivity).
     import polars as pl
+
     reported = list(events_per_file)
     pairs_df = pairs_df.filter(pl.col("a").is_in(reported) & pl.col("b").is_in(reported))
-    pairs = [(str(a), str(b), float(o)) for a, b, o in
-             zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["overlap"].to_list(), strict=True)]
-    shared = {(str(a), str(b)): int(s) for a, b, s in
-              zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["shared"].to_list(), strict=True)}
+    pairs = [
+        (str(a), str(b), float(o))
+        for a, b, o in zip(
+            pairs_df["a"].to_list(),
+            pairs_df["b"].to_list(),
+            pairs_df["overlap"].to_list(),
+            strict=True,
+        )
+    ]
+    shared = {
+        (str(a), str(b)): int(s)
+        for a, b, s in zip(
+            pairs_df["a"].to_list(),
+            pairs_df["b"].to_list(),
+            pairs_df["shared"].to_list(),
+            strict=True,
+        )
+    }
     report["composition"] = composition
     report["table_reconciliation"] = table_reconciliation(inputs.ledger, route_per_file)
     report["stored_offsets"] = stored_offsets
@@ -1551,23 +1918,36 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     report["sessions"] = sessions
     report["sessions_plays_only"] = sessions_plays
     report["comments"] = comments
-    report["overlap"] = overlap_sensitivity(pairs, inputs.ledger, events_per_file, platform_per_file,
-                                            collection_per_file, shared, route_per_file, inputs.tags)
+    report["overlap"] = overlap_sensitivity(
+        pairs,
+        inputs.ledger,
+        events_per_file,
+        platform_per_file,
+        collection_per_file,
+        shared,
+        route_per_file,
+        inputs.tags,
+    )
     return report, rows
-
-
-
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--snapshot", required=True, help="snapshot root holding recoded/")
     parser.add_argument("--out", required=True, help="output directory")
     parser.add_argument("--skip-parquet", action="store_true", help="ledger and verdict parts only")
     parser.add_argument("--classification", help="filled-in quarantine_worksheet.csv")
-    parser.add_argument("--platforms", help="comma-separated platform list (default: all in the table)")
-    parser.add_argument("--exclude-routes", default="", help="comma-separated platform_source routes to leave out, e.g. tiktok_demo")
+    parser.add_argument(
+        "--platforms", help="comma-separated platform list (default: all in the table)"
+    )
+    parser.add_argument(
+        "--exclude-routes",
+        default="",
+        help="comma-separated platform_source routes to leave out, e.g. tiktok_demo",
+    )
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args(argv)
 
@@ -1588,7 +1968,9 @@ def main(argv: list[str] | None = None) -> int:
         classification = read_classification(Path(args.classification).read_text(), approved)
     platforms = [p.strip() for p in args.platforms.split(",")] if args.platforms else None
     exclude = tuple(r.strip() for r in args.exclude_routes.split(",") if r.strip())
-    report, rows = build_report(inputs, commits, classification, platforms, args.skip_parquet, exclude)
+    report, rows = build_report(
+        inputs, commits, classification, platforms, args.skip_parquet, exclude
+    )
     report["snapshot"] = {
         "snapshot_root": str(snapshot_root),
         "inputs": inputs.provenance,
@@ -1596,16 +1978,22 @@ def main(argv: list[str] | None = None) -> int:
         "run_at": datetime.now(UTC).isoformat(),
         "args": vars(args),
     }
-    write_outputs(out_dir, report, render_tables_md(report), render_funnel_svg(report["attrition"]),
-                  worksheet_rows(rows))
-    print(f"wrote {out_dir}/report.json, tables.md, fig4_attrition_funnel.svg, quarantine_worksheet.csv")
+    write_outputs(
+        out_dir,
+        report,
+        render_tables_md(report),
+        render_funnel_svg(report["attrition"]),
+        worksheet_rows(rows),
+    )
+    print(
+        f"wrote {out_dir}/report.json, tables.md, fig4_attrition_funnel.svg, quarantine_worksheet.csv"
+    )
     if report["sentinel"]["quarantine"]["n_unclassified_approved"]:
-        print(f"{report['sentinel']['quarantine']['n_unclassified_approved']} approved file(s) await a class "
-              f"in quarantine_worksheet.csv; re-run with --classification once filled in.")
+        print(
+            f"{report['sentinel']['quarantine']['n_unclassified_approved']} approved file(s) await a class "
+            f"in quarantine_worksheet.csv; re-run with --classification once filled in."
+        )
     return 0
-
-
-
 
 
 if __name__ == "__main__":

@@ -10,9 +10,7 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 
-def run_retokenise_hashtags(
-    reporter: TaskStatusReporter, task_args: dict | None = None
-) -> None:
+def run_retokenise_hashtags(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Re-apply the current stoplist to already-stored hashtags.
 
     Re-runs the hashtag extractor (``recode_tokenise``) over the preserved
@@ -36,18 +34,21 @@ def run_retokenise_hashtags(
     reporter.update_progress(0, "Listing scrape files...")
 
     scrape_files = [
-        fn for fn in data_io.listdir(storage_location="scrape")
+        fn
+        for fn in data_io.listdir(storage_location="scrape")
         if fn.startswith(SCRAPES_LABEL) and fn.endswith(".parquet")
     ]
     total = len(scrape_files)
     reporter.log(f"Found {total} scrape file(s) to check.")
 
     if total == 0:
-        reporter.emit_data({
-            "files_scanned": 0,
-            "files_changed": 0,
-            "rows_changed": 0,
-        })
+        reporter.emit_data(
+            {
+                "files_scanned": 0,
+                "files_changed": 0,
+                "rows_changed": 0,
+            }
+        )
         reporter.log("No scrape files found — nothing to do.")
         return None
 
@@ -77,9 +78,9 @@ def run_retokenise_hashtags(
         df.loc[changed_mask, "desc_hashtags"] = new_hashtags[changed_mask]
         # Preserve the list<string>[pyarrow] storage dtype (the recode/save path
         # does the same before writing).
-        df["desc_hashtags"] = types.convert_dtypes_to_pyarrow(
-            df[["desc_hashtags"]]
-        )["desc_hashtags"]
+        df["desc_hashtags"] = types.convert_dtypes_to_pyarrow(df[["desc_hashtags"]])[
+            "desc_hashtags"
+        ]
 
         data_io.save_parquet(df=df, storage_location="scrape", filename=fn)
         files_changed += 1
@@ -87,11 +88,13 @@ def run_retokenise_hashtags(
         reporter.log(f"  {fn}: rewrote {n_changed:,} row(s).")
 
     _t_total = time.perf_counter() - _t_start
-    reporter.emit_data({
-        "files_scanned": total,
-        "files_changed": files_changed,
-        "rows_changed": rows_changed,
-    })
+    reporter.emit_data(
+        {
+            "files_scanned": total,
+            "files_changed": files_changed,
+            "rows_changed": rows_changed,
+        }
+    )
     reporter.log(
         f"[TIMING] retokenise_hashtags total={_t_total:.2f}s "
         f"files_scanned={total} files_changed={files_changed} "
@@ -102,8 +105,6 @@ def run_retokenise_hashtags(
         "-> Dataset Assembly) to apply these changes to studies and dashboards."
     )
     return None
-
-
 
 
 def _as_list(value) -> list:
@@ -121,8 +122,6 @@ def _as_list(value) -> list:
     except (TypeError, ValueError):
         pass
     return list(value)
-
-
 
 
 if __name__ == "__main__":

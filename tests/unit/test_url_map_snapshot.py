@@ -42,6 +42,4 @@ def test_url_map_matches_snapshot():
     expected_set = {tuple((r, e, tuple(m))) for r, e, m in expected}
     missing = sorted(expected_set - live_set)
     added = sorted(live_set - expected_set)
-    assert live == expected, (
-        f"URL map drifted from snapshot. Missing: {missing} Added: {added}"
-    )
+    assert live == expected, f"URL map drifted from snapshot. Missing: {missing} Added: {added}"

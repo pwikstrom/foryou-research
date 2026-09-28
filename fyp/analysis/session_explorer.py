@@ -112,8 +112,12 @@ CORPUS_MEAN_PREFIX = "embedding_corpus_mean__"
 # run id so a retry of link k overwrites its own shard) and the cross-link
 # progress accumulator. The final link concatenates the shards into the four
 # single artifact files above, so the read side never changes.
-SHARD_PREFIXES = {"sessions": "sessions_shard__", "episodes": "episodes_shard__",
-                  "windows": "windows_shard__", "plays": "plays_shard__"}
+SHARD_PREFIXES = {
+    "sessions": "sessions_shard__",
+    "episodes": "episodes_shard__",
+    "windows": "windows_shard__",
+    "plays": "plays_shard__",
+}
 PROGRESS_PREFIX = "sessions_progress__"
 
 # Row-group size for the published plays artifact: small groups keep each
@@ -162,8 +166,6 @@ _CANCEL_CHECK_EVERY = 8
 _FORK_CTX: dict = {}
 
 
-
-
 def resolve_workers(requested=None) -> int:
     """Worker-process count for segmentation.
 
@@ -192,8 +194,6 @@ def resolve_workers(requested=None) -> int:
         return auto
 
 
-
-
 def _child_init() -> None:
     """Pool-worker initialiser: one BLAS thread per process.
 
@@ -207,8 +207,6 @@ def _child_init() -> None:
         threadpool_limits(1)
     except Exception:
         pass
-
-
 
 
 def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict], float]:
@@ -225,12 +223,18 @@ def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict], float]:
     frame = ctx["plays"][cid]
     chunk = frame[(codes >= lo) & (codes < hi)]
     srows, erows, wrows = build_session_group(
-        cid, chunk, ctx["play_ts"][cid], ctx["id2idx"], ctx["U"], ctx["feat"],
-        ctx["id_sets"], ctx["params"], trend_cols=ctx["trend_cols"],
-        stories=ctx["stories"])
+        cid,
+        chunk,
+        ctx["play_ts"][cid],
+        ctx["id2idx"],
+        ctx["U"],
+        ctx["feat"],
+        ctx["id_sets"],
+        ctx["params"],
+        trend_cols=ctx["trend_cols"],
+        stories=ctx["stories"],
+    )
     return i, srows, erows, wrows, time.perf_counter() - _t
-
-
 
 
 def _prepare_collection(plays: pd.DataFrame, id2idx: dict) -> tuple[pd.DataFrame, np.ndarray]:
@@ -251,7 +255,9 @@ def _prepare_collection(plays: pd.DataFrame, id2idx: dict) -> tuple[pd.DataFrame
         # Only build the row-indexed fallback when needed — unconditionally it
         # allocated a full-length Python-string Series per collection that
         # .where() then discarded (session_id is non-null in real data).
-        sess = sess.where(sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string"))
+        sess = sess.where(
+            sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string")
+        )
     plays = plays.assign(_sess=sess)
 
     # One vectorised membership pass per collection; the per-session loop must
@@ -260,8 +266,6 @@ def _prepare_collection(plays: pd.DataFrame, id2idx: dict) -> tuple[pd.DataFrame
     if "_emb" not in plays.columns:
         plays = plays.assign(_emb=plays["item_id"].isin(list(id2idx)))
     return plays, play_ts
-
-
 
 
 def _session_chunks(codes: np.ndarray, target_plays: int) -> list[tuple[int, int]]:
@@ -285,10 +289,9 @@ def _session_chunks(codes: np.ndarray, target_plays: int) -> list[tuple[int, int
     return ranges
 
 
-
-
-def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
-                   reporter=None, log=None):
+def _segment_units(
+    units: list[tuple[str, int, int]], ctx: dict, workers: int, reporter=None, log=None
+):
     """Run the batch's work units, on a forked pool when ``workers > 1``.
 
     Any pool failure (a broken pool, a child that died, an unpicklable row)
@@ -315,24 +318,28 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
                 # Python 3.12 warns that forking a multi-threaded process may
                 # deadlock the child: the children here do pure compute on
                 # inherited memory and take no locks, which is the safe case.
-                warnings.filterwarnings("ignore", message=".*fork.*",
-                                        category=DeprecationWarning)
+                warnings.filterwarnings("ignore", message=".*fork.*", category=DeprecationWarning)
                 mp_ctx = multiprocessing.get_context("fork")
-                with ProcessPoolExecutor(max_workers=min(workers, len(units)),
-                                         mp_context=mp_ctx,
-                                         initializer=_child_init) as ex:
+                with ProcessPoolExecutor(
+                    max_workers=min(workers, len(units)), mp_context=mp_ctx, initializer=_child_init
+                ) as ex:
                     futures = [ex.submit(_run_unit, i) for i in range(len(units))]
                     for n_done, fut in enumerate(as_completed(futures), start=1):
                         i, srows, erows, wrows, secs = fut.result()
                         results[i] = (srows, erows, wrows)
                         unit_seconds[i] = secs
-                        if (reporter is not None and n_done % _CANCEL_CHECK_EVERY == 0
-                                and reporter.check_cancelled()):
+                        if (
+                            reporter is not None
+                            and n_done % _CANCEL_CHECK_EVERY == 0
+                            and reporter.check_cancelled()
+                        ):
                             ex.shutdown(wait=False, cancel_futures=True)
                             return None
         except Exception as e:
-            emit(f"[SESSIONS] worker pool failed ({type(e).__name__}: {e}) "
-                 f"— finishing this batch serially")
+            emit(
+                f"[SESSIONS] worker pool failed ({type(e).__name__}: {e}) "
+                f"— finishing this batch serially"
+            )
     # The in-process path runs under the same one-thread BLAS as the pool
     # children: the episode geometry takes the max of a float32 U @ U.T, and
     # multi-threaded kernels sum in a different order — on prod (2026-09-02)
@@ -359,39 +366,50 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
         session_rows.extend(srows)
         episode_rows.extend(erows)
         window_rows.extend(wrows)
-    return (session_rows, episode_rows, window_rows,
-            [unit_seconds[i] for i in range(len(units))])
+    return (session_rows, episode_rows, window_rows, [unit_seconds[i] for i in range(len(units))])
 
 
-
-
-def _segment_collections(cids: list[str], plays: pd.DataFrame, id2idx: dict,
-                         U: np.ndarray, feat: pd.DataFrame, id_sets: dict,
-                         params: dict, trend_cols: list[str] | None,
-                         stories: dict[str, str] | None, workers: int,
-                         reporter=None, log=None):
+def _segment_collections(
+    cids: list[str],
+    plays: pd.DataFrame,
+    id2idx: dict,
+    U: np.ndarray,
+    feat: pd.DataFrame,
+    id_sets: dict,
+    params: dict,
+    trend_cols: list[str] | None,
+    stories: dict[str, str] | None,
+    workers: int,
+    reporter=None,
+    log=None,
+):
     """Segment ``cids`` against one vector context, as parallel work units.
 
     Returns:
         ``(session_rows, episode_rows, window_rows, unit_seconds)`` or None
         on cancellation.
     """
-    ctx: dict = {"plays": {}, "play_ts": {}, "codes": {}, "id2idx": id2idx,
-                 "U": U, "feat": feat, "id_sets": id_sets, "params": params,
-                 "trend_cols": trend_cols, "stories": stories}
+    ctx: dict = {
+        "plays": {},
+        "play_ts": {},
+        "codes": {},
+        "id2idx": id2idx,
+        "U": U,
+        "feat": feat,
+        "id_sets": id_sets,
+        "params": params,
+        "trend_cols": trend_cols,
+        "stories": stories,
+    }
     units: list[tuple[str, int, int]] = []
     for cid in cids:
-        prepared, play_ts = _prepare_collection(
-            plays[plays["collection_id"] == cid], id2idx)
+        prepared, play_ts = _prepare_collection(plays[plays["collection_id"] == cid], id2idx)
         codes, _ = pd.factorize(prepared["_sess"])
         ctx["plays"][cid] = prepared
         ctx["play_ts"][cid] = play_ts
         ctx["codes"][cid] = np.asarray(codes)
-        units.extend((cid, lo, hi)
-                     for lo, hi in _session_chunks(codes, SESSION_CHUNK_PLAYS))
+        units.extend((cid, lo, hi) for lo, hi in _session_chunks(codes, SESSION_CHUNK_PLAYS))
     return _segment_units(units, ctx, workers, reporter=reporter, log=log)
-
-
 
 
 def trend_numeric_columns() -> list[str]:
@@ -408,14 +426,14 @@ def trend_numeric_columns() -> list[str]:
     from fyp.analysis import video_map
 
     available = data_io.get_parquet_columns(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE)
+        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE
+    )
     if not available:
         return []
-    candidates = (["log_plays"] + list(video_map.OVERLAY_NUMERIC)
-                  + list(video_map.SCRAPE_OVERLAY_NUMERIC))
+    candidates = (
+        ["log_plays"] + list(video_map.OVERLAY_NUMERIC) + list(video_map.SCRAPE_OVERLAY_NUMERIC)
+    )
     return [c for c in candidates if c in available and c not in TREND_EXCLUDE]
-
-
 
 
 def default_params() -> dict:
@@ -442,13 +460,9 @@ def default_params() -> dict:
     }
 
 
-
-
 def _corpus_mean_filename(model: str) -> str:
     """Return the per-model corpus-mean cache filename (filesystem-safe)."""
     return embedding_store.corpus_mean_filename(model)
-
-
 
 
 def save_corpus_mean(model: str, mean: np.ndarray, count: int) -> None:
@@ -465,13 +479,9 @@ def save_corpus_mean(model: str, mean: np.ndarray, count: int) -> None:
     embedding_store.save_corpus_mean(model, mean, count)
 
 
-
-
 def load_corpus_mean(model: str) -> np.ndarray | None:
     """Load the cached corpus mean for ``model``, or None when absent."""
     return embedding_store.load_corpus_mean(model)
-
-
 
 
 def load_directional_store(model: str, reporter=None) -> tuple[dict, np.ndarray, int]:
@@ -500,8 +510,6 @@ def load_directional_store(model: str, reporter=None) -> tuple[dict, np.ndarray,
     return {iid: i for i, iid in enumerate(ids)}, mat, len(ids)
 
 
-
-
 def _directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
     """Corpus-mean-centre and L2-normalise ``mat`` in place.
 
@@ -511,10 +519,10 @@ def _directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
     """
     mat -= corpus_mean.astype(np.float32)
     norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
-    np.divide(mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat)
+    np.divide(
+        mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat
+    )
     return mat
-
-
 
 
 def vector_cache_enabled() -> bool:
@@ -531,10 +539,9 @@ def vector_cache_enabled() -> bool:
     return str(value).strip().lower() not in ("0", "false", "no", "off")
 
 
-
-
-def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
-                           index=None, local_cache: bool = False) -> tuple[dict, np.ndarray]:
+def load_directional_block(
+    model: str, item_ids: list, corpus_mean: np.ndarray, index=None, local_cache: bool = False
+) -> tuple[dict, np.ndarray]:
     """Directional vectors for one batch of item ids, from the dense sidecar.
 
     The batch-scoped counterpart of :func:`load_directional_store`: identical
@@ -565,18 +572,17 @@ def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
     rows, found = index.lookup(item_ids)
     if not found.any():
         return {}, np.empty((0, index.dim), dtype=np.float32)
-    U = embedding_store.read_vectors(model, rows, index, dtype=np.float32,
-                                     local_cache=local_cache)
+    U = embedding_store.read_vectors(model, rows, index, dtype=np.float32, local_cache=local_cache)
     _directionalise(U, corpus_mean)
     found_ids = [str(i) for i, f in zip(item_ids, found) if f]
     return {iid: i for i, iid in enumerate(found_ids)}, U
 
 
-
-
-def load_video_features(item_ids: set[str] | None = None,
-                        extra_map_cols: list[str] | None = None,
-                        include_scrape_text: bool = False) -> pd.DataFrame:
+def load_video_features(
+    item_ids: set[str] | None = None,
+    extra_map_cols: list[str] | None = None,
+    include_scrape_text: bool = False,
+) -> pd.DataFrame:
     """Load per-video content features for episode/session characterisation.
 
     Joins the denormalised map fields (niche, category, annotation scalars,
@@ -602,10 +608,16 @@ def load_video_features(item_ids: set[str] | None = None,
         ``author`` and ``duration`` (plus any ``extra_map_cols`` /
         scrape-text columns requested).
     """
-    id_filter = ([("item_id", "in", [str(i) for i in item_ids])]
-                 if item_ids is not None else None)
-    map_cols = ["item_id", "niche_name", "category", "story",
-                "political_score", "sensitivity_score", "advertising"]
+    id_filter = [("item_id", "in", [str(i) for i in item_ids])] if item_ids is not None else None
+    map_cols = [
+        "item_id",
+        "niche_name",
+        "category",
+        "story",
+        "political_score",
+        "sensitivity_score",
+        "advertising",
+    ]
     for col in extra_map_cols or []:
         if col not in map_cols:
             map_cols.append(col)
@@ -620,7 +632,8 @@ def load_video_features(item_ids: set[str] | None = None,
     feat = mp.copy()
     feat["item_id"] = feat["item_id"].astype("string")
     numeric_cols = ["political_score", "sensitivity_score"] + [
-        c for c in (extra_map_cols or []) if c in feat.columns]
+        c for c in (extra_map_cols or []) if c in feat.columns
+    ]
     for col in dict.fromkeys(numeric_cols):
         feat[col] = pd.to_numeric(feat[col], errors="coerce")
 
@@ -628,13 +641,15 @@ def load_video_features(item_ids: set[str] | None = None,
     # column is `author_handle` post contract-canonicalisation but
     # `author_uniqueId` in older stores).
     try:
-        available = data_io.get_parquet_columns(
-            storage_location=embeddings.STORE_LOCATION,
-            filename=embeddings.SCRAPES_FILE) or []
+        available = (
+            data_io.get_parquet_columns(
+                storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE
+            )
+            or []
+        )
     except Exception:
         available = []
-    author_col = next((c for c in ("author_handle", "author_uniqueId")
-                       if c in available), None)
+    author_col = next((c for c in ("author_handle", "author_uniqueId") if c in available), None)
     scrape_cols = ["item_id"]
     if author_col:
         scrape_cols.append(author_col)
@@ -671,8 +686,6 @@ def load_video_features(item_ids: set[str] | None = None,
     # duplicate winner.
     feat = feat.drop_duplicates("item_id", keep="last")
     return feat.merge(scr, on="item_id", how="left").set_index("item_id")
-
-
 
 
 def load_story_texts(item_ids: set[str]) -> dict[str, str]:
@@ -717,10 +730,9 @@ def load_story_texts(item_ids: set[str]) -> dict[str, str]:
     return out
 
 
-
-
-def enrichment_id_sets(model: str, item_ids: set[str] | None = None,
-                       include_embedded: bool = True) -> dict[str, set]:
+def enrichment_id_sets(
+    model: str, item_ids: set[str] | None = None, include_embedded: bool = True
+) -> dict[str, set]:
     """Return per-item enrichment-status id sets used for session coverage.
 
     Args:
@@ -738,12 +750,10 @@ def enrichment_id_sets(model: str, item_ids: set[str] | None = None,
         A dict with ``scraped``, ``downloaded``, ``annotated``, and
         ``embedded`` item-id sets.
     """
-    id_filter = ([("item_id", "in", [str(i) for i in item_ids])]
-                 if item_ids is not None else None)
+    id_filter = [("item_id", "in", [str(i) for i in item_ids])] if item_ids is not None else None
     scraped: set[str] = set()
     downloaded: set[str] = set()
-    if data_io.exists(storage_location=embeddings.STORE_LOCATION,
-                      filename=embeddings.SCRAPES_FILE):
+    if data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE):
         scr = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION,
             filename=embeddings.SCRAPES_FILE,
@@ -759,12 +769,13 @@ def enrichment_id_sets(model: str, item_ids: set[str] | None = None,
     annotated = set(embeddings.annotated_ok_item_ids())
     if item_ids is not None:
         annotated &= {str(i) for i in item_ids}
-    embedded = (embeddings.embedded_item_ids(model=model)
-                if include_embedded else set())
-    return {"scraped": scraped, "downloaded": downloaded,
-            "annotated": annotated, "embedded": embedded}
-
-
+    embedded = embeddings.embedded_item_ids(model=model) if include_embedded else set()
+    return {
+        "scraped": scraped,
+        "downloaded": downloaded,
+        "annotated": annotated,
+        "embedded": embedded,
+    }
 
 
 def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
@@ -785,13 +796,27 @@ def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
     df = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-        columns=["collection_id", "item_id", "local_timestamp", "play_duration",
-                 "session_id", "source_platform"],
+        columns=[
+            "collection_id",
+            "item_id",
+            "local_timestamp",
+            "play_duration",
+            "session_id",
+            "source_platform",
+        ],
         filters=filters,
     )
     if df is None or df.empty:
-        return pd.DataFrame(columns=["collection_id", "item_id", "_ts",
-                                     "play_duration", "session_id", "source_platform"])
+        return pd.DataFrame(
+            columns=[
+                "collection_id",
+                "item_id",
+                "_ts",
+                "play_duration",
+                "session_id",
+                "source_platform",
+            ]
+        )
     df = df.copy()
     # string[pyarrow], not "string": the default python-backed StringDtype
     # materialises one Python str per cell (+684 MB over these two columns at
@@ -803,8 +828,6 @@ def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
     df = df.dropna(subset=["_ts"])
     df["play_duration"] = pd.to_numeric(df["play_duration"], errors="coerce")
     return df
-
-
 
 
 def discover_collections(collections: list[str] | None = None) -> list[tuple[str, int]]:
@@ -828,9 +851,12 @@ def discover_collections(collections: list[str] | None = None) -> list[tuple[str
     allow = {str(c) for c in collections} if collections is not None else None
     counts: dict[str, int] = {}
     for rb in data_io.iter_parquet_batches(
-            storage_location=embeddings.STORE_LOCATION, filename=fn,
-            columns=["collection_id"],
-            filters=[("activity_type", "==", "play")], batch_size=1_048_576):
+        storage_location=embeddings.STORE_LOCATION,
+        filename=fn,
+        columns=["collection_id"],
+        filters=[("activity_type", "==", "play")],
+        batch_size=1_048_576,
+    ):
         for entry in pa_compute.value_counts(rb.column(0)).to_pylist():
             cid = entry["values"]
             if cid is None:
@@ -840,8 +866,6 @@ def discover_collections(collections: list[str] | None = None) -> list[tuple[str
                 continue
             counts[cid] = counts.get(cid, 0) + int(entry["counts"])
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-
-
 
 
 # Days added on each side of a study's saved date window when building the
@@ -858,8 +882,6 @@ _WIDE_START = "1970-01-01"
 _WIDE_END = "2099-12-31"
 
 
-
-
 def _study_bound(cfg: dict, key: str, default: str) -> pd.Timestamp:
     """Parse a study's saved date bound, falling back to the wide default."""
     raw = cfg.get(key)
@@ -871,10 +893,9 @@ def _study_bound(cfg: dict, key: str, default: str) -> pd.Timestamp:
     return pd.Timestamp(default)
 
 
-
-
-def merge_intervals(intervals: list[tuple[pd.Timestamp, pd.Timestamp]],
-                    ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+def merge_intervals(
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp]],
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """Merge overlapping/adjacent half-open ``[start, end)`` intervals."""
     merged: list[list[pd.Timestamp]] = []
     for start, end in sorted(intervals):
@@ -885,10 +906,9 @@ def merge_intervals(intervals: list[tuple[pd.Timestamp, pd.Timestamp]],
     return [(s, e) for s, e in merged]
 
 
-
-
-def compute_coverage_spec(study_defs: dict | None = None,
-                          pad_days: int = COVERAGE_PAD_DAYS) -> dict[str, list[list[str]]]:
+def compute_coverage_spec(
+    study_defs: dict | None = None, pad_days: int = COVERAGE_PAD_DAYS
+) -> dict[str, list[list[str]]]:
     """Per-collection date windows the sessions build must cover.
 
     The sessions artifacts only need to span what studies can display: for
@@ -913,8 +933,9 @@ def compute_coverage_spec(study_defs: dict | None = None,
     """
     if study_defs is None:
         if data_io.exists(storage_location="recoded", filename="studies.json"):
-            study_defs = data_io.load_json(storage_location="recoded",
-                                           filename="studies.json") or {}
+            study_defs = (
+                data_io.load_json(storage_location="recoded", filename="studies.json") or {}
+            )
         else:
             study_defs = {}
 
@@ -932,12 +953,11 @@ def compute_coverage_spec(study_defs: dict | None = None,
             raw.setdefault(str(cid), []).append((start, end))
 
     return {
-        cid: [[s.strftime("%Y-%m-%d"), e.strftime("%Y-%m-%d")]
-              for s, e in merge_intervals(intervals)]
+        cid: [
+            [s.strftime("%Y-%m-%d"), e.strftime("%Y-%m-%d")] for s, e in merge_intervals(intervals)
+        ]
         for cid, intervals in sorted(raw.items())
     }
-
-
 
 
 def coverage_mask(ts: pd.Series, windows: list[list[str]]) -> pd.Series:
@@ -945,16 +965,16 @@ def coverage_mask(ts: pd.Series, windows: list[list[str]]) -> pd.Series:
     vals = ts.to_numpy(dtype="datetime64[ns]")
     mask = np.zeros(len(vals), dtype=bool)
     for start, end in windows:
-        mask |= ((vals >= np.datetime64(pd.Timestamp(start)))
-                 & (vals < np.datetime64(pd.Timestamp(end))))
+        mask |= (vals >= np.datetime64(pd.Timestamp(start))) & (
+            vals < np.datetime64(pd.Timestamp(end))
+        )
     return pd.Series(mask, index=ts.index)
 
 
-
-
-def discover_covered_collections(coverage: dict[str, list[list[str]]],
-                                 collections: list[str] | None = None,
-                                 ) -> list[tuple[str, int]]:
+def discover_covered_collections(
+    coverage: dict[str, list[list[str]]],
+    collections: list[str] | None = None,
+) -> list[tuple[str, int]]:
     """Coverage-scoped discovery with the within-window play count.
 
     The window-scoped counterpart of :func:`discover_collections`: one
@@ -985,8 +1005,7 @@ def discover_covered_collections(coverage: dict[str, list[list[str]]],
         nothing to segment).
     """
     fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
-    if not coverage or not data_io.exists(
-            storage_location=embeddings.STORE_LOCATION, filename=fn):
+    if not coverage or not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=fn):
         return []
     allow = set(coverage)
     if collections is not None:
@@ -996,11 +1015,12 @@ def discover_covered_collections(coverage: dict[str, list[list[str]]],
 
     plays: dict[str, int] = {}
     for rb in data_io.iter_parquet_batches(
-            storage_location=embeddings.STORE_LOCATION, filename=fn,
-            columns=["collection_id", "local_timestamp"],
-            filters=[("activity_type", "==", "play"),
-                     ("collection_id", "in", sorted(allow))],
-            batch_size=1_048_576):
+        storage_location=embeddings.STORE_LOCATION,
+        filename=fn,
+        columns=["collection_id", "local_timestamp"],
+        filters=[("activity_type", "==", "play"), ("collection_id", "in", sorted(allow))],
+        batch_size=1_048_576,
+    ):
         df = rb.to_pandas()
         df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
         df = df.dropna(subset=["_ts"])
@@ -1012,11 +1032,11 @@ def discover_covered_collections(coverage: dict[str, list[list[str]]],
     return sorted(plays.items(), key=lambda t: (-t[1], t[0]))
 
 
-
-
-def collections_meta_block(discovered: list[tuple[str, int]],
-                           coverage: dict[str, list[list[str]]],
-                           built_at: str | None = None) -> dict:
+def collections_meta_block(
+    discovered: list[tuple[str, int]],
+    coverage: dict[str, list[list[str]]],
+    built_at: str | None = None,
+) -> dict:
     """Per-collection provenance entries for ``sessions_meta.json``.
 
     Args:
@@ -1030,12 +1050,9 @@ def collections_meta_block(discovered: list[tuple[str, int]],
     """
     stamp = built_at or pd.Timestamp.now(tz="UTC").isoformat()
     return {
-        cid: {"windows": coverage.get(cid, []), "n_plays": int(n_plays),
-              "built_at": stamp}
+        cid: {"windows": coverage.get(cid, []), "n_plays": int(n_plays), "built_at": stamp}
         for cid, n_plays in discovered
     }
-
-
 
 
 def annotation_corpus_fingerprint() -> str:
@@ -1058,13 +1075,12 @@ def annotation_corpus_fingerprint() -> str:
         ``"{size}:{mtime}"``, or ``""`` when no annotation corpus exists
         (a fresh install — nothing to invalidate against).
     """
-    st = data_io.stat(storage_location=embeddings.STORE_LOCATION,
-                      filename=embeddings.ANNOTATIONS_FILE)
+    st = data_io.stat(
+        storage_location=embeddings.STORE_LOCATION, filename=embeddings.ANNOTATIONS_FILE
+    )
     if st is None:
         return ""
     return f"{int(st.get('size', 0))}:{float(st.get('mtime', 0.0))}"
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -1096,8 +1112,11 @@ def rebaseline_fraction() -> float:
     from fyp.core.fyp_config import fyp_cf
 
     cfg = fyp_cf.get("sessions", {})
-    value = (cfg.get("rebaseline_fraction", REBASELINE_FRACTION_DEFAULT)
-             if isinstance(cfg, dict) else REBASELINE_FRACTION_DEFAULT)
+    value = (
+        cfg.get("rebaseline_fraction", REBASELINE_FRACTION_DEFAULT)
+        if isinstance(cfg, dict)
+        else REBASELINE_FRACTION_DEFAULT
+    )
     try:
         return max(0.0, float(value))
     except (TypeError, ValueError):
@@ -1151,8 +1170,11 @@ def annotation_items_changed_since(watermark: str | None) -> tuple[set[str] | No
     wm_s: float | None = None
     if watermark:
         try:
-            wm_s = pd.Timestamp(watermark).tz_convert("UTC").timestamp() \
-                if pd.Timestamp(watermark).tzinfo else pd.Timestamp(watermark, tz="UTC").timestamp()
+            wm_s = (
+                pd.Timestamp(watermark).tz_convert("UTC").timestamp()
+                if pd.Timestamp(watermark).tzinfo
+                else pd.Timestamp(watermark, tz="UTC").timestamp()
+            )
         except (ValueError, TypeError):
             wm_s = None
     changed: set[str] = set()
@@ -1161,8 +1183,11 @@ def annotation_items_changed_since(watermark: str | None) -> tuple[set[str] | No
     # trips over the pandas metadata of its list-typed columns even when they
     # are not selected, and inference_ts is an epoch, not a datetime.
     for rb in data_io.iter_parquet_batches(
-            storage_location=embeddings.STORE_LOCATION, filename=fn,
-            columns=["item_id", "inference_ts"], batch_size=1_048_576):
+        storage_location=embeddings.STORE_LOCATION,
+        filename=fn,
+        columns=["item_id", "inference_ts"],
+        batch_size=1_048_576,
+    ):
         secs = _epoch_seconds(rb.column("inference_ts"))
         valid = ~np.isnan(secs)
         if valid.any():
@@ -1173,8 +1198,7 @@ def annotation_items_changed_since(watermark: str | None) -> tuple[set[str] | No
             if sel.any():
                 ids = rb.column("item_id").to_pylist()
                 changed.update(str(ids[i]) for i in np.flatnonzero(sel) if ids[i] is not None)
-    max_iso = (pd.Timestamp(max_s, unit="s", tz="UTC").isoformat()
-               if max_s is not None else None)
+    max_iso = pd.Timestamp(max_s, unit="s", tz="UTC").isoformat() if max_s is not None else None
     if wm_s is None:
         return None, max_iso
     return changed, max_iso
@@ -1193,19 +1217,19 @@ def _epoch_seconds(col) -> np.ndarray:
         return arr / 1e9
     if pa.types.is_string(col.type) or pa.types.is_large_string(col.type):
         parsed = pd.to_datetime(pd.Series(col.to_pylist()), utc=True, errors="coerce")
-        return np.array([t.timestamp() if pd.notna(t) else np.nan for t in parsed],
-                        dtype="float64")
+        return np.array([t.timestamp() if pd.notna(t) else np.nan for t in parsed], dtype="float64")
     arr = np.asarray(col.to_numpy(zero_copy_only=False), dtype="float64")
     nulls = np.asarray(col.is_null().to_numpy(zero_copy_only=False), dtype=bool)
     arr[nulls] = np.nan
     finite = arr[~np.isnan(arr)]
-    if finite.size and np.nanmedian(finite) > 1e11:   # milliseconds
+    if finite.size and np.nanmedian(finite) > 1e11:  # milliseconds
         arr = arr / 1e3
     return arr
 
 
-def collections_containing(item_ids: set[str], allow: set[str],
-                           max_items: int = _SCOPE_MAX_ITEMS) -> set[str] | None:
+def collections_containing(
+    item_ids: set[str], allow: set[str], max_items: int = _SCOPE_MAX_ITEMS
+) -> set[str] | None:
     """The covered collections (``allow``) in which any of ``item_ids`` occurs,
     or None when the mapping is not worth doing (too many ids, or no activity
     file) — the caller then rebuilds everything."""
@@ -1218,17 +1242,25 @@ def collections_containing(item_ids: set[str], allow: set[str],
         return None
     found: set[str] = set()
     for rb in data_io.iter_parquet_batches(
-            storage_location=embeddings.STORE_LOCATION, filename=fn,
-            columns=["collection_id", "item_id"],
-            filters=[("item_id", "in", sorted(item_ids))],
-            batch_size=1_048_576):
+        storage_location=embeddings.STORE_LOCATION,
+        filename=fn,
+        columns=["collection_id", "item_id"],
+        filters=[("item_id", "in", sorted(item_ids))],
+        batch_size=1_048_576,
+    ):
         found.update(str(v) for v in rb.column("collection_id").to_pylist() if v is not None)
     return found & set(allow)
 
 
-def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
-                            annotations_fp: str, model: str, covered: set[str],
-                            fraction: float | None = None) -> dict:
+def enrichment_change_scope(
+    meta: dict | None,
+    store_fp: str,
+    n_vectors: int,
+    annotations_fp: str,
+    model: str,
+    covered: set[str],
+    fraction: float | None = None,
+) -> dict:
     """Work out which collections this run's enrichment changes touch.
 
     Returns a dict with ``local`` (True when the change can be scoped),
@@ -1238,14 +1270,21 @@ def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
     from reading the shard listing, the dense index, the annotation corpus
     and the activity file — no writes.
     """
-    out = {"local": False, "affected": None, "reason": "", "annotations_max_ts": None,
-           "n_new_vectors": 0, "n_changed_annotations": 0}
+    out = {
+        "local": False,
+        "affected": None,
+        "reason": "",
+        "annotations_max_ts": None,
+        "n_new_vectors": 0,
+        "n_changed_annotations": 0,
+    }
     if not isinstance(meta, dict) or not meta:
         out["reason"] = "no previous build"
         return out
     store_moved = bool(store_fp) and str(meta.get("store_fingerprint") or "") != store_fp
-    anno_moved = (bool(annotations_fp)
-                  and str(meta.get("annotations_fingerprint") or "") != annotations_fp)
+    anno_moved = (
+        bool(annotations_fp) and str(meta.get("annotations_fingerprint") or "") != annotations_fp
+    )
     if not store_moved and not anno_moved:
         out.update(local=True, affected=set(), reason="enrichment unchanged")
         return out
@@ -1255,8 +1294,10 @@ def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
         old_shards = meta.get("store_shards")
         old_count = meta.get("corpus_mean_count")
         if not old_shards or old_count is None:
-            out["reason"] = ("the previous build recorded no shard set — recording one "
-                             "now so the next append can be scoped")
+            out["reason"] = (
+                "the previous build recorded no shard set — recording one "
+                "now so the next append can be scoped"
+            )
             return out
         if not shards_appended_only(old_shards, embedding_store.shard_entries()):
             out["reason"] = "embedding shards were rewritten or removed, not appended"
@@ -1264,9 +1305,11 @@ def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
         baseline = int(meta.get("baseline_corpus_count") or old_count or 0)
         frac = rebaseline_fraction() if fraction is None else float(fraction)
         if baseline and n_vectors and (int(n_vectors) - baseline) / baseline > frac:
-            out["reason"] = (f"{int(n_vectors) - baseline:,} vectors appended since the last "
-                             f"full build exceed the {frac:.0%} drift budget — re-baselining "
-                             "every collection on the current corpus mean")
+            out["reason"] = (
+                f"{int(n_vectors) - baseline:,} vectors appended since the last "
+                f"full build exceed the {frac:.0%} drift budget — re-baselining "
+                "every collection on the current corpus mean"
+            )
             return out
         index = embedding_store.load_index(model)
         if index is None:
@@ -1284,8 +1327,10 @@ def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
         changed, max_ts = annotation_items_changed_since(meta.get("annotations_max_ts"))
         out["annotations_max_ts"] = max_ts
         if changed is None:
-            out["reason"] = ("the previous build recorded no annotation watermark — "
-                            "recording one now so the next batch can be scoped")
+            out["reason"] = (
+                "the previous build recorded no annotation watermark — "
+                "recording one now so the next batch can be scoped"
+            )
             return out
         out["n_changed_annotations"] = len(changed)
         cids = collections_containing(changed, covered)
@@ -1295,20 +1340,28 @@ def enrichment_change_scope(meta: dict | None, store_fp: str, n_vectors: int,
         affected |= cids
 
     out.update(local=True, affected=affected)
-    out["reason"] = (f"{out['n_new_vectors']:,} new vector(s) and "
-                     f"{out['n_changed_annotations']:,} changed annotation(s) touch "
-                     f"{len(affected)} covered collection(s)")
+    out["reason"] = (
+        f"{out['n_new_vectors']:,} new vector(s) and "
+        f"{out['n_changed_annotations']:,} changed annotation(s) touch "
+        f"{len(affected)} covered collection(s)"
+    )
     return out
 
 
-def compute_refresh_plan(discovered: list[tuple[str, int]],
-                         coverage: dict[str, list[list[str]]],
-                         meta: dict | None, params: dict, model: str,
-                         trend_cols: list[str], artifacts_exist: bool,
-                         plays_schema_ok: bool = True,
-                         scope: set[str] | None = None,
-                         store_fp: str = "", annotations_fp: str = "",
-                         enrichment_scope: dict | None = None) -> dict:
+def compute_refresh_plan(
+    discovered: list[tuple[str, int]],
+    coverage: dict[str, list[list[str]]],
+    meta: dict | None,
+    params: dict,
+    model: str,
+    trend_cols: list[str],
+    artifacts_exist: bool,
+    plays_schema_ok: bool = True,
+    scope: set[str] | None = None,
+    store_fp: str = "",
+    annotations_fp: str = "",
+    enrichment_scope: dict | None = None,
+) -> dict:
     """Decide what a sessions refresh must rebuild. Pure — no I/O.
 
     A collection is **stale** when its current fingerprint — coverage
@@ -1380,8 +1433,7 @@ def compute_refresh_plan(discovered: list[tuple[str, int]],
     if not isinstance(known, dict):
         return _full("meta has no per-collection block (pre-upgrade build)")
     if str(meta.get("embedding_model") or "") != str(model):
-        return _full(f"embedding model changed "
-                     f"({meta.get('embedding_model')} -> {model})")
+        return _full(f"embedding model changed ({meta.get('embedding_model')} -> {model})")
     if meta.get("params") != params:
         return _full("segmentation params changed")
     if sorted(meta.get("trend_vars") or []) != sorted(trend_cols):
@@ -1391,16 +1443,18 @@ def compute_refresh_plan(discovered: list[tuple[str, int]],
     # Enrichment moved. With a scope that proves the change local (see
     # enrichment_change_scope) the touched collections join the refresh set;
     # without one, the historical answer — rebuild everything — stands.
-    scoped = (isinstance(enrichment_scope, dict) and enrichment_scope.get("local")
-              and enrichment_scope.get("affected") is not None)
+    scoped = (
+        isinstance(enrichment_scope, dict)
+        and enrichment_scope.get("local")
+        and enrichment_scope.get("affected") is not None
+    )
     touched: set[str] = set(enrichment_scope["affected"]) if scoped else set()
     enrichment_moved = False
     if store_fp and str(meta.get("store_fingerprint") or "") != store_fp:
         if not scoped:
             return _full("embedding store changed (new or rewritten shards)")
         enrichment_moved = True
-    if annotations_fp and \
-            str(meta.get("annotations_fingerprint") or "") != annotations_fp:
+    if annotations_fp and str(meta.get("annotations_fingerprint") or "") != annotations_fp:
         if not scoped:
             return _full("annotation corpus changed")
         enrichment_moved = True
@@ -1409,9 +1463,11 @@ def compute_refresh_plan(discovered: list[tuple[str, int]],
     n_stale = 0
     for cid, n_plays in discovered:
         rec = known.get(cid)
-        stale = (not isinstance(rec, dict)
-                 or rec.get("windows") != coverage.get(cid, [])
-                 or int(rec.get("n_plays", -1)) != int(n_plays))
+        stale = (
+            not isinstance(rec, dict)
+            or rec.get("windows") != coverage.get(cid, [])
+            or int(rec.get("n_plays", -1)) != int(n_plays)
+        )
         if stale:
             n_stale += 1
         if stale or (enrichment_moved and cid in touched):
@@ -1425,12 +1481,14 @@ def compute_refresh_plan(discovered: list[tuple[str, int]],
             # Nothing to segment, but the fingerprints must be recorded or
             # every later run re-derives this same scope: an empty merge
             # publishes the meta and nothing else.
-            return {"mode": "merge",
-                    "reason": "new enrichment touched no covered collection — "
-                              "recording the fingerprints",
-                    "refresh": [], "drop": []}
-        return {"mode": "noop", "reason": "all collections up to date",
-                "refresh": [], "drop": []}
+            return {
+                "mode": "merge",
+                "reason": "new enrichment touched no covered collection — "
+                "recording the fingerprints",
+                "refresh": [],
+                "drop": [],
+            }
+        return {"mode": "noop", "reason": "all collections up to date", "refresh": [], "drop": []}
     reason = f"{n_stale} stale, {len(drop)} removed"
     if enrichment_moved:
         n_touched = len([cid for cid in refresh if cid in touched])
@@ -1438,12 +1496,16 @@ def compute_refresh_plan(discovered: list[tuple[str, int]],
     return {"mode": "merge", "reason": reason, "refresh": refresh, "drop": drop}
 
 
-
-
-def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
-                    min_videos: int, min_minutes: float,
-                    max_skip: int = MAX_SKIP,
-                    flick_seconds: float = FLICK_SECONDS) -> list[dict]:
+def segment_session(
+    seq: list[tuple],
+    U: np.ndarray,
+    cut: float,
+    mem: int,
+    min_videos: int,
+    min_minutes: float,
+    max_skip: int = MAX_SKIP,
+    flick_seconds: float = FLICK_SECONDS,
+) -> list[dict]:
     """Grow focus episodes within one session's embedded plays.
 
     A run survives up to ``max_skip`` CONSECUTIVE off-theme videos. They are
@@ -1498,9 +1560,17 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
             episodes.append(c)
 
     def fresh(iid, ridx, ts, dur) -> dict:
-        return {"ids": [iid], "idx": [ridx], "seen": {iid},
-                "m_ts": [ts], "m_dur": [dur],
-                "start_ts": ts, "end_ts": ts, "n_plays": 1, "n_skipped": 0}
+        return {
+            "ids": [iid],
+            "idx": [ridx],
+            "seen": {iid},
+            "m_ts": [ts],
+            "m_dur": [dur],
+            "start_ts": ts,
+            "end_ts": ts,
+            "n_plays": 1,
+            "n_skipped": 0,
+        }
 
     i = 0
     while i < len(seq):
@@ -1555,8 +1625,6 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
     return episodes
 
 
-
-
 def _num(value, ndigits: int | None = None) -> float | None:
     """Return ``value`` as a float (optionally rounded), or None when missing.
 
@@ -1577,8 +1645,6 @@ def _num(value, ndigits: int | None = None) -> float | None:
     return round(out, ndigits) if ndigits is not None else out
 
 
-
-
 def _dominant(series: pd.Series) -> tuple[object, float]:
     """Return the modal value of a series and its share."""
     s = series.dropna()
@@ -1586,8 +1652,6 @@ def _dominant(series: pd.Series) -> tuple[object, float]:
         return None, 0.0
     vc = s.value_counts()
     return vc.index[0], round(float(vc.iloc[0]) / float(len(s)), 3)
-
-
 
 
 def _rolling_cosdists(idx: list[int], U: np.ndarray, mem: int) -> list[float | None]:
@@ -1608,15 +1672,20 @@ def _rolling_cosdists(idx: list[int], U: np.ndarray, mem: int) -> list[float | N
     """
     out: list[float | None] = [None]
     for i in range(1, len(idx)):
-        centroid = U[idx[max(0, i - mem):i]].mean(axis=0)
+        centroid = U[idx[max(0, i - mem) : i]].mean(axis=0)
         out.append(round(1.0 - float(U[idx[i]] @ centroid), 4))
     return out
 
 
-
-
-def episode_record(ep: dict, cid: str, sess: object, U: np.ndarray,
-                   feat: pd.DataFrame, play_ts: np.ndarray, mem: int = MEM) -> dict:
+def episode_record(
+    ep: dict,
+    cid: str,
+    sess: object,
+    U: np.ndarray,
+    feat: pd.DataFrame,
+    play_ts: np.ndarray,
+    mem: int = MEM,
+) -> dict:
     """Reduce one raw episode to a fully-attributed table row.
 
     Args:
@@ -1688,10 +1757,9 @@ def episode_record(ep: dict, cid: str, sess: object, U: np.ndarray,
     }
 
 
-
-
-def low_entropy_windows(emb_seq: list[tuple], U: np.ndarray, window_n: int,
-                        max_windows: int = 3) -> list[dict]:
+def low_entropy_windows(
+    emb_seq: list[tuple], U: np.ndarray, window_n: int, max_windows: int = 3
+) -> list[dict]:
     """The session's lowest-distance ("low-entropy") sliding windows.
 
     Slides a window of ``window_n`` consecutive *distinct* embedded videos
@@ -1721,7 +1789,7 @@ def low_entropy_windows(emb_seq: list[tuple], U: np.ndarray, window_n: int,
     idx = [row for _, row, _, _ in emb_seq]
     scored: list[tuple[float, int]] = []
     for i in range(0, n - window_n + 1):
-        d = entropy_metrics.mean_pairwise_cosine_distance(U[idx[i:i + window_n]])
+        d = entropy_metrics.mean_pairwise_cosine_distance(U[idx[i : i + window_n]])
         if np.isfinite(d):
             scored.append((float(d), i))
     scored.sort()
@@ -1739,28 +1807,27 @@ def low_entropy_windows(emb_seq: list[tuple], U: np.ndarray, window_n: int,
 
     out: list[dict] = []
     for d, i in chosen:
-        members = emb_seq[i:i + window_n]
-        ent_bits, _ = entropy_metrics.spectral_entropy(U[idx[i:i + window_n]])
+        members = emb_seq[i : i + window_n]
+        ent_bits, _ = entropy_metrics.spectral_entropy(U[idx[i : i + window_n]])
         ent_norm = float(ent_bits / np.log2(window_n)) if np.isfinite(ent_bits) else None
         start_ts, end_ts = members[0][2], members[-1][2]
-        out.append({
-            "start_ts": start_ts.isoformat(),
-            "end_ts": end_ts.isoformat(),
-            "duration_min": round((end_ts - start_ts).total_seconds() / 60.0, 2),
-            "n_distinct": window_n,
-            "mean_cosdist": round(d, 4),
-            "entropy_norm": round(ent_norm, 4) if ent_norm is not None else None,
-            "member_item_ids": [str(m[0]) for m in members],
-            "member_ts": [m[2].isoformat() for m in members],
-            "member_dwell_s": [_num(m[3], 1) for m in members],
-        })
+        out.append(
+            {
+                "start_ts": start_ts.isoformat(),
+                "end_ts": end_ts.isoformat(),
+                "duration_min": round((end_ts - start_ts).total_seconds() / 60.0, 2),
+                "n_distinct": window_n,
+                "mean_cosdist": round(d, 4),
+                "entropy_norm": round(ent_norm, 4) if ent_norm is not None else None,
+                "member_item_ids": [str(m[0]) for m in members],
+                "member_ts": [m[2].isoformat() for m in members],
+                "member_dwell_s": [_num(m[3], 1) for m in members],
+            }
+        )
     return out
 
 
-
-
-def _search_text(distinct_list: list[str], feat: pd.DataFrame,
-                 stories: dict[str, str]) -> str:
+def _search_text(distinct_list: list[str], feat: pd.DataFrame, stories: dict[str, str]) -> str:
     """Build one session's searchable text blob (lowercased, deduped, capped).
 
     Concatenates the text the detail panel displays — niche names, categories,
@@ -1783,8 +1850,7 @@ def _search_text(distinct_list: list[str], feat: pd.DataFrame,
         for value in sub[col].dropna():
             # desc_hashtags is a LIST column — a cell can be an array of tags.
             if isinstance(value, (list, tuple, np.ndarray)):
-                text = " ".join(str(v).strip() for v in value
-                                if v is not None and str(v).strip())
+                text = " ".join(str(v).strip() for v in value if v is not None and str(v).strip())
             else:
                 text = str(value).strip()
             if text:
@@ -1796,14 +1862,20 @@ def _search_text(distinct_list: list[str], feat: pd.DataFrame,
     return "\n".join(sorted(frags)).lower()[:_SEARCH_TEXT_CAP]
 
 
-
-
-def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
-                   U: np.ndarray, feat: pd.DataFrame, id_sets: dict,
-                   episodes: list[dict], window_n: int = WINDOW_N,
-                   max_windows: int = MAX_WINDOWS,
-                   trend_cols: list[str] | None = None,
-                   stories: dict[str, str] | None = None) -> tuple[dict, list[dict]]:
+def session_record(
+    cid: str,
+    sess: object,
+    g: pd.DataFrame,
+    id2idx: dict,
+    U: np.ndarray,
+    feat: pd.DataFrame,
+    id_sets: dict,
+    episodes: list[dict],
+    window_n: int = WINDOW_N,
+    max_windows: int = MAX_WINDOWS,
+    trend_cols: list[str] | None = None,
+    stories: dict[str, str] | None = None,
+) -> tuple[dict, list[dict]]:
     """Reduce one session's plays to a quality/entropy row + its low-entropy windows.
 
     Args:
@@ -1875,8 +1947,11 @@ def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
     all_feat = feat.reindex(distinct_list)
     extremes: dict[str, float | None] = {}
     for col in trend_cols or []:
-        vals = (pd.to_numeric(all_feat[col], errors="coerce")
-                if col in all_feat.columns else pd.Series(dtype="float64"))
+        vals = (
+            pd.to_numeric(all_feat[col], errors="coerce")
+            if col in all_feat.columns
+            else pd.Series(dtype="float64")
+        )
         extremes[f"vmin_{col}"] = _num(vals.min(), 4)
         extremes[f"vmax_{col}"] = _num(vals.max(), 4)
     extremes["vmin_dwell_s"] = _num(dur.min(), 1)
@@ -1910,13 +1985,17 @@ def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
     }, windows
 
 
-
-
-def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
-                     feat: pd.DataFrame, id_sets: dict,
-                     params: dict | None = None,
-                     trend_cols: list[str] | None = None,
-                     stories: dict[str, str] | None = None) -> tuple[list[dict], list[dict], list[dict]]:
+def build_collection(
+    cid: str,
+    plays: pd.DataFrame,
+    id2idx: dict,
+    U: np.ndarray,
+    feat: pd.DataFrame,
+    id_sets: dict,
+    params: dict | None = None,
+    trend_cols: list[str] | None = None,
+    stories: dict[str, str] | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Segment one collection's sessions and build its session + episode rows.
 
     Every session gets a row (including sessions with no embedded plays — they
@@ -1939,18 +2018,23 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
     """
     p = {**default_params(), **(params or {})}
     prepared, play_ts = _prepare_collection(plays, id2idx)
-    return build_session_group(cid, prepared, play_ts, id2idx, U, feat, id_sets,
-                               p, trend_cols=trend_cols, stories=stories)
+    return build_session_group(
+        cid, prepared, play_ts, id2idx, U, feat, id_sets, p, trend_cols=trend_cols, stories=stories
+    )
 
 
-
-
-def build_session_group(cid: str, plays: pd.DataFrame, play_ts: np.ndarray,
-                        id2idx: dict, U: np.ndarray, feat: pd.DataFrame,
-                        id_sets: dict, p: dict,
-                        trend_cols: list[str] | None = None,
-                        stories: dict[str, str] | None = None,
-                        ) -> tuple[list[dict], list[dict], list[dict]]:
+def build_session_group(
+    cid: str,
+    plays: pd.DataFrame,
+    play_ts: np.ndarray,
+    id2idx: dict,
+    U: np.ndarray,
+    feat: pd.DataFrame,
+    id_sets: dict,
+    p: dict,
+    trend_cols: list[str] | None = None,
+    stories: dict[str, str] | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Build the rows for a group of whole sessions of one collection.
 
     The parallel work unit: ``plays`` is a session-complete slice of the
@@ -1979,43 +2063,72 @@ def build_session_group(cid: str, plays: pd.DataFrame, play_ts: np.ndarray,
     window_rows: list[dict] = []
     for s, g in plays.groupby("_sess", sort=False):
         emb = g[g["_emb"]]
-        seq = [(iid, id2idx[iid], ts, du) for iid, ts, du in
-               zip(emb["item_id"], emb["_ts"], emb["play_duration"])]
+        seq = [
+            (iid, id2idx[iid], ts, du)
+            for iid, ts, du in zip(emb["item_id"], emb["_ts"], emb["play_duration"])
+        ]
         eps = []
-        for ep_idx, ep in enumerate(segment_session(
-                seq, U, p["cut"], p["mem"], p["min_videos"], p["min_minutes"],
-                max_skip=p["max_skip"], flick_seconds=p["flick_seconds"])):
+        for ep_idx, ep in enumerate(
+            segment_session(
+                seq,
+                U,
+                p["cut"],
+                p["mem"],
+                p["min_videos"],
+                p["min_minutes"],
+                max_skip=p["max_skip"],
+                flick_seconds=p["flick_seconds"],
+            )
+        ):
             row = episode_record(ep, cid, s, U, feat, play_ts, mem=p["mem"])
             row["episode_idx"] = ep_idx
             eps.append(row)
         episode_rows.extend(eps)
         srow, wins = session_record(
-            cid, s, g, id2idx, U, feat, id_sets, eps,
-            window_n=p["window_n"], max_windows=p["max_windows"],
-            trend_cols=trend_cols, stories=stories)
+            cid,
+            s,
+            g,
+            id2idx,
+            U,
+            feat,
+            id_sets,
+            eps,
+            window_n=p["window_n"],
+            max_windows=p["max_windows"],
+            trend_cols=trend_cols,
+            stories=stories,
+        )
         session_rows.append(srow)
         window_rows.extend(wins)
     return session_rows, episode_rows, window_rows
 
 
-
-
 # Explicit Arrow schemas so `data_io.save_parquet` takes its all-ArrowDtype
 # fast path and readers see stable dtypes (DEVELOPING.md: PyArrow dtypes always).
 _SESSIONS_SCHEMA: dict[str, pa.DataType] = {
-    "collection_id": pa.string(), "session_id": pa.string(),
-    "start_ts": pa.string(), "end_ts": pa.string(),
-    "duration_min": pa.float32(), "n_plays": pa.int32(), "n_distinct": pa.int32(),
-    "total_watch_s": pa.float32(), "median_dwell_s": pa.float32(),
-    "n_scraped": pa.int32(), "n_annotated": pa.int32(), "n_embedded": pa.int32(),
-    "coverage_scraped": pa.float32(), "coverage_annotated": pa.float32(),
-    "coverage_embedded": pa.float32(), "emb_play_coverage": pa.float32(),
-    "min_window_cosdist": pa.float32(), "min_window_entropy_norm": pa.float32(),
-    "n_episodes": pa.int16(), "episode_play_frac": pa.float32(),
-    "dominant_niche": pa.string(), "n_niches": pa.int16(),
+    "collection_id": pa.string(),
+    "session_id": pa.string(),
+    "start_ts": pa.string(),
+    "end_ts": pa.string(),
+    "duration_min": pa.float32(),
+    "n_plays": pa.int32(),
+    "n_distinct": pa.int32(),
+    "total_watch_s": pa.float32(),
+    "median_dwell_s": pa.float32(),
+    "n_scraped": pa.int32(),
+    "n_annotated": pa.int32(),
+    "n_embedded": pa.int32(),
+    "coverage_scraped": pa.float32(),
+    "coverage_annotated": pa.float32(),
+    "coverage_embedded": pa.float32(),
+    "emb_play_coverage": pa.float32(),
+    "min_window_cosdist": pa.float32(),
+    "min_window_entropy_norm": pa.float32(),
+    "n_episodes": pa.int16(),
+    "episode_play_frac": pa.float32(),
+    "dominant_niche": pa.string(),
+    "n_niches": pa.int16(),
 }
-
-
 
 
 def sessions_schema(trend_cols: list[str] | None = None) -> dict[str, pa.DataType]:
@@ -2034,9 +2147,15 @@ def sessions_schema(trend_cols: list[str] | None = None) -> dict[str, pa.DataTyp
 
 
 _WINDOWS_SCHEMA: dict[str, pa.DataType] = {
-    "collection_id": pa.string(), "session_id": pa.string(), "window_idx": pa.int16(),
-    "start_ts": pa.string(), "end_ts": pa.string(), "duration_min": pa.float32(),
-    "n_distinct": pa.int16(), "mean_cosdist": pa.float32(), "entropy_norm": pa.float32(),
+    "collection_id": pa.string(),
+    "session_id": pa.string(),
+    "window_idx": pa.int16(),
+    "start_ts": pa.string(),
+    "end_ts": pa.string(),
+    "duration_min": pa.float32(),
+    "n_distinct": pa.int16(),
+    "mean_cosdist": pa.float32(),
+    "entropy_norm": pa.float32(),
     "dominant_niche": pa.string(),
     "member_item_ids": pa.large_list(pa.string()),
     "member_ts": pa.large_list(pa.string()),
@@ -2044,18 +2163,32 @@ _WINDOWS_SCHEMA: dict[str, pa.DataType] = {
 }
 
 _EPISODES_SCHEMA: dict[str, pa.DataType] = {
-    "collection_id": pa.string(), "session_id": pa.string(), "episode_idx": pa.int16(),
-    "start_ts": pa.string(), "end_ts": pa.string(), "duration_min": pa.float32(),
-    "n_plays": pa.int32(), "n_distinct": pa.int32(), "repeat_rate": pa.float32(),
-    "n_interleaved": pa.int32(), "n_skipped": pa.int32(),
-    "focus": pa.float32(), "diameter": pa.float32(),
-    "step_mean": pa.float32(), "straightness": pa.float32(),
-    "spectral_entropy_bits": pa.float32(), "effective_rank": pa.float32(),
+    "collection_id": pa.string(),
+    "session_id": pa.string(),
+    "episode_idx": pa.int16(),
+    "start_ts": pa.string(),
+    "end_ts": pa.string(),
+    "duration_min": pa.float32(),
+    "n_plays": pa.int32(),
+    "n_distinct": pa.int32(),
+    "repeat_rate": pa.float32(),
+    "n_interleaved": pa.int32(),
+    "n_skipped": pa.int32(),
+    "focus": pa.float32(),
+    "diameter": pa.float32(),
+    "step_mean": pa.float32(),
+    "straightness": pa.float32(),
+    "spectral_entropy_bits": pa.float32(),
+    "effective_rank": pa.float32(),
     "direction_p": pa.float32(),
-    "dominant_niche": pa.string(), "dominant_niche_share": pa.float32(),
-    "n_niches": pa.int16(), "n_authors": pa.int16(),
-    "dominant_author_share": pa.float32(), "advertising": pa.string(),
-    "advertising_share": pa.float32(), "mean_political": pa.float32(),
+    "dominant_niche": pa.string(),
+    "dominant_niche_share": pa.float32(),
+    "n_niches": pa.int16(),
+    "n_authors": pa.int16(),
+    "dominant_author_share": pa.float32(),
+    "advertising": pa.string(),
+    "advertising_share": pa.float32(),
+    "mean_political": pa.float32(),
     "mean_sensitivity": pa.float32(),
     "member_item_ids": pa.large_list(pa.string()),
     "member_ts": pa.large_list(pa.string()),
@@ -2064,14 +2197,19 @@ _EPISODES_SCHEMA: dict[str, pa.DataType] = {
 }
 
 _PLAYS_SCHEMA: dict[str, pa.DataType] = {
-    "collection_id": pa.string(), "session_id": pa.string(),
-    "item_id": pa.string(), "ts": pa.timestamp("us"),
-    "play_duration": pa.float64(), "source_platform": pa.string(),
+    "collection_id": pa.string(),
+    "session_id": pa.string(),
+    "item_id": pa.string(),
+    "ts": pa.timestamp("us"),
+    "play_duration": pa.float64(),
+    "source_platform": pa.string(),
     # Per-item display text, baked in at build time so the detail endpoint
     # never has to pushdown-read the corpus annotation/scrape parquets (those
     # files are not clustered by item_id, so such a "pushdown" decodes the
     # whole text column per request). Null on rows whose item has no text.
-    "story": pa.string(), "desc": pa.string(), "hashtags": pa.string(),
+    "story": pa.string(),
+    "desc": pa.string(),
+    "hashtags": pa.string(),
 }
 
 # The plays artifact stores display text capped at the same length the detail
@@ -2079,8 +2217,6 @@ _PLAYS_SCHEMA: dict[str, pa.DataType] = {
 # cache, not an archive — full text stays in the annotation/scrape parquets.
 PLAY_TEXT_CAP = 400
 _PLAY_TEXT_COLS = ("story", "desc", "hashtags")
-
-
 
 
 def _capped_text(value) -> str | None:
@@ -2105,10 +2241,9 @@ def _capped_text(value) -> str | None:
     return value[:PLAY_TEXT_CAP] + "…" if len(value) > PLAY_TEXT_CAP else value
 
 
-
-
-def attach_play_texts(plays: pd.DataFrame, feat: pd.DataFrame,
-                      stories: dict[str, str]) -> pd.DataFrame:
+def attach_play_texts(
+    plays: pd.DataFrame, feat: pd.DataFrame, stories: dict[str, str]
+) -> pd.DataFrame:
     """Attach capped ``story``/``desc``/``hashtags`` columns to a plays frame.
 
     Per-item text mapped onto the play rows (repeated plays repeat the text —
@@ -2129,10 +2264,11 @@ def attach_play_texts(plays: pd.DataFrame, feat: pd.DataFrame,
     if plays is None or not len(plays):
         return plays
     item_ids = [str(i) for i in plays["item_id"].drop_duplicates()]
-    text = {"story": [_capped_text(stories.get(iid) if stories else None)
-                      for iid in item_ids],
-            "desc": [None] * len(item_ids),
-            "hashtags": [None] * len(item_ids)}
+    text = {
+        "story": [_capped_text(stories.get(iid) if stories else None) for iid in item_ids],
+        "desc": [None] * len(item_ids),
+        "hashtags": [None] * len(item_ids),
+    }
     if feat is not None and len(feat):
         sub = feat.reindex(item_ids)
         for col, src in (("desc", "desc"), ("hashtags", "desc_hashtags")):
@@ -2144,8 +2280,6 @@ def attach_play_texts(plays: pd.DataFrame, feat: pd.DataFrame,
     plays = plays.copy()
     plays["item_id"] = plays["item_id"].astype("string[pyarrow]")
     return plays.merge(text_df, on="item_id", how="left")
-
-
 
 
 def plays_table(plays: pd.DataFrame) -> pa.Table:
@@ -2162,8 +2296,7 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
             an empty, schema-correct table.
     """
     if plays is None or not len(plays):
-        return pa.table({col: pa.array([], type=typ)
-                         for col, typ in _PLAYS_SCHEMA.items()})
+        return pa.table({col: pa.array([], type=typ) for col, typ in _PLAYS_SCHEMA.items()})
     df = plays.sort_values(["collection_id", "_ts"])
     data = {
         "collection_id": pa.array(df["collection_id"].astype("string"), type=pa.string()),
@@ -2171,16 +2304,17 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
         "item_id": pa.array(df["item_id"].astype("string"), type=pa.string()),
         "ts": pa.array(df["_ts"]).cast(pa.timestamp("us")),
         "play_duration": pa.array(
-            pd.to_numeric(df["play_duration"], errors="coerce"), type=pa.float64()),
+            pd.to_numeric(df["play_duration"], errors="coerce"), type=pa.float64()
+        ),
         "source_platform": pa.array(df["source_platform"].astype("string"), type=pa.string()),
     }
     for col in _PLAY_TEXT_COLS:
-        data[col] = (pa.array(df[col].astype("string"), type=pa.string())
-                     if col in df.columns
-                     else pa.nulls(len(df), type=pa.string()))
+        data[col] = (
+            pa.array(df[col].astype("string"), type=pa.string())
+            if col in df.columns
+            else pa.nulls(len(df), type=pa.string())
+        )
     return pa.table(data)
-
-
 
 
 def _arrow_frame(rows: list[dict], schema: dict[str, pa.DataType]) -> pd.DataFrame:
@@ -2189,19 +2323,24 @@ def _arrow_frame(rows: list[dict], schema: dict[str, pa.DataType]) -> pd.DataFra
     for col, typ in schema.items():
         values = [r.get(col) for r in rows]
         data[col] = pd.array(
-            pa.array(values, type=typ), dtype=pd.ArrowDtype(typ),
+            pa.array(values, type=typ),
+            dtype=pd.ArrowDtype(typ),
         )
     return pd.DataFrame(data)
 
 
-
-
-def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
-                index=None, params: dict | None = None, reporter=None,
-                max_vectors: int = MAX_VECTORS_PER_LINK,
-                trend_cols: list[str] | None = None,
-                coverage: dict[str, list[list[str]]] | None = None,
-                workers=None):
+def build_batch(
+    cids: list[str],
+    model: str,
+    corpus_mean: np.ndarray | None,
+    index=None,
+    params: dict | None = None,
+    reporter=None,
+    max_vectors: int = MAX_VECTORS_PER_LINK,
+    trend_cols: list[str] | None = None,
+    coverage: dict[str, list[list[str]]] | None = None,
+    workers=None,
+):
     """Segment one batch of collections against the dense embedding sidecar.
 
     Peak memory is O(batch): only the batch's plays, features, id sets and
@@ -2243,9 +2382,18 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     p = {**default_params(), **(params or {})}
     n_workers = resolve_workers(workers)
     log = reporter.log if reporter is not None else None
-    stats = {"n_plays": 0, "n_vectors": 0, "tier": 1, "workers": n_workers,
-             "units": 0, "unit_max": 0.0, "unit_cpu": 0.0,
-             "t_load": 0.0, "t_vectors": 0.0, "t_segment": 0.0}
+    stats = {
+        "n_plays": 0,
+        "n_vectors": 0,
+        "tier": 1,
+        "workers": n_workers,
+        "units": 0,
+        "unit_max": 0.0,
+        "unit_cpu": 0.0,
+        "t_load": 0.0,
+        "t_vectors": 0.0,
+        "t_segment": 0.0,
+    }
     _t = time.perf_counter()
     plays = load_plays(cids)
     if coverage is not None and not plays.empty:
@@ -2265,11 +2413,11 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     if trend_cols is None:
         trend_cols = trend_numeric_columns()
     batch_ids = [str(i) for i in plays["item_id"].drop_duplicates()]
-    feat = load_video_features(item_ids=set(batch_ids), extra_map_cols=trend_cols,
-                               include_scrape_text=True)
+    feat = load_video_features(
+        item_ids=set(batch_ids), extra_map_cols=trend_cols, include_scrape_text=True
+    )
     stories = load_story_texts(set(batch_ids))
-    id_sets = enrichment_id_sets(model, item_ids=set(batch_ids),
-                                 include_embedded=False)
+    id_sets = enrichment_id_sets(model, item_ids=set(batch_ids), include_embedded=False)
     # Bake the per-item display text into the plays frame here, so both the
     # chained worker and the in-process driver publish it with no extra reads.
     plays = attach_play_texts(plays, feat, stories)
@@ -2295,15 +2443,28 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     if tier1:
         _t = time.perf_counter()
         embedded_ids = [i for i, f in zip(batch_ids, found) if f]
-        id2local, U = load_directional_block(
-            model, embedded_ids, corpus_mean, index,
-            local_cache=use_cache) if n_union else ({}, np.empty((0, 1), np.float32))
+        id2local, U = (
+            load_directional_block(model, embedded_ids, corpus_mean, index, local_cache=use_cache)
+            if n_union
+            else ({}, np.empty((0, 1), np.float32))
+        )
         id_sets["embedded"] = set(id2local)
         stats["t_vectors"] += time.perf_counter() - _t
         _t = time.perf_counter()
-        out = _segment_collections(cids, plays, id2local, U, feat, id_sets, p,
-                                   trend_cols, stories, n_workers,
-                                   reporter=reporter, log=log)
+        out = _segment_collections(
+            cids,
+            plays,
+            id2local,
+            U,
+            feat,
+            id_sets,
+            p,
+            trend_cols,
+            stories,
+            n_workers,
+            reporter=reporter,
+            log=log,
+        )
         stats["t_segment"] += time.perf_counter() - _t
         if out is None:
             return None, None, None, None, None
@@ -2318,14 +2479,26 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             _t = time.perf_counter()
             cplays = plays[plays["collection_id"] == cid]
             c_ids = [str(i) for i in cplays["item_id"].drop_duplicates()]
-            id2local, U = load_directional_block(model, c_ids, corpus_mean, index,
-                                                 local_cache=use_cache)
+            id2local, U = load_directional_block(
+                model, c_ids, corpus_mean, index, local_cache=use_cache
+            )
             id_sets["embedded"] = set(id2local)
             stats["t_vectors"] += time.perf_counter() - _t
             _t = time.perf_counter()
-            out = _segment_collections([cid], cplays, id2local, U, feat,
-                                       id_sets, p, trend_cols, stories,
-                                       n_workers, reporter=reporter, log=log)
+            out = _segment_collections(
+                [cid],
+                cplays,
+                id2local,
+                U,
+                feat,
+                id_sets,
+                p,
+                trend_cols,
+                stories,
+                n_workers,
+                reporter=reporter,
+                log=log,
+            )
             stats["t_segment"] += time.perf_counter() - _t
             if out is None:
                 return None, None, None, None, None
@@ -2341,21 +2514,19 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     return session_rows, episode_rows, window_rows, plays, stats
 
 
-
-
 def format_batch_timing(chunk: int, n_collections: int, stats: dict) -> str:
     """One ``[TIMING]`` line per batch: where a link's wall time went."""
-    return (f"[TIMING] sessions_link chunk={chunk} collections={n_collections} "
-            f"plays={stats.get('n_plays', 0)} tier={stats.get('tier', 1)} "
-            f"load={stats.get('t_load', 0.0):.1f}s "
-            f"vectors={stats.get('t_vectors', 0.0):.1f}s "
-            f"vcache={stats.get('vector_cache', 0)} "
-            f"segment={stats.get('t_segment', 0.0):.1f}s "
-            f"workers={stats.get('workers', 1)} units={stats.get('units', 0)} "
-            f"unit_max={stats.get('unit_max', 0.0):.1f}s "
-            f"unit_cpu={stats.get('unit_cpu', 0.0):.1f}s")
-
-
+    return (
+        f"[TIMING] sessions_link chunk={chunk} collections={n_collections} "
+        f"plays={stats.get('n_plays', 0)} tier={stats.get('tier', 1)} "
+        f"load={stats.get('t_load', 0.0):.1f}s "
+        f"vectors={stats.get('t_vectors', 0.0):.1f}s "
+        f"vcache={stats.get('vector_cache', 0)} "
+        f"segment={stats.get('t_segment', 0.0):.1f}s "
+        f"workers={stats.get('workers', 1)} units={stats.get('units', 0)} "
+        f"unit_max={stats.get('unit_max', 0.0):.1f}s "
+        f"unit_cpu={stats.get('unit_cpu', 0.0):.1f}s"
+    )
 
 
 def _publish_type(typ: pa.DataType) -> pa.DataType:
@@ -2370,15 +2541,14 @@ def _publish_type(typ: pa.DataType) -> pa.DataType:
     return pa.list_(typ.value_type) if pa.types.is_large_list(typ) else typ
 
 
-
-
 def _arrow_table(rows: list[dict], schema: dict[str, pa.DataType]) -> pa.Table:
     """Rows -> pyarrow Table in the published (list, not large_list) schema."""
-    return pa.table({
-        col: pa.array([r.get(col) for r in rows], type=_publish_type(typ))
-        for col, typ in schema.items()})
-
-
+    return pa.table(
+        {
+            col: pa.array([r.get(col) for r in rows], type=_publish_type(typ))
+            for col, typ in schema.items()
+        }
+    )
 
 
 def shard_filename(kind: str, run_id: str, chunk: int) -> str:
@@ -2386,12 +2556,15 @@ def shard_filename(kind: str, run_id: str, chunk: int) -> str:
     return f"{SHARD_PREFIXES[kind]}{run_id}__{chunk:04d}.parquet"
 
 
-
-
-def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
-                       episode_rows: list[dict], window_rows: list[dict],
-                       trend_cols: list[str] | None = None,
-                       plays: pd.DataFrame | None = None) -> None:
+def write_batch_shards(
+    run_id: str,
+    chunk: int,
+    session_rows: list[dict],
+    episode_rows: list[dict],
+    window_rows: list[dict],
+    trend_cols: list[str] | None = None,
+    plays: pd.DataFrame | None = None,
+) -> None:
     """Persist one link's rows as its four deterministic shards.
 
     ``trend_cols`` must be the same list :func:`build_batch` produced the rows
@@ -2399,21 +2572,25 @@ def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
     sessions schema. ``plays`` is the batch's play frame from
     :func:`build_batch` (None writes an empty, schema-correct plays shard).
     """
-    for kind, schema, rows in (("sessions", sessions_schema(trend_cols), session_rows),
-                               ("episodes", _EPISODES_SCHEMA, episode_rows),
-                               ("windows", _WINDOWS_SCHEMA, window_rows)):
+    for kind, schema, rows in (
+        ("sessions", sessions_schema(trend_cols), session_rows),
+        ("episodes", _EPISODES_SCHEMA, episode_rows),
+        ("windows", _WINDOWS_SCHEMA, window_rows),
+    ):
         tbl = _arrow_table(rows, schema)
         data_io.write_parquet_stream(
             storage_location=ARTIFACT_LOCATION,
             filename=shard_filename(kind, run_id, chunk),
-            batches=[tbl], schema=tbl.schema)
+            batches=[tbl],
+            schema=tbl.schema,
+        )
     ptbl = plays_table(plays)
     data_io.write_parquet_stream(
         storage_location=ARTIFACT_LOCATION,
         filename=shard_filename("plays", run_id, chunk),
-        batches=[ptbl], schema=ptbl.schema)
-
-
+        batches=[ptbl],
+        schema=ptbl.schema,
+    )
 
 
 def sweep_stale_run_files(current_run_id: str) -> None:
@@ -2430,12 +2607,15 @@ def sweep_stale_run_files(current_run_id: str) -> None:
             pass
 
 
-
-
-def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
-                      meta: dict, reporter=None,
-                      covered_collections: int | None = None,
-                      total_collections: int | None = None) -> dict:
+def publish_artifacts(
+    run_id: str,
+    n_chunks: int,
+    expected: dict,
+    meta: dict,
+    reporter=None,
+    covered_collections: int | None = None,
+    total_collections: int | None = None,
+) -> dict:
     """Concatenate the run's shards into the three artifact files + meta.
 
     Publish order matters: ``sessions_index.parquet`` LAST — its size:mtime
@@ -2475,27 +2655,38 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
             Shards are left for inspection and nothing is published, so the
             previous artifacts stay intact.
     """
-    if (covered_collections is not None and total_collections is not None
-            and int(covered_collections) != int(total_collections)):
+    if (
+        covered_collections is not None
+        and total_collections is not None
+        and int(covered_collections) != int(total_collections)
+    ):
         raise RuntimeError(
             f"publish: run {run_id} covered {covered_collections} of "
             f"{total_collections} collections — refusing to publish a partial "
             f"artifact (a concurrent chain sharing this run_id most likely "
-            f"published and cleaned up first). Shards kept for inspection.")
+            f"published and cleaned up first). Shards kept for inspection."
+        )
 
-    for kind, final in (("plays", PLAYS_FILE), ("episodes", EPISODES_FILE),
-                        ("windows", WINDOWS_FILE), ("sessions", SESSIONS_FILE)):
+    for kind, final in (
+        ("plays", PLAYS_FILE),
+        ("episodes", EPISODES_FILE),
+        ("windows", WINDOWS_FILE),
+        ("sessions", SESSIONS_FILE),
+    ):
         all_shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
-        shards = [s for s in all_shards
-                  if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)]
+        shards = [
+            s for s in all_shards if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)
+        ]
         if not shards:
             if kind == "plays":
                 # A run started before the plays shard existed (mid-run
                 # deploy): publish the three original artifacts; the read
                 # side falls back to the consolidated activity file.
                 if reporter is not None:
-                    reporter.log("No 'plays' shards for this run — skipping "
-                                 "the plays artifact (pre-upgrade run).")
+                    reporter.log(
+                        "No 'plays' shards for this run — skipping "
+                        "the plays artifact (pre-upgrade run)."
+                    )
                 continue
             raise RuntimeError(f"publish: no '{kind}' shards found for run {run_id}")
         if len(shards) != len(all_shards):
@@ -2504,15 +2695,18 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
                 # other three kinds are complete, so publish them and let the
                 # read side fall back for plays.
                 if reporter is not None:
-                    reporter.log(f"Incomplete 'plays' shard set "
-                                 f"({len(shards)}/{n_chunks}) — skipping the "
-                                 f"plays artifact (pre-upgrade links).")
+                    reporter.log(
+                        f"Incomplete 'plays' shard set "
+                        f"({len(shards)}/{n_chunks}) — skipping the "
+                        f"plays artifact (pre-upgrade links)."
+                    )
                 continue
             raise RuntimeError(
                 f"publish: run {run_id} has an incomplete '{kind}' shard set "
                 f"({len(all_shards) - len(shards)} of {n_chunks} missing) — "
                 f"refusing to publish. Another chain sharing this run_id most "
-                f"likely published first.")
+                f"likely published first."
+            )
         if kind == "plays":
             # A schema-widening deploy mid-run leaves early shards without the
             # newer columns; concat binds every shard to the first shard's
@@ -2520,24 +2714,29 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
             # absent set: skip plays, read side falls back.
             col_sets = set()
             for s in shards:
-                cols = data_io.get_parquet_columns(
-                    storage_location=ARTIFACT_LOCATION, filename=s)
+                cols = data_io.get_parquet_columns(storage_location=ARTIFACT_LOCATION, filename=s)
                 col_sets.add(tuple(sorted(cols or [])))
             if len(col_sets) > 1:
                 if reporter is not None:
-                    reporter.log("Mixed 'plays' shard schemas (mid-run deploy) "
-                                 "— skipping the plays artifact.")
+                    reporter.log(
+                        "Mixed 'plays' shard schemas (mid-run deploy) "
+                        "— skipping the plays artifact."
+                    )
                 continue
         n = data_io.concat_parquet_files(
-            src_storage_location=ARTIFACT_LOCATION, src_filenames=shards,
-            dst_storage_location=ARTIFACT_LOCATION, dst_filename=final,
+            src_storage_location=ARTIFACT_LOCATION,
+            src_filenames=shards,
+            dst_storage_location=ARTIFACT_LOCATION,
+            dst_filename=final,
             # Small row groups keep the plays file's collection_id stats
             # tight, so the detail endpoint's pushdown prunes.
-            batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072)
+            batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072,
+        )
         if kind in expected and n != int(expected[kind]):
             raise RuntimeError(
                 f"publish: '{kind}' row count {n} != expected {expected[kind]} "
-                f"— shards kept for inspection, artifact NOT trusted")
+                f"— shards kept for inspection, artifact NOT trusted"
+            )
         if reporter is not None:
             reporter.log(f"Published {final} ({n:,} rows from {len(shards)} shard(s))")
 
@@ -2550,18 +2749,16 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
     return meta
 
 
-
-
 def _target_schema(kind: str, trend_cols: list[str]) -> pa.Schema:
     """The published arrow schema for one artifact kind."""
     if kind == "plays":
         return plays_table(None).schema
-    dict_schema = {"sessions": sessions_schema(trend_cols),
-                   "episodes": _EPISODES_SCHEMA,
-                   "windows": _WINDOWS_SCHEMA}[kind]
+    dict_schema = {
+        "sessions": sessions_schema(trend_cols),
+        "episodes": _EPISODES_SCHEMA,
+        "windows": _WINDOWS_SCHEMA,
+    }[kind]
     return _arrow_table([], dict_schema).schema
-
-
 
 
 def _align_batch(rb: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
@@ -2571,12 +2768,17 @@ def _align_batch(rb: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
     return rb.select(schema.names).cast(schema)
 
 
-
-
-def merge_publish_artifacts(run_id: str, n_chunks: int, refresh_cids: list[str],
-                            drop_cids: list[str], expected: dict, meta: dict,
-                            trend_cols: list[str], reporter=None,
-                            covered_collections: int | None = None) -> dict:
+def merge_publish_artifacts(
+    run_id: str,
+    n_chunks: int,
+    refresh_cids: list[str],
+    drop_cids: list[str],
+    expected: dict,
+    meta: dict,
+    trend_cols: list[str],
+    reporter=None,
+    covered_collections: int | None = None,
+) -> dict:
     """Fold the run's shards into the existing artifacts, replacing rows.
 
     The incremental counterpart of :func:`publish_artifacts`: instead of the
@@ -2621,84 +2823,97 @@ def merge_publish_artifacts(run_id: str, n_chunks: int, refresh_cids: list[str],
         raise RuntimeError(
             f"merge publish: run {run_id} covered {covered_collections} of "
             f"{total} targeted collections — refusing to publish a partial "
-            f"merge. Shards kept for inspection.")
+            f"merge. Shards kept for inspection."
+        )
 
-    remove_ids = pa.array(sorted({str(c) for c in refresh_cids}
-                                 | {str(c) for c in drop_cids}),
-                          type=pa.string())
-    kinds = (("plays", PLAYS_FILE), ("episodes", EPISODES_FILE),
-             ("windows", WINDOWS_FILE), ("sessions", SESSIONS_FILE))
+    remove_ids = pa.array(
+        sorted({str(c) for c in refresh_cids} | {str(c) for c in drop_cids}), type=pa.string()
+    )
+    kinds = (
+        ("plays", PLAYS_FILE),
+        ("episodes", EPISODES_FILE),
+        ("windows", WINDOWS_FILE),
+        ("sessions", SESSIONS_FILE),
+    )
 
     # Validate every kind BEFORE touching any artifact: complete shard set,
     # new-row totals (from footers — no data read), old-artifact schema.
     shard_sets: dict[str, list[str]] = {}
     for kind, final in kinds:
         shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
-        missing = [s for s in shards if not data_io.exists(
-            storage_location=ARTIFACT_LOCATION, filename=s)]
+        missing = [
+            s for s in shards if not data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)
+        ]
         if missing:
             raise RuntimeError(
                 f"merge publish: run {run_id} has an incomplete '{kind}' "
                 f"shard set ({len(missing)} of {n_chunks} missing) — "
-                f"refusing to publish.")
-        new_rows = sum(data_io.get_parquet_num_rows(
-            storage_location=ARTIFACT_LOCATION, filename=s) or 0 for s in shards)
+                f"refusing to publish."
+            )
+        new_rows = sum(
+            data_io.get_parquet_num_rows(storage_location=ARTIFACT_LOCATION, filename=s) or 0
+            for s in shards
+        )
         if kind in expected and new_rows != int(expected[kind]):
             raise RuntimeError(
                 f"merge publish: '{kind}' shard rows {new_rows} != expected "
-                f"{expected[kind]} — artifacts untouched, shards kept.")
+                f"{expected[kind]} — artifacts untouched, shards kept."
+            )
         schema = _target_schema(kind, trend_cols)
-        old_cols = data_io.get_parquet_columns(
-            storage_location=ARTIFACT_LOCATION, filename=final)
+        old_cols = data_io.get_parquet_columns(storage_location=ARTIFACT_LOCATION, filename=final)
         if old_cols is not None and sorted(old_cols) != sorted(schema.names):
             raise RuntimeError(
                 f"merge publish: existing {final} columns differ from the "
                 f"current schema (mid-run deploy?) — setup should have "
-                f"escalated to a full rebuild. Shards kept.")
+                f"escalated to a full rebuild. Shards kept."
+            )
         shard_sets[kind] = shards
 
     merged_counts: dict[str, int] = {}
     for kind, final in kinds:
         schema = _target_schema(kind, trend_cols)
-        old_exists = data_io.exists(storage_location=ARTIFACT_LOCATION,
-                                    filename=final)
+        old_exists = data_io.exists(storage_location=ARTIFACT_LOCATION, filename=final)
         counts = {"old_kept": 0, "new": 0}
 
-        def _batches(kind=kind, final=final, schema=schema,
-                     old_exists=old_exists, counts=counts):
+        def _batches(kind=kind, final=final, schema=schema, old_exists=old_exists, counts=counts):
             if old_exists:
                 idx = schema.names.index("collection_id")
                 for rb in data_io.iter_parquet_batches(
-                        storage_location=ARTIFACT_LOCATION, filename=final,
-                        batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072):
+                    storage_location=ARTIFACT_LOCATION,
+                    filename=final,
+                    batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072,
+                ):
                     rb = _align_batch(rb, schema)
-                    mask = pa_compute.invert(
-                        pa_compute.is_in(rb.column(idx), value_set=remove_ids))
+                    mask = pa_compute.invert(pa_compute.is_in(rb.column(idx), value_set=remove_ids))
                     kept = rb.filter(pa_compute.fill_null(mask, True))
                     if kept.num_rows:
                         counts["old_kept"] += kept.num_rows
                         yield kept
             for s in shard_sets[kind]:
                 for rb in data_io.iter_parquet_batches(
-                        storage_location=ARTIFACT_LOCATION, filename=s,
-                        batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072):
+                    storage_location=ARTIFACT_LOCATION,
+                    filename=s,
+                    batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072,
+                ):
                     counts["new"] += rb.num_rows
                     yield _align_batch(rb, schema)
 
         n = data_io.write_parquet_stream(
-            storage_location=ARTIFACT_LOCATION, filename=final,
-            batches=_batches(), schema=schema)
+            storage_location=ARTIFACT_LOCATION, filename=final, batches=_batches(), schema=schema
+        )
         if n != counts["old_kept"] + counts["new"]:
             raise RuntimeError(
                 f"merge publish: '{kind}' wrote {n} rows != kept "
-                f"{counts['old_kept']} + new {counts['new']}")
+                f"{counts['old_kept']} + new {counts['new']}"
+            )
         merged_counts[kind] = n
         if reporter is not None:
             reporter.log(
                 f"Merged {final}: kept {counts['old_kept']:,} rows, "
                 f"replaced/added {counts['new']:,} "
                 f"({len(refresh_cids)} refreshed, {len(drop_cids)} dropped)"
-                + ("" if old_exists else " [no previous artifact]"))
+                + ("" if old_exists else " [no previous artifact]")
+            )
 
     meta["n_sessions"] = merged_counts["sessions"]
     meta["n_episodes"] = merged_counts["episodes"]
@@ -2714,14 +2929,15 @@ def merge_publish_artifacts(run_id: str, n_chunks: int, refresh_cids: list[str],
     return meta
 
 
-
-
-def build_artifacts(reporter=None, params: dict | None = None,
-                    collections: list[str] | None = None,
-                    batch_size: int = 8,
-                    max_vectors: int = MAX_VECTORS_PER_LINK,
-                    coverage: dict[str, list[list[str]]] | None = None,
-                    workers=None) -> dict:
+def build_artifacts(
+    reporter=None,
+    params: dict | None = None,
+    collections: list[str] | None = None,
+    batch_size: int = 8,
+    max_vectors: int = MAX_VECTORS_PER_LINK,
+    coverage: dict[str, list[list[str]]] | None = None,
+    workers=None,
+) -> dict:
     """Build and persist the session + episode artifacts for all collections.
 
     In-process driver over :func:`build_batch` — the same batch-scoped
@@ -2742,6 +2958,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
     Returns:
         A summary dict (the persisted ``sessions_meta.json`` payload).
     """
+
     def _log(msg: str) -> None:
         if reporter is not None:
             reporter.log(msg)
@@ -2754,8 +2971,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
 
     _log(f"Preparing dense embedding store (model={model})...")
     try:
-        corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(
-            model, reporter=reporter)
+        corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(model, reporter=reporter)
         index = embedding_store.load_index(model)
     except (ValueError, embedding_store.CorpusMeanDrift):
         # No vectors for this model — sessions still get quality rows.
@@ -2779,11 +2995,19 @@ def build_artifacts(reporter=None, params: dict | None = None,
     play_tables: list[pa.Table] = []
     n_plays = 0
     for start in range(0, len(cids), batch_size):
-        batch = cids[start:start + batch_size]
+        batch = cids[start : start + batch_size]
         srows, erows, wrows, plays, stats = build_batch(
-            batch, model, corpus_mean, index, params=p, reporter=reporter,
-            max_vectors=max_vectors, trend_cols=trend_cols, coverage=coverage,
-            workers=workers)
+            batch,
+            model,
+            corpus_mean,
+            index,
+            params=p,
+            reporter=reporter,
+            max_vectors=max_vectors,
+            trend_cols=trend_cols,
+            coverage=coverage,
+            workers=workers,
+        )
         if srows is None:
             _log("Cancelled by user.")
             return {"cancelled": True}
@@ -2799,26 +3023,34 @@ def build_artifacts(reporter=None, params: dict | None = None,
                 int(done / max(len(cids), 1) * 95),
                 f"Segmented {done}/{len(cids)} collections "
                 f"({len(all_sessions):,} sessions, {len(all_episodes):,} episodes, "
-                f"{len(all_windows):,} windows)")
+                f"{len(all_windows):,} windows)",
+            )
 
-    _log(f"Writing artifacts: {len(all_sessions):,} sessions, "
-         f"{len(all_episodes):,} episodes, {len(all_windows):,} low-entropy windows")
+    _log(
+        f"Writing artifacts: {len(all_sessions):,} sessions, "
+        f"{len(all_episodes):,} episodes, {len(all_windows):,} low-entropy windows"
+    )
     empty_plays = plays_table(None)
     data_io.write_parquet_stream(
-        storage_location=ARTIFACT_LOCATION, filename=PLAYS_FILE,
-        batches=play_tables or [empty_plays], schema=empty_plays.schema,
+        storage_location=ARTIFACT_LOCATION,
+        filename=PLAYS_FILE,
+        batches=play_tables or [empty_plays],
+        schema=empty_plays.schema,
     )
     data_io.save_parquet(
         df=_arrow_frame(all_sessions, sessions_schema(trend_cols)),
-        storage_location=ARTIFACT_LOCATION, filename=SESSIONS_FILE,
+        storage_location=ARTIFACT_LOCATION,
+        filename=SESSIONS_FILE,
     )
     data_io.save_parquet(
         df=_arrow_frame(all_episodes, _EPISODES_SCHEMA),
-        storage_location=ARTIFACT_LOCATION, filename=EPISODES_FILE,
+        storage_location=ARTIFACT_LOCATION,
+        filename=EPISODES_FILE,
     )
     data_io.save_parquet(
         df=_arrow_frame(all_windows, _WINDOWS_SCHEMA),
-        storage_location=ARTIFACT_LOCATION, filename=WINDOWS_FILE,
+        storage_location=ARTIFACT_LOCATION,
+        filename=WINDOWS_FILE,
     )
     meta = {
         "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
@@ -2837,6 +3069,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
     }
     if coverage is not None:
         meta["collections"] = collections_meta_block(
-            discovered, coverage, built_at=meta["built_at"])
+            discovered, coverage, built_at=meta["built_at"]
+        )
     data_io.save_json(data=meta, storage_location=ARTIFACT_LOCATION, filename=META_FILE)
     return meta

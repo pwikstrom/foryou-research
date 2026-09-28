@@ -47,10 +47,6 @@ class IrrelevantWordsConflict(Exception):
     """Raised when a save's expected etag does not match the stored state."""
 
 
-
-
-
-
 def _data_io():
     """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
@@ -58,19 +54,11 @@ def _data_io():
     return data_io
 
 
-
-
-
-
 def _cf():
     """Lazy fyp_config accessor (avoids import-time config side effects)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
-
-
-
-
 
 
 def squeeze(s: str) -> str:
@@ -81,10 +69,6 @@ def squeeze(s: str) -> str:
     untouched.
     """
     return _RUN_RE.sub(r"\1", s)
-
-
-
-
 
 
 def normalize_entry(word: str) -> str:
@@ -100,10 +84,6 @@ def normalize_entry(word: str) -> str:
     if w.endswith("*") and len(squeeze(w[:-1])) < MIN_WILDCARD_PREFIX:
         return ""
     return w
-
-
-
-
 
 
 def dedupe_words(words: list[str]) -> list[str]:
@@ -128,10 +108,6 @@ def dedupe_words(words: list[str]) -> list[str]:
     return sorted(kept)
 
 
-
-
-
-
 def build_matcher(words: list[str]):
     """Return ``match(token) -> bool`` implementing squeeze + prefix wildcards.
 
@@ -148,10 +124,6 @@ def build_matcher(words: list[str]):
     return match
 
 
-
-
-
-
 def _config_words() -> list[str]:
     """The config.toml seed/fallback list (empty on any failure)."""
     try:
@@ -159,10 +131,6 @@ def _config_words() -> list[str]:
     except Exception as e:
         logger.warning(f"WARNING: config IRRELEVANT_WORDS unavailable ({e}).")
         return []
-
-
-
-
 
 
 def load_payload() -> dict | None:
@@ -175,10 +143,6 @@ def load_payload() -> dict | None:
     except Exception as e:
         logger.warning(f"WARNING: irrelevant_words store unreadable ({e}).")
     return None
-
-
-
-
 
 
 def load_words() -> list[str]:
@@ -201,10 +165,6 @@ def load_words() -> list[str]:
     return words
 
 
-
-
-
-
 def compute_words_etag(payload: dict | None = None) -> str:
     """Deterministic etag of the stoplist content (sha256 of canonical JSON)."""
     if payload is None:
@@ -213,10 +173,6 @@ def compute_words_etag(payload: dict | None = None) -> str:
         return "missing"
     canonical = json.dumps(sorted(payload.get("words", []) or []))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
-
-
-
-
 
 
 def save_words(

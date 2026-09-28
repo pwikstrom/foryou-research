@@ -14,18 +14,10 @@ def test_rss_helpers_return_plausible_values():
     assert peak < 10_000_000  # sanity: not garbage units
 
 
-
-
-
-
 def test_df_size_mb_matches_pandas():
     df = pd.DataFrame({"a": np.zeros(100_000), "b": ["x"] * 100_000})
     expected = df.memory_usage(deep=True).sum() / (1024**2)
     assert abs(df_size_mb(df) - expected) < 1e-9
-
-
-
-
 
 
 def test_mem_probe_emits_convention_line():
@@ -35,13 +27,8 @@ def test_mem_probe_emits_convention_line():
     assert len(lines) == 1
     line = lines[0]
     assert line.startswith("[TESTTAG][MEM] phase=phase_one ")
-    for field in ("rss_start=", "rss_end=", "peak_during=", "peak_delta=+",
-                  "chunk=3", "tier=1"):
+    for field in ("rss_start=", "rss_end=", "peak_during=", "peak_delta=+", "chunk=3", "tier=1"):
         assert field in line
-
-
-
-
 
 
 def test_mem_probe_logs_even_on_exception():
@@ -52,10 +39,6 @@ def test_mem_probe_logs_even_on_exception():
     except ValueError:
         pass
     assert len(lines) == 1 and "phase=boom" in lines[0]
-
-
-
-
 
 
 def test_organize_datasets_aliases_point_at_shared_impl():

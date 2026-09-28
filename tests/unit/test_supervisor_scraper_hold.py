@@ -35,8 +35,12 @@ from web_interface import run_enrichment_supervisor as sup
 THRESHOLD = 5
 TRANSIENT_THRESHOLD = THRESHOLD + 2
 
-ABORT_FLAGS = ("session_expired", "circuit_breaker_tripped",
-               "permanent_storm_tripped", "transient_storm_tripped")
+ABORT_FLAGS = (
+    "session_expired",
+    "circuit_breaker_tripped",
+    "permanent_storm_tripped",
+    "transient_storm_tripped",
+)
 
 
 class _AlertStore:
@@ -51,8 +55,7 @@ class _AlertStore:
     def load_json(self, storage_location="", filename="", **kwargs):
         return self.files.get(filename)
 
-    def update_json(self, storage_location="", filename="", mutate=None,
-                    default=None, **kwargs):
+    def update_json(self, storage_location="", filename="", mutate=None, default=None, **kwargs):
         new = mutate(self.files.get(filename, default))
         if new is not None:
             self.files[filename] = new
@@ -73,27 +76,43 @@ def _failure(category: str) -> pd.DataFrame:
 
 
 def _metadata_row(item_id: str) -> pd.DataFrame:
-    return pd.DataFrame([{
-        "item_id": item_id, "desc": "x", "create_time_raw": pd.Timestamp("2026-01-01"),
-        "duration_raw": 30, "author_id": "a", "author_handle": "@a",
-        "author_name_raw": "A", "play_count_raw": 1, "fave_count_raw": 0,
-        "comment_count_raw": 0, "share_count_raw": 0, "video_downloaded": True,
-    }])
+    return pd.DataFrame(
+        [
+            {
+                "item_id": item_id,
+                "desc": "x",
+                "create_time_raw": pd.Timestamp("2026-01-01"),
+                "duration_raw": 30,
+                "author_id": "a",
+                "author_handle": "@a",
+                "author_name_raw": "A",
+                "play_count_raw": 1,
+                "fave_count_raw": 0,
+                "comment_count_raw": 0,
+                "share_count_raw": 0,
+                "video_downloaded": True,
+            }
+        ]
+    )
 
 
 def _batch(platform: str, fake_dl, n: int = THRESHOLD * 2):
     """One real, non-dry-run batch: guards, attrs and alert all live."""
-    with patch.object(scrape, "download_single_video", side_effect=fake_dl), \
-         patch.object(scrape, "CIRCUIT_BREAKER_THRESHOLD", THRESHOLD), \
-         patch.object(scrape, "_permanent_storm_threshold", return_value=THRESHOLD), \
-         patch.object(scrape, "_transient_storm_threshold", return_value=TRANSIENT_THRESHOLD), \
-         patch.object(scrape.scrape_versioning, "ensure_active_version_registered",
-                      lambda: None), \
-         patch.object(scrape, "check_existing_media", return_value={}), \
-         patch.object(scrape.data_io, "save_json", lambda **kw: None):
+    with (
+        patch.object(scrape, "download_single_video", side_effect=fake_dl),
+        patch.object(scrape, "CIRCUIT_BREAKER_THRESHOLD", THRESHOLD),
+        patch.object(scrape, "_permanent_storm_threshold", return_value=THRESHOLD),
+        patch.object(scrape, "_transient_storm_threshold", return_value=TRANSIENT_THRESHOLD),
+        patch.object(scrape.scrape_versioning, "ensure_active_version_registered", lambda: None),
+        patch.object(scrape, "check_existing_media", return_value={}),
+        patch.object(scrape.data_io, "save_json", lambda **kw: None),
+    ):
         results, _, _ = scrape.download_video_threads(
-            interesting_videos=[f"v{i}" for i in range(n)], max_workers=1,
-            dry_run=False, platform=platform)
+            interesting_videos=[f"v{i}" for i in range(n)],
+            max_workers=1,
+            dry_run=False,
+            platform=platform,
+        )
     return results
 
 
@@ -107,10 +126,10 @@ WALLS = [
 ]
 
 
-@pytest.mark.parametrize("platform,category,flag,kind", WALLS,
-                         ids=[f"{w[0]}-{w[1]}" for w in WALLS])
-def test_every_abort_holds_the_supervisor_until_dismissed(alerts, platform, category,
-                                                          flag, kind):
+@pytest.mark.parametrize(
+    "platform,category,flag,kind", WALLS, ids=[f"{w[0]}-{w[1]}" for w in WALLS]
+)
+def test_every_abort_holds_the_supervisor_until_dismissed(alerts, platform, category, flag, kind):
     assert sup._scraper_blocked(platform) is None
 
     results = _batch(platform, lambda video_id=None, **kw: _failure(category))
@@ -137,8 +156,11 @@ def test_a_stale_status_flag_without_an_alert_does_not_hold(alerts):
     """YouTube's task-status file still carried a July Cloud Run run's rate-limit
     flag in September; reading it would have parked every YouTube plan with no
     alert to clear."""
-    stale = {"state": "completed", "data": {flag: True for flag in ABORT_FLAGS}
-             | {"rate_limit_abort": True, "permanent_storm_abort": True}}
+    stale = {
+        "state": "completed",
+        "data": {flag: True for flag in ABORT_FLAGS}
+        | {"rate_limit_abort": True, "permanent_storm_abort": True},
+    }
     with patch("web_interface.task_status.read_task_status", return_value=stale):
         assert sup._scraper_blocked("youtube") is None
 
@@ -161,8 +183,7 @@ def test_the_drain_blocks_the_platform_plans_on_a_real_alert(alerts, monkeypatch
     plans = {"c1": {"platform": "tiktok"}, "c2": {"platform": "instagram"}}
     assert sup._drain(_Reporter(), plans) is None
 
-    assert saved == {"c1": {"state": ce.STATE_BLOCKED,
-                            "last_error": "scraper circuit_breaker"}}
+    assert saved == {"c1": {"state": ce.STATE_BLOCKED, "last_error": "scraper circuit_breaker"}}
     assert len(recorded) == 1 and "circuit breaker" in recorded[0]
     assert "clear the alert" in recorded[0]
 
@@ -170,6 +191,7 @@ def test_the_drain_blocks_the_platform_plans_on_a_real_alert(alerts, monkeypatch
 # --------------------------------------------------------------------------- #
 # Both worker paths report an abort under the batch attribute's own name
 # --------------------------------------------------------------------------- #
+
 
 class _Reporter:
     def __init__(self):
@@ -194,24 +216,31 @@ def _aborted_threads(flag):
         for k in ABORT_FLAGS + ("memory_stop",):
             frame.attrs[k] = k == flag
         return frame, [], list(interesting_videos)
+
     return threads
 
 
 def _emitted_flags(reporter) -> set[str]:
-    return {k for payload in reporter.data for k, v in payload.items()
-            if v is True and k != "chain"}
+    return {
+        k for payload in reporter.data for k, v in payload.items() if v is True and k != "chain"
+    }
 
 
 @pytest.mark.parametrize("flag", ABORT_FLAGS)
 def test_the_local_loop_emits_the_attrs_key(flag):
     reporter = _Reporter()
-    with patch.object(scrape, "download_video_threads", side_effect=_aborted_threads(flag)), \
-         patch.object(scrape.scrape_queues, "prune_scrape_queue",
-                      side_effect=lambda p, i: (len(i), 0)), \
-         patch.object(scrape.scrape_queues, "charge_media_retry",
-                      side_effect=lambda p, retry, resolved: []):
-        scrape.scraper_loop_from_list(video_list=["v0", "v1"], batch_size=2,
-                                      platform="tiktok", reporter=reporter)
+    with (
+        patch.object(scrape, "download_video_threads", side_effect=_aborted_threads(flag)),
+        patch.object(
+            scrape.scrape_queues, "prune_scrape_queue", side_effect=lambda p, i: (len(i), 0)
+        ),
+        patch.object(
+            scrape.scrape_queues, "charge_media_retry", side_effect=lambda p, retry, resolved: []
+        ),
+    ):
+        scrape.scraper_loop_from_list(
+            video_list=["v0", "v1"], batch_size=2, platform="tiktok", reporter=reporter
+        )
     assert _emitted_flags(reporter) == {flag}
 
 
@@ -225,12 +254,13 @@ def test_the_cloud_batch_emits_the_attrs_key(flag, tmp_path):
     io = _fake_data_io(str(tmp_path))
     io.save_json(data=["v0", "v1"], filename=scrape_queues.queue_filename("tiktok"))
     reporter = _Reporter()
-    with patch.object(scrape_queues, "_data_io", return_value=io), \
-         patch.object(scrape_queues, "migrate_legacy_queue", lambda platform: None), \
-         patch.object(fyp_scrape, "download_video_threads", _aborted_threads(flag)), \
-         patch.object(fyp_scrape, "record_failed_scrapes", lambda items, **kw: None), \
-         patch("fyp.scrape.platform_scraper.get_scraper", lambda platform: _HealthyScraper()), \
-         patch("web_interface.run_queue_scraper._journal_scrape_finished",
-               lambda **kw: None):
+    with (
+        patch.object(scrape_queues, "_data_io", return_value=io),
+        patch.object(scrape_queues, "migrate_legacy_queue", lambda platform: None),
+        patch.object(fyp_scrape, "download_video_threads", _aborted_threads(flag)),
+        patch.object(fyp_scrape, "record_failed_scrapes", lambda items, **kw: None),
+        patch("fyp.scrape.platform_scraper.get_scraper", lambda platform: _HealthyScraper()),
+        patch("web_interface.run_queue_scraper._journal_scrape_finished", lambda **kw: None),
+    ):
         assert run_queue_scraper(reporter, {"platform": "tiktok"}) is None
     assert _emitted_flags(reporter) == {flag}

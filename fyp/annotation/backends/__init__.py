@@ -47,10 +47,6 @@ __all__ = [
 ]
 
 
-
-
-
-
 def get_backend(name: str) -> AnnotationBackend:
     """Return the (cached) backend instance for ``name``.
 
@@ -81,10 +77,6 @@ def get_backend(name: str) -> AnnotationBackend:
     return _instances[name]
 
 
-
-
-
-
 def implemented_backend_ids() -> tuple:
     """Backend ids whose modules import cleanly on this machine.
 
@@ -99,10 +91,6 @@ def implemented_backend_ids() -> tuple:
         except ValueError:
             continue
     return tuple(out)
-
-
-
-
 
 
 def active_backend_name() -> str:
@@ -131,5 +119,6 @@ def active_backend_name() -> str:
     if name != "gemini":
         get_logger(__name__).warning(
             f"Selected annotation backend {name!r} is not a known backend or "
-            f"declared variant — falling back to gemini")
+            f"declared variant — falling back to gemini"
+        )
     return "gemini"

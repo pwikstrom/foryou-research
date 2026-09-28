@@ -60,19 +60,11 @@ MAX_FACTOR_LEVELS = 50
 ETA2_THRESHOLDS = (0.01, 0.06, 0.14)
 
 
-
-
-
-
 def _cf():
     """Lazy fyp_config accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
-
-
-
-
 
 
 def center_within_collection(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:
@@ -86,15 +78,11 @@ def center_within_collection(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool
     if COLLECTION_COL not in df.columns or not cols:
         return df, False
     out = df.copy()
-    vals = out[cols].astype('float64')
+    vals = out[cols].astype("float64")
     group_keys = out[COLLECTION_COL].astype(str).values
-    means = vals.groupby(group_keys).transform('mean')
+    means = vals.groupby(group_keys).transform("mean")
     out[cols] = vals - means
     return out, True
-
-
-
-
 
 
 def compute_effect_sizes(anova_table, factor):
@@ -136,10 +124,6 @@ def compute_effect_sizes(anova_table, factor):
     return {"eta2": eta2, "omega2": omega2}
 
 
-
-
-
-
 def compute_partial_effect_sizes(anova_table, factor, n_obs: int) -> dict:
     """Partial η²/ω² for one term of a multi-term (blocked) ANOVA.
 
@@ -167,12 +151,9 @@ def compute_partial_effect_sizes(anova_table, factor, n_obs: int) -> dict:
     ms_resid = ss_resid / df_resid
     partial_eta2 = ss_effect / (ss_effect + ss_resid)
     partial_omega2 = (ss_effect - df_effect * ms_resid) / (
-        ss_effect + (n_obs - df_effect) * ms_resid)
+        ss_effect + (n_obs - df_effect) * ms_resid
+    )
     return {"eta2": partial_eta2, "omega2": partial_omega2}
-
-
-
-
 
 
 def eta2_magnitude(eta2) -> str | None:
@@ -189,10 +170,6 @@ def eta2_magnitude(eta2) -> str | None:
     return "large"
 
 
-
-
-
-
 def variable_families(columns) -> dict:
     """Map each derived column to its base schema variable (longest-prefix match).
 
@@ -201,8 +178,8 @@ def variable_families(columns) -> dict:
     """
     cf = _cf()
     names = []
-    if 'var_schema' in cf and isinstance(cf['var_schema'], pd.DataFrame):
-        names = [str(v) for v in cf['var_schema']['variable_name'].tolist()]
+    if "var_schema" in cf and isinstance(cf["var_schema"], pd.DataFrame):
+        names = [str(v) for v in cf["var_schema"]["variable_name"].tolist()]
     sorted_names = sorted(names, key=len, reverse=True)
 
     out = {}
@@ -213,25 +190,17 @@ def variable_families(columns) -> dict:
             continue
         base = col_s
         for name in sorted_names:
-            if col_s.startswith(name + '_'):
+            if col_s.startswith(name + "_"):
                 base = name
                 break
         out[col] = base
     return out
 
 
-
-
-
-
 def _usable_levels(values: pd.Series) -> list:
     """Level values with at least ``MIN_LEVEL_N`` groups each."""
     counts = values.astype(str).value_counts(dropna=True)
     return counts[counts >= MIN_LEVEL_N].index.tolist()
-
-
-
-
 
 
 def eligible_comparison_factors(scores_df: pd.DataFrame) -> dict:
@@ -244,8 +213,7 @@ def eligible_comparison_factors(scores_df: pd.DataFrame) -> dict:
     least 2 residual degrees of freedom.
     """
     factors = get_vars_by_role(("comparison",), some_events_df=scores_df)
-    factors = [f for f in factors
-               if f.lower() != 'session_id' and f != COLLECTION_COL]
+    factors = [f for f in factors if f.lower() != "session_id" and f != COLLECTION_COL]
 
     out = {}
     for f in factors:
@@ -259,19 +227,11 @@ def eligible_comparison_factors(scores_df: pd.DataFrame) -> dict:
     return out
 
 
-
-
-
-
 def collection_levels(scores_df: pd.DataFrame) -> list:
     """Usable ``collection_id`` levels (>= ``MIN_LEVEL_N`` groups each)."""
     if COLLECTION_COL not in scores_df.columns:
         return []
     return _usable_levels(scores_df[COLLECTION_COL])
-
-
-
-
 
 
 def detect_nested_factors(scores_df: pd.DataFrame, factors: dict) -> set:
@@ -295,19 +255,14 @@ def detect_nested_factors(scores_df: pd.DataFrame, factors: dict) -> set:
     return nested
 
 
-
-
-
-
 def component_columns(scores_df: pd.DataFrame) -> list:
     """Numeric, non-``_raw`` columns with more than one distinct value."""
-    numeric = scores_df.select_dtypes(include=['number'])
-    return [c for c in numeric.columns
-            if not str(c).endswith('_raw') and numeric[c].nunique(dropna=True) > 1]
-
-
-
-
+    numeric = scores_df.select_dtypes(include=["number"])
+    return [
+        c
+        for c in numeric.columns
+        if not str(c).endswith("_raw") and numeric[c].nunique(dropna=True) > 1
+    ]
 
 
 def personalization_anova_sweep(scores_df: pd.DataFrame, components: list) -> list:
@@ -331,10 +286,12 @@ def personalization_anova_sweep(scores_df: pd.DataFrame, components: list) -> li
 
     results = []
     for comp in components:
-        sub = pd.DataFrame({
-            "y": pd.to_numeric(scores_df[comp], errors='coerce').astype('float64'),
-            "g": cvals,
-        })
+        sub = pd.DataFrame(
+            {
+                "y": pd.to_numeric(scores_df[comp], errors="coerce").astype("float64"),
+                "g": cvals,
+            }
+        )
         sub = sub[sub["g"].isin(level_set)].dropna()
         counts = sub["g"].value_counts()
         used_levels = counts[counts >= MIN_LEVEL_N].index.tolist()
@@ -345,32 +302,31 @@ def personalization_anova_sweep(scores_df: pd.DataFrame, components: list) -> li
             continue
 
         try:
-            model = smf.ols('y ~ C(g)', data=sub).fit()
+            model = smf.ols("y ~ C(g)", data=sub).fit()
             anova_table = sm.stats.anova_lm(model, typ=2)
-            effect = compute_effect_sizes(anova_table, 'C(g)')
-            f_stat = float(anova_table.loc['C(g)', 'F'])
+            effect = compute_effect_sizes(anova_table, "C(g)")
+            f_stat = float(anova_table.loc["C(g)", "F"])
         except Exception as e:
             logger.warning(f"Personalization ANOVA failed for {comp}: {e}")
             continue
 
-        results.append({
-            "component": comp,
-            "n": int(len(sub)),
-            "levels": int(len(used_levels)),
-            "F": f_stat if np.isfinite(f_stat) else None,
-            "eta2": float(effect["eta2"]) if np.isfinite(effect["eta2"]) else None,
-            "omega2": float(effect["omega2"]) if np.isfinite(effect["omega2"]) else None,
-            "magnitude": eta2_magnitude(effect["eta2"]),
-        })
+        results.append(
+            {
+                "component": comp,
+                "n": int(len(sub)),
+                "levels": int(len(used_levels)),
+                "F": f_stat if np.isfinite(f_stat) else None,
+                "eta2": float(effect["eta2"]) if np.isfinite(effect["eta2"]) else None,
+                "omega2": float(effect["omega2"]) if np.isfinite(effect["omega2"]) else None,
+                "magnitude": eta2_magnitude(effect["eta2"]),
+            }
+        )
     return results
 
 
-
-
-
-
-def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: list,
-                           nested: set) -> list:
+def comparison_anova_sweep(
+    scores_df: pd.DataFrame, factors: dict, components: list, nested: set
+) -> list:
     """Blocked ANOVA + Kruskal–Wallis for every (comparison factor × component).
 
     Non-nested factors are tested with collection as a blocking term
@@ -385,8 +341,7 @@ def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: l
     import statsmodels.formula.api as smf
 
     has_blocks = len(collection_levels(scores_df)) >= 2
-    cvals = (scores_df[COLLECTION_COL].astype(str)
-             if COLLECTION_COL in scores_df.columns else None)
+    cvals = scores_df[COLLECTION_COL].astype(str) if COLLECTION_COL in scores_df.columns else None
 
     results = []
     for factor, levels in factors.items():
@@ -394,10 +349,12 @@ def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: l
         fvals = scores_df[factor].astype(str)
         is_nested = factor in nested
         for comp in components:
-            sub = pd.DataFrame({
-                "y": pd.to_numeric(scores_df[comp], errors='coerce').astype('float64'),
-                "g": fvals,
-            })
+            sub = pd.DataFrame(
+                {
+                    "y": pd.to_numeric(scores_df[comp], errors="coerce").astype("float64"),
+                    "g": fvals,
+                }
+            )
             if cvals is not None:
                 sub["c"] = cvals
             sub = sub[sub["g"].isin(level_set)].dropna()
@@ -409,24 +366,23 @@ def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: l
             if float(sub["y"].std()) == 0.0:
                 continue
 
-            blocked = (has_blocks and not is_nested and "c" in sub.columns
-                       and sub["c"].nunique() >= 2)
+            blocked = (
+                has_blocks and not is_nested and "c" in sub.columns and sub["c"].nunique() >= 2
+            )
             try:
                 if blocked:
-                    model = smf.ols('y ~ C(g) + C(c)', data=sub).fit()
+                    model = smf.ols("y ~ C(g) + C(c)", data=sub).fit()
                     anova_table = sm.stats.anova_lm(model, typ=2)
-                    if float(anova_table.loc['Residual', 'df']) < 1:
-                        logger.warning(
-                            f"Blocked ANOVA saturated for {comp} ~ {factor}; skipping")
+                    if float(anova_table.loc["Residual", "df"]) < 1:
+                        logger.warning(f"Blocked ANOVA saturated for {comp} ~ {factor}; skipping")
                         continue
-                    effect = compute_partial_effect_sizes(
-                        anova_table, 'C(g)', n_obs=len(sub))
+                    effect = compute_partial_effect_sizes(anova_table, "C(g)", n_obs=len(sub))
                 else:
-                    model = smf.ols('y ~ C(g)', data=sub).fit()
+                    model = smf.ols("y ~ C(g)", data=sub).fit()
                     anova_table = sm.stats.anova_lm(model, typ=2)
-                    effect = compute_effect_sizes(anova_table, 'C(g)')
-                f_stat = float(anova_table.loc['C(g)', 'F'])
-                p_val = float(anova_table.loc['C(g)', 'PR(>F)'])
+                    effect = compute_effect_sizes(anova_table, "C(g)")
+                f_stat = float(anova_table.loc["C(g)", "F"])
+                p_val = float(anova_table.loc["C(g)", "PR(>F)"])
             except Exception as e:
                 logger.warning(f"ANOVA failed for {comp} ~ {factor}: {e}")
                 continue
@@ -448,22 +404,24 @@ def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: l
             except Exception:
                 pass
 
-            results.append({
-                "factor": factor,
-                "component": comp,
-                "n": int(len(sub)),
-                "levels": int(len(used_levels)),
-                "blocked": bool(blocked),
-                "nested_in_collection": bool(is_nested),
-                "F": f_stat if np.isfinite(f_stat) else None,
-                "p": p_val if np.isfinite(p_val) else None,
-                "eta2": float(effect["eta2"]) if np.isfinite(effect["eta2"]) else None,
-                "omega2": float(effect["omega2"]) if np.isfinite(effect["omega2"]) else None,
-                "magnitude": eta2_magnitude(effect["eta2"]),
-                "kw_H": kw_h,
-                "kw_p": kw_p,
-                "kw_centered": kw_centered,
-            })
+            results.append(
+                {
+                    "factor": factor,
+                    "component": comp,
+                    "n": int(len(sub)),
+                    "levels": int(len(used_levels)),
+                    "blocked": bool(blocked),
+                    "nested_in_collection": bool(is_nested),
+                    "F": f_stat if np.isfinite(f_stat) else None,
+                    "p": p_val if np.isfinite(p_val) else None,
+                    "eta2": float(effect["eta2"]) if np.isfinite(effect["eta2"]) else None,
+                    "omega2": float(effect["omega2"]) if np.isfinite(effect["omega2"]) else None,
+                    "magnitude": eta2_magnitude(effect["eta2"]),
+                    "kw_H": kw_h,
+                    "kw_p": kw_p,
+                    "kw_centered": kw_centered,
+                }
+            )
 
     not_nested = lambda r: not r.get("nested_in_collection")  # noqa: E731
     _add_bh_q(results, "p", "q", eligible=not_nested)
@@ -471,13 +429,14 @@ def comparison_anova_sweep(scores_df: pd.DataFrame, factors: dict, components: l
     return results
 
 
-
-
-
-
-def family_permanova(scores_df: pd.DataFrame, factors: dict, families: dict,
-                     permutations: int = 999, center: bool = False,
-                     nested: set = frozenset()) -> list:
+def family_permanova(
+    scores_df: pd.DataFrame,
+    factors: dict,
+    families: dict,
+    permutations: int = 999,
+    center: bool = False,
+    nested: set = frozenset(),
+) -> list:
     """PERMANOVA of each variable family's component block against each factor.
 
     A family is the set of components sharing one per-variable PCA basis, so
@@ -507,12 +466,15 @@ def family_permanova(scores_df: pd.DataFrame, factors: dict, families: dict,
 
     results = []
     for family, cols in sorted(fam_cols.items()):
-        raw_block = scores_df[cols].apply(pd.to_numeric, errors='coerce').astype('float64')
+        raw_block = scores_df[cols].apply(pd.to_numeric, errors="coerce").astype("float64")
         centered_block = raw_block
         block_centered = False
         if center:
-            frame = scores_df[[COLLECTION_COL]].join(raw_block) \
-                if COLLECTION_COL in scores_df.columns else raw_block
+            frame = (
+                scores_df[[COLLECTION_COL]].join(raw_block)
+                if COLLECTION_COL in scores_df.columns
+                else raw_block
+            )
             frame, block_centered = center_within_collection(frame, cols)
             centered_block = frame[cols]
         for factor, levels in factors.items():
@@ -531,7 +493,7 @@ def family_permanova(scores_df: pd.DataFrame, factors: dict, families: dict,
                 continue
 
             try:
-                d = pairwise_distances(sub.to_numpy(), metric='euclidean')
+                d = pairwise_distances(sub.to_numpy(), metric="euclidean")
                 # Repair tiny floating-point asymmetry / diagonal noise
                 d = (d + d.T) / 2
                 np.fill_diagonal(d, 0.0)
@@ -543,26 +505,23 @@ def family_permanova(scores_df: pd.DataFrame, factors: dict, families: dict,
                 logger.warning(f"PERMANOVA failed for {family} ~ {factor}: {e}")
                 continue
 
-            results.append({
-                "family": family,
-                "factor": factor,
-                "n": int(len(sub)),
-                "levels": int(len(used_levels)),
-                "n_components": len(cols),
-                "pseudo_F": pseudo_f if np.isfinite(pseudo_f) else None,
-                "p": p_val if np.isfinite(p_val) else None,
-                "permutations": int(permutations),
-                "centered": bool(block_centered and not is_nested),
-                "nested_in_collection": bool(is_nested),
-            })
+            results.append(
+                {
+                    "family": family,
+                    "factor": factor,
+                    "n": int(len(sub)),
+                    "levels": int(len(used_levels)),
+                    "n_components": len(cols),
+                    "pseudo_F": pseudo_f if np.isfinite(pseudo_f) else None,
+                    "p": p_val if np.isfinite(p_val) else None,
+                    "permutations": int(permutations),
+                    "centered": bool(block_centered and not is_nested),
+                    "nested_in_collection": bool(is_nested),
+                }
+            )
 
-    _add_bh_q(results, "p", "q",
-              eligible=lambda r: not r.get("nested_in_collection"))
+    _add_bh_q(results, "p", "q", eligible=lambda r: not r.get("nested_in_collection"))
     return results
-
-
-
-
 
 
 def _add_bh_q(results: list, p_key: str, q_key: str, eligible=None) -> None:
@@ -573,20 +532,15 @@ def _add_bh_q(results: list, p_key: str, q_key: str, eligible=None) -> None:
     """
     if eligible is None:
         eligible = lambda r: True  # noqa: E731
-    idx = [i for i, r in enumerate(results)
-           if r.get(p_key) is not None and eligible(r)]
+    idx = [i for i, r in enumerate(results) if r.get(p_key) is not None and eligible(r)]
     for r in results:
         r[q_key] = None
     if not idx:
         return
     pvals = [results[i][p_key] for i in idx]
-    _, qvals, _, _ = multipletests(pvals, method='fdr_bh')
+    _, qvals, _, _ = multipletests(pvals, method="fdr_bh")
     for i, qv in zip(idx, qvals):
         results[i][q_key] = float(qv)
-
-
-
-
 
 
 def compute_group_stats_artifact(scores_df: pd.DataFrame, study_name: str) -> dict:
@@ -598,8 +552,11 @@ def compute_group_stats_artifact(scores_df: pd.DataFrame, study_name: str) -> di
     families = variable_families(components)
     nested = detect_nested_factors(scores_df, factors)
     coll_levels = collection_levels(scores_df)
-    n_collections = (int(scores_df[COLLECTION_COL].nunique(dropna=True))
-                     if COLLECTION_COL in scores_df.columns else 0)
+    n_collections = (
+        int(scores_df[COLLECTION_COL].nunique(dropna=True))
+        if COLLECTION_COL in scores_df.columns
+        else 0
+    )
 
     t0 = time.perf_counter()
     personalization = personalization_anova_sweep(scores_df, components)
@@ -608,18 +565,23 @@ def compute_group_stats_artifact(scores_df: pd.DataFrame, study_name: str) -> di
     perma_pers = []
     if len(coll_levels) >= 2:
         perma_pers = family_permanova(
-            scores_df, {COLLECTION_COL: coll_levels}, families,
-            permutations=permutations, center=False)
+            scores_df,
+            {COLLECTION_COL: coll_levels},
+            families,
+            permutations=permutations,
+            center=False,
+        )
     perma = family_permanova(
-        scores_df, factors, families,
-        permutations=permutations, center=True, nested=nested)
+        scores_df, factors, families, permutations=permutations, center=True, nested=nested
+    )
     t2 = time.perf_counter()
     logger.info(
         f"[group-stats] {study_name}: {len(personalization)} personalization + "
         f"{len(anova)} ANOVA + {len(perma_pers) + len(perma)} PERMANOVA tests "
         f"({len(factors)} comparison factors, {len(nested)} nested, "
         f"{len(components)} components; "
-        f"anova={t1 - t0:.1f}s permanova={t2 - t1:.1f}s)")
+        f"anova={t1 - t0:.1f}s permanova={t2 - t1:.1f}s)"
+    )
 
     return {
         "version": ARTIFACT_VERSION,

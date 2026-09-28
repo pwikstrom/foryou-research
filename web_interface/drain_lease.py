@@ -38,17 +38,9 @@ def _data_io():
     return data_io
 
 
-
-
-
-
 def lease_filename(platform: str) -> str:
     """Return the lease filename for one platform's drain."""
     return f"local_drain_{platform}.json"
-
-
-
-
 
 
 def read_drain_lease(platform: str) -> dict | None:
@@ -66,7 +58,9 @@ def read_drain_lease(platform: str) -> dict | None:
     try:
         if not data_io.exists(storage_location=LEASE_LOCATION, filename=lease_filename(platform)):
             return None
-        lease = data_io.load_json(storage_location=LEASE_LOCATION, filename=lease_filename(platform))
+        lease = data_io.load_json(
+            storage_location=LEASE_LOCATION, filename=lease_filename(platform)
+        )
     except Exception:
         return None
     if not isinstance(lease, dict):
@@ -81,10 +75,6 @@ def read_drain_lease(platform: str) -> dict | None:
     return lease
 
 
-
-
-
-
 def active_drain_leases() -> dict[str, dict]:
     """Return ``{platform: lease}`` for every registered platform with a fresh lease."""
     import fyp.scrape.scrape_queues as scrape_queues
@@ -97,20 +87,12 @@ def active_drain_leases() -> dict[str, dict]:
     return leases
 
 
-
-
-
-
 def describe_lease(lease: dict) -> str:
     """One-line human description of who holds a lease, for block messages."""
     holder = lease.get("user") or "someone"
     host = lease.get("host") or "another machine"
     started = lease.get("started_at", "")[:16].replace("T", " ")
     return f"a local {lease.get('platform', '')} drain by {holder}@{host} (running since {started} UTC)"
-
-
-
-
 
 
 class DrainLease:
@@ -167,8 +149,9 @@ class DrainLease:
             target=self._heartbeat_loop, args=(started_at,), daemon=True
         )
         self._thread.start()
-        logger.info(f"Drain lease acquired for '{self.platform}' "
-                    f"(heartbeat every {HEARTBEAT_INTERVAL_S}s).")
+        logger.info(
+            f"Drain lease acquired for '{self.platform}' (heartbeat every {HEARTBEAT_INTERVAL_S}s)."
+        )
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -177,8 +160,12 @@ class DrainLease:
             self._thread.join(timeout=5)
         data_io = _data_io()
         try:
-            if data_io.exists(storage_location=LEASE_LOCATION, filename=lease_filename(self.platform)):
-                data_io.remove(storage_location=LEASE_LOCATION, filename=lease_filename(self.platform))
+            if data_io.exists(
+                storage_location=LEASE_LOCATION, filename=lease_filename(self.platform)
+            ):
+                data_io.remove(
+                    storage_location=LEASE_LOCATION, filename=lease_filename(self.platform)
+                )
             logger.info(f"Drain lease released for '{self.platform}'.")
         except Exception as exc_release:
             logger.warning(f"Drain lease release failed: {exc_release}")

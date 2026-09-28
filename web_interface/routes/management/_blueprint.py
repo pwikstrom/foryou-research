@@ -6,4 +6,4 @@ importing the package __init__ (which imports the submodules).
 
 from flask import Blueprint
 
-management_bp = Blueprint('management_bp', __name__)
+management_bp = Blueprint("management_bp", __name__)

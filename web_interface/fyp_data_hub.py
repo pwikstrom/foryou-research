@@ -30,7 +30,7 @@ csrf = CSRFProtect()
 load_process_stats()
 
 # Silence the noisy HTTP request logs from Flask/Werkzeug
-log = logging.getLogger('werkzeug')
+log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 
 # The task-runner service serves only the Cloud Tasks internal blueprint. Gating
@@ -62,7 +62,7 @@ class CustomJSONProvider(DefaultJSONProvider):
             return obj.tolist()
         if isinstance(obj, (np.bool_, bool)):
             return bool(obj)
-        if pd.isna(obj): # Handles pd.NA, np.nan, pd.NaT
+        if pd.isna(obj):  # Handles pd.NA, np.nan, pd.NaT
             return None
         if isinstance(obj, (pd.Timestamp, datetime)):
             return obj.isoformat()
@@ -118,6 +118,7 @@ def _register_web_ui(app):
         ``web_interface.seo`` for why it is scoped to the ``www.`` twin only.
         """
         from web_interface import seo
+
         return seo.canonical_host_redirect()
 
     @app.before_request
@@ -129,15 +130,17 @@ def _register_web_ui(app):
         they say nothing about a person using the app that the page or API
         request behind them does not already say.
         """
-        if request.endpoint == 'static' or not current_user.is_authenticated:
+        if request.endpoint == "static" or not current_user.is_authenticated:
             return
         from .security import user_manager
+
         user_manager.touch_activity(current_user.get_id())
 
     @app.context_processor
     def inject_asset_url():
         """Expose ``asset_url()`` — content-hashed static URLs — to every template."""
         from web_interface.static_assets import asset_url
+
         return {"asset_url": asset_url}
 
     @app.context_processor
@@ -149,6 +152,7 @@ def _register_web_ui(app):
         template work at all, only an entry in ``seo.PUBLIC_PAGES``.
         """
         from web_interface import seo
+
         try:
             return {"seo": seo.page_meta()}
         except Exception:
@@ -166,6 +170,7 @@ def _register_web_ui(app):
         every render_template call.
         """
         import fyp.scrape.scrape_queues as scrape_queues
+
         try:
             return {"scrape_platforms": scrape_queues.registered_platforms()}
         except Exception:
@@ -188,6 +193,7 @@ def _register_web_ui(app):
         is derived so templates don't each rebuild it.
         """
         from fyp.core.fyp_config import get_config
+
         try:
             site = get_config().get("site", {}) or {}
             contact_email = str(site.get("contact_email", "") or "").strip()
@@ -210,6 +216,7 @@ def _register_web_ui(app):
         threading the value through every render_template call.
         """
         from web_interface.citation import get_citation
+
         try:
             return {"citation": get_citation()}
         except Exception:
@@ -231,23 +238,24 @@ def _register_web_ui(app):
         Returns:
             A JSON 403 response for API paths, otherwise the original error.
         """
-        if request.path.startswith('/api/'):
+        if request.path.startswith("/api/"):
             return jsonify({"error": "forbidden"}), 403
         return error
 
-    @app.route('/')
+    @app.route("/")
     def index():
         # Anonymous visitors get the public landing page; authenticated users
         # get the app shell. One rule keeps every url_for('index') call site
         # (login redirects, the unauthorized handler) working unchanged.
         if not current_user.is_authenticated:
-            return render_template('public/landing.html', active_page='landing')
+            return render_template("public/landing.html", active_page="landing")
 
         from fyp.core.fyp_config import get_config
         from fyp.ingest import platform_url_templates
 
         from .permissions import get_user_permissions, visible_pipeline_steps
         from .slack_service import get_recent_messages
+
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
         slack_messages = get_recent_messages() if slack_configured else []
         user_perms = get_user_permissions(current_user)
@@ -262,16 +270,30 @@ def _register_web_ui(app):
         # The refresh pipeline's dependency graph, so the page's step order and
         # labels come from the same place the planner reads.
         from .services.refresh_pipeline import registry_for_js
+
         pipeline_registry = registry_for_js()
         # The site-wide default study (Admin -> Site Settings), or "" when the
         # operator has not picked one. study_state.js opens on it for users
         # who have not chosen a study themselves.
         from .admin_settings import get_default_study, get_demo_collection
+
         default_study = get_default_study()
         # The admin-chosen collection the guided tour demonstrates with (part
         # of the default study; "" when unset, and the tour skips those steps).
         demo_collection = get_demo_collection()
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, pipeline_registry=pipeline_registry, default_study=default_study, demo_collection=demo_collection)
+        return render_template(
+            "index.html",
+            user=current_user,
+            user_perms=user_perms,
+            slack_messages=slack_messages,
+            slack_configured=slack_configured,
+            media_on_gcs=media_on_gcs,
+            platform_url_templates=platform_url_templates(),
+            pipeline_steps=pipeline_steps,
+            pipeline_registry=pipeline_registry,
+            default_study=default_study,
+            demo_collection=demo_collection,
+        )
 
 
 def create_app():
@@ -319,6 +341,7 @@ def create_app():
     # Exempt from CSRF: authenticated by Cloud Run's IAM invoker check.
     if _IS_TASK_RUNNER or not os.environ.get("K_SERVICE"):
         from .routes.process_routes import internal_bp
+
         app.register_blueprint(internal_bp)
         csrf.exempt(internal_bp)
 
@@ -326,8 +349,6 @@ def create_app():
         _register_web_ui(app)
 
     return app
-
-
 
 
 def _migrate_study_access_defaults():
@@ -349,7 +370,8 @@ def _migrate_study_access_defaults():
         from fyp.analysis.studies import migrate_user_access_defaults
 
         grant_roles = [
-            name for name in role_manager.get_roles()
+            name
+            for name in role_manager.get_roles()
             if name != ROLE_ADMIN and name not in PERMISSION_MIGRATION_SKIP_ROLES
         ]
         migrated = migrate_user_access_defaults(grant_roles)
@@ -369,6 +391,7 @@ app = create_app()
 # reloader child below). Plain imports (tests, scripts) must not spawn probes.
 if not _IS_TASK_RUNNER and os.environ.get("K_SERVICE"):
     from .services import system_health
+
     system_health.maybe_start_boot_check()
     _migrate_study_access_defaults()
 
@@ -385,18 +408,15 @@ def _debug_enabled(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes")
 
 
-
-
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     debug = _debug_enabled(os.environ.get("FLASK_DEBUG"))
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         # Under the debug reloader only the child serves requests (the parent
         # just watches files), so the boot probe runs in the child; without
         # debug there is no reloader and this process is the server.
         from web_interface.services import system_health
+
         system_health.maybe_start_boot_check()
         _migrate_study_access_defaults()
     port = int(os.environ.get("PORT", 5002))
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    app.run(host="0.0.0.0", port=port, debug=debug)

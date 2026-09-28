@@ -16,18 +16,14 @@ import fyp.core.data_io as data_io
 from web_interface import run_sessions_refresh as rsr
 
 
-
-
 def _fake_update_json(store: dict):
-    def fake(storage_location: str = "", filename: str = "", mutate=None,
-             default=None, **kwargs):
+    def fake(storage_location: str = "", filename: str = "", mutate=None, default=None, **kwargs):
         doc = store.get(filename, default)
         doc = mutate(doc)
         store[filename] = doc
         return doc
+
     return fake
-
-
 
 
 def test_first_execution_wins_the_chain_claim(monkeypatch):
@@ -36,16 +32,13 @@ def test_first_execution_wins_the_chain_claim(monkeypatch):
     assert rsr._claim_chain_dispatch("runA", 3) is True
 
 
-
-
 def test_duplicate_execution_of_the_same_link_loses(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(data_io, "update_json", _fake_update_json(store))
     assert rsr._claim_chain_dispatch("runA", 3) is True
-    assert rsr._claim_chain_dispatch("runA", 3) is False, \
+    assert rsr._claim_chain_dispatch("runA", 3) is False, (
         "the platform-retried execution must not fork the chain"
-
-
+    )
 
 
 def test_claims_are_per_link_and_per_run(monkeypatch):
@@ -54,8 +47,6 @@ def test_claims_are_per_link_and_per_run(monkeypatch):
     assert rsr._claim_chain_dispatch("runA", 3) is True
     assert rsr._claim_chain_dispatch("runA", 4) is True
     assert rsr._claim_chain_dispatch("runB", 3) is True
-
-
 
 
 class _Reporter:
@@ -72,8 +63,6 @@ class _Reporter:
         return False
 
 
-
-
 def test_initial_dispatch_is_setup_only(monkeypatch):
     """The task with no run_id must chain immediately without building."""
     from fyp.analysis import embedding_store, embeddings, session_explorer
@@ -83,13 +72,18 @@ def test_initial_dispatch_is_setup_only(monkeypatch):
             return "test-model"
 
     monkeypatch.setattr(embeddings, "active_embedding_backend", lambda: _Backend())
-    monkeypatch.setattr(embedding_store, "get_corpus_mean",
-                        lambda model, reporter=None: ("mean", 42, "fp42"))
+    monkeypatch.setattr(
+        embedding_store, "get_corpus_mean", lambda model, reporter=None: ("mean", 42, "fp42")
+    )
     wide = [["1970-01-01", "2100-01-01"]]
-    monkeypatch.setattr(session_explorer, "compute_coverage_spec",
-                        lambda *a, **k: {"c1": wide, "c2": wide})
-    monkeypatch.setattr(session_explorer, "discover_covered_collections",
-                        lambda coverage, collections=None: [("c1", 10), ("c2", 5)])
+    monkeypatch.setattr(
+        session_explorer, "compute_coverage_spec", lambda *a, **k: {"c1": wide, "c2": wide}
+    )
+    monkeypatch.setattr(
+        session_explorer,
+        "discover_covered_collections",
+        lambda coverage, collections=None: [("c1", 10), ("c2", 5)],
+    )
     monkeypatch.setattr(session_explorer, "trend_numeric_columns", lambda: ["log_plays"])
     monkeypatch.setattr(session_explorer, "sweep_stale_run_files", lambda run_id: None)
     # Hermetic storage: no artifacts exist (-> full plan), manifest seeding

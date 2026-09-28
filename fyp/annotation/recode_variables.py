@@ -1,6 +1,3 @@
-
-
-
 import difflib
 import hashlib
 import json
@@ -27,13 +24,9 @@ def _cf():
     return fyp_cf
 
 
-
-
 def _generic_mapper() -> dict:
     """Lazy accessor for the config-derived generic label mapper."""
     return _cf()["labels"]["GENERIC_MAPPER"]
-
-
 
 
 def _not_coded() -> str:
@@ -41,13 +34,9 @@ def _not_coded() -> str:
     return _cf()["labels"]["NOT_CODED"]
 
 
-
-
 def _unable_to_detect() -> str:
     """Lazy accessor for the config-derived UNABLE_TO_DETECT label."""
     return _cf()["labels"]["UNABLE_TO_DETECT"]
-
-
 
 
 def _other_things() -> str:
@@ -55,13 +44,9 @@ def _other_things() -> str:
     return _cf()["labels"]["OTHER_THINGS"]
 
 
-
-
 def _splitter() -> str:
     """Lazy accessor for the config-derived list-value splitter."""
     return _cf()["labels"]["SPLITTER"]
-
-
 
 
 _CONFIG_CONSTANT_ACCESSORS = {
@@ -73,8 +58,6 @@ _CONFIG_CONSTANT_ACCESSORS = {
 }
 
 
-
-
 def __getattr__(name: str):
     """Serve the config-derived module constants lazily (PEP 562)."""
     accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
@@ -83,10 +66,15 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-WEEKDAY_MAPPER = { 1:"monday", 2:"tuesday",3:"wednesday",4:"thursday",5:"friday",6:"saturday",7:"sunday"}
-
-
-
+WEEKDAY_MAPPER = {
+    1: "monday",
+    2: "tuesday",
+    3: "wednesday",
+    4: "thursday",
+    5: "friday",
+    6: "saturday",
+    7: "sunday",
+}
 
 
 def rename_columns(some_events):
@@ -96,71 +84,73 @@ def rename_columns(some_events):
     some_eventsC = some_events.copy()
 
     fixer_upper = [
-        #("B_local_","local_"),
-        #("B_source_tz_name",tz_name"),
-        #("D_local_","local_"),
-        (".","_"),
-        ("data_",""),
-        ("source_url_","source_"),
-        ("_collected",""),
-        ("framing_analysis_","FA_"),
-        ("cultural_representation_analysis_","CRA_"),
-        ("ideological_analysis_","IA_"),
+        # ("B_local_","local_"),
+        # ("B_source_tz_name",tz_name"),
+        # ("D_local_","local_"),
+        (".", "_"),
+        ("data_", ""),
+        ("source_url_", "source_"),
+        ("_collected", ""),
+        ("framing_analysis_", "FA_"),
+        ("cultural_representation_analysis_", "CRA_"),
+        ("ideological_analysis_", "IA_"),
         # The object_unpack flattener prefixes audio sub-keys with the field
         # name (audio_summary_speech_vs_music, ...); strip it back to the
         # var_schema variable names (speech_vs_music, ...). The legacy free-text
         # flattener already emits the bare names, so this is a no-op for it.
-        ("audio_summary_",""),
+        ("audio_summary_", ""),
+    ]
 
-        ]
-
-    pd.set_option('future.no_silent_downcasting', True)
+    pd.set_option("future.no_silent_downcasting", True)
 
     for fu in fixer_upper:
-        mapper = {c:c.replace(fu[0],fu[1]) for c in some_eventsC.columns if (c != c.replace(fu[0],fu[1])) and (c.replace(fu[0],fu[1]) not in some_eventsC.columns)}
+        mapper = {
+            c: c.replace(fu[0], fu[1])
+            for c in some_eventsC.columns
+            if (c != c.replace(fu[0], fu[1]))
+            and (c.replace(fu[0], fu[1]) not in some_eventsC.columns)
+        }
         some_eventsC = some_eventsC.rename(columns=mapper).copy()
-    
+
     return some_eventsC
-
-
 
 
 def infer_timezone_offset(timestamps: pd.Series) -> float:
     """
     Infers timezone offset by finding the 4-hour window with minimum activity.
     Assumes this quietest window centers around 04:00 local time.
-    
+
     Args:
         timestamps: Series of UTC timestamps
-        
+
     Returns:
         Offset in hours (float) from UTC. e.g. +10.0 for Brisbane.
     """
     if len(timestamps) < 10:
-        return 0.0 # Not enough data to infer
-        
+        return 0.0  # Not enough data to infer
+
     # Create a DataFrame to aggregate by hour
-    df_ts = pd.DataFrame({'ts': timestamps})
-    df_ts['hour'] = df_ts['ts'].dt.hour
-    
+    df_ts = pd.DataFrame({"ts": timestamps})
+    df_ts["hour"] = df_ts["ts"].dt.hour
+
     # Count activity per UTC hour (0-23)
-    hourly_counts = df_ts.groupby('hour').size().reindex(range(24), fill_value=0)
-    
-    # We want a rolling 4-hour window sum. 
-    # To handle wrap-around (e.g. 23:00 -> 02:00), we concat the counts 
+    hourly_counts = df_ts.groupby("hour").size().reindex(range(24), fill_value=0)
+
+    # We want a rolling 4-hour window sum.
+    # To handle wrap-around (e.g. 23:00 -> 02:00), we concat the counts
     hourly_counts_ext = pd.concat([hourly_counts, hourly_counts.iloc[:3]], ignore_index=True)
-    
+
     # Calculate rolling sum
     rolling_sum = hourly_counts_ext.rolling(window=4).sum()
-    
-    # We strip the first 3 (NaNs/partial from standard rolling if not min_periods=0) 
-    # but we used concat so we have valid range. 
+
+    # We strip the first 3 (NaNs/partial from standard rolling if not min_periods=0)
+    # but we used concat so we have valid range.
     # The result has length 24 + 3 = 27.
     # Indices 0,1,2 are NaNs (window size 4).
     # Valid indices start at 3.
     # Index 3 corresponds to window [0,1,2,3] of extended array = [0,1,2,3] of original.
     # Index 26 corresponds to window [23,0,1,2].
-    
+
     # Extract only the 24 valid windows representing starts 0..23 (wrapped)
     # Window ending at i (where i >= 3) corresponds to hours ...?
     # Let's map rolling_sum index to "Center Hour".
@@ -171,10 +161,10 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     # rolling_sum index k+3 sums extended array [k, k+1, k+2, k+3].
     # Which corresponds to hours [k%24, (k+1)%24, (k+2)%24, (k+3)%24].
     # Center is roughly k + 1.5.
-    
+
     min_val = valid_sums.min()
     min_indices = valid_sums[valid_sums == min_val].index.tolist()
-    
+
     # Calculate circular mean of these indices
     # Convert hours (indices) to angles, mean vector, convert back
     angles = [2 * np.pi * idx / 24.0 for idx in min_indices]
@@ -182,22 +172,22 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     x = np.sum(np.cos(angles))
     avg_angle = np.arctan2(y, x)
     avg_idx = avg_angle * 24.0 / (2 * np.pi)
-    
+
     if avg_idx < 0:
         avg_idx += 24
-        
+
     # avg_idx represents the "Start Hour" of the window (k).
     # Center of window is k + 2.0 (Midpoint of 4 discrete hour buckets [k, k+3]).
     # e.g. Window [2,3,4,5] -> Center is 4.0.
     # We assume this center is 03:00 Local (Shifted -1 from original 04:00).
-    
+
     center_utc = avg_idx + 2.0
     if center_utc >= 24:
         center_utc -= 24
-        
+
     # Offset = Local - UTC = 3.0 - Center (Shifted -1 from 4.0)
     offset = 3.0 - center_utc
-    
+
     # Normalize to -9 to 15 (User specified range to handle date line wrap)
     # "Add 24 hours to timezones calculated to UTC-11" -> Map -11 to +13.
     # Standard range [-9, 15] covers West Coast US (-8) to NZ (+12/13).
@@ -205,11 +195,9 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
         offset += 24
     while offset > 15:
         offset -= 24
-        
-    return round(offset) # Round to nearest hour for simplicity (or keeping half hours?)
-                         # User said rough guess. 
-                         
 
+    return round(offset)  # Round to nearest hour for simplicity (or keeping half hours?)
+    # User said rough guess.
 
 
 SEMANTIC_COLUMNS = (
@@ -253,7 +241,6 @@ VAR_SCHEMA_SCALES = (
 )
 
 
-
 _RECODE_FUNC_REGISTRY: dict | None = None
 
 
@@ -275,6 +262,7 @@ def get_recode_func_registry() -> dict:
         "recode_tokenise",
     )
     import sys
+
     this_module = sys.modules[__name__]
     registry: dict = {}
     for name in allowed:
@@ -285,7 +273,6 @@ def get_recode_func_registry() -> dict:
             logger.warning("recode_func registry: %r is in the allow-list but not defined.", name)
     _RECODE_FUNC_REGISTRY = registry
     return registry
-
 
 
 def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dict]:
@@ -332,8 +319,6 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
     return normalization
 
 
-
-
 # Generic recode op selected by a variable's ``scale`` — the retired ``recode_func``
 # column. A field's recode is its data *kind*, not a per-variable procedure:
 #   categorical/list       -> the list/enum cleaner (recode_stringified_list)
@@ -346,7 +331,6 @@ _RECODE_FUNC_BY_SCALE = {
     "text": "recode_long_strings",
     "raw": "recode_tokenise",
 }
-
 
 
 # Uncertain-value handling, derived from a field's data kind (the retired
@@ -365,7 +349,6 @@ def default_uncertain_policy(scale: str) -> str:
     if s == "list":
         return "empty"
     return "keep"
-
 
 
 def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
@@ -399,8 +382,7 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         ranges = ac.contract_numeric_ranges(contract)
         bounded = {n for n in var_schema_indexed.index if n in ranges}
         array_numeric = {
-            n for n in var_schema_indexed.index
-            if n in ac.contract_numeric_array_fields(contract)
+            n for n in var_schema_indexed.index if n in ac.contract_numeric_array_fields(contract)
         }
     except Exception:
         bounded, array_numeric = set(), set()
@@ -422,9 +404,6 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
         func_name = _RECODE_FUNC_BY_SCALE.get(scale)
         plan[name] = registry.get(func_name) if func_name else None
     return plan
-
-
-
 
 
 def parse_accepted_labels(value):
@@ -464,12 +443,6 @@ def parse_accepted_labels(value):
         return [tok.strip() for tok in inner.split(",") if tok.strip()]
     logger.warning("var_schema: accepted_labels value %r could not be parsed; using []", s)
     return []
-
-
-
-
-
-
 
 
 def compute_var_schema_hash() -> str:
@@ -525,9 +498,9 @@ def compute_var_schema_hash() -> str:
         gm_digest = hashlib.sha256(
             json.dumps(_generic_mapper(), sort_keys=True).encode("utf-8")
         ).hexdigest()[:16]
-        norm_payload = json.dumps(
-            {"fields": compact, "gm": gm_digest}, sort_keys=True
-        ).encode("utf-8")
+        norm_payload = json.dumps({"fields": compact, "gm": gm_digest}, sort_keys=True).encode(
+            "utf-8"
+        )
     except Exception:
         pass
 
@@ -612,14 +585,16 @@ def compute_var_schema_hash() -> str:
         pass
 
     digest = hashlib.sha256(
-        payload + norm_payload + scrape_payload + activity_payload
-        + derived_payload + legacy_ann_payload
-        + legacy_scrape_payload + legacy_activity_payload
+        payload
+        + norm_payload
+        + scrape_payload
+        + activity_payload
+        + derived_payload
+        + legacy_ann_payload
+        + legacy_scrape_payload
+        + legacy_activity_payload
     ).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
-
-
-
 
 
 def normalize_role(value):
@@ -627,11 +602,9 @@ def normalize_role(value):
     return LEGACY_ROLE_ALIASES.get(value, value)
 
 
-
-
-
-
-def get_vars_by_role(roles: tuple, some_events_df: pd.DataFrame = None, verbose: bool = False) -> list:
+def get_vars_by_role(
+    roles: tuple, some_events_df: pd.DataFrame = None, verbose: bool = False
+) -> list:
     """Return the sorted variable names whose (normalized) role is in ``roles``.
 
     Args:
@@ -657,11 +630,7 @@ def get_vars_by_role(roles: tuple, some_events_df: pd.DataFrame = None, verbose:
     return the_vars
 
 
-
-
-
-
-def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
+def get_factors_and_features_from_var_schema(some_events_df=None, verbose=False):
     """Legacy wrapper: (colourable/groupable vars, measures).
 
     "Factors" here = grouping + comparison + descriptor variables — every
@@ -680,18 +649,14 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
     return the_factors, the_features
 
 
-
-def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
+def get_grouping_factors_from_var_schema(some_events_df=None, verbose=False):
 
     the_grouping_factors = get_vars_by_role(("grouping",), some_events_df)
 
-    if verbose  and len(the_grouping_factors) > 0:
+    if verbose and len(the_grouping_factors) > 0:
         logger.info(f"    Grouping Factors: {', '.join(the_grouping_factors)}")
 
     return the_grouping_factors
-
-
-
 
 
 def derive_australian_relevance(df: pd.DataFrame) -> pd.DataFrame:
@@ -730,13 +695,6 @@ def derive_australian_relevance(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
-
-
-
-
-
-
 def _is_emoji(s: str) -> bool:
     from emoji import EMOJI_DATA
 
@@ -744,14 +702,9 @@ def _is_emoji(s: str) -> bool:
     return s in EMOJI_DATA
 
 
-
-
-
-
-
 def recode_tokenise(
-    a_description: str | pd.Series,
-    recoding_policy: dict = {}) -> dict | pd.DataFrame:
+    a_description: str | pd.Series, recoding_policy: dict = {}
+) -> dict | pd.DataFrame:
     """Extract the ``hashtags`` from free text (the scrape caption ``desc``).
 
     A token starting with ``#`` is cleaned and kept when it survives the same
@@ -793,14 +746,10 @@ def recode_tokenise(
     return {"hashtags": _hashtags(a_description)}
 
 
-
-
 _LEADING_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
-def recode_numeric(
-    value: str | pd.Series,
-    recoding_policy: dict = {}) -> float | pd.Series:
+def recode_numeric(value: str | pd.Series, recoding_policy: dict = {}) -> float | pd.Series:
     """Generic numeric recode: extract the number from a value and, when the
     contract declares a bounded range for the field (``normalize_range`` in the
     policy), rescale it to a 0-1 ratio.
@@ -833,16 +782,12 @@ def recode_numeric(
     return num
 
 
-
-
 # Positive numbers only — for an array-of-numbers value the hyphen in "20-30" is
 # a range separator, not a minus sign.
 _POSITIVE_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
-def recode_numeric_mean(
-    value: str | pd.Series,
-    recoding_policy: dict = {}) -> float | pd.Series:
+def recode_numeric_mean(value: str | pd.Series, recoding_policy: dict = {}) -> float | pd.Series:
     """Per-item mean for an array-of-numbers field (the value is pipe-joined).
 
     Each item is reduced to the mean of its own numbers (so a clean integer
@@ -867,14 +812,10 @@ def recode_numeric_mean(
     return sum(per_item) / len(per_item)
 
 
+def recode_long_strings(s: str | list | pd.Series, recoding_policy) -> str | pd.Series:
 
-
-def recode_long_strings(
-    s: str | list | pd.Series, 
-    recoding_policy) -> str | pd.Series:
-
-    
     if isinstance(s, pd.Series):
+
         def _get_first_if_list(x):
             if isinstance(x, list):
                 return x[0] if len(x) > 0 else ""
@@ -889,11 +830,11 @@ def recode_long_strings(
         new_s = new_s.replace("-", "")
         return new_s
 
-    if not isinstance(s,(str,list)):
+    if not isinstance(s, (str, list)):
         return ""
-    if isinstance(s,list) and len(s)>0:
+    if isinstance(s, list) and len(s) > 0:
         new_string = s[0]
-    elif isinstance(s,list) and len(s)==0:
+    elif isinstance(s, list) and len(s) == 0:
         new_string = ""
     else:
         new_string = copy(s)
@@ -904,92 +845,92 @@ def recode_long_strings(
     return new_string
 
 
+def recode_stringified_list(a_string_representing_a_list, recoding_policy) -> list | pd.Series:
 
-
-
-def recode_stringified_list(
-    a_string_representing_a_list, 
-    recoding_policy
-    ) -> list | pd.Series:
-
-    
     if isinstance(a_string_representing_a_list, pd.Series):
         # Full vectorisation is impractical given the mapper/ignore_strings lookup
         # and the strict per-character filter further down, so the Series branch
         # delegates to the scalar branch element-wise. Keeping this explicit
         # (rather than relying on a silent fallback in recode_events_df) makes
         # the scalar call-site visible for future profiling.
-        return a_string_representing_a_list.apply(lambda x: recode_stringified_list(x, recoding_policy))
+        return a_string_representing_a_list.apply(
+            lambda x: recode_stringified_list(x, recoding_policy)
+        )
 
     # Legacy / Single Item logic
     no_data_fallback = _unable_to_detect()
 
     ignore_strings = recoding_policy.get("ignore_strings", [])
-    #splitter = recoding_policy.get("splitter", None)
+    # splitter = recoding_policy.get("splitter", None)
     mapper = recoding_policy.get("mapper", {})
-    
+
     mini_mapper = {1: "yes", 0: "no", True: "yes", False: "no"}
 
-    list_of_the_words = [] 
+    list_of_the_words = []
 
     # if the string that is representing a list is na, assume that it hasn't been coded
     if pd.isna(a_string_representing_a_list):
         list_of_the_words += [_not_coded()]
 
     # if there is a string, but the length is zero
-    elif len(str(a_string_representing_a_list)) < 1 or str(a_string_representing_a_list) in ["-"," "]:
+    elif len(str(a_string_representing_a_list)) < 1 or str(a_string_representing_a_list) in [
+        "-",
+        " ",
+    ]:
         list_of_the_words += [no_data_fallback]
 
     else:
-        a_string_representing_a_list = mini_mapper.get(a_string_representing_a_list,a_string_representing_a_list)
+        a_string_representing_a_list = mini_mapper.get(
+            a_string_representing_a_list, a_string_representing_a_list
+        )
 
         for an_element in str(a_string_representing_a_list).lower().split(_splitter()):
-            if len(an_element)>0:
+            if len(an_element) > 0:
                 an_element = an_element.replace("//", "").replace("&", " and ").replace("/", " or ")
-                clean_word = "".join([j for j in an_element.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"])
+                clean_word = "".join(
+                    [j for j in an_element.lower() if j not in ",.:;!)(*/&|^%$#@<>?'`’1234567890"]
+                )
                 clean_word = clean_word.strip()
-                if (len(clean_word)>1 and clean_word not in ignore_strings)  or _is_emoji(clean_word):
-                    list_of_the_words += [mapper.get(clean_word,clean_word)]
-        
+                if (len(clean_word) > 1 and clean_word not in ignore_strings) or _is_emoji(
+                    clean_word
+                ):
+                    list_of_the_words += [mapper.get(clean_word, clean_word)]
+
     if len(list_of_the_words) == 0:
         list_of_the_words += [no_data_fallback]
 
     return list_of_the_words
 
 
-
-
 def implement_missing_data_policy(x, missing_data_policy, the_median=0):
-    
+
     if isinstance(x, pd.Series):
         # 1. Check direct scalar matches and NaNs
-        # Note: x == NOT_CODED works for scalars. 
+        # Note: x == NOT_CODED works for scalars.
         # If x has mixed types (lists), equality comparison might be tricky but usually handles it (False for list!=scalar).
         # But to be safe and avoid "ambiguous truth value" errors for [NOT_CODED] == NOT_CODED comparisons:
         # We handle lists separately.
-        
+
         mask_basic = x.isna()
-        
+
         # Safe scalar comparison for "== NOT_CODED"
-        # If x is object, it might contain lists. x == scalar might trigger elementwise check if x was an array, 
+        # If x is object, it might contain lists. x == scalar might trigger elementwise check if x was an array,
         # but x is a Series. Series == scalar is fine.
         # But if an element of Series is a list/array, `element == scalar` might return an array (if numpy) or False (if list).
         # If it returns an array, Series.eq converts it to boolean? No, it raises ValueError if valid boolean result is ambiguous.
         # So we must NOT use `x == NOT_CODED` blindly on object columns that might contain arrays.
-        
+
         # Strategy:
         # Use simple map(type) check to isolate lists? No, map is slow.
         # Use `x.astype(str) == str(NOT_CODED)`? Slow string conversion.
-        
+
         # Only do strict checks if object.
         if x.dtype == object:
-
-            
             mask_scalar = x.isin([_not_coded()])
-            
+
             # Now list check:
             # We need to ensure we can use .str.
-            
+
             try:
                 # This works if at least some strings/lists or object dtype allows it?
                 # Actually, .str accessor on object series works if it contains mixed types.
@@ -999,18 +940,18 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             except AttributeError:
                 # No str accessor means no lists/strings usually?
                 mask_list = False
-            
+
             mask = mask_basic | mask_scalar | mask_list
-            
+
         else:
             # Numeric or specific type
             mask = mask_basic | (x == _not_coded())
-        
+
         if not mask.any():
             return x
-            
+
         result = x.copy()
-        
+
         if missing_data_policy == "empty":
             result.loc[mask] = pd.Series([[] for _ in range(mask.sum())], index=result.index[mask])
         elif missing_data_policy == "drop":
@@ -1021,33 +962,39 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             # if isna -> [NOT_CODED], else keep x (which is what?)
             # The original logic: if isna(x) -> [NOT_CODED].
             # If x was NOT_CODED (str), it returns x (NOT_CODED).
-            
+
             # Implementation: Replace NA with [NOT_CODED]. leave "not coded" alone.
             mask_na = x.isna()
-            result.loc[mask_na] = pd.Series([[_not_coded()] for _ in range(mask_na.sum())], index=result.index[mask_na])
-            
+            result.loc[mask_na] = pd.Series(
+                [[_not_coded()] for _ in range(mask_na.sum())], index=result.index[mask_na]
+            )
+
         elif missing_data_policy == "zero":
             # Check type of first non-missing element to decide 0 vs "no"?
             # Or pass a hint. The original code checks x itself.
             # "numeric" string check is weird in original? `isinstance(gg,"numeric")` is probably wrong (string "numeric")?
             # actually `isinstance(gg,"numeric")` checks if class is string "numeric" which is false.
             # It likely meant `isinstance(gg, (int, float))`.
-            
+
             # Let's assume numeric -> 0, else "no".
             # We can check dtype of series.
             if pd.api.types.is_numeric_dtype(x):
                 val = 0
             else:
                 val = "no"
-                
+
             # If input was list, return [val]
             # This complex conditional typing is hard to vectorize perfectly without context.
             # For now, simplistic approach:
             result[mask] = val
-        
+
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==_not_coded()) or (isinstance(x,str) and x==_not_coded()) or ((not isinstance(x,list)) and pd.isna(x)):
+    if (
+        (isinstance(x, list) and len(x) == 1 and x[0] == _not_coded())
+        or (isinstance(x, str) and x == _not_coded())
+        or ((not isinstance(x, list)) and pd.isna(x))
+    ):
         if missing_data_policy == "empty":
             return []
         elif missing_data_policy == "drop":
@@ -1060,12 +1007,12 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
             else:
                 return x
         elif missing_data_policy == "zero":
-            gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int, float, np.int64, np.float64)):
+            gg = x if not isinstance(x, list) else x[0]
+            if isinstance(gg, (int, float, np.int64, np.float64)):
                 gg_out = 0
             else:
                 gg_out = "no"
-            if isinstance(x,list):
+            if isinstance(x, list):
                 return [gg_out]
             return gg_out
         else:
@@ -1075,33 +1022,29 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         return x
 
 
-
-
-
 def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
-
 
     if isinstance(x, pd.Series):
         # Vectorized implementation
         mask_basic = x.isna()
-        
+
         if x.dtype == object:
-             mask_scalar = x.isin([_unable_to_detect()])
-             try:
-                 mask_list = (x.str.len() == 1) & (x.str[0] == _unable_to_detect())
-                 mask_list = mask_list.fillna(False)
-             except AttributeError:
-                 mask_list = False
-             
-             mask = mask_basic | mask_scalar | mask_list
+            mask_scalar = x.isin([_unable_to_detect()])
+            try:
+                mask_list = (x.str.len() == 1) & (x.str[0] == _unable_to_detect())
+                mask_list = mask_list.fillna(False)
+            except AttributeError:
+                mask_list = False
+
+            mask = mask_basic | mask_scalar | mask_list
         else:
-             mask = mask_basic | (x == _unable_to_detect())
+            mask = mask_basic | (x == _unable_to_detect())
 
         if not mask.any():
             return x
-            
+
         result = x.copy()
-        
+
         if unable_to_detect_policy == "empty":
             result.loc[mask] = pd.Series([[] for _ in range(mask.sum())], index=result.index[mask])
         elif unable_to_detect_policy == "drop":
@@ -1109,23 +1052,30 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
         elif unable_to_detect_policy == "median":
             result[mask] = the_median
         elif unable_to_detect_policy == "keep":
-             mask_na = x.isna()
-             # The sentinel is a one-element list, which only an object-dtype
-             # column can hold. A typed column (datetime/numeric/bool) rejects the
-             # list cast, and a missing value there has no meaningful sentinel, so
-             # leave it NA.
-             if x.dtype == object and mask_na.any():
-                 result.loc[mask_na] = pd.Series([[_unable_to_detect()] for _ in range(mask_na.sum())], index=result.index[mask_na])
+            mask_na = x.isna()
+            # The sentinel is a one-element list, which only an object-dtype
+            # column can hold. A typed column (datetime/numeric/bool) rejects the
+            # list cast, and a missing value there has no meaningful sentinel, so
+            # leave it NA.
+            if x.dtype == object and mask_na.any():
+                result.loc[mask_na] = pd.Series(
+                    [[_unable_to_detect()] for _ in range(mask_na.sum())],
+                    index=result.index[mask_na],
+                )
         elif unable_to_detect_policy == "zero":
-             if pd.api.types.is_numeric_dtype(x):
+            if pd.api.types.is_numeric_dtype(x):
                 val = 0
-             else:
+            else:
                 val = "no"
-             result[mask] = val
-             
+            result[mask] = val
+
         return result
 
-    if (isinstance(x,list) and len(x)==1 and x[0]==_unable_to_detect()) or (isinstance(x,str) and x==_unable_to_detect()) or ((not isinstance(x,list)) and pd.isna(x)):
+    if (
+        (isinstance(x, list) and len(x) == 1 and x[0] == _unable_to_detect())
+        or (isinstance(x, str) and x == _unable_to_detect())
+        or ((not isinstance(x, list)) and pd.isna(x))
+    ):
         if unable_to_detect_policy == "empty":
             return []
         elif unable_to_detect_policy == "drop":
@@ -1138,23 +1088,18 @@ def implement_unable_to_detect_policy(x, unable_to_detect_policy, the_median=0):
             else:
                 return x
         elif unable_to_detect_policy == "zero":
-            gg = x if not isinstance(x,list) else x[0]
-            if isinstance(gg,(int, float, np.int64, np.float64)):
+            gg = x if not isinstance(x, list) else x[0]
+            if isinstance(gg, (int, float, np.int64, np.float64)):
                 gg_out = np.int64(0)
             else:
                 gg_out = "no"
-            if isinstance(x,list):
+            if isinstance(x, list):
                 return [gg_out]
             return gg_out
         else:
             return x
     else:
         return x
-
-
-
-
-
 
 
 def recode_events_df(
@@ -1165,8 +1110,7 @@ def recode_events_df(
     reporter=None,
     drop_guardrail: str = "off",
     drop_allow_list: set[str] | None = None,
-    ):
-
+):
 
     # Safe nunique for lists
     def _safe_nunique(s):
@@ -1175,8 +1119,9 @@ def recode_events_df(
         except TypeError:
             return s.astype(str).nunique()
 
-
-    logger.info("Recoding variables, implementing missing data policy and a whole range of other things...")
+    logger.info(
+        "Recoding variables, implementing missing data policy and a whole range of other things..."
+    )
 
     # This thing now only works with a study dataset as input
     # It is not used in the web interface but only in the offline data prep
@@ -1184,9 +1129,6 @@ def recode_events_df(
     if study_dataset is None:
         logger.error("  This process cannot run without a study dataset as input. Process failed.")
         return None
-
-
-
 
     cool_events = study_dataset.copy()
 
@@ -1211,13 +1153,16 @@ def recode_events_df(
     except Exception:
         field_ranges = {}
 
-    fyp_factors, _ = get_factors_and_features_from_var_schema(some_events_df = cool_events, verbose = verbose)
-
+    fyp_factors, _ = get_factors_and_features_from_var_schema(
+        some_events_df=cool_events, verbose=verbose
+    )
 
     # this will be overwritten in at a later stage - I just want to turn it into a string for now
     try:
         if "session_id" in cool_events.columns:
-            cool_events["session_id"] = cool_events["session_id"].map(lambda x:f"S{int(x):05}" if pd.notna(x) else pd.NA)
+            cool_events["session_id"] = cool_events["session_id"].map(
+                lambda x: f"S{int(x):05}" if pd.notna(x) else pd.NA
+            )
     except Exception:
         # it's not vital that this goes well
         pass
@@ -1226,26 +1171,31 @@ def recode_events_df(
     variables_not_found_in_var_schema = list(set(cool_events.columns) - set(var_schema.index))
     if len(variables_not_found_in_var_schema) > 0:
         record_dropped_columns(
-            "recode_prefilter", variables_not_found_in_var_schema, reason="unknown",
-            reporter=reporter, allow_list=drop_allow_list, guardrail=drop_guardrail,
+            "recode_prefilter",
+            variables_not_found_in_var_schema,
+            reason="unknown",
+            reporter=reporter,
+            allow_list=drop_allow_list,
+            guardrail=drop_guardrail,
             verbose=verbose,
         )
         cool_events = cool_events.drop(columns=variables_not_found_in_var_schema).copy()
 
-
-
     if drop_single_value_cols:
-        single_value_columns = [c for c in cool_events.columns if _safe_nunique(cool_events[c])==1 and c not in fyp_factors]
+        single_value_columns = [
+            c
+            for c in cool_events.columns
+            if _safe_nunique(cool_events[c]) == 1 and c not in fyp_factors
+        ]
         if verbose:
             join_str = "\n    - "
-            logger.info(f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}")
+            logger.info(
+                f"Step 2. Dropping {len(single_value_columns)} single value columns:\n    - {join_str.join(single_value_columns)}. Shape: {cool_events.shape}"
+            )
         cool_events = cool_events.drop(columns=single_value_columns).copy()
-
-
 
     if verbose:
         logger.info(f"Executing recode policies from variable schema. Shape: {cool_events.shape}")
-
 
     cool_columns = copy(cool_events.columns)
     # Frames produced by dict-column unpacking (pd.json_normalize below) that
@@ -1256,18 +1206,16 @@ def recode_events_df(
     # the original semantics (new columns visible to later iterations) must
     # be preserved and we materialize the concat immediately.
     deferred_unpacked_frames: list[pd.DataFrame] = []
-    remaining_columns_by_index = [
-        set(cool_columns[j+1:]) for j in range(len(cool_columns))
-    ]
+    remaining_columns_by_index = [set(cool_columns[j + 1 :]) for j in range(len(cool_columns))]
     # Columns dropped inside the per-column pass, recorded once after the loop
     # (rather than per column) to keep the reporter payload compact.
     skipped_columns: list[str] = []
     unknown_columns: list[str] = []
     # iterate over the columns in the events df
-    for i,c in enumerate(cool_columns):
-        preamble = f"    {(i+1):02}/{len(cool_columns):02}. {c}{' '*(40-len(c))}"
-        preamble2 = f"    {' '*6} {c}{' '*(40-len(c))}"
-        #if verbose: 
+    for i, c in enumerate(cool_columns):
+        preamble = f"    {(i + 1):02}/{len(cool_columns):02}. {c}{' ' * (40 - len(c))}"
+        preamble2 = f"    {' ' * 6} {c}{' ' * (40 - len(c))}"
+        # if verbose:
         #    print(preamble, end="", flush=True)
 
         # if this is in the var_schema...
@@ -1281,17 +1229,19 @@ def recode_events_df(
             this_var_schema["normalize_range"] = field_ranges.get(c)
 
             if this_var_schema.get("role", "undefined") != "skip":
-
                 # ------------------------------------------------------
                 # 1.'raw' means that the variable is going to be transformed into a set of new variables
                 # and if there is a variable in the schema with the same name as this variable but with the
                 # extension "_raw" it means that I want to keep the original variable (it is copied here).
                 # If such a variable name isn't in the schema, then the original variable will be dropped.
                 # ------------------------------------------------------
-                if this_var_schema.get("scale", "undefined") == "raw" and c+"_raw" in var_schema.index:
+                if (
+                    this_var_schema.get("scale", "undefined") == "raw"
+                    and c + "_raw" in var_schema.index
+                ):
                     if verbose:
                         print(f"{preamble}Copied raw. ", end="", flush=True)
-                    cool_events[c+"_raw"] = cool_events[c].copy()
+                    cool_events[c + "_raw"] = cool_events[c].copy()
                 else:
                     if verbose:
                         print(preamble, end="", flush=True)
@@ -1310,7 +1260,10 @@ def recode_events_df(
                     # re-raise with the full traceback visible.
                     try:
                         cool_events[c] = func(cool_events[c], this_var_schema)
-                        if verbose: logger.info(f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})")
+                        if verbose:
+                            logger.info(
+                                f"Recoded successfully ({this_var_schema.get('scale', 'unknown scale')})"
+                            )
                     except Exception as e:
                         traceback.print_exc()
                         raw_flag = this_var_schema.get("allow_scalar_fallback", False)
@@ -1322,14 +1275,20 @@ def recode_events_df(
                                 f"or set `allow_scalar_fallback=true` in var_schema for this column "
                                 f"if the scalar fallback is intentional."
                             ) from e
-                        logger.warning(f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true).")
+                        logger.warning(
+                            f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true)."
+                        )
                         try:
                             cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
                         except Exception as map_e:
-                            raise Exception(f"Error: Map recode also failed for '{c}': ({map_e}).") from map_e
+                            raise Exception(
+                                f"Error: Map recode also failed for '{c}': ({map_e})."
+                            ) from map_e
                 else:
-                    if verbose: logger.info(f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})")
-
+                    if verbose:
+                        logger.info(
+                            f"Has no recode func, so no change ({this_var_schema.get('scale', 'unknown scale')})"
+                        )
 
                 # ------------------------------------------------------
                 # 3. normalise missing / unable-to-detect values by data kind.
@@ -1340,54 +1299,51 @@ def recode_events_df(
                 uncertain_policy = default_uncertain_policy(this_var_schema.get("scale", ""))
 
                 cool_events[c] = implement_unable_to_detect_policy(
-                    cool_events[c],
-                    uncertain_policy,
-                    None)
+                    cool_events[c], uncertain_policy, None
+                )
 
                 cool_events[c] = implement_missing_data_policy(
                     cool_events[c],
-                    "drop",#this_var_schema.get("missing_data_policy","No policy"),
-                    None)
-                
-                
+                    "drop",  # this_var_schema.get("missing_data_policy","No policy"),
+                    None,
+                )
+
                 # ------------------------------------------------------
                 # 4. Check for multiple values/types logic
                 # ------------------------------------------------------
-                
+
                 # If we expect single values (categorical, numeric, datetime), ensure no lists > 1
-                if this_var_schema.get("scale", "") in ["categorical","numeric","datetime"]:
+                if this_var_schema.get("scale", "") in ["categorical", "numeric", "datetime"]:
                     # Fast check: if object type, might contain lists
                     if cool_events[c].dtype == object:
                         # 'get first if list' logic normalization
                         def _normalize_single(x):
                             if isinstance(x, list):
-                                if len(x) > 1: return x # leave as list for validation
+                                if len(x) > 1:
+                                    return x  # leave as list for validation
                                 return x[0] if x else pd.NA
                             return x
-                            
+
                         # apply normalization
                         cool_events[c] = cool_events[c].map(_normalize_single)
-                        
+
                         # Use a sample check or fast check for remaining lists (validation)
                         has_lists = cool_events[c].map(lambda x: isinstance(x, list)).any()
                         if has_lists:
-                             # calculate count for error message
-                             count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
-                             raise ValueError(f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, numeric, and datetime variables.")
-
-
-
+                            # calculate count for error message
+                            count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
+                            raise ValueError(
+                                f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, numeric, and datetime variables."
+                            )
 
                 # ------------------------------------------------------
                 # 4&half. for numeric variables, I only accept numeric values
                 # ------------------------------------------------------
-                if (this_var_schema["scale"] in ["numeric"]):
+                if this_var_schema["scale"] in ["numeric"]:
                     cool_events[c] = cool_events[c].astype("double[pyarrow]")
                     # Check for integers using numpy float64 - safer for NaNs and avoids pyarrow mod error
                     if not (cool_events[c].dropna().astype("float64") % 1 != 0).any():
                         cool_events[c] = cool_events[c].astype("int64[pyarrow]")
-
-
 
                 # ------------------------------------------------------
                 # 6. for dict variables, I unpack the dicts into new separate columns
@@ -1407,13 +1363,18 @@ def recode_events_df(
                     new_thing = new_thing.add_prefix(f"{c}_")
                     new_thing.index = cool_events.index
                     if verbose:
-                        logger.info(f"{preamble2}Recoded to new variables {', '.join(new_thing.columns)}")
+                        logger.info(
+                            f"{preamble2}Recoded to new variables {', '.join(new_thing.columns)}"
+                        )
 
                     new_thing_cols = copy(new_thing.columns)
                     for new_thing_c in new_thing_cols:
                         # ``str(...)`` keeps the skip test NA-safe: a fan-out column with a
                         # blank (NA) role compares False rather than raising on ``NA == "skip"``.
-                        if new_thing_c not in var_schema.index or str(var_schema.loc[new_thing_c, "role"]) == "skip":
+                        if (
+                            new_thing_c not in var_schema.index
+                            or str(var_schema.loc[new_thing_c, "role"]) == "skip"
+                        ):
                             if verbose:
                                 logger.info(f"{preamble2}Skipping new variable: {new_thing_c}")
                             new_thing = new_thing.drop(columns=new_thing_c)
@@ -1421,7 +1382,7 @@ def recode_events_df(
                     # Drop the original source column once it has been fanned out.
                     # Keyed on ``scale == "raw"`` (the tokeniser kind), so the source
                     # caption (``desc``) is discarded after its hashtags are unpacked.
-                    if var_schema.loc[c,"scale"] == "raw":
+                    if var_schema.loc[c, "scale"] == "raw":
                         # Lightweight column-level drop (no full-frame copy of
                         # the remaining columns); heavy concat is deferred
                         # below unless a later iteration needs the new cols.
@@ -1450,8 +1411,12 @@ def recode_events_df(
         "recode_skip", skipped_columns, reason="skip", reporter=reporter, verbose=verbose
     )
     record_dropped_columns(
-        "recode_unknown", unknown_columns, reason="unknown",
-        reporter=reporter, allow_list=drop_allow_list, guardrail=drop_guardrail,
+        "recode_unknown",
+        unknown_columns,
+        reason="unknown",
+        reporter=reporter,
+        allow_list=drop_allow_list,
+        guardrail=drop_guardrail,
         verbose=verbose,
     )
 
@@ -1464,84 +1429,79 @@ def recode_events_df(
     if ensure_pyarrow_compliance:
         cool_events = convert_dtypes_to_pyarrow(cool_events, verbose=verbose)
 
-    
     logger.info(f"...done recoding variables at {datetime.now()}")
 
-    return cool_events 
-
-
-
-
-
-
-
-
-
+    return cool_events
 
 
 # Try to import rapidfuzz for faster matching
 try:
     from rapidfuzz import fuzz, process
+
     _HAS_RAPIDFUZZ = True
 except ImportError:
     _HAS_RAPIDFUZZ = False
 
+
 def recode_fuzzy_match(
-    list_a: list, 
-    list_b: list, 
-    threshold: float = 0.8, 
-    verbose: bool = False
+    list_a: list, list_b: list, threshold: float = 0.8, verbose: bool = False
 ) -> list:
     """
     Matches strings in list_a against strings in list_b by similarity.
     Replaces matched strings in A with their counterpart in B.
     Unmatched strings are replaced with 'fyp_cf['labels']['OTHER_THINGS']'.
-    
+
     Optimizations:
     1. Exact matches are checked first (O(1) lookup).
     2. Uses rapidfuzz if available for faster fuzzy matching.
     3. Falls back to difflib if rapidfuzz is not installed.
-    
+
     Args:
         list_a: List of strings to be recoded.
         list_b: List of target strings (the reference list).
         threshold: float between 0 and 1. Similarity score required to match.
         verbose: bool, if True prints warnings/info.
-        
+
     Returns:
         List of strings with same length as list_a.
     """
-    
+
     # Detect if input is a pandas Series to preserve index
     is_series = isinstance(list_a, pd.Series)
     input_index = list_a.index if is_series else None
-    
+
     # ensure inputs are lists for processing
     if is_series:
         processing_list = list_a.tolist()
     elif not isinstance(list_a, list):
         if verbose:
-            logger.warning(f"Warning: list_a is not a list (got {type(list_a)}). Returning empty list.")
+            logger.warning(
+                f"Warning: list_a is not a list (got {type(list_a)}). Returning empty list."
+            )
         return []
     else:
         processing_list = list_a
-        
+
     if not isinstance(list_b, list):
         if verbose:
-            logger.warning(f"Warning: list_b is not a list (got {type(list_b)}). Returning {_cf()['labels']['OTHER_THINGS']}.")
-        return [_cf()['labels']['OTHER_THINGS']] * len(processing_list) # Return list if input was list
+            logger.warning(
+                f"Warning: list_b is not a list (got {type(list_b)}). Returning {_cf()['labels']['OTHER_THINGS']}."
+            )
+        return [_cf()["labels"]["OTHER_THINGS"]] * len(
+            processing_list
+        )  # Return list if input was list
 
     refined_list = []
-    
+
     # Pre-clean list_b to ensure all elements are strings - handle pandas NA
     valid_candidates = [str(x) for x in list_b if pd.notna(x)]
-    
+
     # Optimization 1: Exact Match Lookup
     candidates_set = set(valid_candidates)
-    
+
     # Optimization 2: Use rapidfuzz if available
     rapid_threshold = threshold * 100
-    
+
     for item in processing_list:
         # Handle list-like items (e.g. column of lists like [['tag1', 'tag2'], ['tag3']])
         # Also handle numpy arrays and tuples to avoid "ambiguous truth value" errors in pd.isna()
@@ -1549,9 +1509,9 @@ def recode_fuzzy_match(
             sub_result = []
             for sub_item in item:
                 if pd.isna(sub_item) or not isinstance(sub_item, str):
-                    sub_result.append(_cf()['labels']['OTHER_THINGS'])
+                    sub_result.append(_cf()["labels"]["OTHER_THINGS"])
                     continue
-                
+
                 # Check Exact Match First (Sub-item)
                 if sub_item in candidates_set:
                     sub_result.append(sub_item)
@@ -1561,10 +1521,7 @@ def recode_fuzzy_match(
                 best_sub_match = None
                 if _HAS_RAPIDFUZZ:
                     result = process.extractOne(
-                        sub_item, 
-                        valid_candidates, 
-                        scorer=fuzz.ratio, 
-                        score_cutoff=rapid_threshold
+                        sub_item, valid_candidates, scorer=fuzz.ratio, score_cutoff=rapid_threshold
                     )
                     if result:
                         best_sub_match = result[0]
@@ -1575,67 +1532,67 @@ def recode_fuzzy_match(
                         if ratio > highest_sub_ratio:
                             highest_sub_ratio = ratio
                             best_sub_match = candidate
-                    
+
                     if highest_sub_ratio < threshold:
                         best_sub_match = None
-                
+
                 if best_sub_match:
                     sub_result.append(best_sub_match)
                 else:
-                    sub_result.append(_cf()['labels']['OTHER_THINGS'])
-            
+                    sub_result.append(_cf()["labels"]["OTHER_THINGS"])
+
             refined_list.append(sub_result)
             continue
 
         # Handle non-string scalar items
         # Check if scalar is NA safely (already know it's not a list)
         if pd.isna(item) or not isinstance(item, str):
-            refined_list.append(_cf()['labels']['OTHER_THINGS'])
+            refined_list.append(_cf()["labels"]["OTHER_THINGS"])
             continue
-            
+
         # Check Exact Match First (Scalar)
         if item in candidates_set:
             refined_list.append(item)
             continue
-            
+
         # Fuzzy Matching (Scalar)
         best_match = None
-        
+
         if _HAS_RAPIDFUZZ:
             # rapidfuzz implementation
             # extractOne returns (match, score, index)
             result = process.extractOne(
-                item, 
-                valid_candidates, 
-                scorer=fuzz.ratio, # Use simple ratio to match difflib behavior roughly
-                score_cutoff=rapid_threshold
+                item,
+                valid_candidates,
+                scorer=fuzz.ratio,  # Use simple ratio to match difflib behavior roughly
+                score_cutoff=rapid_threshold,
             )
-            
+
             if result:
                 best_match = result[0]
-                
+
         else:
             # difflib fallback implementation
             highest_ratio = 0.0
-            
+
             for candidate in valid_candidates:
                 ratio = difflib.SequenceMatcher(None, item, candidate).ratio()
-                
+
                 if ratio > highest_ratio:
                     highest_ratio = ratio
                     best_match = candidate
-            
+
             # Check threshold for difflib result
             if highest_ratio < threshold:
                 best_match = None
-        
+
         if best_match:
             refined_list.append(best_match)
         else:
-            refined_list.append(_cf()['labels']['OTHER_THINGS'])
-            
+            refined_list.append(_cf()["labels"]["OTHER_THINGS"])
+
     # Return Series if input was Series, correctly indexed
     if is_series:
         return pd.Series(refined_list, index=input_index)
-        
+
     return refined_list

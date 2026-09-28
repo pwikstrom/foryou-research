@@ -10,15 +10,10 @@ from web_interface.run_ingest_refresh import _build_per_file_summary
 def _main_collection(final_rows: dict[str, str], activity_type: str = "play") -> SimpleNamespace:
     """Fake main collection whose .data holds one row per (raw_file, cid)."""
     rows = [
-        {"raw_file": rf, "collection_id": cid, "item_id": str(i),
-         "activity_type": activity_type}
+        {"raw_file": rf, "collection_id": cid, "item_id": str(i), "activity_type": activity_type}
         for i, (rf, cid) in enumerate(final_rows.items())
     ]
     return SimpleNamespace(data=pd.DataFrame(rows))
-
-
-
-
 
 
 def test_summary_merges_drop_stats_and_min_row_counts():
@@ -50,8 +45,6 @@ def test_summary_merges_drop_stats_and_min_row_counts():
     assert tiny["raw_rows"] == 4
 
 
-
-
 def test_play_rows_counts_only_watch_history():
     """A donation can keep rows and still contribute no viewing at all."""
     main = _main_collection({"engagement_only.zip": "c1"}, activity_type="fave")
@@ -59,7 +52,9 @@ def test_play_rows_counts_only_watch_history():
     summary = _build_per_file_summary(
         main,
         raw_counts={"engagement_only.zip": {"rows": 100, "platform": "tiktok", "source": "ddp"}},
-        processed_counts={"engagement_only.zip": {"rows": 90, "platform": "tiktok", "source": "ddp"}},
+        processed_counts={
+            "engagement_only.zip": {"rows": 90, "platform": "tiktok", "source": "ddp"}
+        },
         discarded_at_load=set(),
         existing_raw_files=set(),
     )
@@ -67,10 +62,6 @@ def test_play_rows_counts_only_watch_history():
     entry = summary[0]
     assert entry["final_rows"] == 1
     assert entry["play_rows"] == 0
-
-
-
-
 
 
 def test_summary_without_file_stats_still_works():
@@ -85,8 +76,6 @@ def test_summary_without_file_stats_still_works():
     )
     assert summary[0]["dropped"] == {}
     assert summary[0]["raw_rows"] == 10
-
-
 
 
 def test_a_redonation_that_supersedes_every_row_is_a_merge():

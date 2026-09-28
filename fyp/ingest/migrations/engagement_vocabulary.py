@@ -59,7 +59,9 @@ def default_raw_loader(data_source: str, raw_file: str):
     import fyp.core.data_io as data_io
 
     first = _TIKTOK_RAW_LOCATIONS.get(str(data_source))
-    locations = ([first] if first else []) + [loc for loc in _TIKTOK_RAW_LOCATIONS.values() if loc != first]
+    locations = ([first] if first else []) + [
+        loc for loc in _TIKTOK_RAW_LOCATIONS.values() if loc != first
+    ]
     for location in locations:
         try:
             if data_io.exists(storage_location=location, filename=raw_file):
@@ -86,13 +88,17 @@ def _section_records(donation_dict: dict, sections: set[str]) -> pd.DataFrame:
             continue
         _, _, link, context = TikTokDDPCollection._unpack_record(variables, values)
         match = TikTokDDPCollection._VIDEO_ID_RE.search(link) if isinstance(link, str) else None
-        rows.append({
-            "section": rec["activity_type"],
-            "item_id": match.group(1) if match else None,
-            "utc_timestamp": pd.to_datetime(values[0], format=_TIKTOK_DATE_FORMAT, errors="coerce", utc=True),
-            "context": (context or "").lower() or None,
-            "_record": "\x1f".join(map(str, values)),
-        })
+        rows.append(
+            {
+                "section": rec["activity_type"],
+                "item_id": match.group(1) if match else None,
+                "utc_timestamp": pd.to_datetime(
+                    values[0], format=_TIKTOK_DATE_FORMAT, errors="coerce", utc=True
+                ),
+                "context": (context or "").lower() or None,
+                "_record": "\x1f".join(map(str, values)),
+            }
+        )
     if not rows:
         return pd.DataFrame(columns=["section", "item_id", "utc_timestamp", "context", "copies"])
     out = pd.DataFrame(rows)
@@ -131,7 +137,9 @@ def rename_following(df: pd.DataFrame) -> int:
 def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable = print) -> dict:
     """``fave`` rows that were TikTok bookmarks → ``save``; per-file report."""
     report: dict = {"retagged": 0, "kept_fave_ambiguous": 0, "files": {}, "missing_raw": []}
-    is_tiktok = (df["source_platform"] == "tiktok") & df["data_source"].isin(list(_TIKTOK_RAW_LOCATIONS))
+    is_tiktok = (df["source_platform"] == "tiktok") & df["data_source"].isin(
+        list(_TIKTOK_RAW_LOCATIONS)
+    )
     candidates = df[is_tiktok & (df["activity_type"] == "fave") & df["item_id"].notna()]
     for (raw_file, data_source), grp in candidates.groupby(["raw_file", "data_source"]):
         donation = load_raw(str(data_source), str(raw_file))
@@ -139,7 +147,9 @@ def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable =
             report["missing_raw"].append(str(raw_file))
             continue
         records = _section_records(donation, {"favoritevideolist", "itemfavoritelist"})
-        bookmarks = records[(records["section"] == "favoritevideolist") & records["item_id"].notna()]
+        bookmarks = records[
+            (records["section"] == "favoritevideolist") & records["item_id"].notna()
+        ]
         if bookmarks.empty:
             continue
         likes = records[(records["section"] == "itemfavoritelist") & records["item_id"].notna()]
@@ -148,7 +158,9 @@ def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable =
         # Liked AND bookmarked in the same second: the stored row could be
         # either; leave it a like rather than guess.
         ambiguous = bookmark_keys & like_keys
-        keys = pd.Series(list(zip(grp["item_id"].astype(str), _utc_ns(grp["utc_timestamp"]))), index=grp.index)
+        keys = pd.Series(
+            list(zip(grp["item_id"].astype(str), _utc_ns(grp["utc_timestamp"]))), index=grp.index
+        )
         hit = keys.map(lambda k: k in bookmark_keys and k not in ambiguous)
         n_hit = int(hit.sum())
         n_amb = int(keys.map(lambda k: k in ambiguous).sum())
@@ -156,14 +168,21 @@ def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable =
             df.loc[hit[hit].index, "activity_type"] = "save"
         report["retagged"] += n_hit
         report["kept_fave_ambiguous"] += n_amb
-        report["files"][str(raw_file)] = {"bookmarks_in_raw": int(len(bookmarks)), "retagged": n_hit, "ambiguous": n_amb}
-        log(f"  [{raw_file}] {len(bookmarks):,} bookmarks in raw → {n_hit:,} fave rows retagged to save"
-            + (f", {n_amb} ambiguous kept as fave" if n_amb else ""))
+        report["files"][str(raw_file)] = {
+            "bookmarks_in_raw": int(len(bookmarks)),
+            "retagged": n_hit,
+            "ambiguous": n_amb,
+        }
+        log(
+            f"  [{raw_file}] {len(bookmarks):,} bookmarks in raw → {n_hit:,} fave rows retagged to save"
+            + (f", {n_amb} ambiguous kept as fave" if n_amb else "")
+        )
     return report
 
 
-def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = print, *,
-                         replace_existing: bool = False) -> tuple[pd.DataFrame, dict]:
+def append_tiktok_shares(
+    df: pd.DataFrame, load_raw: Callable, log: Callable = print, *, replace_existing: bool = False
+) -> tuple[pd.DataFrame, dict]:
     """Append ``share`` rows for stored TikTok files whose raw export still holds them.
 
     Copies ``collection_id`` / ``source_platform`` / ``data_source`` /
@@ -183,7 +202,9 @@ def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = p
     if replace_existing:
         report["replaced"] = 0
     drop_index: list = []
-    is_tiktok = (df["source_platform"] == "tiktok") & df["data_source"].isin(list(_TIKTOK_RAW_LOCATIONS))
+    is_tiktok = (df["source_platform"] == "tiktok") & df["data_source"].isin(
+        list(_TIKTOK_RAW_LOCATIONS)
+    )
     new_frames = []
     for (raw_file, data_source), grp in df[is_tiktok].groupby(["raw_file", "data_source"]):
         donation = load_raw(str(data_source), str(raw_file))
@@ -203,28 +224,50 @@ def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = p
             drop_index.extend(existing.index.tolist())
             report["replaced"] += int(len(existing))
         elif not existing.empty:
-            have = set(zip(existing["item_id"].astype("string").fillna(""), _utc_ns(existing["utc_timestamp"])))
-            keys = list(zip(records["item_id"].fillna("").astype(str), _utc_ns(records["utc_timestamp"])))
+            have = set(
+                zip(
+                    existing["item_id"].astype("string").fillna(""),
+                    _utc_ns(existing["utc_timestamp"]),
+                )
+            )
+            keys = list(
+                zip(records["item_id"].fillna("").astype(str), _utc_ns(records["utc_timestamp"]))
+            )
             records = records[[k not in have for k in keys]]
         if records.empty:
             continue
         sibling = grp.iloc[0]
-        part = pd.DataFrame({
-            "item_id": records["item_id"].astype("string[pyarrow]").values,
-            "activity_type": pd.array(["share"] * len(records), dtype="string[pyarrow]"),
-            "utc_timestamp": _utc_ns(records["utc_timestamp"]).values,
-            "extra_data": records["extra_data"].astype("string[pyarrow]").values,
-        })
-        for col in ("collection_id", "source_platform", "data_source", "raw_file", "tz_offset", "ts_added_to_dataset"):
+        part = pd.DataFrame(
+            {
+                "item_id": records["item_id"].astype("string[pyarrow]").values,
+                "activity_type": pd.array(["share"] * len(records), dtype="string[pyarrow]"),
+                "utc_timestamp": _utc_ns(records["utc_timestamp"]).values,
+                "extra_data": records["extra_data"].astype("string[pyarrow]").values,
+            }
+        )
+        for col in (
+            "collection_id",
+            "source_platform",
+            "data_source",
+            "raw_file",
+            "tz_offset",
+            "ts_added_to_dataset",
+        ):
             if col in df.columns:
                 part[col] = sibling[col]
         new_frames.append(part)
         report["appended"] += int(len(part))
         report["files"][str(raw_file)] = int(len(part))
         sends_with_copies = int((records["copies"] > 1).sum())
-        replaced = f", replacing {len(existing):,} stored" if replace_existing and not existing.empty else ""
-        log(f"  [{raw_file}] {len(part):,} share rows appended{replaced}"
-            + (f" ({sends_with_copies:,} sends carry a record count)" if sends_with_copies else ""))
+        replaced = (
+            f", replacing {len(existing):,} stored"
+            if replace_existing and not existing.empty
+            else ""
+        )
+        log(
+            f"  [{raw_file}] {len(part):,} share rows appended{replaced}"
+            + (f" ({sends_with_copies:,} sends carry a record count)" if sends_with_copies else "")
+        )
     if drop_index:
         df = df.drop(index=drop_index)
     if not new_frames:
@@ -268,9 +311,14 @@ def refold_all(df: pd.DataFrame, log: Callable = print) -> int:
     return n_groups
 
 
-def migrate(df: pd.DataFrame, load_raw: Callable = default_raw_loader, *,
-            append_new_sections: bool = False, recount_shares: bool = False,
-            log: Callable = print) -> tuple[pd.DataFrame, dict]:
+def migrate(
+    df: pd.DataFrame,
+    load_raw: Callable = default_raw_loader,
+    *,
+    append_new_sections: bool = False,
+    recount_shares: bool = False,
+    log: Callable = print,
+) -> tuple[pd.DataFrame, dict]:
     """Run every step over ``df`` and return ``(migrated frame, report)``.
 
     ``df`` is not modified; the returned frame is a rewritten copy sorted the
@@ -288,11 +336,23 @@ def migrate(df: pd.DataFrame, load_raw: Callable = default_raw_loader, *,
     report["retag"] = retag_tiktok_bookmarks(df, load_raw, log)
 
     if append_new_sections or recount_shares:
-        log("3. " + ("rebuild share rows from raw exports (one row per send, with its record count)"
-                     if recount_shares else "append share rows still present in raw exports"))
-        df, report["append"] = append_tiktok_shares(df, load_raw, log, replace_existing=recount_shares)
-        if (report["append"]["appended"] or report["append"].get("replaced")) and "collection_id" in df.columns:
-            df = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").reset_index(drop=True)
+        log(
+            "3. "
+            + (
+                "rebuild share rows from raw exports (one row per send, with its record count)"
+                if recount_shares
+                else "append share rows still present in raw exports"
+            )
+        )
+        df, report["append"] = append_tiktok_shares(
+            df, load_raw, log, replace_existing=recount_shares
+        )
+        if (
+            report["append"]["appended"] or report["append"].get("replaced")
+        ) and "collection_id" in df.columns:
+            df = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").reset_index(
+                drop=True
+            )
             df = assign_session_ids(df)
     else:
         report["append"] = {"skipped": True}

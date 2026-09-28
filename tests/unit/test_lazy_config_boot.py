@@ -29,11 +29,11 @@ ROOT = Path(__file__).resolve().parents[2]
 def _run(code: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-c", code],
-        capture_output=True, text=True, cwd=ROOT,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
         env={"PYTHONPATH": str(ROOT), "PATH": "/usr/bin:/bin"},
     )
-
-
 
 
 def test_import_does_not_boot_and_first_access_boots_once():
@@ -53,8 +53,6 @@ def test_import_does_not_boot_and_first_access_boots_once():
     assert sep, "marker missing from stdout"
     assert "[BOOT]" not in before, f"import alone ran the heavy init:\n{before}"
     assert after.count("[BOOT]") == 1, f"expected exactly one [BOOT]:\n{after}"
-
-
 
 
 def test_app_import_boots_exactly_once():

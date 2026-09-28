@@ -12,10 +12,6 @@ Covers:
 import pandas as pd
 
 
-
-
-
-
 def test_no_video_formats_is_permanent_no_video():
     from fyp.scrape import instagram_dl
 
@@ -24,10 +20,6 @@ def test_no_video_formats_is_permanent_no_video():
     assert category == "no_video"
     assert category in instagram_dl._PERMANENT
     assert category not in instagram_dl._RETRYABLE
-
-
-
-
 
 
 def test_carousel_category_is_retryable():
@@ -39,20 +31,12 @@ def test_carousel_category_is_retryable():
     assert instagram_dl.InstagramScraper().classify_error("carousel") == "transient:carousel"
 
 
-
-
-
-
 def test_there_is_no_video_still_classified_no_video():
     from fyp.scrape import instagram_dl
 
     exc = instagram_dl.ExtractorError("There is no video in this post")
     category, _ = instagram_dl._classify_error(exc)
     assert category == "no_video"
-
-
-
-
 
 
 def test_empty_media_response_stays_rate_limited():
@@ -64,10 +48,6 @@ def test_empty_media_response_stays_rate_limited():
     )
     category, _ = instagram_dl._classify_error(exc)
     assert category == "rate_limited"
-
-
-
-
 
 
 class _FakeFuture:
@@ -90,14 +70,13 @@ def test_scrape_future_success_predicate():
     assert scrape._scrape_future_succeeded(_FakeFuture(result=(0, ok_df))) is True
 
     # Empty fail-frame (what a failed fetch returns) => NOT success.
-    assert scrape._scrape_future_succeeded(_FakeFuture(result=(1, empty_fail("rate_limited")))) is False
+    assert (
+        scrape._scrape_future_succeeded(_FakeFuture(result=(1, empty_fail("rate_limited"))))
+        is False
+    )
 
     # A future that raised => NOT success (and must not propagate).
     assert scrape._scrape_future_succeeded(_FakeFuture(exc=RuntimeError("boom"))) is False
-
-
-
-
 
 
 def test_requests_cookiejar_local_dev_falls_back_to_chrome(monkeypatch):
@@ -122,33 +101,34 @@ def test_requests_cookiejar_local_dev_falls_back_to_chrome(monkeypatch):
     assert sc.requests_cookiejar("instagram") is None
 
 
-
-
-
-
 def test_cookie_health_local_dev_probes_chrome(monkeypatch):
     from fyp.scrape import scraper_cookies as sc
 
     monkeypatch.setattr(sc, "_is_local_dev", lambda: True)
 
     # Not logged in (no session cookie) → not healthy.
-    monkeypatch.setattr(sc, "_chrome_session_status",
-                        lambda platform, session_cookie: ("absent", None, "no cookie"))
+    monkeypatch.setattr(
+        sc, "_chrome_session_status", lambda platform, session_cookie: ("absent", None, "no cookie")
+    )
     h = sc.cookie_health("instagram", session_cookie="sessionid")
     assert h["status"] == "missing"
     assert h["present"] is False
 
     # Logged in, comfortable expiry → healthy.
     future = sc.time.time() + 300 * 86400
-    monkeypatch.setattr(sc, "_chrome_session_status",
-                        lambda platform, session_cookie: ("present", future, None))
+    monkeypatch.setattr(
+        sc, "_chrome_session_status", lambda platform, session_cookie: ("present", future, None)
+    )
     h = sc.cookie_health("instagram", session_cookie="sessionid")
     assert h["status"] == "healthy"
     assert h["present"] is True
 
     # Chrome unreadable (e.g. app-bound encryption) → unknown, not a false green.
-    monkeypatch.setattr(sc, "_chrome_session_status",
-                        lambda platform, session_cookie: ("unreadable", None, "could not read"))
+    monkeypatch.setattr(
+        sc,
+        "_chrome_session_status",
+        lambda platform, session_cookie: ("unreadable", None, "could not read"),
+    )
     h = sc.cookie_health("instagram", session_cookie="sessionid")
     assert h["status"] == "unknown"
     assert h["present"] is False

@@ -115,6 +115,7 @@ def build_coupling_report() -> dict:
 # Hard invariants
 # ----------------------------------------------------------------------------
 
+
 def test_recode_funcs_are_registered() -> None:
     # recode_func is no longer a column — the op is derived per field by
     # build_recode_plan (scale + skip_recode). Assert every live variable resolves to
@@ -123,8 +124,7 @@ def test_recode_funcs_are_registered() -> None:
     registry = set(rv.get_recode_func_registry().values())
     plan = rv.build_recode_plan(vs.set_index("variable_name"))
     unknown = sorted(
-        name for name, func in plan.items()
-        if func is not None and func not in registry
+        name for name, func in plan.items() if func is not None and func not in registry
     )
     assert not unknown, (
         f"build_recode_plan resolved variables to non-registry callables: {unknown}."
@@ -137,16 +137,20 @@ def test_live_schema_validates() -> None:
     # non-blank name on every row (the contracts' own validators cover the rest).
     vs = fyp_cf["var_schema"]
     bad_roles = sorted(
-        str(r) for r in vs["role"].dropna().unique()
+        str(r)
+        for r in vs["role"].dropna().unique()
         if str(r).strip() and str(r).strip() not in rv.VAR_SCHEMA_ROLES
     )
     assert not bad_roles, f"Live var_schema has unknown role(s): {bad_roles}"
     bad_scales = sorted(
-        str(s) for s in vs["scale"].dropna().unique()
+        str(s)
+        for s in vs["scale"].dropna().unique()
         if str(s).strip() and str(s).strip() not in rv.VAR_SCHEMA_SCALES
     )
     assert not bad_scales, f"Live var_schema has unknown scale(s): {bad_scales}"
-    blank_names = int((vs["variable_name"].isna() | (vs["variable_name"].astype(str).str.strip() == "")).sum())
+    blank_names = int(
+        (vs["variable_name"].isna() | (vs["variable_name"].astype(str).str.strip() == "")).sum()
+    )
     assert blank_names == 0, f"Live var_schema has {blank_names} row(s) with a blank variable_name"
 
 
@@ -159,6 +163,7 @@ def test_variable_names_unique() -> None:
 # ----------------------------------------------------------------------------
 # Drift baseline
 # ----------------------------------------------------------------------------
+
 
 def test_coupling_matches_baseline() -> None:
     report = build_coupling_report()
@@ -183,9 +188,7 @@ def test_coupling_matches_baseline() -> None:
 
 def bless() -> None:
     report = build_coupling_report()
-    COUPLING_BASELINE.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    COUPLING_BASELINE.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Wrote coupling baseline to {COUPLING_BASELINE}:")
     print(json.dumps(report, indent=2, ensure_ascii=False))
 

@@ -100,6 +100,7 @@ def _admin_kill_switch() -> bool:
     """
     try:
         from web_interface import admin_settings
+
         return bool(admin_settings.get_setting("auto_enrichment_enabled"))
     except Exception:
         return False
@@ -114,7 +115,8 @@ def _hard_gate() -> list[str]:
     next cycle's scrape run inside the current cycle's annotation window.
     """
     from web_interface.services.worker_status import (
-        PIPELINE_STEPS_ORDER, _is_worker_running,
+        PIPELINE_STEPS_ORDER,
+        _is_worker_running,
     )
 
     blocking = []
@@ -123,6 +125,7 @@ def _hard_gate() -> list[str]:
             blocking.append(name)
     try:
         from web_interface import drain_lease
+
         blocking += [f"local drain ({p})" for p in sorted(drain_lease.active_drain_leases())]
     except Exception:
         pass
@@ -132,6 +135,7 @@ def _hard_gate() -> list[str]:
 def _scrape_lane_busy(platform: str) -> bool:
     """True while this platform's scraper is running."""
     from web_interface.services.worker_status import _is_worker_running
+
     return _is_worker_running(f"queue_scraper_{platform}")
 
 
@@ -143,6 +147,7 @@ def _annotate_lane_busy() -> bool:
     never overlap — and the lane check is what enforces that here.
     """
     from web_interface.services.worker_status import _is_worker_running
+
     return _is_worker_running("queue_annotator") or _is_worker_running("queue_annotator_batch")
 
 
@@ -155,22 +160,21 @@ def _in_flight_annotation_ids() -> set[str]:
     single-job file a pre-table chain may still be carrying.
     """
     try:
-        state = data_io.load_json(storage_location="cache",
-                                  filename="annotate_batch_job.json")
+        state = data_io.load_json(storage_location="cache", filename="annotate_batch_job.json")
     except Exception:
         return set()
     if not isinstance(state, dict):
         return set()
     jobs = state.get("jobs")
     if isinstance(jobs, list):
-        return {str(i) for j in jobs if isinstance(j, dict)
-                for i in (j.get("submitted_ids") or [])}
+        return {str(i) for j in jobs if isinstance(j, dict) for i in (j.get("submitted_ids") or [])}
     return {str(i) for i in (state.get("submitted_ids") or [])}
 
 
 def _pipeline_in_flight() -> bool:
     """True in the gap between one pipeline step ending and the next booting."""
     from web_interface.process_manager import load_process_stats, process_stats
+
     load_process_stats()
     return bool(process_stats.get("consolidate_enrichment", {}).get("pipeline_in_flight"))
 
@@ -182,14 +186,16 @@ def _unconsolidated() -> str | None:
     Data Management banner: newest worker success versus ``last_consolidation``.
     """
     from web_interface.process_manager import (
-        SCRAPER_PROCESS_NAMES, load_process_stats, process_stats,
+        SCRAPER_PROCESS_NAMES,
+        load_process_stats,
+        process_stats,
     )
+
     load_process_stats()
     consolidated = process_stats.get("consolidate_enrichment", {}).get("last_consolidation") or ""
 
     def _newest(names) -> str:
-        return max((process_stats.get(n, {}).get("last_success") or "" for n in names),
-                   default="")
+        return max((process_stats.get(n, {}).get("last_success") or "" for n in names), default="")
 
     scraped = _newest(SCRAPER_PROCESS_NAMES + ["queue_scraper"])
     annotated = _newest(["queue_annotator", "queue_annotator_batch"])
@@ -213,6 +219,7 @@ def _annotator_process() -> str:
     """
     try:
         from fyp.annotation.backends import active_backend_name, get_backend
+
         if get_backend(active_backend_name()).supports_batch_mode:
             return "queue_annotator_batch"
     except Exception:
@@ -225,9 +232,12 @@ def _annotator_process() -> str:
 # the script, so both modes need an entry here.
 def _script_for(name: str):
     from fyp.core.fyp_config import (
-        CONSOLIDATE_ENRICHMENT_SCRIPT, QUEUE_ANNOTATOR_BATCH_SCRIPT,
-        QUEUE_ANNOTATOR_SCRIPT, QUEUE_SCRAPER_SCRIPT,
+        CONSOLIDATE_ENRICHMENT_SCRIPT,
+        QUEUE_ANNOTATOR_BATCH_SCRIPT,
+        QUEUE_ANNOTATOR_SCRIPT,
+        QUEUE_SCRAPER_SCRIPT,
     )
+
     if name.startswith("queue_scraper"):
         return QUEUE_SCRAPER_SCRIPT
     return {
@@ -239,11 +249,13 @@ def _script_for(name: str):
 
 def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
     from web_interface.process_manager import start_process
+
     args = []
     if name.startswith("queue_scraper_"):
-        args = ["--platform", name[len("queue_scraper_"):]]
-    return start_process(name, _script_for(name), args, task_args=task_args or {},
-                         started_by="enrichment_supervisor")
+        args = ["--platform", name[len("queue_scraper_") :]]
+    return start_process(
+        name, _script_for(name), args, task_args=task_args or {}, started_by="enrichment_supervisor"
+    )
 
 
 def _unavailable_here(platform: str) -> str | None:
@@ -255,6 +267,7 @@ def _unavailable_here(platform: str) -> str | None:
     """
     try:
         from fyp.scrape.platform_scraper import get_scraper
+
         return get_scraper(platform).unavailable_here()
     except Exception:
         return None
@@ -282,36 +295,43 @@ def _scraper_blocked(platform: str) -> str | None:
     Any alert kind holds: every one of them asks a person to look.
     """
     from fyp.scrape import scraper_alerts
+
     alert = scraper_alerts.load_alerts().get(platform)
     if not alert:
         return None
     return str((alert.get("kind") if isinstance(alert, dict) else None) or "scraper_alert")
 
 
-def run_enrichment_supervisor(reporter: TaskStatusReporter,
-                              task_args: dict | None = None) -> dict | None:
+def run_enrichment_supervisor(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Advance the enrichment loop by one step. Never raises into the task runner."""
     task_args = task_args or {}
     started = time.perf_counter()
     forced = str(task_args.get("collection_id") or "")
 
     if not forced and not _admin_kill_switch():
-        reporter.log("Automatic enrichment is switched off site-wide "
-                     "(Admin -> Settings -> auto_enrichment_enabled).")
+        reporter.log(
+            "Automatic enrichment is switched off site-wide "
+            "(Admin -> Settings -> auto_enrichment_enabled)."
+        )
         reporter.emit_data({"action": "disabled"})
         return None
 
     blocking = _hard_gate()
     if blocking or _pipeline_in_flight():
-        why = ', '.join(blocking) or 'pipeline in flight'
+        why = ", ".join(blocking) or "pipeline in flight"
         reporter.log(f"Busy, nothing to do: {why}.")
         if forced:
             # Only a person's click is worth a history line here — the hourly
             # heartbeat waiting behind a long pipeline is not news.
-            journal.record("tick.busy",
-                           f"Cycle requested, but something is still running: {why}",
-                           collection_id=forced, actor=task_args.get("started_by"),
-                           blocking=list(blocking))
+            journal.record(
+                "tick.busy",
+                f"Cycle requested, but something is still running: {why}",
+                collection_id=forced,
+                actor=task_args.get("started_by"),
+                blocking=list(blocking),
+            )
         reporter.emit_data({"action": "busy", "blocking": blocking})
         return None
 
@@ -347,12 +367,14 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
         return None
 
     reporter.log(f"{len(plans)} armed collection(s).")
-    outcome = (_drain(reporter, plans)
-               or _settle(reporter)
-               or _handoff(reporter, plans)
-               or _plan(reporter, plans)
-               or _finalize(reporter)
-               or {"action": "nothing_to_do"})
+    outcome = (
+        _drain(reporter, plans)
+        or _settle(reporter)
+        or _handoff(reporter, plans)
+        or _plan(reporter, plans)
+        or _finalize(reporter)
+        or {"action": "nothing_to_do"}
+    )
 
     # A handoff fills the annotation queue but, on its own, leaves the annotator
     # for a later tick — and ticks fire only at terminal worker completions, so
@@ -360,19 +382,23 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
     # cut and start the next scrape slice, then (below, last) start the
     # annotator on the handed-off backlog so it runs alongside that scrape.
     if outcome.get("action") == "handoff":
-        message = (f"Queued {outcome.get('queued')} item(s) for annotation")
+        message = f"Queued {outcome.get('queued')} item(s) for annotation"
         plan_out = _plan(reporter, plans)
         if plan_out and plan_out.get("action") == "plan":
             # The in-memory entry may predate its first cycle and lack the
             # platform the ledger save just recorded — patch it in so the
             # armed-platforms check sees the queue we just filled.
             pcid = plan_out.get("collection_id")
-            plans = {**plans, pcid: {**(plans.get(pcid) or {}),
-                                     "platform": plan_out.get("platform")}}
+            plans = {
+                **plans,
+                pcid: {**(plans.get(pcid) or {}), "platform": plan_out.get("platform")},
+            }
             drain2 = _drain(reporter, plans)
             if drain2 and drain2.get("action") == "scrape":
-                message += (f"; queued the next slice "
-                            f"({plan_out.get('queued')} item(s)) and started the scraper")
+                message += (
+                    f"; queued the next slice "
+                    f"({plan_out.get('queued')} item(s)) and started the scraper"
+                )
             else:
                 message += f"; queued the next slice ({plan_out.get('queued')} item(s))"
         outcome = {**outcome, "message": message + "."}
@@ -383,34 +409,44 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
         # heartbeat: on 2026-09-05 the first slice sat 12 minutes until a
         # manual tick, and would have sat 48. Start the scraper now.
         pcid = outcome.get("collection_id")
-        plans = {**plans, pcid: {**(plans.get(pcid) or {}),
-                                 "platform": outcome.get("platform")}}
+        plans = {**plans, pcid: {**(plans.get(pcid) or {}), "platform": outcome.get("platform")}}
         follow = _drain(reporter, plans)
         if follow and follow.get("action") == "scrape":
-            outcome = {**outcome,
-                       "message": f"{outcome.get('message', '').rstrip('.')} and started the scraper."}
+            outcome = {
+                **outcome,
+                "message": f"{outcome.get('message', '').rstrip('.')} and started the scraper.",
+            }
 
     # The annotation lane goes LAST, once this tick has handed off and cut
     # its slice: only then is it known whether more scrapes are on their way,
     # which is what decides whether a small queue waits for company or goes
     # now. Not after a consolidation or a refresh was dispatched — those need
     # the lanes quiet, exactly as the busy gate would have enforced.
-    if outcome.get("action") not in ("consolidate", "waiting_consolidate", "finalize",
-                                     "scrape_stalled"):
+    if outcome.get("action") not in (
+        "consolidate",
+        "waiting_consolidate",
+        "finalize",
+        "scrape_stalled",
+    ):
         annotate = _drain_annotate(reporter, plans, more_coming=_scrapes_coming(plans))
         if annotate:
             if outcome.get("action") == "nothing_to_do":
                 outcome = annotate
             else:
-                merged = (f"{outcome.get('message', '').rstrip('.')}; "
-                          f"{annotate.get('message', '').rstrip('.')}.")
+                merged = (
+                    f"{outcome.get('message', '').rstrip('.')}; "
+                    f"{annotate.get('message', '').rstrip('.')}."
+                )
                 if annotate.get("action") == "annotate_held":
                     # Holding is a footnote to whatever else the tick did.
                     outcome = {**outcome, "message": merged}
                 else:
                     # Starting (or parking) the annotator is the tick's headline.
-                    extra = ({"handoff_queued": outcome.get("queued")}
-                             if outcome.get("action") == "handoff" else {})
+                    extra = (
+                        {"handoff_queued": outcome.get("queued")}
+                        if outcome.get("action") == "handoff"
+                        else {}
+                    )
                     outcome = {**outcome, **annotate, **extra, "message": merged}
 
     reporter.update_progress(100, outcome.get("message") or outcome["action"])
@@ -426,8 +462,8 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
 # Step 1 — drain the queues
 # --------------------------------------------------------------------------- #
 
-def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int,
-                   label: str) -> bool:
+
+def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int, label: str) -> bool:
     """No-drain guard for either queue: park the plans when a queue's length is
     unchanged across repeated supervisor-started worker runs.
 
@@ -441,20 +477,26 @@ def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int,
         True when the caller must NOT start the worker (plans were parked).
     """
     guard = ce.get_meta(guard_key) or {}
-    strikes = (int(guard.get("strikes") or 0) + 1
-               if int(guard.get("len") or -1) == queue_len else 0)
+    strikes = int(guard.get("strikes") or 0) + 1 if int(guard.get("len") or -1) == queue_len else 0
     if strikes >= 2:
-        reporter.log(f"The {label} queue is not draining ({queue_len} item(s) "
-                     f"across {strikes + 1} runs) — parking all armed plans.")
+        reporter.log(
+            f"The {label} queue is not draining ({queue_len} item(s) "
+            f"across {strikes + 1} runs) — parking all armed plans."
+        )
         for cid in plans:
-            ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
-                               "last_error": f"{label} queue not draining"})
-            journal.record("plan.blocked",
-                           f"Needs attention — the {label} queue has not got any shorter "
-                           f"({queue_len:,} video(s) across {strikes + 1} runs); every plan "
-                           f"using it has been stopped",
-                           collection_id=cid, actor="enrichment_supervisor",
-                           reason=f"{label} queue not draining", queued=queue_len)
+            ce.save_plan(
+                cid, {"state": ce.STATE_BLOCKED, "last_error": f"{label} queue not draining"}
+            )
+            journal.record(
+                "plan.blocked",
+                f"Needs attention — the {label} queue has not got any shorter "
+                f"({queue_len:,} video(s) across {strikes + 1} runs); every plan "
+                f"using it has been stopped",
+                collection_id=cid,
+                actor="enrichment_supervisor",
+                reason=f"{label} queue not draining",
+                queued=queue_len,
+            )
         ce.set_meta(guard_key, None)
         return True
     ce.set_meta(guard_key, {"len": queue_len, "strikes": strikes})
@@ -507,34 +549,54 @@ def _drain(reporter, plans: dict) -> dict | None:
                 continue
             tripped = _scraper_blocked(platform)
             if tripped:
-                reporter.log(f"Scraper for '{platform}' is held off: {tripped}. "
-                             f"Pausing the affected plans.")
+                reporter.log(
+                    f"Scraper for '{platform}' is held off: {tripped}. Pausing the affected plans."
+                )
                 for cid, entry in plans.items():
                     if str(entry.get("platform") or "") == platform:
-                        ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
-                                           "last_error": f"scraper {tripped}"})
-                        journal.record("plan.blocked",
-                                       f"Needs attention — the {journal.platform_label(platform)} "
-                                       f"scraper has been paused by a scraper alert "
-                                       f"({tripped.replace('_', ' ')}); clear the alert on the "
-                                       f"Scrape page, then arm again",
-                                       collection_id=cid, platform=platform,
-                                       actor="enrichment_supervisor", reason=tripped)
+                        ce.save_plan(
+                            cid, {"state": ce.STATE_BLOCKED, "last_error": f"scraper {tripped}"}
+                        )
+                        journal.record(
+                            "plan.blocked",
+                            f"Needs attention — the {journal.platform_label(platform)} "
+                            f"scraper has been paused by a scraper alert "
+                            f"({tripped.replace('_', ' ')}); clear the alert on the "
+                            f"Scrape page, then arm again",
+                            collection_id=cid,
+                            platform=platform,
+                            actor="enrichment_supervisor",
+                            reason=tripped,
+                        )
                 continue
-            platform_plans = {cid: e for cid, e in plans.items()
-                              if str(e.get("platform") or "") == platform}
-            if _queue_stalled(reporter, platform_plans or plans,
-                              f"scrape_guard_{platform}", count, f"{platform} scrape"):
-                return {"action": "scrape_stalled", "platform": platform,
-                        "queued": count,
-                        "message": f"The {platform} scrape queue is not draining; plans parked."}
+            platform_plans = {
+                cid: e for cid, e in plans.items() if str(e.get("platform") or "") == platform
+            }
+            if _queue_stalled(
+                reporter,
+                platform_plans or plans,
+                f"scrape_guard_{platform}",
+                count,
+                f"{platform} scrape",
+            ):
+                return {
+                    "action": "scrape_stalled",
+                    "platform": platform,
+                    "queued": count,
+                    "message": f"The {platform} scrape queue is not draining; plans parked.",
+                }
             ok, msg = _start(f"queue_scraper_{platform}")
             reporter.log(f"Scraping {count} queued {platform} item(s): {msg}")
             if ok:
                 _note_settle_owed("scrape")
                 _journal_scrape_drain(platform, count, platform_plans)
-            scrape_outcome = {"action": "scrape", "platform": platform, "queued": count,
-                              "started": ok, "message": f"Started the {platform} scraper."}
+            scrape_outcome = {
+                "action": "scrape",
+                "platform": platform,
+                "queued": count,
+                "started": ok,
+                "message": f"Started the {platform} scraper.",
+            }
             break
     return scrape_outcome
 
@@ -544,6 +606,7 @@ def _scrapes_coming(plans: dict) -> bool:
     scraper is running, or its platform queue holds a slice not yet scraped."""
     try:
         from fyp.scrape import scrape_queues
+
         lengths = scrape_queues.queue_lengths()
         for entry in plans.values():
             platform = str(entry.get("platform") or "")
@@ -569,8 +632,7 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
     Runs last in the tick, after the handoff and the next slice, so that
     ``more_coming`` reflects what this tick just queued.
     """
-    queue = data_io.load_json(storage_location="cache",
-                              filename=ce.ANNOTATE_QUEUE_FILENAME) or []
+    queue = data_io.load_json(storage_location="cache", filename=ce.ANNOTATE_QUEUE_FILENAME) or []
     if not (isinstance(queue, list) and queue):
         # An empty queue clears the guards: whatever was stuck has drained.
         if ce.get_meta("annotate_guard") is not None:
@@ -593,8 +655,9 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
         age_min = None
         if since:
             try:
-                age_min = (datetime.now(timezone.utc)
-                           - datetime.fromisoformat(str(since))).total_seconds() / 60
+                age_min = (
+                    datetime.now(timezone.utc) - datetime.fromisoformat(str(since))
+                ).total_seconds() / 60
             except (TypeError, ValueError):
                 age_min = None
         if age_min is None or age_min < MAX_ANNOTATE_HOLD_MIN:
@@ -602,22 +665,34 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
                 ce.set_meta("annotate_guard", None)
             if not held:
                 ce.set_meta(ANNOTATE_HELD_KEY, {"since": ce.now_iso(), "queued": len(queue)})
-                journal.record("annotate.held",
-                               f"Annotation held back — {len(queue):,} video(s) queued; "
-                               f"waiting for more before starting a batch (a batch starts at "
-                               f"{MIN_ANNOTATE_BATCH:,} videos, when no more scraping is due, "
-                               f"or after {MAX_ANNOTATE_HOLD_MIN} minutes)",
-                               actor="enrichment_supervisor", queued=len(queue),
-                               min_batch=MIN_ANNOTATE_BATCH, max_hold_min=MAX_ANNOTATE_HOLD_MIN)
-            reporter.log(f"Holding {len(queue)} queued item(s) for annotation until there are "
-                         f"{MIN_ANNOTATE_BATCH} (or nothing more is coming).")
-            return {"action": "annotate_held", "queued": len(queue),
-                    "message": f"Holding {len(queue)} queued item(s) for a fuller annotation batch."}
+                journal.record(
+                    "annotate.held",
+                    f"Annotation held back — {len(queue):,} video(s) queued; "
+                    f"waiting for more before starting a batch (a batch starts at "
+                    f"{MIN_ANNOTATE_BATCH:,} videos, when no more scraping is due, "
+                    f"or after {MAX_ANNOTATE_HOLD_MIN} minutes)",
+                    actor="enrichment_supervisor",
+                    queued=len(queue),
+                    min_batch=MIN_ANNOTATE_BATCH,
+                    max_hold_min=MAX_ANNOTATE_HOLD_MIN,
+                )
+            reporter.log(
+                f"Holding {len(queue)} queued item(s) for annotation until there are "
+                f"{MIN_ANNOTATE_BATCH} (or nothing more is coming)."
+            )
+            return {
+                "action": "annotate_held",
+                "queued": len(queue),
+                "message": f"Holding {len(queue)} queued item(s) for a fuller annotation batch.",
+            }
         reporter.log(f"Held annotation queue is {age_min:.0f} min old — starting it now.")
 
     if _queue_stalled(reporter, plans, "annotate_guard", len(queue), "annotation"):
-        return {"action": "annotate_stalled", "queued": len(queue),
-                "message": "The annotation queue is not draining; plans parked."}
+        return {
+            "action": "annotate_stalled",
+            "queued": len(queue),
+            "message": "The annotation queue is not draining; plans parked.",
+        }
 
     name = _annotator_process()
     ok, msg = _start(name)
@@ -626,11 +701,19 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
         _note_settle_owed("annotate")
         if ce.get_meta(ANNOTATE_HELD_KEY) is not None:
             ce.set_meta(ANNOTATE_HELD_KEY, None)
-        journal.record("queue.drained",
-                       f"Annotator started on {len(queue):,} queued video(s)",
-                       actor="enrichment_supervisor", worker=name, queued=len(queue))
-    return {"action": "annotate", "queued": len(queue),
-            "started": ok, "message": f"Started {name}."}
+        journal.record(
+            "queue.drained",
+            f"Annotator started on {len(queue):,} queued video(s)",
+            actor="enrichment_supervisor",
+            worker=name,
+            queued=len(queue),
+        )
+    return {
+        "action": "annotate",
+        "queued": len(queue),
+        "started": ok,
+        "message": f"Started {name}.",
+    }
 
 
 def _note_settle_owed(after: str) -> None:
@@ -652,6 +735,7 @@ def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> No
     """
     try:
         from fyp.scrape import scrape_queues
+
         queued = {str(i) for i in scrape_queues.load_scrape_queue(platform)}
         own: set[str] = set()
         for cid, entry in platform_plans.items():
@@ -663,19 +747,28 @@ def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> No
             own |= {str(i) for i in (fresh.get("in_flight") or [])}
         plan_items = len(queued & own)
         other = max(0, count - plan_items)
-        message = (f"{journal.platform_label(platform)} scraper started on "
-                   f"{count:,} queued video(s)")
+        message = f"{journal.platform_label(platform)} scraper started on {count:,} queued video(s)"
         if not other:
             message += ", all of them queued by the plan"
         elif not plan_items:
-            message += " — none queued by the plan; they were queued elsewhere and are scraped first"
+            message += (
+                " — none queued by the plan; they were queued elsewhere and are scraped first"
+            )
         else:
-            message += (f" — {plan_items:,} queued by the plan, {other:,} queued elsewhere "
-                        f"and scraped along with them")
-        journal.record("queue.drained", message, platform=platform,
-                       actor="enrichment_supervisor", queued=count,
-                       plan_items=plan_items, other_items=other,
-                       plan_collections=sorted(platform_plans))
+            message += (
+                f" — {plan_items:,} queued by the plan, {other:,} queued elsewhere "
+                f"and scraped along with them"
+            )
+        journal.record(
+            "queue.drained",
+            message,
+            platform=platform,
+            actor="enrichment_supervisor",
+            queued=count,
+            plan_items=plan_items,
+            other_items=other,
+            plan_collections=sorted(platform_plans),
+        )
     except Exception:
         pass
 
@@ -696,29 +789,45 @@ def _settle_owed(reporter) -> dict | None:
         ce.set_meta(SETTLE_OWED_KEY, None)
         return None
     from web_interface.services.worker_status import _workers_blocking_consolidate
+
     blocking = _workers_blocking_consolidate()
     if blocking:
-        reporter.log(f"Results from {kind} await consolidation (no plan armed); "
-                     f"waiting for {', '.join(blocking)} to finish first.")
-        return {"action": "waiting_consolidate", "after": kind, "blocking": blocking,
-                "message": f"Waiting for {', '.join(blocking)} before consolidating."}
+        reporter.log(
+            f"Results from {kind} await consolidation (no plan armed); "
+            f"waiting for {', '.join(blocking)} to finish first."
+        )
+        return {
+            "action": "waiting_consolidate",
+            "after": kind,
+            "blocking": blocking,
+            "message": f"Waiting for {', '.join(blocking)} before consolidating.",
+        }
     ok, msg = _start_consolidation({"auto_refresh": False, "plan_deferred": True})
-    reporter.log(f"Folding in results from the {kind} job the loop started before its "
-                 f"plan stopped: {msg}")
+    reporter.log(
+        f"Folding in results from the {kind} job the loop started before its plan stopped: {msg}"
+    )
     if ok:
         ce.set_meta(SETTLE_OWED_KEY, None)
-        journal.record("results.settled",
-                       f"Consolidating the results of the last {kind} run — it finished "
-                       f"after the plan did",
-                       actor="enrichment_supervisor", after=kind,
-                       owed_since=(owed.get("since") if isinstance(owed, dict) else None))
-    return {"action": "consolidate", "after": kind, "auto_refresh": False,
-            "started": ok, "message": f"Consolidating {kind} results owed by the loop."}
+        journal.record(
+            "results.settled",
+            f"Consolidating the results of the last {kind} run — it finished after the plan did",
+            actor="enrichment_supervisor",
+            after=kind,
+            owed_since=(owed.get("since") if isinstance(owed, dict) else None),
+        )
+    return {
+        "action": "consolidate",
+        "after": kind,
+        "auto_refresh": False,
+        "started": ok,
+        "message": f"Consolidating {kind} results owed by the loop.",
+    }
 
 
 # --------------------------------------------------------------------------- #
 # Step 2 — make results visible
 # --------------------------------------------------------------------------- #
+
 
 def _settle(reporter) -> dict | None:
     """Consolidate when a worker's results are not yet in enrichment status.
@@ -741,11 +850,16 @@ def _settle(reporter) -> dict | None:
         return None
     blocking = _workers_blocking_consolidate()
     if blocking:
-        reporter.log(f"Results from {kind} await consolidation; waiting for "
-                     f"{', '.join(blocking)} to finish first.")
-        return {"action": "waiting_consolidate", "after": kind,
-                "blocking": blocking,
-                "message": f"Waiting for {', '.join(blocking)} before consolidating."}
+        reporter.log(
+            f"Results from {kind} await consolidation; waiting for "
+            f"{', '.join(blocking)} to finish first."
+        )
+        return {
+            "action": "waiting_consolidate",
+            "after": kind,
+            "blocking": blocking,
+            "message": f"Waiting for {', '.join(blocking)} before consolidating.",
+        }
     # plan_deferred marks this debt as the LOOP's, so _finalize may spend it.
     # An operator's own consolidate-without-refresh writes the same ledger entry
     # without the flag and is left alone.
@@ -757,8 +871,13 @@ def _settle(reporter) -> dict | None:
             ce.set_meta(SETTLE_OWED_KEY, None)
         except Exception:
             pass
-    return {"action": "consolidate", "after": kind, "auto_refresh": False,
-            "started": ok, "message": f"Consolidating after {kind}."}
+    return {
+        "action": "consolidate",
+        "after": kind,
+        "auto_refresh": False,
+        "started": ok,
+        "message": f"Consolidating after {kind}.",
+    }
 
 
 def _start_consolidation(task_args: dict) -> tuple[bool, str]:
@@ -774,10 +893,12 @@ def _start_consolidation(task_args: dict) -> tuple[bool, str]:
 
     record = _seed_consolidation_run(task_args)
     if record:
-        task_args = {**task_args,
-                     "pipeline_run_id": record["run_id"],
-                     "pipeline_stage_index": 1,
-                     "pipeline_stage_total": record.get("stage_total", 1)}
+        task_args = {
+            **task_args,
+            "pipeline_run_id": record["run_id"],
+            "pipeline_stage_index": 1,
+            "pipeline_stage_total": record.get("stage_total", 1),
+        }
     ok, msg = _start("consolidate_enrichment", task_args)
     if not ok and record:
         # Nothing will ever finish this run — clear it rather than lock the
@@ -793,10 +914,15 @@ def _seed_consolidation_run(task_args: dict) -> dict | None:
     """Plan and persist the consolidate-only run record. Never raises."""
     try:
         from web_interface.services import refresh_pipeline
+
         record = refresh_pipeline.plan_run(
-            "consolidate_enrichment", kind="consolidate",
-            started_by="automatic enrichment", mode="consolidate_only",
-            origin_task_args=dict(task_args), provisional=False)
+            "consolidate_enrichment",
+            kind="consolidate",
+            started_by="automatic enrichment",
+            mode="consolidate_only",
+            origin_task_args=dict(task_args),
+            provisional=False,
+        )
         return refresh_pipeline.seed_run(record)
     except Exception as exc:
         print(f"[enrichment_supervisor] could not seed the consolidation's run record: {exc}")
@@ -842,37 +968,49 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
         # the loop behind the pipeline for the rest of the cycle — observed
         # live 2026-09-01, one tick after a boundary move.
         from web_interface.services.worker_status import _workers_blocking_consolidate
+
         if _workers_blocking_consolidate():
             return None
     if require_backstop:
         ref = downstream_refresh.last_full_refresh() or deferred.get("deferred_since")
         try:
-            age_h = (datetime.now(timezone.utc)
-                     - datetime.fromisoformat(str(ref))).total_seconds() / 3600
+            age_h = (
+                datetime.now(timezone.utc) - datetime.fromisoformat(str(ref))
+            ).total_seconds() / 3600
         except (ValueError, TypeError):
             age_h = None
         if age_h is not None and age_h < FINALIZE_BACKSTOP_H:
             return None
-        reporter.log(f"Deferred-refresh backstop: the analyses are "
-                     f"{age_h:.0f}h stale — refreshing now, mid-plan." if age_h is not None
-                     else "Deferred-refresh backstop: staleness unknown — refreshing now.")
+        reporter.log(
+            f"Deferred-refresh backstop: the analyses are "
+            f"{age_h:.0f}h stale — refreshing now, mid-plan."
+            if age_h is not None
+            else "Deferred-refresh backstop: staleness unknown — refreshing now."
+        )
 
     status, msg = downstream_refresh.dispatch_downstream_refresh(None)
     if status == "started":
-        reporter.log(f"Deferred downstream refresh dispatched "
-                     f"(impact spanned {deferred.get('runs', '?')} consolidation(s)).")
-        journal.record("finalize.dispatched",
-                       f"Analysis refresh started — covering "
-                       f"{deferred.get('runs', '?')} consolidation(s) since "
-                       f"{str(deferred.get('deferred_since') or '?')[:16].replace('T', ' ')}"
-                       + (" (started mid-plan: the analyses were more than 24 hours old)"
-                          if require_backstop else ""),
-                       actor="enrichment_supervisor",
-                       collection_ids=deferred.get("affected_collection_ids") or None,
-                       runs=deferred.get("runs"), backstop=bool(require_backstop),
-                       studies=len(deferred.get("affected_study_names") or []))
-        return {"action": "finalize",
-                "message": "Started the deferred analysis refresh."}
+        reporter.log(
+            f"Deferred downstream refresh dispatched "
+            f"(impact spanned {deferred.get('runs', '?')} consolidation(s))."
+        )
+        journal.record(
+            "finalize.dispatched",
+            f"Analysis refresh started — covering "
+            f"{deferred.get('runs', '?')} consolidation(s) since "
+            f"{str(deferred.get('deferred_since') or '?')[:16].replace('T', ' ')}"
+            + (
+                " (started mid-plan: the analyses were more than 24 hours old)"
+                if require_backstop
+                else ""
+            ),
+            actor="enrichment_supervisor",
+            collection_ids=deferred.get("affected_collection_ids") or None,
+            runs=deferred.get("runs"),
+            backstop=bool(require_backstop),
+            studies=len(deferred.get("affected_study_names") or []),
+        )
+        return {"action": "finalize", "message": "Started the deferred analysis refresh."}
     if status == "noop":
         # The debt builds an empty pipeline (e.g. its studies were deleted) —
         # settle it so the loop does not retry forever.
@@ -885,6 +1023,7 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
 # --------------------------------------------------------------------------- #
 # Step 3 — scrape -> annotate handoff
 # --------------------------------------------------------------------------- #
+
 
 def _handoff(reporter, plans: dict) -> dict | None:
     """Queue every armed collection's newly scraped items for annotation.
@@ -914,8 +1053,10 @@ def _handoff(reporter, plans: dict) -> dict | None:
             continue
         ready = [i for i in result["ready"] if str(i) not in claimed]
         if len(ready) != len(result["ready"]):
-            reporter.log(f"{cid}: {len(result['ready']) - len(ready)} item(s) already "
-                         f"in an in-flight annotation job — not re-queued.")
+            reporter.log(
+                f"{cid}: {len(result['ready']) - len(ready)} item(s) already "
+                f"in an in-flight annotation job — not re-queued."
+            )
         if not ready:
             # Still persist the pruned in-flight set: resolved ids (annotated
             # or permanently failed) must leave it even on a no-op handoff.
@@ -935,16 +1076,25 @@ def _handoff(reporter, plans: dict) -> dict | None:
         # the reset counter and the pruned in-flight set, not the snapshot.
         plans[cid] = {**entry, **patch}
         reporter.log(f"{cid}: {n} scraped item(s) handed to annotation.")
-        journal.record("handoff", f"{n:,} scraped video(s) queued for annotation",
-                       collection_id=cid, platform=entry.get("platform"),
-                       actor="enrichment_supervisor", queued=n,
-                       skipped_in_flight=len(result["ready"]) - len(ready))
+        journal.record(
+            "handoff",
+            f"{n:,} scraped video(s) queued for annotation",
+            collection_id=cid,
+            platform=entry.get("platform"),
+            actor="enrichment_supervisor",
+            queued=n,
+            skipped_in_flight=len(result["ready"]) - len(ready),
+        )
         total += n
         served.append(cid)
     if not total:
         return None
-    return {"action": "handoff", "queued": total, "collections": served,
-            "message": f"Queued {total} item(s) for annotation."}
+    return {
+        "action": "handoff",
+        "queued": total,
+        "collections": served,
+        "message": f"Queued {total} item(s) for annotation.",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -972,16 +1122,18 @@ def _expected_yields(cid: str, platform: str | None) -> dict:
     shares (read from the enrichment history), each clamped to [0.5, 1.0];
     the defaults until there is enough history. Never raises.
     """
-    out = {"scrape": _DEFAULT_SCRAPE_YIELD, "annotate": _DEFAULT_ANNOTATE_YIELD,
-           "combined": DEFAULT_EXPECTED_YIELD}
+    out = {
+        "scrape": _DEFAULT_SCRAPE_YIELD,
+        "annotate": _DEFAULT_ANNOTATE_YIELD,
+        "combined": DEFAULT_EXPECTED_YIELD,
+    }
     try:
         events = journal.read(collection_id=cid, platform=platform, limit=80)
 
         def rate(kind: str, ok_key: str, loss_keys: tuple) -> float | None:
             runs = [e for e in events if e.get("kind") == kind][:_YIELD_RUNS]
             ok = sum(int((e.get("detail") or {}).get(ok_key) or 0) for e in runs)
-            lost = sum(int((e.get("detail") or {}).get(k) or 0)
-                       for e in runs for k in loss_keys)
+            lost = sum(int((e.get("detail") or {}).get(k) or 0) for e in runs for k in loss_keys)
             return ok / (ok + lost) if ok + lost >= _YIELD_MIN_ATTEMPTS else None
 
         # Transient scrape failures are retried, not lost; given-up ones are.
@@ -1010,14 +1162,19 @@ def _pending_annotations(activity) -> int:
     work enrichment status has not seen yet, which every sizing decision has
     to subtract or it re-counts the previous cycle."""
     collection_ids = {str(i) for i in activity["item_id"].unique()}
-    queue = data_io.load_json(storage_location="cache",
-                              filename=ce.ANNOTATE_QUEUE_FILENAME) or []
+    queue = data_io.load_json(storage_location="cache", filename=ce.ANNOTATE_QUEUE_FILENAME) or []
     pending = ({str(i) for i in queue} | _in_flight_annotation_ids()) & collection_ids
     return len(pending)
 
 
-def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0,
-                      margin: float = 0.0, pending: int | None = None) -> int:
+def _auto_cycle_items(
+    entry: dict,
+    activity,
+    status,
+    expected_yield: float = 1.0,
+    margin: float = 0.0,
+    pending: int | None = None,
+) -> int:
     """Size an Auto plan's cycle for the shortest total time.
 
     ``min(ceil(target headroom / expected_yield), one annotation job)``:
@@ -1090,29 +1247,41 @@ def _plan(reporter, plans: dict) -> dict | None:
             entry = ce.get_plan(cid) or snapshot
             activity = ce.load_activity(cid)
             if activity is None or activity.empty:
-                ce.save_plan(cid, {"state": ce.STATE_DONE,
-                                   "last_error": "no viewing activity"})
+                ce.save_plan(cid, {"state": ce.STATE_DONE, "last_error": "no viewing activity"})
                 reporter.log(f"{cid}: no viewing activity; plan closed.")
-                journal.record("plan.done", "Idle — the collection has no viewing activity",
-                               collection_id=cid, actor="enrichment_supervisor")
+                journal.record(
+                    "plan.done",
+                    "Idle — the collection has no viewing activity",
+                    collection_id=cid,
+                    actor="enrichment_supervisor",
+                )
                 continue
 
             platform = ce.collection_platform(activity)
             if platform not in scrapeable:
-                ce.save_plan(cid, {"state": ce.STATE_BLOCKED, "platform": platform,
-                                   "last_error": f"no scraper registered for '{platform}'"})
+                ce.save_plan(
+                    cid,
+                    {
+                        "state": ce.STATE_BLOCKED,
+                        "platform": platform,
+                        "last_error": f"no scraper registered for '{platform}'",
+                    },
+                )
                 reporter.log(f"{cid}: no scraper for '{platform}'; plan blocked.")
-                journal.record("plan.blocked",
-                               f"Needs attention — no scraper is registered for '{platform}'",
-                               collection_id=cid, platform=platform,
-                               actor="enrichment_supervisor", reason="no scraper")
+                journal.record(
+                    "plan.blocked",
+                    f"Needs attention — no scraper is registered for '{platform}'",
+                    collection_id=cid,
+                    platform=platform,
+                    actor="enrichment_supervisor",
+                    reason="no scraper",
+                )
                 continue
             if _scrape_lane_busy(platform):
                 # The platform's scraper is mid-run; cutting another slice now
                 # would stretch that run and skew its stall accounting. The
                 # boundary tick after it finishes serves this collection.
-                reporter.log(f"{cid}: the {platform} scraper is still running; "
-                             f"slice deferred.")
+                reporter.log(f"{cid}: the {platform} scraper is still running; slice deferred.")
                 continue
 
             settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
@@ -1122,9 +1291,14 @@ def _plan(reporter, plans: dict) -> dict | None:
             # on 2026-09-09; a stored cycle_items_auto=False is ignored).
             if True:
                 status = ce.load_status(activity["item_id"].unique())
-                auto_items = _auto_cycle_items(entry, activity, status,
-                                               expected_yield=expected_yield,
-                                               margin=CUT_MARGIN, pending=pending)
+                auto_items = _auto_cycle_items(
+                    entry,
+                    activity,
+                    status,
+                    expected_yield=expected_yield,
+                    margin=CUT_MARGIN,
+                    pending=pending,
+                )
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
                     annotated = ce._annotated_unique(activity, status)
@@ -1137,27 +1311,44 @@ def _plan(reporter, plans: dict) -> dict | None:
                         # is still being annotated.
                         if _still_finishing(reporter, cid, entry, platform, pending):
                             continue
-                        _close_plan(reporter, cid, entry, platform,
-                                    f"Idle — the annotation target ({target:,} videos) "
-                                    f"is reached", target, {}, annotated)
+                        _close_plan(
+                            reporter,
+                            cid,
+                            entry,
+                            platform,
+                            f"Idle — the annotation target ({target:,} videos) is reached",
+                            target,
+                            {},
+                            annotated,
+                        )
                         reporter.log(f"{cid}: annotation target met; plan complete.")
                         continue
                     # Target headroom is fully covered by pending work (queued
                     # or in an in-flight job) — cutting more would overshoot.
-                    reporter.log(f"{cid}: pending annotations already cover the "
-                                 f"target; no new slice this cycle.")
+                    reporter.log(
+                        f"{cid}: pending annotations already cover the "
+                        f"target; no new slice this cycle."
+                    )
                     continue
-                entry = {**entry,
-                         "settings": {**settings, "cycle_items": auto_items}}
-                reporter.log(f"{cid}: auto items-per-cycle = {auto_items:,} "
-                             f"(sized for an expected {expected_yield:.0%} yield).")
+                entry = {**entry, "settings": {**settings, "cycle_items": auto_items}}
+                reporter.log(
+                    f"{cid}: auto items-per-cycle = {auto_items:,} "
+                    f"(sized for an expected {expected_yield:.0%} yield)."
+                )
 
-            entry = _spread_density(reporter, cid, entry, settings, activity, status,
-                                    expected_yield, pending)
-            result = ce.plan_cycle(cid, entry, activity=activity, status=status,
-                                   expected_yield=expected_yield, pending=pending,
-                                   margin=CUT_MARGIN,
-                                   session_min_plays=ce.session_min_plays())
+            entry = _spread_density(
+                reporter, cid, entry, settings, activity, status, expected_yield, pending
+            )
+            result = ce.plan_cycle(
+                cid,
+                entry,
+                activity=activity,
+                status=status,
+                expected_yield=expected_yield,
+                pending=pending,
+                margin=CUT_MARGIN,
+                session_min_plays=ce.session_min_plays(),
+            )
             items = result["item_ids"]
 
             if not items:
@@ -1168,24 +1359,36 @@ def _plan(reporter, plans: dict) -> dict | None:
                     status = ce.load_status(activity["item_id"].unique())
                 annotated = ce._annotated_unique(activity, status)
                 if target and annotated + int(pending or 0) >= target:
-                    why = (f"Idle — the annotation target ({target:,} videos) is "
-                           f"reached, or covered by videos already queued")
+                    why = (
+                        f"Idle — the annotation target ({target:,} videos) is "
+                        f"reached, or covered by videos already queued"
+                    )
                 elif float(settings.get("sample_share") or 0) >= 1:
-                    why = ("Idle — the plan has processed every day the random daily "
-                           "sample can take, and is still short of the target; moving the "
-                           "balance toward the deep dive, or raising the items "
-                           "per day, lets it cover the rest of the collection")
+                    why = (
+                        "Idle — the plan has processed every day the random daily "
+                        "sample can take, and is still short of the target; moving the "
+                        "balance toward the deep dive, or raising the items "
+                        "per day, lets it cover the rest of the collection"
+                    )
                 elif settings.get("earliest_date"):
-                    why = (f"Idle — every video since the earliest date "
-                           f"({settings['earliest_date']}) is processed or "
-                           f"failed for good; clear the earliest date to go "
-                           f"further back")
+                    why = (
+                        f"Idle — every video since the earliest date "
+                        f"({settings['earliest_date']}) is processed or "
+                        f"failed for good; clear the earliest date to go "
+                        f"further back"
+                    )
                 else:
-                    why = ("Idle — every video in the collection is processed, "
-                           "or failed for good")
-                _close_plan(reporter, cid, entry, platform, why, target,
-                            {"a_cursor": result["a_cursor"],
-                             "b_cursor": result["b_cursor"]}, annotated)
+                    why = "Idle — every video in the collection is processed, or failed for good"
+                _close_plan(
+                    reporter,
+                    cid,
+                    entry,
+                    platform,
+                    why,
+                    target,
+                    {"a_cursor": result["a_cursor"], "b_cursor": result["b_cursor"]},
+                    annotated,
+                )
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
                 continue
 
@@ -1195,94 +1398,145 @@ def _plan(reporter, plans: dict) -> dict | None:
             # productive handoff, so only consecutive empty cycles reach it.)
             stalls = int(entry.get("stall_count") or 0)
             if stalls >= _MAX_STALLS:
-                ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
-                                   "last_error": f"no scrape progress in {stalls} cycles"})
+                ce.save_plan(
+                    cid,
+                    {
+                        "state": ce.STATE_BLOCKED,
+                        "last_error": f"no scrape progress in {stalls} cycles",
+                    },
+                )
                 reporter.log(f"{cid}: no scrape progress in {stalls} cycles; plan blocked.")
-                journal.record("plan.blocked",
-                               f"Needs attention — {stalls} cycles in a row queued videos to "
-                               f"scrape and none came back; stopped rather than keep trying",
-                               collection_id=cid, platform=platform,
-                               actor="enrichment_supervisor",
-                               reason=f"no scrape progress in {stalls} cycles",
-                               stalls=stalls)
+                journal.record(
+                    "plan.blocked",
+                    f"Needs attention — {stalls} cycles in a row queued videos to "
+                    f"scrape and none came back; stopped rather than keep trying",
+                    collection_id=cid,
+                    platform=platform,
+                    actor="enrichment_supervisor",
+                    reason=f"no scrape progress in {stalls} cycles",
+                    stalls=stalls,
+                )
                 continue
 
             scrape_queues.append_to_scrape_queue(platform, items)
-            ce.save_plan(cid, {
-                # Informational: what Auto resolved to this cycle — the
-                # panel's disabled input displays it (None in manual mode).
-                **({"last_auto_cycle_items": auto_items}
-                   if auto_items is not None else {}),
-                # The plan's record of queued scrapes — what stall detection
-                # reads. (It no longer scopes the handoff, which sweeps the
-                # whole collection's scraped-but-unannotated set.)
-                "in_flight": sorted(set(str(i) for i in (entry.get("in_flight") or []))
-                                    | set(items)),
-                "platform": platform,
-                "a_cursor": result["a_cursor"],
-                "b_cursor": result["b_cursor"],
-                "cycles": int(entry.get("cycles") or 0) + 1,
-                "stall_count": stalls + 1,   # cleared by the next successful handoff
-                "last_cycle_at": ce.now_iso(),
-                "last_batch": {"a": result["a"], "b": result["b"],
-                               "total": len(items),
-                               "sessions": int(result.get("sessions") or 0)},
-                "last_yield": round(float(result.get("yield") or 1.0), 3),
-                "last_error": None,
-                # A raised target can put a finishing plan back to work.
-                FINISHING_KEY: None,
-            })
+            ce.save_plan(
+                cid,
+                {
+                    # Informational: what Auto resolved to this cycle — the
+                    # panel's disabled input displays it (None in manual mode).
+                    **({"last_auto_cycle_items": auto_items} if auto_items is not None else {}),
+                    # The plan's record of queued scrapes — what stall detection
+                    # reads. (It no longer scopes the handoff, which sweeps the
+                    # whole collection's scraped-but-unannotated set.)
+                    "in_flight": sorted(
+                        set(str(i) for i in (entry.get("in_flight") or [])) | set(items)
+                    ),
+                    "platform": platform,
+                    "a_cursor": result["a_cursor"],
+                    "b_cursor": result["b_cursor"],
+                    "cycles": int(entry.get("cycles") or 0) + 1,
+                    "stall_count": stalls + 1,  # cleared by the next successful handoff
+                    "last_cycle_at": ce.now_iso(),
+                    "last_batch": {
+                        "a": result["a"],
+                        "b": result["b"],
+                        "total": len(items),
+                        "sessions": int(result.get("sessions") or 0),
+                    },
+                    "last_yield": round(float(result.get("yield") or 1.0), 3),
+                    "last_error": None,
+                    # A raised target can put a finishing plan back to work.
+                    FINISHING_KEY: None,
+                },
+            )
             sessions_done = int(result.get("sessions") or 0)
-            reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
-                         f"({result['b']} deep-dive, {result['a']} random daily sample"
-                         + (f", finishing {sessions_done} viewing session(s)"
-                            if sessions_done else "")
-                         + f"); back to {result['b_cursor']} / {result['a_cursor']}."
-                         + (f" Partial day {result['partial_day']} — the plan's last slice."
-                            if result.get("partial_day") else ""))
-            message = (f"Next batch queued for scraping — {len(items):,} video(s) "
-                       f"({result['b']:,} from the deep dive into recent days, "
-                       f"{result['a']:,} from the random daily sample across the history"
-                       + (f", up to {result.get('spread_days')} day(s) a month"
-                          if result["a"] and result.get("spread_days") else "")
-                       + "); "
-                       f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
-                       f"the random daily sample to {result['a_cursor'] or '—'}")
+            reporter.log(
+                f"{cid}: queued {len(items)} item(s) to scrape "
+                f"({result['b']} deep-dive, {result['a']} random daily sample"
+                + (f", finishing {sessions_done} viewing session(s)" if sessions_done else "")
+                + f"); back to {result['b_cursor']} / {result['a_cursor']}."
+                + (
+                    f" Partial day {result['partial_day']} — the plan's last slice."
+                    if result.get("partial_day")
+                    else ""
+                )
+            )
+            message = (
+                f"Next batch queued for scraping — {len(items):,} video(s) "
+                f"({result['b']:,} from the deep dive into recent days, "
+                f"{result['a']:,} from the random daily sample across the history"
+                + (
+                    f", up to {result.get('spread_days')} day(s) a month"
+                    if result["a"] and result.get("spread_days")
+                    else ""
+                )
+                + "); "
+                f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
+                f"the random daily sample to {result['a_cursor'] or '—'}"
+            )
             if sessions_done:
                 # Scraping, not annotation: the handoff still clamps the
                 # annotation to the target, so the run's very last session
                 # can end part-annotated (like its partial last day).
-                message += (f"; this batch takes the last unscraped items of "
-                            f"{sessions_done:,} viewing session(s)")
+                message += (
+                    f"; this batch takes the last unscraped items of "
+                    f"{sessions_done:,} viewing session(s)"
+                )
             if result.get("partial_day"):
-                message += (f"; only part of {result['partial_day']} — the last batch needed "
-                            f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
-                            f"of videos expected to fail")
+                message += (
+                    f"; only part of {result['partial_day']} — the last batch needed "
+                    f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
+                    f"of videos expected to fail"
+                )
             elif result.get("last_slice"):
-                message += (f"; the last batch needed to reach the target, allowing for the "
-                            f"~{1 - expected_yield:.0%} of videos expected to fail")
-            journal.record("slice.queued", message,
-                           collection_id=cid, platform=platform,
-                           actor="enrichment_supervisor", queued=len(items),
-                           deep_dive=result["b"], spread=result["a"],
-                           sessions=sessions_done,
-                           b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
-                           auto_items=auto_items, expected_yield=round(expected_yield, 3),
-                           spread_days=result.get("spread_days"),
-                           last_slice=bool(result.get("last_slice")),
-                           partial_day=result.get("partial_day"),
-                           cycle=int(entry.get("cycles") or 0) + 1)
-            return {"action": "plan", "collection_id": cid, "queued": len(items),
-                    "a": result["a"], "b": result["b"], "platform": platform,
-                    "message": f"Queued {len(items)} item(s) for {cid}."}
+                message += (
+                    f"; the last batch needed to reach the target, allowing for the "
+                    f"~{1 - expected_yield:.0%} of videos expected to fail"
+                )
+            journal.record(
+                "slice.queued",
+                message,
+                collection_id=cid,
+                platform=platform,
+                actor="enrichment_supervisor",
+                queued=len(items),
+                deep_dive=result["b"],
+                spread=result["a"],
+                sessions=sessions_done,
+                b_cursor=result["b_cursor"],
+                a_cursor=result["a_cursor"],
+                auto_items=auto_items,
+                expected_yield=round(expected_yield, 3),
+                spread_days=result.get("spread_days"),
+                last_slice=bool(result.get("last_slice")),
+                partial_day=result.get("partial_day"),
+                cycle=int(entry.get("cycles") or 0) + 1,
+            )
+            return {
+                "action": "plan",
+                "collection_id": cid,
+                "queued": len(items),
+                "a": result["a"],
+                "b": result["b"],
+                "platform": platform,
+                "message": f"Queued {len(items)} item(s) for {cid}.",
+            }
         except Exception as exc:
             reporter.log(f"Planning for {cid} failed: {exc}")
             ce.save_plan(cid, {"last_error": str(exc)})
     return None
 
 
-def _spread_density(reporter, cid: str, entry: dict, settings: dict, activity,
-                    status, expected_yield: float, pending: int) -> dict:
+def _spread_density(
+    reporter,
+    cid: str,
+    entry: dict,
+    settings: dict,
+    activity,
+    status,
+    expected_yield: float,
+    pending: int,
+) -> dict:
     """The spread's days-per-month for this run — derived once and stored.
 
     Derived at the start of a walk (no ``a_cursor``) and again whenever one
@@ -1293,36 +1547,46 @@ def _spread_density(reporter, cid: str, entry: dict, settings: dict, activity,
     density on it; on any failure the entry is returned untouched and
     ``plan_cycle`` derives for itself.
     """
-    basis = {"target": int(settings.get("annotation_target") or 0),
-             "share": float(settings.get("sample_share") or 0.0),
-             "cap": int(settings.get("a_day_cap") or 0),
-             "earliest": settings.get("earliest_date") or None}
-    if (entry.get("spread_days_per_month") is not None
-            and entry.get("a_cursor") is not None
-            and entry.get("spread_days_basis") == basis):
+    basis = {
+        "target": int(settings.get("annotation_target") or 0),
+        "share": float(settings.get("sample_share") or 0.0),
+        "cap": int(settings.get("a_day_cap") or 0),
+        "earliest": settings.get("earliest_date") or None,
+    }
+    if (
+        entry.get("spread_days_per_month") is not None
+        and entry.get("a_cursor") is not None
+        and entry.get("spread_days_basis") == basis
+    ):
         return entry
     try:
-        derived = ce.spread_days_per_month(cid, entry, activity=activity, status=status,
-                                           expected_yield=expected_yield,
-                                           pending=pending, margin=CUT_MARGIN)
+        derived = ce.spread_days_per_month(
+            cid,
+            entry,
+            activity=activity,
+            status=status,
+            expected_yield=expected_yield,
+            pending=pending,
+            margin=CUT_MARGIN,
+        )
     except Exception as exc:
         reporter.log(f"{cid}: could not derive the spread's days per month: {exc}")
         return entry
-    patch = {"spread_days_per_month": int(derived["days"]),
-             "spread_days_basis": basis}
+    patch = {"spread_days_per_month": int(derived["days"]), "spread_days_basis": basis}
     ce.save_plan(cid, patch)
     if derived["days"]:
-        reporter.log(f"{cid}: the random daily sample takes up to {derived['days']} day(s) a month — "
-                     f"{derived['videos']:,} video(s) wanted from it over "
-                     f"{derived['months']} month(s), {derived['capacity']:,} available "
-                     f"at that density"
-                     + ("; even the densest walk falls short" if derived["exhausted"] else "")
-                     + ".")
+        reporter.log(
+            f"{cid}: the random daily sample takes up to {derived['days']} day(s) a month — "
+            f"{derived['videos']:,} video(s) wanted from it over "
+            f"{derived['months']} month(s), {derived['capacity']:,} available "
+            f"at that density"
+            + ("; even the densest walk falls short" if derived["exhausted"] else "")
+            + "."
+        )
     return {**entry, **patch}
 
 
-def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,
-                     pending: int) -> bool:
+def _still_finishing(reporter, cid: str, entry: dict, platform: str | None, pending: int) -> bool:
     """Hold a plan that has nothing more to scrape while its own videos are
     still queued for, or inside, an annotation job.
 
@@ -1342,30 +1606,49 @@ def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,
     since = (held or {}).get("since") if isinstance(held, dict) else None
     if since:
         try:
-            age_h = (datetime.now(timezone.utc)
-                     - datetime.fromisoformat(str(since))).total_seconds() / 3600
+            age_h = (
+                datetime.now(timezone.utc) - datetime.fromisoformat(str(since))
+            ).total_seconds() / 3600
         except (TypeError, ValueError):
             age_h = None
         if age_h is not None and age_h >= FINISHING_MAX_H:
-            reporter.log(f"{cid}: {pending} video(s) still pending annotation after "
-                         f"{age_h:.0f} h of finishing; closing the plan anyway.")
+            reporter.log(
+                f"{cid}: {pending} video(s) still pending annotation after "
+                f"{age_h:.0f} h of finishing; closing the plan anyway."
+            )
             return False
-        reporter.log(f"{cid}: nothing more to scrape; {pending} video(s) still being "
-                     f"annotated — the plan closes when they are consolidated.")
+        reporter.log(
+            f"{cid}: nothing more to scrape; {pending} video(s) still being "
+            f"annotated — the plan closes when they are consolidated."
+        )
         return True
     ce.save_plan(cid, {FINISHING_KEY: {"since": ce.now_iso(), "pending": pending}})
-    reporter.log(f"{cid}: nothing more to scrape; waiting for {pending} queued video(s) "
-                 f"to be annotated before the plan closes.")
-    journal.record("plan.finishing",
-                   f"Finishing — nothing more to scrape; the plan closes once the "
-                   f"{pending:,} video(s) already queued are annotated and consolidated",
-                   collection_id=cid, platform=platform,
-                   actor="enrichment_supervisor", pending=pending)
+    reporter.log(
+        f"{cid}: nothing more to scrape; waiting for {pending} queued video(s) "
+        f"to be annotated before the plan closes."
+    )
+    journal.record(
+        "plan.finishing",
+        f"Finishing — nothing more to scrape; the plan closes once the "
+        f"{pending:,} video(s) already queued are annotated and consolidated",
+        collection_id=cid,
+        platform=platform,
+        actor="enrichment_supervisor",
+        pending=pending,
+    )
     return True
 
 
-def _close_plan(reporter, cid: str, entry: dict, platform: str | None,
-                why: str, target: int, patch: dict, annotated: int | None = None) -> None:
+def _close_plan(
+    reporter,
+    cid: str,
+    entry: dict,
+    platform: str | None,
+    why: str,
+    target: int,
+    patch: dict,
+    annotated: int | None = None,
+) -> None:
     """Mark a plan Idle: the ledger, the history line and the owner's note.
 
     Also stamps where the run ended (``run_finished_at``, ``run_end_annotated``,
@@ -1373,14 +1656,27 @@ def _close_plan(reporter, cid: str, entry: dict, platform: str | None,
     the run as it was and not the target the operator is now moving.
     """
     now = ce.now_iso()
-    ce.save_plan(cid, {**patch, "state": ce.STATE_DONE, "platform": platform,
-                       "finished_at": now, FINISHING_KEY: None,
-                       "run_finished_at": now,
-                       "run_end_annotated": (int(annotated) if annotated is not None else None),
-                       "run_end_target": int(target or 0)})
-    journal.record("plan.done", why,
-                   collection_id=cid, platform=platform,
-                   actor="enrichment_supervisor", target=target)
+    ce.save_plan(
+        cid,
+        {
+            **patch,
+            "state": ce.STATE_DONE,
+            "platform": platform,
+            "finished_at": now,
+            FINISHING_KEY: None,
+            "run_finished_at": now,
+            "run_end_annotated": (int(annotated) if annotated is not None else None),
+            "run_end_target": int(target or 0),
+        },
+    )
+    journal.record(
+        "plan.done",
+        why,
+        collection_id=cid,
+        platform=platform,
+        actor="enrichment_supervisor",
+        target=target,
+    )
     _notify_owner(reporter, cid, entry)
 
 
@@ -1415,11 +1711,17 @@ if __name__ == "__main__":
         run_enrichment_supervisor,
         "enrichment_supervisor",
         arg_specs=[
-            (("--collection-id",), {"dest": "collection_id", "default": "",
-                                    "help": "Serve only this collection, "
-                                            "ignoring the site-wide switch."}),
+            (
+                ("--collection-id",),
+                {
+                    "dest": "collection_id",
+                    "default": "",
+                    "help": "Serve only this collection, ignoring the site-wide switch.",
+                },
+            ),
         ],
-        make_task_args=lambda args: ({"collection_id": args.collection_id}
-                                     if args.collection_id else {}),
+        make_task_args=lambda args: (
+            {"collection_id": args.collection_id} if args.collection_id else {}
+        ),
         description="Advance the automatic enrichment loop by one step.",
     )

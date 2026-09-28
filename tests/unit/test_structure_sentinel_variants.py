@@ -76,8 +76,9 @@ def test_pruned_file_is_accepted_on_legacy_baseline_with_sections_noted(stores):
     baselines, _ = stores
     _mature_legacy_baseline(baselines)
     sentinel = ss.StructureSentinel()
-    verdict = sentinel.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json",
-                                 pd.DataFrame({"a": range(20)}))
+    verdict = sentinel.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)), "pruned.json", pd.DataFrame({"a": range(20)})
+    )
     assert verdict["status"] == "ok"
     assert not any(f["code"] == "missing_core_paths" for f in verdict["findings"])
     assert verdict["withheld_sections"] == ["Direct Messages", "Profile"]
@@ -87,8 +88,12 @@ def test_reviewed_variant_uses_own_baseline(stores):
     baselines, _ = stores
     _mature_legacy_baseline(baselines)
     sentinel = ss.StructureSentinel()
-    verdict = sentinel.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json",
-                                 pd.DataFrame({"a": range(20)}), variant="reviewed")
+    verdict = sentinel.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)),
+        "pruned.json",
+        pd.DataFrame({"a": range(20)}),
+        variant="reviewed",
+    )
     # Fresh __reviewed baseline: learn-only, never quarantined by the legacy shape.
     assert verdict["status"] == "learning"
     assert verdict["variant"] == "reviewed"
@@ -109,8 +114,12 @@ def test_mature_reviewed_baseline_accepts_pruned_shape(stores):
     baselines["baselines"][ss.baseline_key("tiktok", "ddp", "reviewed")] = reviewed
 
     sentinel = ss.StructureSentinel()
-    verdict = sentinel.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "another.json",
-                                 pd.DataFrame({"a": range(20)}), variant="reviewed")
+    verdict = sentinel.check_raw(
+        FakeCollection(_fp(PRUNED_PATHS)),
+        "another.json",
+        pd.DataFrame({"a": range(20)}),
+        variant="reviewed",
+    )
     assert verdict["status"] == "ok"
 
 

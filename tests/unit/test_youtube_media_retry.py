@@ -39,25 +39,23 @@ def test_classification() -> None:
     category, _ = _classify_error(Exception("ERROR: [youtube] xx: Video unavailable"))
     assert category == "removed", f"plain removal message → {category}"
 
-    category, _ = _classify_error(
-        Exception("Sign in to confirm you're not a bot"))
+    category, _ = _classify_error(Exception("Sign in to confirm you're not a bot"))
     assert category == "bot_check", f"bot wall message → {category}"
 
     # YouTube uses a typographic apostrophe in the real message (seen in prod
     # 2026-07-06 — the ASCII pattern alone classified it as unknown).
     category, _ = _classify_error(
-        Exception("ERROR: [youtube] xyz: Sign in to confirm you’re not a bot. "
-                  "Use --cookies-from-browser or --cookies for the authentication."))
+        Exception(
+            "ERROR: [youtube] xyz: Sign in to confirm you’re not a bot. "
+            "Use --cookies-from-browser or --cookies for the authentication."
+        )
+    )
     assert category == "bot_check", f"curly-apostrophe bot wall → {category}"
 
     scraper = YouTubeScraper()
     assert scraper.classify_error("rate_limited") == "transient:rate_limited"
     assert scraper.classify_error("removed") == "permanent:removed"
     print("OK  classification")
-
-
-
-
 
 
 def test_media_failure_attrs() -> None:
@@ -76,9 +74,12 @@ def test_media_failure_attrs() -> None:
     }
 
     scraper = YouTubeScraper()
-    with patch.object(youtube_dl, "_extract_metadata", return_value=(fake_info, None)), \
-         patch.object(youtube_dl, "_download_media",
-                      return_value=(False, "rate_limited", "simulated")):
+    with (
+        patch.object(youtube_dl, "_extract_metadata", return_value=(fake_info, None)),
+        patch.object(
+            youtube_dl, "_download_media", return_value=(False, "rate_limited", "simulated")
+        ),
+    ):
         row = scraper.fetch("abc123def45", save_media=True, save_path="/tmp")
 
     assert isinstance(row, pd.DataFrame) and not row.empty
@@ -86,9 +87,10 @@ def test_media_failure_attrs() -> None:
     assert row.attrs.get("media_error_type") == "rate_limited"
     assert not scraper.classify_error(row.attrs["media_error_type"]).startswith("permanent")
 
-    with patch.object(youtube_dl, "_extract_metadata", return_value=(fake_info, None)), \
-         patch.object(youtube_dl, "_download_media",
-                      return_value=(True, None, "")):
+    with (
+        patch.object(youtube_dl, "_extract_metadata", return_value=(fake_info, None)),
+        patch.object(youtube_dl, "_download_media", return_value=(True, None, "")),
+    ):
         row = scraper.fetch("abc123def45", save_media=True, save_path="/tmp")
 
     assert row.loc[0, "video_downloaded"] == True  # noqa: E712
@@ -96,27 +98,31 @@ def test_media_failure_attrs() -> None:
     print("OK  media-failure attrs")
 
 
-
-
-
-
 def _fake_metadata_row(item_id: str, media_error: str | None = None) -> pd.DataFrame:
     """A >10-column single-row frame like a real fetch result."""
-    row = pd.DataFrame([{
-        "item_id": item_id, "desc": "x", "create_time_raw": pd.Timestamp("2026-01-01"),
-        "duration_raw": 30, "author_id": "a", "yt_author_handle": "@a",
-        "author_name_raw": "A", "play_count_raw": 1, "yt_like_count": 0,
-        "yt_comment_count": 0, "yt_channel_follower_count": 0,
-        "yt_categories": "", "video_downloaded": False,
-    }])
+    row = pd.DataFrame(
+        [
+            {
+                "item_id": item_id,
+                "desc": "x",
+                "create_time_raw": pd.Timestamp("2026-01-01"),
+                "duration_raw": 30,
+                "author_id": "a",
+                "yt_author_handle": "@a",
+                "author_name_raw": "A",
+                "play_count_raw": 1,
+                "yt_like_count": 0,
+                "yt_comment_count": 0,
+                "yt_channel_follower_count": 0,
+                "yt_categories": "",
+                "video_downloaded": False,
+            }
+        ]
+    )
     if media_error is not None:
         row.attrs["media_error_type"] = media_error
         row.attrs["media_error_detail"] = "simulated"
     return row
-
-
-
-
 
 
 def test_orchestrator_media_retry_and_breaker() -> None:
@@ -132,8 +138,8 @@ def test_orchestrator_media_retry_and_breaker() -> None:
 
     with patch.object(scrape, "download_single_video", side_effect=fake_dl):
         results, perm, trans = scrape.download_video_threads(
-            interesting_videos=["vid_a", "vid_b"], max_workers=2,
-            dry_run=True, platform="youtube")
+            interesting_videos=["vid_a", "vid_b"], max_workers=2, dry_run=True, platform="youtube"
+        )
 
     assert set(trans) == {"vid_a", "vid_b"}, f"media-failed ids not transient: {trans}"
     assert perm == []
@@ -150,17 +156,13 @@ def test_orchestrator_media_retry_and_breaker() -> None:
     ids = [f"v{i}" for i in range(n_items)]
     with patch.object(scrape, "download_single_video", side_effect=fake_dl_storm):
         results, perm, trans = scrape.download_video_threads(
-            interesting_videos=ids, max_workers=2,
-            dry_run=True, platform="youtube")
+            interesting_videos=ids, max_workers=2, dry_run=True, platform="youtube"
+        )
 
     assert results.attrs.get("circuit_breaker_tripped") is True
     assert perm == []
     assert set(trans) == set(ids), "aborted/failed items must all stay queued"
     print("OK  circuit breaker trips and keeps everything queued")
-
-
-
-
 
 
 if __name__ == "__main__":

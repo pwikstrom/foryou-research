@@ -11,10 +11,6 @@ import pytest
 _TEST_ADMIN = "__sessions_test_admin__"
 
 
-
-
-
-
 @pytest.fixture
 def client(monkeypatch):
     from web_interface import security
@@ -39,43 +35,86 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _index_df():
     rows = [
-        {"collection_id": "colA", "session_id": "colA__0", "start_ts": "2026-01-01T10:00:00",
-         "end_ts": "2026-01-01T10:30:00", "duration_min": 30.0, "n_plays": 40, "n_distinct": 35,
-         "total_watch_s": 900.0, "median_dwell_s": 20.0, "n_scraped": 30, "n_annotated": 28,
-         "n_embedded": 25, "coverage_scraped": 0.86, "coverage_annotated": 0.8,
-         "coverage_embedded": 0.71, "emb_play_coverage": 0.7, "min_window_cosdist": 0.30,
-         "min_window_entropy_norm": 0.5, "n_episodes": 2, "episode_play_frac": 0.3,
-         "dominant_niche": "Recipes", "n_niches": 4},
-        {"collection_id": "colA", "session_id": "colA__1", "start_ts": "2026-01-02T10:00:00",
-         "end_ts": "2026-01-02T10:10:00", "duration_min": 10.0, "n_plays": 12, "n_distinct": 12,
-         "total_watch_s": 200.0, "median_dwell_s": 15.0, "n_scraped": 4, "n_annotated": 3,
-         "n_embedded": 2, "coverage_scraped": 0.33, "coverage_annotated": 0.25,
-         "coverage_embedded": 0.17, "emb_play_coverage": 0.15, "min_window_cosdist": None,
-         "min_window_entropy_norm": None, "n_episodes": 0, "episode_play_frac": 0.0,
-         "dominant_niche": None, "n_niches": 1},
-        {"collection_id": "colB", "session_id": "colB__0", "start_ts": "2026-01-03T10:00:00",
-         "end_ts": "2026-01-03T11:00:00", "duration_min": 60.0, "n_plays": 80, "n_distinct": 70,
-         "total_watch_s": 2000.0, "median_dwell_s": 22.0, "n_scraped": 65, "n_annotated": 60,
-         "n_embedded": 56, "coverage_scraped": 0.93, "coverage_annotated": 0.86,
-         "coverage_embedded": 0.8, "emb_play_coverage": 0.78, "min_window_cosdist": 0.55,
-         "min_window_entropy_norm": 0.8, "n_episodes": 1, "episode_play_frac": 0.1,
-         "dominant_niche": "News", "n_niches": 9},
+        {
+            "collection_id": "colA",
+            "session_id": "colA__0",
+            "start_ts": "2026-01-01T10:00:00",
+            "end_ts": "2026-01-01T10:30:00",
+            "duration_min": 30.0,
+            "n_plays": 40,
+            "n_distinct": 35,
+            "total_watch_s": 900.0,
+            "median_dwell_s": 20.0,
+            "n_scraped": 30,
+            "n_annotated": 28,
+            "n_embedded": 25,
+            "coverage_scraped": 0.86,
+            "coverage_annotated": 0.8,
+            "coverage_embedded": 0.71,
+            "emb_play_coverage": 0.7,
+            "min_window_cosdist": 0.30,
+            "min_window_entropy_norm": 0.5,
+            "n_episodes": 2,
+            "episode_play_frac": 0.3,
+            "dominant_niche": "Recipes",
+            "n_niches": 4,
+        },
+        {
+            "collection_id": "colA",
+            "session_id": "colA__1",
+            "start_ts": "2026-01-02T10:00:00",
+            "end_ts": "2026-01-02T10:10:00",
+            "duration_min": 10.0,
+            "n_plays": 12,
+            "n_distinct": 12,
+            "total_watch_s": 200.0,
+            "median_dwell_s": 15.0,
+            "n_scraped": 4,
+            "n_annotated": 3,
+            "n_embedded": 2,
+            "coverage_scraped": 0.33,
+            "coverage_annotated": 0.25,
+            "coverage_embedded": 0.17,
+            "emb_play_coverage": 0.15,
+            "min_window_cosdist": None,
+            "min_window_entropy_norm": None,
+            "n_episodes": 0,
+            "episode_play_frac": 0.0,
+            "dominant_niche": None,
+            "n_niches": 1,
+        },
+        {
+            "collection_id": "colB",
+            "session_id": "colB__0",
+            "start_ts": "2026-01-03T10:00:00",
+            "end_ts": "2026-01-03T11:00:00",
+            "duration_min": 60.0,
+            "n_plays": 80,
+            "n_distinct": 70,
+            "total_watch_s": 2000.0,
+            "median_dwell_s": 22.0,
+            "n_scraped": 65,
+            "n_annotated": 60,
+            "n_embedded": 56,
+            "coverage_scraped": 0.93,
+            "coverage_annotated": 0.86,
+            "coverage_embedded": 0.8,
+            "emb_play_coverage": 0.78,
+            "min_window_cosdist": 0.55,
+            "min_window_entropy_norm": 0.8,
+            "n_episodes": 1,
+            "episode_play_frac": 0.1,
+            "dominant_niche": "News",
+            "n_niches": 9,
+        },
     ]
     df = pd.DataFrame(rows)
     df["collection_id"] = df["collection_id"].astype("string")
     df["session_id"] = df["session_id"].astype("string")
     df["min_window_cosdist"] = pd.to_numeric(df["min_window_cosdist"], errors="coerce")
     return df
-
-
-
-
 
 
 @pytest.fixture
@@ -86,26 +125,34 @@ def patched_routes(monkeypatch):
     monkeypatch.setattr(mod, "_load_index", _index_df)
     # Patch the two sources rather than _study_collection_ids itself, so every
     # test exercises the real selected-AND-in-frame scoping.
-    monkeypatch.setattr(mod, "get_study_collections",
-                        lambda study: [{"collection_id": "colA"}, {"collection_id": "colB"}])
+    monkeypatch.setattr(
+        mod,
+        "get_study_collections",
+        lambda study: [{"collection_id": "colA"}, {"collection_id": "colB"}],
+    )
     monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colB"})
     # A wide-open window by default — the date axis of study scoping is
     # exercised explicitly below, and stubbing it keeps every other test off
     # the study-defs store (which the real helper reads from disk).
-    monkeypatch.setattr(mod, "get_study_date_window",
-                        lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")))
+    monkeypatch.setattr(
+        mod,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")),
+    )
     # No day sampling by default — the third scoping axis is exercised
     # explicitly below (the real helper reads the study sidecar from disk).
     monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: None)
     monkeypatch.setattr(mod, "load_display_id_map", lambda: {"colA": "Donor A"})
-    monkeypatch.setattr(mod, "_load_meta", lambda: {
-        "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
-        "params": {"cut": 0.5}})
+    monkeypatch.setattr(
+        mod,
+        "_load_meta",
+        lambda: {
+            "built_at": "2026-08-01T00:00:00+00:00",
+            "embedding_model": "gemini-embedding-001",
+            "params": {"cut": 0.5},
+        },
+    )
     return mod
-
-
-
-
 
 
 def test_study_collection_ids_intersects_the_built_frame(monkeypatch):
@@ -117,8 +164,11 @@ def test_study_collection_ids_intersects_the_built_frame(monkeypatch):
     """
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_collections",
-                        lambda study: [{"collection_id": c} for c in ("colA", "colB", "colC")])
+    monkeypatch.setattr(
+        mod,
+        "get_study_collections",
+        lambda study: [{"collection_id": c} for c in ("colA", "colB", "colC")],
+    )
 
     monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colC", "colZ"})
     assert mod._study_collection_ids("s") == {"colA", "colC"}
@@ -132,15 +182,12 @@ def test_study_collection_ids_intersects_the_built_frame(monkeypatch):
     assert mod._study_collection_ids("s") == set()
 
 
-
-
-
-
 def test_overview_excludes_collections_outside_the_study_frame(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_collections",
-                        lambda study: [{"collection_id": c} for c in ("colA", "colB")])
+    monkeypatch.setattr(
+        mod, "get_study_collections", lambda study: [{"collection_id": c} for c in ("colA", "colB")]
+    )
     monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
 
     res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
@@ -150,18 +197,26 @@ def test_overview_excludes_collections_outside_the_study_frame(client, patched_r
     assert {s["collection_id"] for s in body["sessions"]} == {"colA"}
 
 
-
-
-
-
 def test_overview_reports_effective_limits(client, patched_routes, monkeypatch):
     """The tab's limit copy is server-driven: built params + live context_plays."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_load_meta", lambda: {
-        "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
-        "params": {"cut": 0.5, "mem": 6, "min_videos": 7, "min_minutes": 9.0,
-                   "window_n": 8, "max_windows": 2}})
+    monkeypatch.setattr(
+        mod,
+        "_load_meta",
+        lambda: {
+            "built_at": "2026-08-01T00:00:00+00:00",
+            "embedding_model": "gemini-embedding-001",
+            "params": {
+                "cut": 0.5,
+                "mem": 6,
+                "min_videos": 7,
+                "min_minutes": 9.0,
+                "window_n": 8,
+                "max_windows": 2,
+            },
+        },
+    )
     monkeypatch.setattr(mod, "_context_plays", lambda: 5)
 
     res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
@@ -173,43 +228,39 @@ def test_overview_reports_effective_limits(client, patched_routes, monkeypatch):
     assert params["context_plays"] == 5
 
 
-
-
-
-
-def test_config_floors_hide_short_sessions_but_still_count_them(client, patched_routes, monkeypatch):
+def test_config_floors_hide_short_sessions_but_still_count_them(
+    client, patched_routes, monkeypatch
+):
     """The [sessions] floors apply by default and are reported, not silent."""
     import web_interface.routes.api_sessions_routes as mod
 
     # colA__1 has 12 plays / 10 min; colA__0 has 40 / 30; colB__0 has 80 / 60.
-    monkeypatch.setattr(mod, "_session_floors", lambda: {
-        "min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0})
+    monkeypatch.setattr(
+        mod,
+        "_session_floors",
+        lambda: {"min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0},
+    )
 
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
-    assert body["total_in_study"] == 3          # excluded sessions still counted
+    assert body["total_in_study"] == 3  # excluded sessions still counted
     assert body["total_above_floors"] == 2
     assert [s["session_id"] for s in body["sessions"]] == ["colA__0", "colB__0"]
     assert body["floors"] == {"min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0}
     assert body["defaults"]["min_plays"] == 20
 
 
-
-
-
-
 def test_minutes_floor_is_applied_independently(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_session_floors", lambda: {
-        "min_plays": 0, "min_session_minutes": 45.0, "min_coverage": 0.0})
+    monkeypatch.setattr(
+        mod,
+        "_session_floors",
+        lambda: {"min_plays": 0, "min_session_minutes": 45.0, "min_coverage": 0.0},
+    )
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
     # Only colB__0 runs 60 minutes.
     assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
     assert body["total_above_floors"] == 1
-
-
-
-
 
 
 def test_coverage_floor_is_applied_and_counted_as_a_floor(client, patched_routes, monkeypatch):
@@ -217,8 +268,11 @@ def test_coverage_floor_is_applied_and_counted_as_a_floor(client, patched_routes
     import web_interface.routes.api_sessions_routes as mod
 
     # coverage_embedded: colA__0 0.71, colA__1 0.17, colB__0 0.80.
-    monkeypatch.setattr(mod, "_session_floors", lambda: {
-        "min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.75})
+    monkeypatch.setattr(
+        mod,
+        "_session_floors",
+        lambda: {"min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.75},
+    )
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
     assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
     assert body["total_in_study"] == 3
@@ -226,18 +280,19 @@ def test_coverage_floor_is_applied_and_counted_as_a_floor(client, patched_routes
     assert body["floors"]["min_coverage"] == 0.75
 
 
-
-
-
-
 def test_query_params_override_the_admin_floors(client, patched_routes, monkeypatch):
     """`min_plays=0` must still mean "show me everything"."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_session_floors", lambda: {
-        "min_plays": 20, "min_session_minutes": 15.0, "min_coverage": 0.9})
-    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0"
-                      "&min_plays=0&min_session_minutes=0&min_coverage=0").get_json()
+    monkeypatch.setattr(
+        mod,
+        "_session_floors",
+        lambda: {"min_plays": 20, "min_session_minutes": 15.0, "min_coverage": 0.9},
+    )
+    body = client.get(
+        "/api/sessions/overview?study=s&min_emb_plays=0"
+        "&min_plays=0&min_session_minutes=0&min_coverage=0"
+    ).get_json()
     assert body["total_above_floors"] == 3
     assert body["floors"] == {"min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.0}
     # The admin values still ride along as the defaults the UI can show.
@@ -245,24 +300,25 @@ def test_query_params_override_the_admin_floors(client, patched_routes, monkeypa
     assert body["defaults"]["min_coverage"] == 0.9
 
 
-
-
-
-
 def test_session_floors_come_from_the_admin_store_in_endpoint_units(monkeypatch):
     """The route converts the admin-facing percentage to the stored fraction."""
     import web_interface.admin_settings as admin_settings
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(admin_settings, "get_session_floors", lambda: {
-        "sessions_min_plays": 9, "sessions_min_minutes": 2.5,
-        "sessions_min_coverage_pct": 60.0})
+    monkeypatch.setattr(
+        admin_settings,
+        "get_session_floors",
+        lambda: {
+            "sessions_min_plays": 9,
+            "sessions_min_minutes": 2.5,
+            "sessions_min_coverage_pct": 60.0,
+        },
+    )
     assert mod._session_floors() == {
-        "min_plays": 9, "min_session_minutes": 2.5, "min_coverage": 0.6}
-
-
-
-
+        "min_plays": 9,
+        "min_session_minutes": 2.5,
+        "min_coverage": 0.6,
+    }
 
 
 def test_committed_config_seeds_the_session_floors():
@@ -277,10 +333,6 @@ def test_committed_config_seeds_the_session_floors():
         assert float(cfg[cfg_key]) >= 0
 
 
-
-
-
-
 def test_display_params_fall_back_to_config_for_an_older_artifact():
     import web_interface.routes.api_sessions_routes as mod
     from fyp.analysis import session_explorer
@@ -291,12 +343,10 @@ def test_display_params_fall_back_to_config_for_an_older_artifact():
         "drift_p": mod._drift_p(),
         "trend_min_videos": mod._trend_min_videos(),
     }
-    assert mod._display_params({"params": {}})["window_n"] == \
-        session_explorer.default_params()["window_n"]
-
-
-
-
+    assert (
+        mod._display_params({"params": {}})["window_n"]
+        == session_explorer.default_params()["window_n"]
+    )
 
 
 def test_overview_requires_study(client, patched_routes):
@@ -304,20 +354,13 @@ def test_overview_requires_study(client, patched_routes):
     assert res.status_code == 400
 
 
-
-
-
-
 def test_overview_requires_login():
     from web_interface.fyp_data_hub import app
+
     app.testing = True
     with app.test_client() as anon:
         res = anon.get("/api/sessions/overview?study=x")
         assert res.status_code in (302, 401)
-
-
-
-
 
 
 def test_overview_filters_and_sorts(client, patched_routes):
@@ -339,23 +382,13 @@ def test_overview_filters_and_sorts(client, patched_routes):
     assert ids[-1] == "colA__1"
 
 
-
-
-
-
 def test_overview_unknown_sort_falls_back(client, patched_routes):
     res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0&sort=__nope__")
     assert res.status_code == 200
     assert res.get_json()["sessions"][0]["session_id"] == "colA__0"
 
 
-
-
-
-
 _BASE = "/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0&min_plays=0&min_session_minutes=0"
-
-
 
 
 def test_overview_reports_filter_ranges(client, patched_routes):
@@ -370,10 +403,6 @@ def test_overview_reports_filter_ranges(client, patched_routes):
 
     filtered = client.get(_BASE + "&f_plays_min=20").get_json()
     assert filtered["ranges"] == body["ranges"]
-
-
-
-
 
 
 def test_overview_range_filters(client, patched_routes):
@@ -394,10 +423,6 @@ def test_overview_range_filters(client, patched_routes):
     assert res.status_code == 400
 
 
-
-
-
-
 def test_overview_date_filter_is_inclusive(client, patched_routes):
     res = client.get(_BASE + "&f_start_min=2026-01-02&f_start_max=2026-01-02")
     assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colA__1"]
@@ -409,12 +434,9 @@ def test_overview_date_filter_is_inclusive(client, patched_routes):
     assert res.status_code == 400
 
 
-
-
-
-
 def test_overview_excludes_sessions_outside_the_study_date_window(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     """The artifact is global; a study's date window must still scope it.
 
     Without this the tab lists every session a study's collections ever
@@ -422,8 +444,11 @@ def test_overview_excludes_sessions_outside_the_study_date_window(
     """
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_date_window",
-                        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")))
+    monkeypatch.setattr(
+        mod,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
+    )
 
     body = client.get(_BASE).get_json()
     assert [s["session_id"] for s in body["sessions"]] == ["colA__1"]
@@ -436,12 +461,7 @@ def test_overview_excludes_sessions_outside_the_study_date_window(
     assert body["ranges"]["start_date"] == ["2026-01-02", "2026-01-02"]
 
 
-
-
-
-
-def test_study_date_window_end_is_inclusive_through_that_day(
-        client, patched_routes, monkeypatch):
+def test_study_date_window_end_is_inclusive_through_that_day(client, patched_routes, monkeypatch):
     """END_DATE means "through the end of that day", as in the study builder.
 
     A date-only upper bound implicitly means midnight, which would drop every
@@ -449,32 +469,31 @@ def test_study_date_window_end_is_inclusive_through_that_day(
     """
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_date_window",
-                        lambda study: (pd.Timestamp("2026-01-03"), pd.Timestamp("2026-01-04")))
+    monkeypatch.setattr(
+        mod,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-03"), pd.Timestamp("2026-01-04")),
+    )
 
     # colB__0 starts 10:00 on the closing day.
     body = client.get(_BASE).get_json()
     assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
 
 
-
-
-
-
 def test_detail_refuses_a_session_outside_the_study_date_window(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     """A bookmarked link cannot open a session the study does not contain."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_date_window",
-                        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")))
+    monkeypatch.setattr(
+        mod,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
+    )
 
     res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
     assert res.status_code == 404
-
-
-
-
 
 
 class _NonAdmin:
@@ -484,8 +503,7 @@ class _NonAdmin:
         return False
 
 
-def test_overview_excludes_sessions_on_days_the_sample_dropped(
-        client, patched_routes, monkeypatch):
+def test_overview_excludes_sessions_on_days_the_sample_dropped(client, patched_routes, monkeypatch):
     """Sampling is the third scoping axis.
 
     A day-sampled study keeps only some of a collection's days inside its
@@ -494,8 +512,11 @@ def test_overview_excludes_sessions_on_days_the_sample_dropped(
     """
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_selected_cells",
-                        lambda study: {"colA": {"2026-01-02"}, "colB": {"2026-01-03"}})
+    monkeypatch.setattr(
+        mod,
+        "get_study_selected_cells",
+        lambda study: {"colA": {"2026-01-02"}, "colB": {"2026-01-03"}},
+    )
 
     body = client.get(_BASE).get_json()
     assert sorted(s["session_id"] for s in body["sessions"]) == ["colA__1", "colB__0"]
@@ -504,25 +525,23 @@ def test_overview_excludes_sessions_on_days_the_sample_dropped(
     assert all(s["in_study"] is True for s in body["sessions"])
 
 
-def test_detail_refuses_a_session_on_a_day_the_sample_dropped(
-        client, patched_routes, monkeypatch):
+def test_detail_refuses_a_session_on_a_day_the_sample_dropped(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_selected_cells",
-                        lambda study: {"colA": {"2026-01-02"}})
+    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: {"colA": {"2026-01-02"}})
 
     res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
     assert res.status_code == 404
 
 
 def test_admin_all_scope_lists_the_whole_index_and_marks_outside_rows(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     """``scope=all`` (admin): every session, with ``in_study`` per row."""
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
-    monkeypatch.setattr(mod, "get_study_selected_cells",
-                        lambda study: {"colA": {"2026-01-01"}})
+    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: {"colA": {"2026-01-01"}})
 
     scoped = client.get(_BASE).get_json()
     assert [s["session_id"] for s in scoped["sessions"]] == ["colA__0"]
@@ -579,10 +598,6 @@ def test_study_date_window_matches_the_builder_convention():
             defs.pop(name, None)
 
 
-
-
-
-
 def test_overview_pagination_clamps(client, patched_routes):
     body = client.get(_BASE + "&limit=2&page=0").get_json()
     assert body["total_matching"] == 3
@@ -600,23 +615,17 @@ def test_overview_pagination_clamps(client, patched_routes):
     assert body["returned"] == 1
 
 
-
-
-
-
 def test_overview_404_without_artifact(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
+
     monkeypatch.setattr(mod, "_load_index", lambda: None)
     res = client.get("/api/sessions/overview?study=s")
     assert res.status_code == 404
 
 
-
-
-
-
 def test_detail_validates_params_and_membership(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
+
     res = client.get("/api/sessions/detail?study=s&collection_id=colA")
     assert res.status_code == 400
 
@@ -625,59 +634,105 @@ def test_detail_validates_params_and_membership(client, patched_routes, monkeypa
     assert res.status_code == 403
 
 
-
-
-
-
 def test_detail_payload_flags_and_episode_assignment(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.api_viewer_routes as viewer
 
-    plays = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2", "v3"], dtype="string"),
-        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00",
-                               "2026-01-01T10:29:00"]),
-        "play_duration": [10.0, 20.0, 30.0],
-        "source_platform": ["tiktok"] * 3,
-    })
-    episodes = [{
-        "episode_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:06:00",
-        "duration_min": 6.0, "n_plays": 2, "n_distinct": 2, "repeat_rate": 1.0,
-        "n_interleaved": 0, "focus": 0.2, "diameter": 0.3, "step_mean": 0.1,
-        "straightness": 0.2, "spectral_entropy_bits": 1.0, "effective_rank": 2.0,
-        "dominant_niche": "Recipes", "dominant_niche_share": 1.0, "n_niches": 1,
-        "n_authors": 1, "dominant_author_share": 1.0, "advertising": None,
-        "advertising_share": 0.0, "mean_political": 0.0, "mean_sensitivity": 0.0,
-        "members": [
-            {"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0, "rolling_cosdist": None},
-            {"item_id": "v2", "ts": "2026-01-01T10:05:00", "dwell_s": 20.0, "rolling_cosdist": 0.1},
-        ],
-    }]
-    feat = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2"], dtype="string"),
-        "niche_name": ["Recipes", "Recipes"], "category": ["Food", "Food"],
-        "story": ["s1", "s2"], "political_score": [0.0, 0.0],
-        "sensitivity_score": [0.0, 0.0], "advertising": ["none", "none"],
-        "author": ["a", "a"],
-    }).set_index("item_id")
+    plays = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2", "v3"], dtype="string"),
+            "_ts": pd.to_datetime(
+                ["2026-01-01T10:00:00", "2026-01-01T10:05:00", "2026-01-01T10:29:00"]
+            ),
+            "play_duration": [10.0, 20.0, 30.0],
+            "source_platform": ["tiktok"] * 3,
+        }
+    )
+    episodes = [
+        {
+            "episode_idx": 0,
+            "start_ts": "2026-01-01T10:00:00",
+            "end_ts": "2026-01-01T10:06:00",
+            "duration_min": 6.0,
+            "n_plays": 2,
+            "n_distinct": 2,
+            "repeat_rate": 1.0,
+            "n_interleaved": 0,
+            "focus": 0.2,
+            "diameter": 0.3,
+            "step_mean": 0.1,
+            "straightness": 0.2,
+            "spectral_entropy_bits": 1.0,
+            "effective_rank": 2.0,
+            "dominant_niche": "Recipes",
+            "dominant_niche_share": 1.0,
+            "n_niches": 1,
+            "n_authors": 1,
+            "dominant_author_share": 1.0,
+            "advertising": None,
+            "advertising_share": 0.0,
+            "mean_political": 0.0,
+            "mean_sensitivity": 0.0,
+            "members": [
+                {
+                    "item_id": "v1",
+                    "ts": "2026-01-01T10:00:00",
+                    "dwell_s": 10.0,
+                    "rolling_cosdist": None,
+                },
+                {
+                    "item_id": "v2",
+                    "ts": "2026-01-01T10:05:00",
+                    "dwell_s": 20.0,
+                    "rolling_cosdist": 0.1,
+                },
+            ],
+        }
+    ]
+    feat = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2"], dtype="string"),
+            "niche_name": ["Recipes", "Recipes"],
+            "category": ["Food", "Food"],
+            "story": ["s1", "s2"],
+            "political_score": [0.0, 0.0],
+            "sensitivity_score": [0.0, 0.0],
+            "advertising": ["none", "none"],
+            "author": ["a", "a"],
+        }
+    ).set_index("item_id")
 
-    windows = [{
-        "window_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:29:00",
-        "duration_min": 29.0, "n_distinct": 2, "mean_cosdist": 0.21, "entropy_norm": 0.4,
-        "dominant_niche": "Recipes",
-        "members": [
-            {"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0},
-            {"item_id": "v3", "ts": "2026-01-01T10:29:00", "dwell_s": 30.0},
-        ],
-    }]
+    windows = [
+        {
+            "window_idx": 0,
+            "start_ts": "2026-01-01T10:00:00",
+            "end_ts": "2026-01-01T10:29:00",
+            "duration_min": 29.0,
+            "n_distinct": 2,
+            "mean_cosdist": 0.21,
+            "entropy_norm": 0.4,
+            "dominant_niche": "Recipes",
+            "members": [
+                {"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0},
+                {"item_id": "v3", "ts": "2026-01-01T10:29:00", "dwell_s": 30.0},
+            ],
+        }
+    ]
 
     monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
     monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: episodes)
     monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: windows)
     monkeypatch.setattr(mod, "_features", lambda: feat)
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": {"v1", "v2"}, "downloaded": {"v1"},
-        "annotated": {"v1", "v2"}, "embedded": {"v1", "v2"}})
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {
+            "scraped": {"v1", "v2"},
+            "downloaded": {"v1"},
+            "annotated": {"v1", "v2"},
+            "embedded": {"v1", "v2"},
+        },
+    )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset({"v1", "v3"}))
 
     res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
@@ -700,17 +755,28 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
     # Admin playback ignores frame membership: a downloaded video outside
     # the frame streams for an admin (v2 is inside but not downloaded, so it
     # still does not).
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": {"v1", "v2"}, "downloaded": {"v1", "v2"},
-        "annotated": {"v1", "v2"}, "embedded": {"v1", "v2"}})
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {
+            "scraped": {"v1", "v2"},
+            "downloaded": {"v1", "v2"},
+            "annotated": {"v1", "v2"},
+            "embedded": {"v1", "v2"},
+        },
+    )
     # The response cache keys on the flag FILES' fingerprint, which the
     # patched sets above do not touch.
     mod._DETAIL_RESPONSE_CACHE.clear()
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     assert [p["streamable"] for p in body["plays"]] == [True, True, False]
     # A viewer keeps the frame-scoped verdict — and its own cache slot.
     monkeypatch.setattr(mod, "current_user", _NonAdmin())
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     assert [p["streamable"] for p in body["plays"]] == [True, False, False]
     assert body["episodes"][0]["members"][0]["item_id"] == "v1"
     # Low-entropy windows ride along with their members.
@@ -718,17 +784,16 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
     assert [m["item_id"] for m in body["windows"][0]["members"]] == ["v1", "v3"]
 
 
-
-
-
-
 def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.management_routes as mgmt
 
     monkeypatch.setattr(mod, "_fingerprint", lambda fn: "1:2")
-    monkeypatch.setattr(mod, "_load_meta", lambda: {
-        "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "some-other-model"})
+    monkeypatch.setattr(
+        mod,
+        "_load_meta",
+        lambda: {"built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "some-other-model"},
+    )
     monkeypatch.setattr(mgmt, "_is_worker_running", lambda name: False)
 
     res = client.get("/api/sessions/status")
@@ -737,10 +802,6 @@ def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
     assert body["artifact_exists"] is True
     if body["active_embedding_model"]:
         assert body["model_mismatch"] is True
-
-
-
-
 
 
 def test_spearman_exact_matches_the_combinatorial_floor():
@@ -770,10 +831,6 @@ def test_spearman_exact_matches_the_combinatorial_floor():
     assert np.isnan(mod._spearman_exact(np.zeros(6))[0])
 
 
-
-
-
-
 def test_benjamini_hochberg_is_monotone_and_bounded():
     import web_interface.routes.api_sessions_routes as mod
 
@@ -790,17 +847,15 @@ def test_benjamini_hochberg_is_monotone_and_bounded():
     assert all(x <= 1.0 for x in mod._benjamini_hochberg([0.9, 0.95, 0.99]))
 
 
-
-
-
-
 def _members(n, dwell=None):
-    return [{"item_id": f"v{i}", "ts": f"2026-01-01T10:{i:02d}:00",
-             "dwell_s": None if dwell is None else dwell[i]} for i in range(n)]
-
-
-
-
+    return [
+        {
+            "item_id": f"v{i}",
+            "ts": f"2026-01-01T10:{i:02d}:00",
+            "dwell_s": None if dwell is None else dwell[i],
+        }
+        for i in range(n)
+    ]
 
 
 def test_scan_trend_finds_a_planted_trend_and_names_it():
@@ -810,10 +865,13 @@ def test_scan_trend_finds_a_planted_trend_and_names_it():
     import web_interface.routes.api_sessions_routes as mod
 
     n = 9
-    feat = pd.DataFrame({
-        "log_plays": np.arange(n, dtype=float),            # perfectly rising
-        "faves_per_K_play": np.random.default_rng(2).normal(size=n),
-    }, index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+    feat = pd.DataFrame(
+        {
+            "log_plays": np.arange(n, dtype=float),  # perfectly rising
+            "faves_per_K_play": np.random.default_rng(2).normal(size=n),
+        },
+        index=pd.Index([f"v{i}" for i in range(n)], name="item_id"),
+    )
 
     out = mod._scan_trend(_members(n), feat, min_n=7)
     assert out["trend"] is not None
@@ -824,10 +882,6 @@ def test_scan_trend_finds_a_planted_trend_and_names_it():
     assert out["scanned"] >= 1
 
 
-
-
-
-
 def test_scan_trend_reports_why_it_could_not_run():
     """A silent 'no trend' would read as evidence of absence."""
     import pandas as pd
@@ -836,12 +890,8 @@ def test_scan_trend_reports_why_it_could_not_run():
 
     out = mod._scan_trend(_members(5), pd.DataFrame(), min_n=7)
     assert out["trend"] is None
-    assert out["scanned"] == 0            # nothing was testable...
-    assert out["n_members"] == 5 and out["min_n"] == 7   # ...and the UI can say why
-
-
-
-
+    assert out["scanned"] == 0  # nothing was testable...
+    assert out["n_members"] == 5 and out["min_n"] == 7  # ...and the UI can say why
 
 
 def test_scan_trend_does_not_flag_noise():
@@ -852,20 +902,20 @@ def test_scan_trend_does_not_flag_noise():
 
     rng = np.random.default_rng(0)
     n = 10
-    feat = pd.DataFrame({f"var{j}": rng.normal(size=n) for j in range(8)},
-                        index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+    feat = pd.DataFrame(
+        {f"var{j}": rng.normal(size=n) for j in range(8)},
+        index=pd.Index([f"v{i}" for i in range(n)], name="item_id"),
+    )
     flagged = 0
     for _ in range(20):
-        feat = pd.DataFrame({f"var{j}": rng.normal(size=n) for j in range(8)},
-                            index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+        feat = pd.DataFrame(
+            {f"var{j}": rng.normal(size=n) for j in range(8)},
+            index=pd.Index([f"v{i}" for i in range(n)], name="item_id"),
+        )
         if mod._scan_trend(_members(n), feat, min_n=7)["trend"] is not None:
             flagged += 1
     # BH across 8 noise variables should keep this near the nominal rate.
     assert flagged <= 3, f"{flagged}/20 noise binges flagged — correction is not biting"
-
-
-
-
 
 
 def test_scan_trend_includes_per_play_dwell():
@@ -882,17 +932,15 @@ def test_scan_trend_includes_per_play_dwell():
     assert out["trend"]["direction"] == "falling"
 
 
-
-
-
-
 def test_creator_count_reports_its_denominator():
     import pandas as pd
 
     import web_interface.routes.api_sessions_routes as mod
 
-    feat = pd.DataFrame({"author": ["a", "b", "a", None]},
-                        index=pd.Index([f"v{i}" for i in range(4)], name="item_id"))
+    feat = pd.DataFrame(
+        {"author": ["a", "b", "a", None]},
+        index=pd.Index([f"v{i}" for i in range(4)], name="item_id"),
+    )
     out = mod._creator_count([f"v{i}" for i in range(4)], feat)
     # 2 distinct creators over the 3 videos that have one — not "2 of 4".
     assert out == {"n_creators": 2, "n_attributed": 3, "n_items": 4}
@@ -902,17 +950,14 @@ def test_creator_count_reports_its_denominator():
     assert empty == {"n_creators": 0, "n_attributed": 0, "n_items": 1}
 
 
-
-
-
-
 def test_overview_marks_sessions_holding_a_directed_binge(client, patched_routes, monkeypatch):
     import pandas as pd
 
     import web_interface.routes.api_sessions_routes as mod
 
     counts = pd.Series(
-        [1, 0], index=pd.MultiIndex.from_tuples([("colA", "colA__0"), ("colB", "colB__0")]))
+        [1, 0], index=pd.MultiIndex.from_tuples([("colA", "colA__0"), ("colB", "colB__0")])
+    )
     monkeypatch.setattr(mod, "_directed_counts", lambda: counts)
 
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0").get_json()
@@ -923,11 +968,9 @@ def test_overview_marks_sessions_holding_a_directed_binge(client, patched_routes
     assert by_id["colA__1"]["n_directed_episodes"] == 0
 
 
-
-
-
-
-def test_overview_reports_null_when_directedness_was_never_computed(client, patched_routes, monkeypatch):
+def test_overview_reports_null_when_directedness_was_never_computed(
+    client, patched_routes, monkeypatch
+):
     """An artifact built before direction_p must not read as 'no directed binges'."""
     import web_interface.routes.api_sessions_routes as mod
 
@@ -936,13 +979,10 @@ def test_overview_reports_null_when_directedness_was_never_computed(client, patc
     assert all(s["n_directed_episodes"] is None for s in body["sessions"])
 
     # Sorting by a column that artifact cannot supply must not 500.
-    res = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0"
-                     "&sort=n_directed_episodes")
+    res = client.get(
+        "/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0&sort=n_directed_episodes"
+    )
     assert res.status_code == 200
-
-
-
-
 
 
 def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monkeypatch):
@@ -951,45 +991,77 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.api_viewer_routes as viewer
 
-    plays = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2", "v3"], dtype="string"),
-        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00",
-                               "2026-01-01T10:29:00"]),
-        "play_duration": [10.0, 20.0, 30.0],
-        "source_platform": ["tiktok"] * 3,
-    })
-    members = [{"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0,
-                "rolling_cosdist": None},
-               {"item_id": "v2", "ts": "2026-01-01T10:05:00", "dwell_s": 20.0,
-                "rolling_cosdist": 0.1}]
-    feat = pd.DataFrame({
-        "niche_name": ["Recipes", "Recipes", None], "category": ["Food", "Food", None],
-        "story": ["s1", "s2", None], "political_score": [0.0, 0.0, None],
-        "sensitivity_score": [0.0, 0.0, None], "advertising": ["none", "none", None],
-        "author": ["chef_a", "chef_b", None],
-    }, index=pd.Index(["v1", "v2", "v3"], name="item_id"))
+    plays = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2", "v3"], dtype="string"),
+            "_ts": pd.to_datetime(
+                ["2026-01-01T10:00:00", "2026-01-01T10:05:00", "2026-01-01T10:29:00"]
+            ),
+            "play_duration": [10.0, 20.0, 30.0],
+            "source_platform": ["tiktok"] * 3,
+        }
+    )
+    members = [
+        {"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0, "rolling_cosdist": None},
+        {"item_id": "v2", "ts": "2026-01-01T10:05:00", "dwell_s": 20.0, "rolling_cosdist": 0.1},
+    ]
+    feat = pd.DataFrame(
+        {
+            "niche_name": ["Recipes", "Recipes", None],
+            "category": ["Food", "Food", None],
+            "story": ["s1", "s2", None],
+            "political_score": [0.0, 0.0, None],
+            "sensitivity_score": [0.0, 0.0, None],
+            "advertising": ["none", "none", None],
+            "author": ["chef_a", "chef_b", None],
+        },
+        index=pd.Index(["v1", "v2", "v3"], name="item_id"),
+    )
 
     monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
-    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [
-        {"episode_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:06:00",
-         "n_distinct": 2, "direction_p": 0.01, "members": members}])
-    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [
-        {"window_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:29:00",
-         "n_distinct": 2, "members": [members[0], {"item_id": "v3", "ts": "x", "dwell_s": 1.0}]}])
+    monkeypatch.setattr(
+        mod,
+        "_session_episodes",
+        lambda cid, sid: [
+            {
+                "episode_idx": 0,
+                "start_ts": "2026-01-01T10:00:00",
+                "end_ts": "2026-01-01T10:06:00",
+                "n_distinct": 2,
+                "direction_p": 0.01,
+                "members": members,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        mod,
+        "_session_windows",
+        lambda cid, sid: [
+            {
+                "window_idx": 0,
+                "start_ts": "2026-01-01T10:00:00",
+                "end_ts": "2026-01-01T10:29:00",
+                "n_distinct": 2,
+                "members": [members[0], {"item_id": "v3", "ts": "x", "dwell_s": 1.0}],
+            }
+        ],
+    )
     monkeypatch.setattr(mod, "_features", lambda: feat)
     monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
+    )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
 
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
-                      "&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     # Binge: two videos, two different creators, both attributed.
-    assert body["episodes"][0]["creators"] == {
-        "n_creators": 2, "n_attributed": 2, "n_items": 2}
+    assert body["episodes"][0]["creators"] == {"n_creators": 2, "n_attributed": 2, "n_items": 2}
     # Sequence: v3 has no known creator, so the denominator is reported.
-    assert body["windows"][0]["creators"] == {
-        "n_creators": 1, "n_attributed": 1, "n_items": 2}
+    assert body["windows"][0]["creators"] == {"n_creators": 1, "n_attributed": 1, "n_items": 2}
     # Trend scan rides along on binges, with an honest "not testable" shape.
     assert body["episodes"][0]["trend_scan"]["trend"] is None
     assert body["episodes"][0]["trend_scan"]["n_members"] == 2
@@ -997,23 +1069,15 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
     assert body["params"]["drift_p"] == mod._drift_p()
 
 
-
-
 def _index_df_with_extremes():
     """The base fixture plus the rebuilt-artifact columns (vmax_/vmin_/search_text)."""
     df = _index_df()
-    df["vmax_sensitivity_score"] = pd.to_numeric(
-        pd.Series([0.9, 0.2, None]), errors="coerce")
-    df["vmin_sensitivity_score"] = pd.to_numeric(
-        pd.Series([0.1, 0.0, None]), errors="coerce")
+    df["vmax_sensitivity_score"] = pd.to_numeric(pd.Series([0.9, 0.2, None]), errors="coerce")
+    df["vmin_sensitivity_score"] = pd.to_numeric(pd.Series([0.1, 0.0, None]), errors="coerce")
     df["search_text"] = pd.Series(
-        ["sourdough bread\n#funnycats\nchef_a", "gaming clips\nstreamer_b", None],
-        dtype="string")
+        ["sourdough bread\n#funnycats\nchef_a", "gaming clips\nstreamer_b", None], dtype="string"
+    )
     return df
-
-
-
-
 
 
 def test_overview_sorts_by_collection_id(client, patched_routes):
@@ -1025,10 +1089,6 @@ def test_overview_sorts_by_collection_id(client, patched_routes):
     res = client.get(_BASE + "&sort=collection_id&order=desc")
     cids = [s["collection_id"] for s in res.get_json()["sessions"]]
     assert cids == sorted(cids, reverse=True)
-
-
-
-
 
 
 def test_overview_varmax_filter_and_ranges(client, patched_routes, monkeypatch):
@@ -1055,20 +1115,12 @@ def test_overview_varmax_filter_and_ranges(client, patched_routes, monkeypatch):
     assert res.get_json()["total_matching"] == 3
 
 
-
-
-
-
 def test_overview_varmax_degrades_on_an_old_artifact(client, patched_routes):
     """No vmax_ columns: var_max is null (not {}) and the filter is a no-op."""
     body = client.get(_BASE + "&f_varmax_col=sensitivity_score&f_varmax_min=0.5").get_json()
     assert body["ranges"]["var_max"] is None
     assert body["ranges"]["var_labels"] is None
     assert body["total_matching"] == 3
-
-
-
-
 
 
 def test_overview_search_matches_the_baked_blob(client, patched_routes, monkeypatch):
@@ -1091,18 +1143,10 @@ def test_overview_search_matches_the_baked_blob(client, patched_routes, monkeypa
     assert [s["session_id"] for s in body["sessions"]] == ["colA__0"]
 
 
-
-
-
-
 def test_overview_search_is_ignored_on_an_old_artifact(client, patched_routes):
     body = client.get(_BASE + "&q=sourdough").get_json()
     assert body["search_available"] is False
     assert body["total_matching"] == 3
-
-
-
-
 
 
 def test_min_max_ranges_is_descriptive_and_skips_all_nan():
@@ -1125,12 +1169,7 @@ def test_min_max_ranges_is_descriptive_and_skips_all_nan():
     assert by_var["dwell_s"]["min"] == pytest.approx(5.0)
     assert by_var["dwell_s"]["max"] == pytest.approx(40.0)
     # Sorted by label for a stable display order.
-    assert [r["label"] for r in out] == sorted(
-        (r["label"] for r in out), key=str.lower)
-
-
-
-
+    assert [r["label"] for r in out] == sorted((r["label"] for r in out), key=str.lower)
 
 
 def test_scan_trend_reports_ranges_even_below_min_n():
@@ -1144,32 +1183,41 @@ def test_scan_trend_reports_ranges_even_below_min_n():
     assert by_var["dwell_s"]["max"] == pytest.approx(30.0)
 
 
-
-
-
-
 def test_detail_carries_duration_desc_hashtags_and_session_ranges(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     import numpy as np
 
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.api_viewer_routes as viewer
 
-    plays = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2"], dtype="string"),
-        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
-        "play_duration": [12.0, 45.0],
-        "source_platform": ["tiktok"] * 2,
-    })
-    feat = pd.DataFrame({
-        "niche_name": ["Recipes", None], "category": ["Food", None],
-        "story": [None, None], "political_score": [0.0, None],
-        "sensitivity_score": [0.1, None], "advertising": ["none", None],
-        "author": ["chef_a", None], "duration": [30.0, None],
-    }, index=pd.Index(["v1", "v2"], name="item_id"))
-    trend_feat = pd.DataFrame({
-        "sensitivity_score": [0.1, 0.7],
-    }, index=pd.Index(["v1", "v2"], name="item_id"))
+    plays = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2"], dtype="string"),
+            "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+            "play_duration": [12.0, 45.0],
+            "source_platform": ["tiktok"] * 2,
+        }
+    )
+    feat = pd.DataFrame(
+        {
+            "niche_name": ["Recipes", None],
+            "category": ["Food", None],
+            "story": [None, None],
+            "political_score": [0.0, None],
+            "sensitivity_score": [0.1, None],
+            "advertising": ["none", None],
+            "author": ["chef_a", None],
+            "duration": [30.0, None],
+        },
+        index=pd.Index(["v1", "v2"], name="item_id"),
+    )
+    trend_feat = pd.DataFrame(
+        {
+            "sensitivity_score": [0.1, 0.7],
+        },
+        index=pd.Index(["v1", "v2"], name="item_id"),
+    )
 
     long_desc = "caption " * 100  # 800 chars, beyond _STORY_CAP
     monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
@@ -1178,14 +1226,21 @@ def test_detail_carries_duration_desc_hashtags_and_session_ranges(
     monkeypatch.setattr(mod, "_features", lambda: feat)
     monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
     monkeypatch.setattr(mod, "_story_map", lambda ids: {})
-    monkeypatch.setattr(mod, "_scrape_text_map", lambda ids: {
-        "v1": {"desc": long_desc, "hashtags": "#bread #sourdough"}})
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(
+        mod,
+        "_scrape_text_map",
+        lambda ids: {"v1": {"desc": long_desc, "hashtags": "#bread #sourdough"}},
+    )
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
+    )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
 
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
-                      "&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     p1, p2 = body["plays"]
     assert p1["duration_s"] == pytest.approx(30.0)
     assert p1["hashtags"] == "#bread #sourdough"
@@ -1201,24 +1256,23 @@ def test_detail_carries_duration_desc_hashtags_and_session_ranges(
     assert by_var["dwell_s"]["max"] == pytest.approx(45.0)
 
 
-
-
-def test_detail_uses_baked_play_texts_and_skips_corpus_reads(
-        client, patched_routes, monkeypatch):
+def test_detail_uses_baked_play_texts_and_skips_corpus_reads(client, patched_routes, monkeypatch):
     """A plays artifact with baked text columns answers story/desc/hashtags
     without touching the corpus annotation/scrape parquets."""
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.api_viewer_routes as viewer
 
-    plays = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2"], dtype="string"),
-        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
-        "play_duration": [12.0, 45.0],
-        "source_platform": ["tiktok"] * 2,
-        "story": pd.Series(["a baked story", None], dtype="string"),
-        "desc": pd.Series(["a baked caption", None], dtype="string"),
-        "hashtags": pd.Series(["#one #two", None], dtype="string"),
-    })
+    plays = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2"], dtype="string"),
+            "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+            "play_duration": [12.0, 45.0],
+            "source_platform": ["tiktok"] * 2,
+            "story": pd.Series(["a baked story", None], dtype="string"),
+            "desc": pd.Series(["a baked caption", None], dtype="string"),
+            "hashtags": pd.Series(["#one #two", None], dtype="string"),
+        }
+    )
 
     def _must_not_read(ids):
         raise AssertionError("corpus pushdown read on the baked-text path")
@@ -1230,12 +1284,16 @@ def test_detail_uses_baked_play_texts_and_skips_corpus_reads(
     monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
     monkeypatch.setattr(mod, "_story_map", _must_not_read)
     monkeypatch.setattr(mod, "_scrape_text_map", _must_not_read)
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
+    )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
 
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
-                      "&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     p1, p2 = body["plays"]
     assert p1["story"] == "a baked story"
     assert p1["desc"] == "a baked caption"
@@ -1243,24 +1301,25 @@ def test_detail_uses_baked_play_texts_and_skips_corpus_reads(
     assert p2["story"] is None and p2["desc"] is None and p2["hashtags"] is None
 
 
-
-
-
-
 def test_detail_includes_per_play_variable_series(client, patched_routes, monkeypatch):
     """play_variables aligns each numeric map variable with the plays order."""
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.routes.api_viewer_routes as viewer
 
-    plays = pd.DataFrame({
-        "item_id": pd.Series(["v1", "v2"], dtype="string"),
-        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
-        "play_duration": [12.0, 45.0],
-        "source_platform": ["tiktok"] * 2,
-    })
-    trend_feat = pd.DataFrame({
-        "political_score": [0.25, None],
-    }, index=pd.Index(["v1", "v2"], name="item_id"))
+    plays = pd.DataFrame(
+        {
+            "item_id": pd.Series(["v1", "v2"], dtype="string"),
+            "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+            "play_duration": [12.0, 45.0],
+            "source_platform": ["tiktok"] * 2,
+        }
+    )
+    trend_feat = pd.DataFrame(
+        {
+            "political_score": [0.25, None],
+        },
+        index=pd.Index(["v1", "v2"], name="item_id"),
+    )
     trend_feat["political_score"] = pd.to_numeric(trend_feat["political_score"])
 
     monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
@@ -1270,18 +1329,18 @@ def test_detail_includes_per_play_variable_series(client, patched_routes, monkey
     monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
     monkeypatch.setattr(mod, "_story_map", lambda ids: {})
     monkeypatch.setattr(mod, "_scrape_text_map", lambda ids: {})
-    monkeypatch.setattr(mod, "_flag_sets", lambda: {
-        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(
+        mod,
+        "_flag_sets",
+        lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
+    )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
 
-    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
-                      "&session_id=colA__0").get_json()
+    body = client.get(
+        "/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0"
+    ).get_json()
     # A missing value stays a gap (None), never interpolated to a number.
     assert body["play_variables"] == {"political_score": [0.25, None]}
-
-
-
-
 
 
 def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch):
@@ -1290,13 +1349,15 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
 
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_FLAGS_CACHE", {
-        "key": None, "model": "m", "flags": None, "emb_index": object()})
+    monkeypatch.setattr(
+        mod, "_FLAGS_CACHE", {"key": None, "model": "m", "flags": None, "emb_index": object()}
+    )
     monkeypatch.setattr(mod, "_corpus_mean", lambda model: np.zeros(2))
     vecs = {
-        "v1": np.array([1.0, 0.0]), "v2": np.array([1.0, 0.0]),   # members
-        "v0": np.array([0.0, 1.0]),                               # orthogonal before
-        "v3": np.array([-1.0, 0.0]),                              # opposite after
+        "v1": np.array([1.0, 0.0]),
+        "v2": np.array([1.0, 0.0]),  # members
+        "v0": np.array([0.0, 1.0]),  # orthogonal before
+        "v3": np.array([-1.0, 0.0]),  # opposite after
     }
 
     def fake_block(model, ids, mean, index=None):
@@ -1306,10 +1367,13 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
 
     monkeypatch.setattr(mod.session_explorer, "load_directional_block", fake_block)
 
-    play_rows = [{"item_id": "v0", "ts": "t0"}, {"item_id": "v1", "ts": "t1"},
-                 {"item_id": "v2", "ts": "t2"}, {"item_id": "v3", "ts": "t3"}]
-    ep = {"members": [{"item_id": "v1", "ts": "t1"},
-                      {"item_id": "v2", "ts": "t2"}]}
+    play_rows = [
+        {"item_id": "v0", "ts": "t0"},
+        {"item_id": "v1", "ts": "t1"},
+        {"item_id": "v2", "ts": "t2"},
+        {"item_id": "v3", "ts": "t3"},
+    ]
+    ep = {"members": [{"item_id": "v1", "ts": "t1"}, {"item_id": "v2", "ts": "t2"}]}
     mod._attach_context_distances([ep], play_rows, 3)
     dists = ep["context_distances"]
     # Centroid of the members is [1, 0]: the orthogonal neighbour sits at
@@ -1318,38 +1382,37 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
     assert dists["v3@t3"] == pytest.approx(2.0)
 
 
-
-
-
-
 def test_attach_context_distances_is_a_noop_without_a_dense_store(monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_FLAGS_CACHE", {
-        "key": None, "model": None, "flags": None, "emb_index": None})
+    monkeypatch.setattr(
+        mod, "_FLAGS_CACHE", {"key": None, "model": None, "flags": None, "emb_index": None}
+    )
     ep = {"members": [{"item_id": "v1", "ts": "t1"}]}
-    mod._attach_context_distances([ep], [{"item_id": "v0", "ts": "t0"},
-                                         {"item_id": "v1", "ts": "t1"}], 3)
+    mod._attach_context_distances(
+        [ep], [{"item_id": "v0", "ts": "t0"}, {"item_id": "v1", "ts": "t1"}], 3
+    )
     assert "context_distances" not in ep
-
-
-
-
 
 
 def test_episode_vmax_reduces_member_lists_per_binge(monkeypatch):
     """Per-episode maxima cover the map variables AND the per-play dwell."""
     import web_interface.routes.api_sessions_routes as mod
 
-    frame = pd.DataFrame({
-        "collection_id": pd.Series(["c1", "c1"], dtype="string"),
-        "session_id": pd.Series(["s1", "s2"], dtype="string"),
-        "member_item_ids": [["a", "b"], ["c"]],
-        "member_dwell_s": [[5.0, 30.0], [10.0]],
-    })
-    feat = pd.DataFrame({
-        "political_score": [0.1, 0.7, None],
-    }, index=pd.Index(["a", "b", "c"], name="item_id"))
+    frame = pd.DataFrame(
+        {
+            "collection_id": pd.Series(["c1", "c1"], dtype="string"),
+            "session_id": pd.Series(["s1", "s2"], dtype="string"),
+            "member_item_ids": [["a", "b"], ["c"]],
+            "member_dwell_s": [[5.0, 30.0], [10.0]],
+        }
+    )
+    feat = pd.DataFrame(
+        {
+            "political_score": [0.1, 0.7, None],
+        },
+        index=pd.Index(["a", "b", "c"], name="item_id"),
+    )
     feat["political_score"] = pd.to_numeric(feat["political_score"])
 
     monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: "1:1")
@@ -1367,43 +1430,42 @@ def test_episode_vmax_reduces_member_lists_per_binge(monkeypatch):
     assert pd.isna(out.iloc[1]["political_score"])
 
 
-
-
-
-
 def test_varmax_binges_scope_keeps_only_sessions_with_a_matching_binge(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     import web_interface.routes.api_sessions_routes as mod
 
     df = _index_df()
     df["vmax_political_score"] = [0.9, 0.2, 0.9]
     monkeypatch.setattr(mod, "_load_index", lambda: df)
     # Only colA__0 has a binge whose max is in the filter range.
-    emax = pd.DataFrame({
-        "collection_id": pd.Series(["colA", "colB"], dtype="string"),
-        "session_id": pd.Series(["colA__0", "colB__0"], dtype="string"),
-        "political_score": [0.85, 0.1],
-    })
+    emax = pd.DataFrame(
+        {
+            "collection_id": pd.Series(["colA", "colB"], dtype="string"),
+            "session_id": pd.Series(["colA__0", "colB__0"], dtype="string"),
+            "political_score": [0.85, 0.1],
+        }
+    )
     monkeypatch.setattr(mod, "_episode_vmax", lambda: emax)
 
-    base = ("/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
-            "&min_coverage=0&min_emb_plays=0"
-            "&f_varmax_col=political_score&f_varmax_min=0.5")
+    base = (
+        "/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
+        "&min_coverage=0&min_emb_plays=0"
+        "&f_varmax_col=political_score&f_varmax_min=0.5"
+    )
     # Session scope: both binge-holding sessions have a session max of 0.9.
     ids = {s["session_id"] for s in client.get(base).get_json()["sessions"]}
     assert ids == {"colA__0", "colB__0"}
     # Binge scope: only the session with a binge maxing in range survives.
-    ids = {s["session_id"] for s in
-           client.get(base + "&f_varmax_scope=binges").get_json()["sessions"]}
+    ids = {
+        s["session_id"] for s in client.get(base + "&f_varmax_scope=binges").get_json()["sessions"]
+    }
     assert ids == {"colA__0"}
 
 
-
-
-
-
 def test_varmax_binges_scope_degrades_to_session_scope_without_episodes(
-        client, patched_routes, monkeypatch):
+    client, patched_routes, monkeypatch
+):
     """No episodes artifact (or unknown variable) → session-max semantics."""
     import web_interface.routes.api_sessions_routes as mod
 
@@ -1415,6 +1477,7 @@ def test_varmax_binges_scope_degrades_to_session_scope_without_episodes(
     res = client.get(
         "/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
         "&min_coverage=0&min_emb_plays=0&f_varmax_col=political_score"
-        "&f_varmax_min=0.5&f_varmax_scope=binges")
+        "&f_varmax_min=0.5&f_varmax_scope=binges"
+    )
     ids = {s["session_id"] for s in res.get_json()["sessions"]}
     assert ids == {"colA__0", "colB__0"}

@@ -19,8 +19,7 @@ def store(monkeypatch):
     def load_json(storage_location="cache", filename="", **kwargs):
         return files.get(filename)
 
-    def update_json(storage_location="cache", filename="", mutate=None,
-                    default=None, **kwargs):
+    def update_json(storage_location="cache", filename="", mutate=None, default=None, **kwargs):
         files[filename] = mutate(files.get(filename, default))
         return files[filename]
 
@@ -41,7 +40,7 @@ def test_record_appends_and_read_returns_newest_first(store):
     assert [e["kind"] for e in out] == ["handoff", "plan.armed"]
     assert out[0]["label"] == "Queued for annotation" and out[0]["family"] == journal.FAMILY_QUEUE
     assert out[0]["detail"] == {"queued": 3}
-    assert out[0]["ts"].endswith("+00:00")       # an instant, rendered in the viewer's zone
+    assert out[0]["ts"].endswith("+00:00")  # an instant, rendered in the viewer's zone
 
 
 def test_ring_is_bounded(store, monkeypatch):
@@ -58,7 +57,7 @@ def test_collection_view_keeps_own_tagged_and_platform_lane_events(store):
     journal.record("consolidate.finished", "tagged without c1", collection_ids=["c2"])
     journal.record("scrape.finished", "tiktok lane", platform="tiktok")
     journal.record("scrape.finished", "instagram lane", platform="instagram")
-    journal.record("annotate.finished", "shared annotator")   # no collection, no platform
+    journal.record("annotate.finished", "shared annotator")  # no collection, no platform
     seen = [e["message"] for e in journal.read(collection_id="c1", platform="tiktok")]
     assert seen == ["shared annotator", "tiktok lane", "tagged with c1", "own"]
 
@@ -72,8 +71,9 @@ def test_unfiltered_read_returns_everything(store):
 def test_record_never_raises(store, monkeypatch):
     def boom(**kwargs):
         raise RuntimeError("bucket down")
+
     monkeypatch.setattr(journal.data_io, "update_json", boom)
-    journal.record("plan.armed", "Armed", collection_id="c1")   # must not raise
+    journal.record("plan.armed", "Armed", collection_id="c1")  # must not raise
     assert journal.read() == []
 
 
@@ -81,7 +81,7 @@ def test_read_survives_a_corrupt_document(store):
     store[journal.JOURNAL_FILENAME] = {"events": "not a list"}
     assert journal.read() == []
     journal.record("plan.armed", "Armed")
-    assert len(_events(store)) == 1       # the write recovered the document
+    assert len(_events(store)) == 1  # the write recovered the document
 
 
 def test_collection_ids_are_capped(store):
@@ -97,11 +97,17 @@ def test_collection_ids_present_names_own_and_tagged(store):
 
 
 def test_every_kind_has_a_label_and_a_known_family():
-    families = {journal.FAMILY_PLAN, journal.FAMILY_QUEUE, journal.FAMILY_WORKER,
-                journal.FAMILY_CONSOLIDATE, journal.FAMILY_REFRESH, journal.FAMILY_ATTENTION}
+    families = {
+        journal.FAMILY_PLAN,
+        journal.FAMILY_QUEUE,
+        journal.FAMILY_WORKER,
+        journal.FAMILY_CONSOLIDATE,
+        journal.FAMILY_REFRESH,
+        journal.FAMILY_ATTENTION,
+    }
     for kind, (label, family) in journal.KINDS.items():
         assert label and family in families, kind
-    assert journal.label_for("not.a.kind") == "not.a.kind"     # unknown kinds still render
+    assert journal.label_for("not.a.kind") == "not.a.kind"  # unknown kinds still render
 
 
 def test_finish_run_journals_a_refresh_once_even_when_reentered(store, monkeypatch):
@@ -110,10 +116,17 @@ def test_finish_run_journals_a_refresh_once_even_when_reentered(store, monkeypat
     apart (2026-09-05). Only the call that closes the run writes the line."""
     import web_interface.services.refresh_pipeline as rp
 
-    state = {"record": {"run_id": "r1", "in_flight": True, "steps": {}, "fork": None,
-                        "impact": {"affected_collection_ids": ["c1"],
-                                   "affected_study_names": ["s1"]},
-                        "origin": "consolidate_enrichment", "started_by": ""}}
+    state = {
+        "record": {
+            "run_id": "r1",
+            "in_flight": True,
+            "steps": {},
+            "fork": None,
+            "impact": {"affected_collection_ids": ["c1"], "affected_study_names": ["s1"]},
+            "origin": "consolidate_enrichment",
+            "started_by": "",
+        }
+    }
 
     def fake_mutate(fn):
         rec = dict(state["record"])
@@ -125,7 +138,7 @@ def test_finish_run_journals_a_refresh_once_even_when_reentered(store, monkeypat
     monkeypatch.setattr(rp, "mutate_run", fake_mutate)
     monkeypatch.setattr(rp, "summarize", lambda record: "Refreshed everything.")
     rp.finish_run(run_id="r1")
-    rp.finish_run(run_id="r1")            # the barrier's second arrival
+    rp.finish_run(run_id="r1")  # the barrier's second arrival
     lines = [e for e in _events(store) if e["kind"] == "refresh.finished"]
     assert len(lines) == 1
     assert lines[0]["collection_ids"] == ["c1"] and lines[0]["detail"]["studies"] == 1

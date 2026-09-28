@@ -27,7 +27,7 @@ from ..permissions import permission_required, user_has_permission
 from ..security import user_manager
 from ._access import study_access_error
 
-viewer_bp = Blueprint('viewer_bp', __name__)
+viewer_bp = Blueprint("viewer_bp", __name__)
 
 
 # Built from the collection registry — the same map the frontend gets as
@@ -51,10 +51,15 @@ TS_COL_BASIS: dict[str, str] = {
 # behind extra_data_indices, and what enrich_with_user_tags derives its dynamic
 # columns from.
 _IDS_BASE_COLUMNS = (
-    "item_id", "video_id",
-    "utc_timestamp", "local_timestamp", "create_time",
-    "extra_data", "play_duration",
-    "annotated_ok", "annotation_version",
+    "item_id",
+    "video_id",
+    "utc_timestamp",
+    "local_timestamp",
+    "create_time",
+    "extra_data",
+    "play_duration",
+    "annotated_ok",
+    "annotation_version",
 )
 
 
@@ -88,7 +93,7 @@ def _ids_columns(filters, search_query, full_col_types=None):
     column types are unavailable.
     """
     wanted = list(_IDS_BASE_COLUMNS)
-    for col in (filters or {}):
+    for col in filters or {}:
         # 'Collection Tags' is a virtual filter resolved against collection_id.
         wanted.append("collection_id" if col == "Collection Tags" else col)
     if search_query:
@@ -98,14 +103,14 @@ def _ids_columns(filters, search_query, full_col_types=None):
     return tuple(dict.fromkeys(wanted))
 
 
-@viewer_bp.route('/api/video_analysis/ids', methods=['POST'])
-@permission_required('tab.video_analysis')
+@viewer_bp.route("/api/video_analysis/ids", methods=["POST"])
+@permission_required("tab.video_analysis")
 def api_viewer_ids():
     data = request.json or {}
     study = data.get("study")
 
     if not study:
-         return jsonify({"error": "No study specified"}), 400
+        return jsonify({"error": "No study specified"}), 400
 
     denied = study_access_error(study)
     if denied is not None:
@@ -118,9 +123,9 @@ def api_viewer_ids():
     # is warmed by the same call, so a subsequent projected fetch is free.
     full_col_types = get_study_col_types(study) if search_query else None
     df, col_types = get_explorer_data(
-        study, context="viewer",
-        columns=_ids_columns(filters, search_query,
-                             full_col_types=full_col_types),
+        study,
+        context="viewer",
+        columns=_ids_columns(filters, search_query, full_col_types=full_col_types),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
@@ -140,8 +145,14 @@ def api_viewer_ids():
 
     # Videos are always presented in chronological order. Sort ascending (oldest
     # first) on the first available activity-timestamp column.
-    ts_col = next((c for c in ("utc_timestamp", "local_timestamp", "create_time")
-                   if c in filtered_df.columns), None)
+    ts_col = next(
+        (
+            c
+            for c in ("utc_timestamp", "local_timestamp", "create_time")
+            if c in filtered_df.columns
+        ),
+        None,
+    )
     if ts_col is not None:
         filtered_df = filtered_df.sort_values(by=ts_col, ascending=True)
 
@@ -150,24 +161,29 @@ def api_viewer_ids():
     # order, but the span is shown on the participant's own clock to match the
     # detail panel's "Activity timestamp" and the participant-local dates used
     # by Explore and Timelines.
-    span_col = next((c for c in ("local_timestamp", "utc_timestamp", "create_time")
-                     if c in filtered_df.columns), None)
+    span_col = next(
+        (
+            c
+            for c in ("local_timestamp", "utc_timestamp", "create_time")
+            if c in filtered_df.columns
+        ),
+        None,
+    )
 
-    id_col = 'item_id'
+    id_col = "item_id"
     if id_col not in filtered_df.columns:
-        if 'video_id' in filtered_df.columns: id_col = 'video_id'
-        else: return jsonify({"error": "No ID column found"}), 500
-
-
+        if "video_id" in filtered_df.columns:
+            id_col = "video_id"
+        else:
+            return jsonify({"error": "No ID column found"}), 500
 
     # Hide Duplicate Videos if requested
     if data.get("hide_duplicates"):
-        dedup_col = 'video_id'
+        dedup_col = "video_id"
         if dedup_col not in filtered_df.columns:
             dedup_col = id_col
 
-        filtered_df = filtered_df.drop_duplicates(subset=[dedup_col], keep='first')
-
+        filtered_df = filtered_df.drop_duplicates(subset=[dedup_col], keep="first")
 
     # Calculate true total count before slicing
     total_count = len(filtered_df)
@@ -182,9 +198,7 @@ def api_viewer_ids():
     focus_item_id = data.get("focus_item_id")
     focus_index = None
     if focus_item_id and total_count > 0:
-        matches = np.flatnonzero(
-            filtered_df[id_col].astype(str).to_numpy() == str(focus_item_id)
-        )
+        matches = np.flatnonzero(filtered_df[id_col].astype(str).to_numpy() == str(focus_item_id))
         if matches.size:
             focus_index = int(matches[0])
 
@@ -216,7 +230,8 @@ def api_viewer_ids():
     if offset == 0 and span_col is not None and total_count > 0:
         positions = np.unique(
             np.linspace(0, total_count - 1, min(total_count, _SLIDER_TIME_MARKS))
-            .round().astype(int)
+            .round()
+            .astype(int)
         )
         time_marks = {
             "idx": positions.tolist(),
@@ -226,14 +241,13 @@ def api_viewer_ids():
     # Build global list of indices (0-based) where extra_data is present.
     # Only computed on the first chunk request (offset 0) to avoid repeat work.
     extra_data_indices = None
-    if offset == 0 and 'extra_data' in filtered_df.columns:
-        mask = filtered_df['extra_data'].notna()
-        if 'play_duration' in filtered_df.columns:
-            mask = mask & filtered_df['play_duration'].notna() & (filtered_df['play_duration'] != 0)
+    if offset == 0 and "extra_data" in filtered_df.columns:
+        mask = filtered_df["extra_data"].notna()
+        if "play_duration" in filtered_df.columns:
+            mask = mask & filtered_df["play_duration"].notna() & (filtered_df["play_duration"] != 0)
         # Resolved in one numpy pass. Reading the mask a row at a time through
         # ``.iloc`` cost 2.4s on a 1.5M-row study, on every unpaginated request.
-        extra_data_indices = np.flatnonzero(
-            mask.fillna(False).to_numpy(dtype=bool)).tolist()
+        extra_data_indices = np.flatnonzero(mask.fillna(False).to_numpy(dtype=bool)).tolist()
 
     # Slice the series according to pagination
     chunk = filtered_df.iloc[offset : offset + limit]
@@ -274,42 +288,44 @@ def api_viewer_ids():
     # enrichment column the current viz config requires (e.g. scraped_ok
     # before the study has been re-recoded), pass the explanation through so
     # the UI can prompt the user to refresh instead of just saying "0 items".
-    status = filtered_df.attrs.get('fyp_dataset_status')
-    if status and not status.get('ok'):
+    status = filtered_df.attrs.get("fyp_dataset_status")
+    if status and not status.get("ok"):
         result["dataset_status"] = status
 
     return jsonify(result)
 
 
-@viewer_bp.route('/api/video_analysis/tags', methods=['GET'])
+@viewer_bp.route("/api/video_analysis/tags", methods=["GET"])
 @login_required
 def api_get_tags():
     username = current_user.username
     filename = f"{username}.json"
 
-    if data_io.exists(storage_location = "users", filename = filename):
-        user_data = data_io.load_json(storage_location = "users", filename = filename) or {}
-        tags = user_data.get('annotations', {})
+    if data_io.exists(storage_location="users", filename=filename):
+        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
+        tags = user_data.get("annotations", {})
         return jsonify(tags)
     else:
         return jsonify({})
 
 
-@viewer_bp.route('/api/video_analysis/tags/save', methods=['POST'])
+@viewer_bp.route("/api/video_analysis/tags/save", methods=["POST"])
 @login_required
-@permission_required('tab.my_stuff.video_tags')
+@permission_required("tab.my_stuff.video_tags")
 def api_save_tags():
     data = request.json or {}
     # study = data.get("study") # Deprecated for storage
-    item_id = str(data.get("item_id")) # Ensure string for consistency
+    item_id = str(data.get("item_id"))  # Ensure string for consistency
     variable = data.get("variable")
-    tags = data.get("tags") # List of tags
-    notes = data.get("notes") # Optional free text notes
-    closed_tagging = data.get("closed_tagging") # Optional closed tagging value
+    tags = data.get("tags")  # List of tags
+    notes = data.get("notes")  # Optional free text notes
+    closed_tagging = data.get("closed_tagging")  # Optional closed tagging value
 
     username = current_user.username
     username = current_user.username
-    print(f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags} (Notes: {len(notes) if notes else 0} chars, CC: {closed_tagging})")
+    print(
+        f"[TAGS] Saving tags for {username}: {item_id} / {variable} -> {tags} (Notes: {len(notes) if notes else 0} chars, CC: {closed_tagging})"
+    )
 
     if not item_id or not variable:
         return jsonify({"error": "Missing required fields"}), 400
@@ -322,10 +338,11 @@ def api_save_tags():
         user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
 
     # Get Annotations Section
-    user_data = user_file_data.get('annotations', {})
+    user_data = user_file_data.get("annotations", {})
 
     # Update structure (Global Item ID centric)
-    if item_id not in user_data: user_data[item_id] = {}
+    if item_id not in user_data:
+        user_data[item_id] = {}
 
     # Save Tags
     user_data[item_id][variable] = tags
@@ -346,7 +363,7 @@ def api_save_tags():
     else:
         # Remove if empty / deleted
         if cc_key in user_data[item_id]:
-             del user_data[item_id][cc_key]
+            del user_data[item_id][cc_key]
 
     # Prune empty
     if not tags:
@@ -361,18 +378,20 @@ def api_save_tags():
 
     # Save
     # Save back to file structure
-    user_file_data['annotations'] = user_data
+    user_file_data["annotations"] = user_data
 
     # print(f"[TAGS] User data after update: {user_data}")
     data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
     invalidate_user_json_cache(username)
 
-    return jsonify({"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging})
+    return jsonify(
+        {"status": "success", "tags": tags, "notes": notes, "closed_tagging": closed_tagging}
+    )
 
 
-@viewer_bp.route('/api/video_analysis/tags/<path:tag_name>', methods=['DELETE'])
+@viewer_bp.route("/api/video_analysis/tags/<path:tag_name>", methods=["DELETE"])
 @login_required
-@permission_required('tab.my_stuff.video_tags')
+@permission_required("tab.my_stuff.video_tags")
 def api_delete_tag(tag_name):
     # Decode tag name (it might contain slashes or spaces, though path parameter handles slashes)
     # If tag name has slashes, flask might interpret it as path segments. <path:tag_name> handles this.
@@ -386,7 +405,7 @@ def api_delete_tag(tag_name):
         return jsonify({"status": "success", "message": "No tags found"}), 200
 
     user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
-    user_data = user_file_data.get('annotations', {})
+    user_data = user_file_data.get("annotations", {})
     modified = False
 
     # Iterate and remove
@@ -421,14 +440,14 @@ def api_delete_tag(tag_name):
         del user_data[item_id]
 
     if modified:
-        user_file_data['annotations'] = user_data # Update annotations block
+        user_file_data["annotations"] = user_data  # Update annotations block
         data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
         invalidate_user_json_cache(username)
         return jsonify({"status": "success", "message": f"Tag '{tag_name}' deleted"})
         return jsonify({"status": "success", "message": "Tag not found in any item"}), 200
 
 
-@viewer_bp.route('/api/video_analysis/votes', methods=['GET'])
+@viewer_bp.route("/api/video_analysis/votes", methods=["GET"])
 @login_required
 def api_get_votes():
     username = current_user.username
@@ -436,15 +455,15 @@ def api_get_votes():
 
     if data_io.exists(storage_location="users", filename=filename):
         user_data = data_io.load_json(storage_location="users", filename=filename) or {}
-        votes = user_data.get('votes', [])
+        votes = user_data.get("votes", [])
         return jsonify(votes)
     else:
         return jsonify([])
 
 
-@viewer_bp.route('/api/video_analysis/vote', methods=['POST'])
+@viewer_bp.route("/api/video_analysis/vote", methods=["POST"])
 @login_required
-@permission_required('feature.annotation_votes')
+@permission_required("feature.annotation_votes")
 def api_save_vote():
     data = request.json or {}
     item_id = str(data.get("item_id"))
@@ -460,18 +479,18 @@ def api_save_vote():
     if data_io.exists(storage_location="users", filename=filename):
         user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
 
-    votes = user_file_data.get('votes', [])
+    votes = user_file_data.get("votes", [])
     if item_id not in votes:
         votes.append(item_id)
-        user_file_data['votes'] = votes
+        user_file_data["votes"] = votes
         data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
         invalidate_user_json_cache(username)
 
     return jsonify({"status": "success", "votes": votes})
 
 
-@viewer_bp.route('/api/video_analysis/item/<study>/<item_id>', methods=['GET', 'POST'])
-@permission_required('tab.video_analysis')
+@viewer_bp.route("/api/video_analysis/item/<study>/<item_id>", methods=["GET", "POST"])
+@permission_required("tab.video_analysis")
 def api_viewer_item(study, item_id):
     denied = study_access_error(study)
     if denied is not None:
@@ -481,7 +500,7 @@ def api_viewer_item(study, item_id):
     # watched twice is two legitimate rows).
     data = {}
     row_idx = None
-    if request.method == 'POST':
+    if request.method == "POST":
         data = request.json or {}
         row_idx = data.get("row_idx")
 
@@ -502,56 +521,55 @@ def api_viewer_item(study, item_id):
     shared_detailed_map = None
 
     user_settings = current_user.settings or {}
-    if user_settings.get('share_annotations'):
+    if user_settings.get("share_annotations"):
         sharing_users = []
         for u_name, u_obj in user_manager.get_all_users().items():
-            if u_name == username: continue
-            if u_obj.settings and u_obj.settings.get('share_annotations'):
+            if u_name == username:
+                continue
+            if u_obj.settings and u_obj.settings.get("share_annotations"):
                 sharing_users.append(u_name)
 
         if sharing_users:
             shared_simple_map, shared_detailed_map = load_shared_tags(sharing_users)
 
-    df, col_types = enrich_with_user_tags(df, col_types, username,
-                                          shared_users_tags=shared_simple_map,
-                                          study=study)
+    df, col_types = enrich_with_user_tags(
+        df, col_types, username, shared_users_tags=shared_simple_map, study=study
+    )
 
     # Apply Context Filters as fallback disambiguation when row_idx was not available
-    if row_idx is None and request.method == 'POST':
+    if row_idx is None and request.method == "POST":
         filters = data.get("filters", {})
         search_query = data.get("search_query")
 
         if filters or search_query:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
             if not filtered_df.empty:
-                 df = filtered_df
+                df = filtered_df
 
     record = df.iloc[0].replace({np.nan: None}).to_dict()
     # Inject Shared Annotations for this item
     if shared_detailed_map:
         str_id = str(item_id)
         if str_id in shared_detailed_map:
-            record['shared_annotations'] = shared_detailed_map[str_id]
+            record["shared_annotations"] = shared_detailed_map[str_id]
 
     # Inject Display ID
     display_map = load_display_id_map()
     # Check collection_id or item_id itself
     # Usually display_id is mapped from collection_id
-    did = record.get('collection_id')
+    did = record.get("collection_id")
     if did:
         did_str = str(did)
         if did_str in display_map:
-            record['display_collection_id'] = display_map[did_str]
+            record["display_collection_id"] = display_map[did_str]
 
     # Inject Platform URL
-    src = record.get('source_platform')
-    iid = record.get('item_id')
+    src = record.get("source_platform")
+    iid = record.get("item_id")
     if src and iid and src in _PLATFORM_URL_TEMPLATES:
-        record['platform_url'] = _PLATFORM_URL_TEMPLATES[src].format(item_id=iid)
+        record["platform_url"] = _PLATFORM_URL_TEMPLATES[src].format(item_id=iid)
 
     return jsonify(record)
-
-
 
 
 # Membership check for the media stream: (study, mtime) -> frozenset of item
@@ -561,10 +579,6 @@ def api_viewer_item(study, item_id):
 # refresh invalidates the set together with the DataFrame cache.
 _STUDY_ID_SET_CACHE: dict[str, tuple[object, frozenset]] = {}
 _study_id_set_lock = threading.Lock()
-
-
-
-
 
 
 def _study_item_ids(study: str) -> frozenset | None:
@@ -578,22 +592,21 @@ def _study_item_ids(study: str) -> frozenset | None:
             return entry[1]
 
     df, _ = get_explorer_data(
-        study, context="viewer", columns=("item_id", "video_id"),
+        study,
+        context="viewer",
+        columns=("item_id", "video_id"),
     )
     if df is None:
         return None
-    id_col = 'item_id' if 'item_id' in df.columns else (
-        'video_id' if 'video_id' in df.columns else None)
+    id_col = (
+        "item_id" if "item_id" in df.columns else ("video_id" if "video_id" in df.columns else None)
+    )
     if id_col is None:
         return None
     ids = frozenset(df[id_col].astype(str))
     with _study_id_set_lock:
         _STUDY_ID_SET_CACHE[study] = (mtime, ids)
     return ids
-
-
-
-
 
 
 # Eval-stream access: username -> (expiry_monotonic, frozenset of item ids the
@@ -603,18 +616,15 @@ _EVAL_ACCESS_CACHE: dict[str, tuple[float, frozenset]] = {}
 _EVAL_ACCESS_TTL_S = 60.0
 
 
-
-
-
-
 def _eval_stream_allowed(item_id: str) -> bool:
     """May the current user stream ``item_id`` via the ``eval`` pseudo-study?
 
     Admin/ab-eval/human-eval permission holders may stream any eval item;
     invited coders may stream items belonging to their coding tasks.
     """
-    if (user_has_permission(current_user, 'tab.admin.ab_eval')
-            or user_has_permission(current_user, 'tab.admin.human_eval')):
+    if user_has_permission(current_user, "tab.admin.ab_eval") or user_has_permission(
+        current_user, "tab.admin.human_eval"
+    ):
         return True
 
     username = current_user.username
@@ -625,18 +635,13 @@ def _eval_stream_allowed(item_id: str) -> bool:
 
     allowed: set[str] = set()
     for index_entry in human_eval.tasks_for_user(username):
-        task = human_eval.load_task(index_entry.get("run_id"),
-                                    index_entry.get("task_type"))
+        task = human_eval.load_task(index_entry.get("run_id"), index_entry.get("task_type"))
         if task:
             allowed.update(str(i) for i in task.get("item_ids", []))
     ids = frozenset(allowed)
     with _study_id_set_lock:
         _EVAL_ACCESS_CACHE[username] = (time.monotonic() + _EVAL_ACCESS_TTL_S, ids)
     return str(item_id) in ids
-
-
-
-
 
 
 # Cloud Run drops any non-chunked HTTP/1 response over 32 MiB and logs it as a
@@ -672,7 +677,7 @@ def _parse_byte_range(range_header, total_size, max_chunk=MAX_RANGE_CHUNK):
     spec = str(range_header or "").strip()
     if not spec.lower().startswith("bytes="):
         return None
-    spec = spec[len("bytes="):].split(",")[0].strip()
+    spec = spec[len("bytes=") :].split(",")[0].strip()
     first, sep, last = spec.partition("-")
     if not sep:
         return None
@@ -693,7 +698,7 @@ def _parse_byte_range(range_header, total_size, max_chunk=MAX_RANGE_CHUNK):
     return start, min(end, start + max_chunk - 1, total_size - 1)
 
 
-@viewer_bp.route('/api/video/<study>/<item_id>', methods=['GET'])
+@viewer_bp.route("/api/video/<study>/<item_id>", methods=["GET"])
 @login_required
 def api_video_stream(study, item_id):
     # Two callers share this endpoint: the Video Analysis tab streams items of
@@ -707,8 +712,10 @@ def api_video_stream(study, item_id):
         # The Sessions tab embeds the same per-item stream in its episode
         # cards, so either tab permission grants playback (the study-access +
         # item-membership checks below still apply unchanged).
-        if not (user_has_permission(current_user, 'tab.video_analysis')
-                or user_has_permission(current_user, 'tab.sessions')):
+        if not (
+            user_has_permission(current_user, "tab.video_analysis")
+            or user_has_permission(current_user, "tab.sessions")
+        ):
             return jsonify({"error": "Access denied"}), 403
 
         denied = study_access_error(study)
@@ -728,14 +735,14 @@ def api_video_stream(study, item_id):
             if str(item_id) not in known_ids:
                 return jsonify({"error": "Item not found in this study"}), 404
 
-    use_gcs = fyp_cf.get('data_io', {}).get('use_gcs_for_media', True)
+    use_gcs = fyp_cf.get("data_io", {}).get("use_gcs_for_media", True)
     chunk_size = 4096 * 16
-    range_header = request.headers.get('Range')
+    range_header = request.headers.get("Range")
 
     # Media may live at the per-platform subpath or the legacy flat path;
     # resolve_media owns the fallback order (and caches, so the viewer's
     # repeated Range requests don't re-probe GCS per chunk).
-    platform = request.args.get('platform') or None
+    platform = request.args.get("platform") or None
     resolved = media_paths.resolve_media(item_id, platform=platform)
     if resolved is None:
         return f"Video {item_id} not found", 404
@@ -766,11 +773,11 @@ def api_video_stream(study, item_id):
             # navigation). Range chunks are small (~1 MB) so buffering is cheap.
             data = blob.download_as_bytes(start=start, end=end)
             headers = {
-                'Content-Range': f'bytes {start}-{end}/{total_size}',
-                'Accept-Ranges': 'bytes',
-                'Content-Length': str(len(data)),
-                'Content-Type': 'video/mp4',
-                'Cache-Control': 'private, max-age=3600',
+                "Content-Range": f"bytes {start}-{end}/{total_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(data)),
+                "Content-Type": "video/mp4",
+                "Cache-Control": "private, max-age=3600",
             }
             return Response(data, status=206, headers=headers)
 
@@ -780,15 +787,15 @@ def api_video_stream(study, item_id):
                     yield chunk
 
         headers = {
-            'Accept-Ranges': 'bytes',
-            'Content-Type': 'video/mp4',
-            'Cache-Control': 'private, max-age=3600',
+            "Accept-Ranges": "bytes",
+            "Content-Type": "video/mp4",
+            "Cache-Control": "private, max-age=3600",
         }
         # Declaring Content-Length forfeits chunked transfer-encoding, and with
         # it the exemption from the platform's response cap. Only declare it
         # while the body is safely under that cap.
         if total_size < RESPONSE_SIZE_CAP:
-            headers['Content-Length'] = str(total_size)
+            headers["Content-Length"] = str(total_size)
         return Response(stream_with_context(generate()), headers=headers)
 
     # Local filesystem path. send_file(conditional=True) serves HTTP Range requests
@@ -799,7 +806,7 @@ def api_video_stream(study, item_id):
         return f"Video {item_id}.mp4 not found", 404
     return send_file(
         media_path,
-        mimetype='video/mp4',
+        mimetype="video/mp4",
         conditional=True,
         max_age=3600,
     )

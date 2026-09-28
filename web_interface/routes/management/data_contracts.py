@@ -29,9 +29,6 @@ _KINDS = {
 }
 
 
-
-
-
 def _contract_rel_path(module) -> str:
     """Return the contract's repo-relative path for display."""
     path = Path(module.default_contract_path())
@@ -39,9 +36,6 @@ def _contract_rel_path(module) -> str:
         return str(path.relative_to(PROJECT_ROOT))
     except ValueError:
         return str(path)
-
-
-
 
 
 def _active_version(kind: str) -> dict | None:
@@ -56,11 +50,8 @@ def _active_version(kind: str) -> dict | None:
     }
 
 
-
-
-
-@management_bp.route('/api/manage/data-contracts/<kind>', methods=['GET'])
-@permission_required('tab.admin.data_contracts')
+@management_bp.route("/api/manage/data-contracts/<kind>", methods=["GET"])
+@permission_required("tab.admin.data_contracts")
 @login_required
 def get_data_contract(kind):
     """Parsed contract payload: meta, full field list, active version."""
@@ -74,13 +65,15 @@ def get_data_contract(kind):
         except (ValueError, FileNotFoundError) as e:
             # load_contract validates internally; surface the failure instead
             # of a bare 500 so the page can show what is wrong with the file.
-            return jsonify({
-                "kind": kind,
-                "path": _contract_rel_path(module),
-                "fields": [],
-                "validation_errors": [str(e)],
-                "active_version": None,
-            })
+            return jsonify(
+                {
+                    "kind": kind,
+                    "path": _contract_rel_path(module),
+                    "fields": [],
+                    "validation_errors": [str(e)],
+                    "active_version": None,
+                }
+            )
 
         meta = contract.get("meta", {}) or {}
         payload = {
@@ -102,11 +95,8 @@ def get_data_contract(kind):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-@management_bp.route('/api/manage/data-contracts/<kind>/raw', methods=['GET'])
-@permission_required('tab.admin.data_contracts')
+@management_bp.route("/api/manage/data-contracts/<kind>/raw", methods=["GET"])
+@permission_required("tab.admin.data_contracts")
 @login_required
 def get_data_contract_raw(kind):
     """The contract's raw TOML text, for the in-page viewer."""
@@ -120,11 +110,8 @@ def get_data_contract_raw(kind):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-@management_bp.route('/api/manage/data-contracts/<kind>/download', methods=['GET'])
-@permission_required('tab.admin.data_contracts')
+@management_bp.route("/api/manage/data-contracts/<kind>/download", methods=["GET"])
+@permission_required("tab.admin.data_contracts")
 @login_required
 def download_data_contract(kind):
     """Download the contract TOML as an attachment."""
@@ -143,11 +130,8 @@ def download_data_contract(kind):
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-@management_bp.route('/api/manage/data-contracts/<kind>/versions', methods=['GET'])
-@permission_required('tab.admin.data_contracts')
+@management_bp.route("/api/manage/data-contracts/<kind>/versions", methods=["GET"])
+@permission_required("tab.admin.data_contracts")
 @login_required
 def list_data_contract_versions(kind):
     """Version-history summaries for a registry-backed contract."""
@@ -164,20 +148,19 @@ def list_data_contract_versions(kind):
             versions.append(summary)
         versions.sort(key=lambda v: v.get("created_at") or "", reverse=True)
         active = _active_version(kind)
-        return jsonify({
-            "versions": versions,
-            "preferred": versioning.get_preferred_version(),
-            "active": active.get("version") if active else None,
-        })
+        return jsonify(
+            {
+                "versions": versions,
+                "preferred": versioning.get_preferred_version(),
+                "active": active.get("version") if active else None,
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-
-
-@management_bp.route('/api/manage/data-contracts/<kind>/versions/<version>', methods=['GET'])
-@permission_required('tab.admin.data_contracts')
+@management_bp.route("/api/manage/data-contracts/<kind>/versions/<version>", methods=["GET"])
+@permission_required("tab.admin.data_contracts")
 @login_required
 def get_data_contract_version(kind, version):
     """Full registry record for one version (incl. the field-digest snapshot)."""

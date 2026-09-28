@@ -27,10 +27,6 @@ def _data_io():
     return data_io
 
 
-
-
-
-
 def _contract():
     """Lazy fyp.scrape_contract accessor."""
     from fyp.scrape import scrape_contract as sc
@@ -38,18 +34,10 @@ def _contract():
     return sc
 
 
-
-
-
-
 def default_platform() -> str:
     """Return the contract's default platform (falls back to ``"tiktok"``)."""
     sc = _contract()
     return sc.default_platform(sc.load_contract()) or "tiktok"
-
-
-
-
 
 
 def registered_platforms() -> list[str]:
@@ -62,26 +50,14 @@ def registered_platforms() -> list[str]:
     return plats
 
 
-
-
-
-
 def queue_filename(platform: str) -> str:
     """Return the queue filename for one platform."""
     return f"to_scrape_{platform}.json"
 
 
-
-
-
-
 def _dedup(items: list) -> list[str]:
     """Deduplicate preserving first-seen order, dropping non-string junk."""
     return list(dict.fromkeys(str(v) for v in items if v))
-
-
-
-
 
 
 def migrate_legacy_queue(platform: str) -> None:
@@ -115,10 +91,6 @@ def migrate_legacy_queue(platform: str) -> None:
     logger.info(f"Migrated legacy {LEGACY_QUEUE_FILENAME} -> {target} ({len(merged)} items)")
 
 
-
-
-
-
 def load_scrape_queue(platform: str) -> list[str]:
     """Load one platform's scrape queue (running the legacy migration first).
 
@@ -139,10 +111,6 @@ def load_scrape_queue(platform: str) -> list[str]:
     return _dedup(items)
 
 
-
-
-
-
 def save_scrape_queue(platform: str, items: list[str]) -> None:
     """Persist one platform's queue (deduplicated, order-preserving).
 
@@ -156,10 +124,6 @@ def save_scrape_queue(platform: str, items: list[str]) -> None:
         storage_location=QUEUE_LOCATION,
         filename=queue_filename(platform),
     )
-
-
-
-
 
 
 def append_to_scrape_queue(platform: str, items: list[str]) -> int:
@@ -188,16 +152,10 @@ def append_to_scrape_queue(platform: str, items: list[str]) -> int:
     merged = data_io.update_json(
         storage_location=QUEUE_LOCATION,
         filename=queue_filename(platform),
-        mutate=lambda current: _dedup(
-            (current if isinstance(current, list) else []) + list(items)
-        ),
+        mutate=lambda current: _dedup((current if isinstance(current, list) else []) + list(items)),
         default=[],
     )
     return len(merged)
-
-
-
-
 
 
 def prune_scrape_queue(platform: str, remove_ids: set[str]) -> tuple[int, int]:
@@ -235,10 +193,6 @@ def prune_scrape_queue(platform: str, remove_ids: set[str]) -> tuple[int, int]:
     return counts["before"] - counts["after"], counts["after"]
 
 
-
-
-
-
 def remove_scrape_queue(platform: str) -> None:
     """Delete one platform's queue file (and any legacy file it would absorb)."""
     data_io = _data_io()
@@ -248,17 +202,9 @@ def remove_scrape_queue(platform: str) -> None:
         data_io.remove(storage_location=QUEUE_LOCATION, filename=target)
 
 
-
-
-
-
 def queue_lengths() -> dict[str, int]:
     """Return ``{platform: queue length}`` for every registered platform."""
     return {p: len(load_scrape_queue(p)) for p in registered_platforms()}
-
-
-
-
 
 
 # --------------------------------------------------------------------------- #
@@ -277,17 +223,9 @@ def queue_lengths() -> dict[str, int]:
 MAX_ZERO_PROGRESS_STRIKES = 2
 
 
-
-
-
-
 def strikes_filename(platform: str) -> str:
     """Return the retry-strike sidecar filename for one platform."""
     return f"scrape_retry_strikes_{platform}.json"
-
-
-
-
 
 
 def charge_zero_progress(platform: str, transient_ids: list[str]) -> list[str]:
@@ -332,10 +270,6 @@ def charge_zero_progress(platform: str, transient_ids: list[str]) -> list[str]:
     return [vid for vid, n in charged.items() if n >= MAX_ZERO_PROGRESS_STRIKES]
 
 
-
-
-
-
 def clear_zero_progress(platform: str, resolved_ids) -> None:
     """Drop the retry strikes of the items that left the queue this batch.
 
@@ -371,10 +305,6 @@ def clear_zero_progress(platform: str, resolved_ids) -> None:
     )
 
 
-
-
-
-
 # Media-retry budget. An item whose metadata scraped fine but whose media
 # download failed keeps its (metadata-only) row AND stays queued for a media
 # retry — whatever the failure category. A permanent verdict on the media leg
@@ -387,17 +317,9 @@ def clear_zero_progress(platform: str, resolved_ids) -> None:
 MAX_MEDIA_RETRY_STRIKES = 3
 
 
-
-
-
-
 def media_strikes_filename(platform: str) -> str:
     """Return the media-retry strike sidecar filename for one platform."""
     return f"scrape_media_retry_strikes_{platform}.json"
-
-
-
-
 
 
 def charge_media_retry(

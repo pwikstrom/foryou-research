@@ -30,6 +30,7 @@ from fyp.ingest.base import (
     platform_url_templates,
     registered_raw_locations,
 )
+
 # Platform modules are imported in pinned order (tiktok -> instagram ->
 # youtube) so __init_subclass__ registration order stays byte-identical to
 # the flat module (guarded by tests/unit/test_subpackage_shims.py). The isort
@@ -43,9 +44,6 @@ from fyp.ingest.tiktok import (
 from fyp.ingest.instagram import InstagramDDPCollection
 from fyp.ingest.youtube import YouTubeDDPCollection
 # isort: on
-
-
-
 
 
 def __getattr__(name: str):

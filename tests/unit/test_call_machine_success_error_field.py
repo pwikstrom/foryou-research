@@ -64,9 +64,7 @@ def test_successful_call_reports_no_error(tmp_path) -> None:
 
     assert out["finish_reason"] == "FinishReason.STOP"
     assert out["response"] == _FakeResponse.text
-    assert not out["error"], (
-        f"successful call must return a falsy error, got {out['error']!r}"
-    )
+    assert not out["error"], f"successful call must return a falsy error, got {out['error']!r}"
 
 
 def _main() -> int:

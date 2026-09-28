@@ -10,10 +10,6 @@ import pytest
 _TEST_VIEWER = "__guardrail_test_viewer__"
 
 
-
-
-
-
 @pytest.fixture
 def app_ctx(monkeypatch):
     """Flask request context with a stubbed non-admin current_user."""
@@ -23,12 +19,9 @@ def app_ctx(monkeypatch):
     user = User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
     with app.test_request_context():
         from flask_login import utils as login_utils
+
         monkeypatch.setattr(login_utils, "_get_user", lambda: user)
         yield user
-
-
-
-
 
 
 def _set_caps(monkeypatch, annotation=None, scrape=None):
@@ -40,10 +33,6 @@ def _set_caps(monkeypatch, annotation=None, scrape=None):
     if scrape is not None:
         values["queue_cap_scrape_items"] = scrape
     monkeypatch.setattr(admin_settings, "load_admin_settings", lambda: values)
-
-
-
-
 
 
 def test_cap_clamps_non_admin(app_ctx, monkeypatch):
@@ -59,10 +48,6 @@ def test_cap_clamps_non_admin(app_ctx, monkeypatch):
     assert kept == sorted(items)[:10]
 
 
-
-
-
-
 def test_cap_bypassed_for_admin(app_ctx, monkeypatch):
     from web_interface.routes.management.enrichment import _apply_queue_cap
 
@@ -72,10 +57,6 @@ def test_cap_bypassed_for_admin(app_ctx, monkeypatch):
 
     assert len(kept) == 100
     assert info["capped"] is False
-
-
-
-
 
 
 def test_cap_zero_means_unlimited(app_ctx, monkeypatch):
@@ -88,10 +69,6 @@ def test_cap_zero_means_unlimited(app_ctx, monkeypatch):
     assert info["capped"] is False
 
 
-
-
-
-
 def test_cap_under_limit_is_untouched(app_ctx, monkeypatch):
     from web_interface.routes.management.enrichment import _apply_queue_cap
 
@@ -102,11 +79,6 @@ def test_cap_under_limit_is_untouched(app_ctx, monkeypatch):
     assert info == {"capped": False, "cap": 100, "requested": 2}
 
 
-
-
-
-
-
 def test_get_queue_cap_defaults_and_coercion(monkeypatch):
     from web_interface import admin_settings
 
@@ -115,18 +87,16 @@ def test_get_queue_cap_defaults_and_coercion(monkeypatch):
     assert admin_settings.get_queue_cap("scrape") == 10000
 
     # Garbage in the store degrades to the default rather than raising
-    monkeypatch.setattr(admin_settings, "load_admin_settings",
-                        lambda: {"queue_cap_annotation_items": "nonsense"})
+    monkeypatch.setattr(
+        admin_settings, "load_admin_settings", lambda: {"queue_cap_annotation_items": "nonsense"}
+    )
     assert admin_settings.get_queue_cap("annotation") == 5000
 
     # Negative values are floored at 0 (unlimited)
-    monkeypatch.setattr(admin_settings, "load_admin_settings",
-                        lambda: {"queue_cap_scrape_items": -5})
+    monkeypatch.setattr(
+        admin_settings, "load_admin_settings", lambda: {"queue_cap_scrape_items": -5}
+    )
     assert admin_settings.get_queue_cap("scrape") == 0
-
-
-
-
 
 
 def test_validate_cap_setting_values():
@@ -139,16 +109,13 @@ def test_validate_cap_setting_values():
         assert validate_setting_value(key, True) is not None  # bool is not an int here
 
 
-
-
-
-
 def test_cost_estimate_scales_and_degrades(monkeypatch):
     from fyp.annotation.backends import variants
     from web_interface.routes.management import enrichment
 
-    monkeypatch.setattr(variants, "selection_pricing",
-                        lambda selection: {"input": 2.0, "output": 10.0})
+    monkeypatch.setattr(
+        variants, "selection_pricing", lambda selection: {"input": 2.0, "output": 10.0}
+    )
     est = enrichment._annotation_cost_estimate(1000)
     assert est is not None
     # 1000 items x (15000 x $2 + 1500 x $10) per 1M tokens = $45
@@ -159,23 +126,22 @@ def test_cost_estimate_scales_and_degrades(monkeypatch):
     assert enrichment._annotation_cost_estimate(1000) is None
 
 
-
-
-
-
 def test_api_start_rejects_bad_numeric_args(monkeypatch):
     """batch_size / max_batches are validated before reaching a worker argv."""
     from web_interface import security
     from web_interface.auth import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
-    admin = User(username="__guardrail_admin__", role=ROLE_ADMIN,
-                 password_hash="", approved=True)
+    admin = User(username="__guardrail_admin__", role=ROLE_ADMIN, password_hash="", approved=True)
     orig_get_user = security.user_manager.get_user
-    monkeypatch.setattr(security.user_manager, "get_user",
-                        lambda uid: admin if uid == admin.username else orig_get_user(uid))
     monkeypatch.setattr(
-        "fyp.annotation.machine_annotation.annotation_configured", lambda: (True, ""))
+        security.user_manager,
+        "get_user",
+        lambda uid: admin if uid == admin.username else orig_get_user(uid),
+    )
+    monkeypatch.setattr(
+        "fyp.annotation.machine_annotation.annotation_configured", lambda: (True, "")
+    )
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
@@ -184,8 +150,12 @@ def test_api_start_rejects_bad_numeric_args(monkeypatch):
             sess["_user_id"] = admin.username
             sess["_fresh"] = True
 
-        for payload in ({"batch_size": "abc"}, {"batch_size": 0},
-                        {"batch_size": 999999}, {"max_batches": -1}):
+        for payload in (
+            {"batch_size": "abc"},
+            {"batch_size": 0},
+            {"batch_size": 999999},
+            {"max_batches": -1},
+        ):
             res = client.post("/api/start/queue_annotator", json=payload)
             assert res.status_code == 400, payload
             assert "must be" in res.get_json()["message"]

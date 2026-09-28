@@ -38,15 +38,16 @@ from ..services.study_data import resolve_compose
 from ..services.user_variables import compose_effective_variables
 from ._access import study_access_error
 
-explorer_bp = Blueprint('explorer_bp', __name__)
+explorer_bp = Blueprint("explorer_bp", __name__)
 
 
-@explorer_bp.route('/api/studies/defined', methods=['GET'])
+@explorer_bp.route("/api/studies/defined", methods=["GET"])
 @login_required
-@permission_required('tab.explore', 'tab.timelines', 'tab.video_analysis',
-                     'tab.correlations', 'tab.semantic_space')
+@permission_required(
+    "tab.explore", "tab.timelines", "tab.video_analysis", "tab.correlations", "tab.semantic_space"
+)
 def api_get_study_defs():
-    detail = request.args.get('detail', 'false').lower() == 'true'
+    detail = request.args.get("detail", "false").lower() == "true"
 
     studies = get_accessible_studies(
         username=current_user.username,
@@ -57,8 +58,8 @@ def api_get_study_defs():
     return jsonify(studies)
 
 
-@explorer_bp.route('/api/studies/<study>/methods', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis', 'tab.my_stuff.my_studies')
+@explorer_bp.route("/api/studies/<study>/methods", methods=["GET"])
+@permission_required("tab.explore", "tab.video_analysis", "tab.my_stuff.my_studies")
 def api_study_methods(study):
     """The study's methods/provenance note (written at refresh time).
 
@@ -76,10 +77,12 @@ def api_study_methods(study):
 
     note = methods_note_service.read_methods_note(study)
     if note is None:
-        return jsonify({
-            "error": "No methods note exists for this study yet",
-            "hint": "Refresh the study (or run the data pipeline) to generate it.",
-        }), 404
+        return jsonify(
+            {
+                "error": "No methods note exists for this study yet",
+                "hint": "Refresh the study (or run the data pipeline) to generate it.",
+            }
+        ), 404
 
     payload = dict(note)
     payload["staleness"] = methods_note_service.note_staleness(study, note)
@@ -95,38 +98,47 @@ def _enforce_study_collections(metadata, study, verbose=False):
         # Get authoritative list of collections for this study
         collections = get_study_collections(study)
         valid_collection_ids = set()
-        #valid_ids = set()
+        # valid_ids = set()
 
         if not collections:
-            print(f"    [DATA_ROUTES] Warning: get_study_collections returned empty for {study}. Skipping filter enforcement.")
+            print(
+                f"    [DATA_ROUTES] Warning: get_study_collections returned empty for {study}. Skipping filter enforcement."
+            )
             return metadata
 
         for d in collections:
-            if d.get('collection_id'): valid_collection_ids.add(str(d['collection_id']).strip())
+            if d.get("collection_id"):
+                valid_collection_ids.add(str(d["collection_id"]).strip())
 
         if not valid_collection_ids:
-             print(f"    [DATA_ROUTES] Warning: No valid_collection_ids found for {study}. Skipping filter enforcement.")
-             return metadata
+            print(
+                f"    [DATA_ROUTES] Warning: No valid_collection_ids found for {study}. Skipping filter enforcement."
+            )
+            return metadata
 
         # Filter collection_id
-        if 'collection_id' in metadata and 'values' in metadata['collection_id']:
-            original = metadata['collection_id']['values']
+        if "collection_id" in metadata and "values" in metadata["collection_id"]:
+            original = metadata["collection_id"]["values"]
             # Robust filter with strip
-            filtered = [v for v in original if str(v['value']).strip() in valid_collection_ids]
+            filtered = [v for v in original if str(v["value"]).strip() in valid_collection_ids]
 
             # Debugging mismatch if drastic change
             if len(original) > 0 and len(filtered) == 0:
-                print(f"    [DATA_ROUTES] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale.")
+                print(
+                    f"    [DATA_ROUTES] CRITICAL: Filter removed ALL {len(original)} IDs for {study}. Cache is likely stale."
+                )
                 print(f"    - Sample Valid IDs: {list(valid_collection_ids)[:5]}")
-                print(f"    - Sample Metadata IDs: {[str(v['value']).strip() for v in original[:5]]}")
-                return None # Signal to caller that metadata is invalid
+                print(
+                    f"    - Sample Metadata IDs: {[str(v['value']).strip() for v in original[:5]]}"
+                )
+                return None  # Signal to caller that metadata is invalid
             elif len(original) != len(filtered):
                 if verbose:
-                    print(f"    [DATA_ROUTES] Info: Filtered collection_id for {study}: {len(original)} -> {len(filtered)}")
+                    print(
+                        f"    [DATA_ROUTES] Info: Filtered collection_id for {study}: {len(original)} -> {len(filtered)}"
+                    )
 
-            metadata['collection_id']['values'] = filtered
-
-
+            metadata["collection_id"]["values"] = filtered
 
     except Exception as e:
         print(f"    Error enforcing study collections: {e}")
@@ -143,14 +155,14 @@ def _collection_row_counts(metadata: dict) -> dict[str, int]:
     top 200 values and drops single-row collections — so it is only used for
     metadata files written before the counts were baked in.
     """
-    baked = metadata.get('collection_row_counts')
+    baked = metadata.get("collection_row_counts")
     if isinstance(baked, dict) and baked:
         return {str(k): int(v) for k, v in baked.items()}
     counts: dict[str, int] = {}
-    for item in (metadata.get('collection_id') or {}).get('values') or []:
-        val = item.get('value')
+    for item in (metadata.get("collection_id") or {}).get("values") or []:
+        val = item.get("value")
         if val is not None:
-            counts[str(val)] = int(item.get('count') or 0)
+            counts[str(val)] = int(item.get("count") or 0)
     return counts
 
 
@@ -181,7 +193,7 @@ def _inject_collection_tags(
         if str(cid) not in study_ids:
             continue
         rows = int(collection_counts.get(str(cid), 0))
-        for tag in anno.get('annotation_tags', []):
+        for tag in anno.get("annotation_tags", []):
             tag = str(tag).strip()
             if tag:
                 tag_counter[tag] = tag_counter.get(tag, 0) + rows
@@ -194,7 +206,7 @@ def _inject_collection_tags(
     values_list = [{"value": tag, "count": count} for tag, count in sorted_tags[:200]]
     total_unique = len(tag_counter)
 
-    metadata['Collection Tags'] = {
+    metadata["Collection Tags"] = {
         "type": "list",
         "values": values_list,
         "total_unique": total_unique,
@@ -202,23 +214,23 @@ def _inject_collection_tags(
     }
 
     # Schema info — same section as collection_id
-    if 'schema_map' not in metadata:
-        metadata['schema_map'] = {}
-    metadata['schema_map']['Collection Tags'] = {
+    if "schema_map" not in metadata:
+        metadata["schema_map"] = {}
+    metadata["schema_map"]["Collection Tags"] = {
         "section": "Activity",
         "display_name": "Collection Tags",
         "description": "Filter by tags assigned to collections. The count next to "
-                       "each tag is how many videos its collections contribute."
+        "each tag is how many videos its collections contribute.",
     }
 
     # Position right after collection_id in filter_priority
-    if 'filter_priority' not in metadata:
-        metadata['filter_priority'] = []
-    fp = metadata['filter_priority']
-    if 'Collection Tags' in fp:
-        fp.remove('Collection Tags')
-    cid_idx = fp.index('collection_id') + 1 if 'collection_id' in fp else len(fp)
-    fp.insert(cid_idx, 'Collection Tags')
+    if "filter_priority" not in metadata:
+        metadata["filter_priority"] = []
+    fp = metadata["filter_priority"]
+    if "Collection Tags" in fp:
+        fp.remove("Collection Tags")
+    cid_idx = fp.index("collection_id") + 1 if "collection_id" in fp else len(fp)
+    fp.insert(cid_idx, "Collection Tags")
 
     return metadata
 
@@ -231,13 +243,13 @@ def _get_shared_simple_map(username, user_settings):
     """
     user_settings = user_settings or {}
     # Sharing is opt-in: an unset value reads as off (matches the viewer route).
-    if not user_settings.get('share_annotations'):
+    if not user_settings.get("share_annotations"):
         return None
     sharing_users = []
     for u_name, u_obj in user_manager.get_all_users().items():
         if u_name == username:
             continue
-        if u_obj.settings and u_obj.settings.get('share_annotations'):
+        if u_obj.settings and u_obj.settings.get("share_annotations"):
             sharing_users.append(u_name)
     if not sharing_users:
         return None
@@ -253,15 +265,15 @@ def _inject_collection_display_ids(metadata):
     display_map = load_display_id_map()
     if not display_map:
         return metadata
-    for col in ['collection_id']:
+    for col in ["collection_id"]:
         section = metadata.get(col)
-        if not section or section.get('type') != 'category':
+        if not section or section.get("type") != "category":
             continue
-        values = section.get('values') or []
+        values = section.get("values") or []
         for item in values:
-            val = item.get('value')
+            val = item.get("value")
             if val in display_map:
-                item['label'] = display_map[val]
+                item["label"] = display_map[val]
     return metadata
 
 
@@ -277,13 +289,10 @@ def _stamp_source_file_modified(metadata: dict, study: str) -> None:
     mtime = _get_recoded_mtime(study)
     if mtime is None:
         return
-    metadata['source_file_modified'] = datetime.fromtimestamp(
-        mtime, tz=UTC,
-    ).isoformat(timespec='seconds')
-
-
-
-
+    metadata["source_file_modified"] = datetime.fromtimestamp(
+        mtime,
+        tz=UTC,
+    ).isoformat(timespec="seconds")
 
 
 def _finalize_base_metadata(metadata, study):
@@ -299,13 +308,13 @@ def _finalize_base_metadata(metadata, study):
     metadata = _enforce_study_collections(metadata, study)
     if metadata is None:
         return None
-    collection_ids = metadata.get('collection_ids')
+    collection_ids = metadata.get("collection_ids")
     if collection_ids is None:
         # Older metadata file without baked collection_ids — derive from the
         # collection_id values (a superset that's still safe; will be replaced
         # on next study refresh).
-        cid_values = (metadata.get('collection_id') or {}).get('values') or []
-        collection_ids = [str(v.get('value')) for v in cid_values if v.get('value') is not None]
+        cid_values = (metadata.get("collection_id") or {}).get("values") or []
+        collection_ids = [str(v.get("value")) for v in cid_values if v.get("value") is not None]
     metadata = _inject_collection_tags(metadata, collection_ids)
     return metadata
 
@@ -319,40 +328,42 @@ def _build_full_metadata(df, col_types, study):
     metadata = explorer.get_metadata(df, col_types)
 
     res = explorer.get_current_stats(df, col_types, number_meta=metadata)
-    metadata['total_stats'] = res['stats']
+    metadata["total_stats"] = res["stats"]
     # Exact unfiltered row count of the web-exposed frame — lets the cold-open
     # fast path answer an empty-filter request without loading the frame.
-    metadata['total_rows'] = int(len(df))
+    metadata["total_rows"] = int(len(df))
 
     try:
         the_recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=the_recoded_file):
-            metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
-            metadata['source_file_modified'] = mtime.isoformat(timespec='seconds')
+            metadata["source_file"] = the_recoded_file
+            mtime = datetime.fromtimestamp(
+                data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC
+            )
+            metadata["source_file_modified"] = mtime.isoformat(timespec="seconds")
         else:
-            metadata['source_file'] = "Unknown"
-            metadata['source_file_modified'] = ""
+            metadata["source_file"] = "Unknown"
+            metadata["source_file_modified"] = ""
     except Exception as e:
         print(f"Error getting file info: {e}")
-        metadata['source_file'] = "Error"
-        metadata['source_file_modified'] = ""
+        metadata["source_file"] = "Error"
+        metadata["source_file_modified"] = ""
 
-    if 'collection_id' in df.columns:
-        metadata['collection_ids'] = sorted(
-            df['collection_id'].dropna().astype(str).unique().tolist()
+    if "collection_id" in df.columns:
+        metadata["collection_ids"] = sorted(
+            df["collection_id"].dropna().astype(str).unique().tolist()
         )
         # Rows per collection, baked so the base-metadata fast path (which has
         # no frame) can still count Collection Tags in videos. The collection_id
         # filter's own values can't serve: they're capped at 200 and drop
         # single-row collections.
-        metadata['collection_row_counts'] = {
+        metadata["collection_row_counts"] = {
             str(k): int(v)
-            for k, v in df['collection_id'].dropna().astype(str).value_counts().items()
+            for k, v in df["collection_id"].dropna().astype(str).value_counts().items()
         }
     else:
-        metadata['collection_ids'] = []
-        metadata['collection_row_counts'] = {}
+        metadata["collection_ids"] = []
+        metadata["collection_row_counts"] = {}
 
     return metadata
 
@@ -371,12 +382,12 @@ def _compute_dynamic_overlay(df, col_types):
     overlay. Returns a dict shaped for the overlay endpoint.
     """
     dynamic_cols = {}
-    if 'User Tags' in col_types:
-        dynamic_cols['User Tags'] = 'list'
-    if 'Has Annotation' in col_types:
-        dynamic_cols['Has Annotation'] = 'category'
-    if 'Machine Annotations' in col_types:
-        dynamic_cols['Machine Annotations'] = 'category'
+    if "User Tags" in col_types:
+        dynamic_cols["User Tags"] = "list"
+    if "Has Annotation" in col_types:
+        dynamic_cols["Has Annotation"] = "category"
+    if "Machine Annotations" in col_types:
+        dynamic_cols["Machine Annotations"] = "category"
 
     columns = {}
     schema_map = {}
@@ -388,34 +399,34 @@ def _compute_dynamic_overlay(df, col_types):
         cols_to_get = [c for c in dynamic_cols if c in df.columns]
         if cols_to_get:
             columns = explorer.get_metadata(df[cols_to_get], dynamic_cols)
-            if 'User Tags' in df.columns:
-                res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
-                stats_overlay.update(res_tags.get('stats', {}))
+            if "User Tags" in df.columns:
+                res_tags = explorer.get_current_stats(df[["User Tags"]], {"User Tags": "list"})
+                stats_overlay.update(res_tags.get("stats", {}))
 
-    if 'User Tags' in columns:
-        schema_map['User Tags'] = {
+    if "User Tags" in columns:
+        schema_map["User Tags"] = {
             "section": "Annotation Status",
             "display_name": "Tags by Humans",
             "description": "Tags you have assigned to items.",
         }
-        filter_priority_prepend.append('User Tags')
-        display_priority_prepend.append('User Tags')
-    if 'Has Annotation' in columns:
-        schema_map['Has Annotation'] = {
+        filter_priority_prepend.append("User Tags")
+        display_priority_prepend.append("User Tags")
+    if "Has Annotation" in columns:
+        schema_map["Has Annotation"] = {
             "section": "Annotation Status",
             "display_name": "Has Human Annotations",
             "description": "Filter items that have notes, tags, or closed tags.",
         }
-        filter_priority_prepend.append('Has Annotation')
-        display_priority_prepend.append('Has Annotation')
-    if 'Machine Annotations' in columns:
-        schema_map['Machine Annotations'] = {
+        filter_priority_prepend.append("Has Annotation")
+        display_priority_prepend.append("Has Annotation")
+    if "Machine Annotations" in columns:
+        schema_map["Machine Annotations"] = {
             "section": "Annotation Status",
             "display_name": "Machine Annotations",
             "description": "Filter items by the model that machine-annotated them (or their annotation status).",
         }
-        filter_priority_prepend.append('Machine Annotations')
-        display_priority_prepend.append('Machine Annotations')
+        filter_priority_prepend.append("Machine Annotations")
+        display_priority_prepend.append("Machine Annotations")
 
     return {
         "columns": columns,
@@ -426,8 +437,8 @@ def _compute_dynamic_overlay(df, col_types):
     }
 
 
-@explorer_bp.route('/api/explore/metadata/base', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis')
+@explorer_bp.route("/api/explore/metadata/base", methods=["GET"])
+@permission_required("tab.explore", "tab.video_analysis")
 def api_explorer_metadata_base():
     """
     Fast path: returns the static filter shape (column types, value lists,
@@ -443,7 +454,7 @@ def api_explorer_metadata_base():
     Serves both the Explore and Video Analysis tabs (either permission grants
     access).
     """
-    study = request.args.get('study')
+    study = request.args.get("study")
     if not study:
         return jsonify({"error": "No study specified"}), 400
 
@@ -487,7 +498,9 @@ def api_explorer_metadata_base():
                 json_mtime = data_io.getmtime(storage_location="cache", filename=canonical_filename)
                 if json_mtime < parquet_mtime:
                     cache_is_fresh = False
-                    print(f"    [DATA_ROUTES] Base metadata for {study} is older than recoded parquet, regenerating...")
+                    print(
+                        f"    [DATA_ROUTES] Base metadata for {study} is older than recoded parquet, regenerating..."
+                    )
             except Exception as e:
                 print(f"    Warning: Could not read base metadata mtime for {study}: {e}")
                 cache_is_fresh = False
@@ -511,7 +524,7 @@ def api_explorer_metadata_base():
     # rather than a raw 500 (which the frontend can only render as the opaque
     # "Failed to load metadata").
     try:
-        df, col_types = get_explorer_data(study, context='explorer')
+        df, col_types = get_explorer_data(study, context="explorer")
         if df is None:
             return jsonify({"error": "Dataset not found"}), 404
 
@@ -530,23 +543,28 @@ def api_explorer_metadata_base():
     except Exception as e:
         print(f"    [DATA_ROUTES] Cold-path base metadata build failed for {study}: {e}")
         traceback.print_exc()
-        return jsonify({
-            "error": "This study's data is still being prepared (it may be "
-                     "mid-refresh). Please retry in a moment."
-        }), 503
+        return jsonify(
+            {
+                "error": "This study's data is still being prepared (it may be "
+                "mid-refresh). Please retry in a moment."
+            }
+        ), 503
 
 
 # Frame-independent virtual/dynamic filter columns: their values are per-user
 # or token-enumerated, never capped in the dropdown, so value search does not
 # apply to them.
 _VALUE_SEARCH_EXCLUDED_COLUMNS = {
-    'extra_data', 'Collection Tags', 'User Tags',
-    'Has Annotation', 'Machine Annotations',
+    "extra_data",
+    "Collection Tags",
+    "User Tags",
+    "Has Annotation",
+    "Machine Annotations",
 }
 
 
-@explorer_bp.route('/api/explore/values/search', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis')
+@explorer_bp.route("/api/explore/values/search", methods=["GET"])
+@permission_required("tab.explore", "tab.video_analysis")
 def api_explorer_value_search():
     """Search ALL values of one categorical/list column, tail included.
 
@@ -557,15 +575,15 @@ def api_explorer_value_search():
     are treated literally (values may contain them), unlike the global
     search's comma-term syntax.
     """
-    study = request.args.get('study')
-    column = request.args.get('column')
-    q = (request.args.get('q') or '').strip()
+    study = request.args.get("study")
+    column = request.args.get("column")
+    q = (request.args.get("q") or "").strip()
     if not study or not column:
         return jsonify({"error": "study and column are required"}), 400
     if len(q) < 2:
         return jsonify({"error": "Query must be at least 2 characters"}), 400
     try:
-        limit = min(max(int(request.args.get('limit', 50)), 1), 200)
+        limit = min(max(int(request.args.get("limit", 50)), 1), 200)
     except (TypeError, ValueError):
         limit = 50
 
@@ -580,24 +598,27 @@ def api_explorer_value_search():
     if entry is None:
         return jsonify({"error": "Column not found or not searchable"}), 404
 
-    mask = entry['lowered'].str.contains(q.lower(), regex=False, na=False)
+    mask = entry["lowered"].str.contains(q.lower(), regex=False, na=False)
     matched_idx = mask[mask].index
-    matches = [{"value": entry['values'][i], "count": entry['counts'][i]}
-               for i in matched_idx[:limit]]
+    matches = [
+        {"value": entry["values"][i], "count": entry["counts"][i]} for i in matched_idx[:limit]
+    ]
     total_matches = int(len(matched_idx))
-    return jsonify({
-        "column": column,
-        "type": entry['type'],
-        "query": q,
-        "matches": matches,
-        "total_matches": total_matches,
-        "truncated": total_matches > limit,
-        "limit": limit,
-    })
+    return jsonify(
+        {
+            "column": column,
+            "type": entry["type"],
+            "query": q,
+            "matches": matches,
+            "total_matches": total_matches,
+            "truncated": total_matches > limit,
+            "limit": limit,
+        }
+    )
 
 
-@explorer_bp.route('/api/explore/metadata/overlay', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis')
+@explorer_bp.route("/api/explore/metadata/overlay", methods=["GET"])
+@permission_required("tab.explore", "tab.video_analysis")
 def api_explorer_metadata_overlay():
     """
     Per-user dynamic metadata: User Tags, Has Annotation, Machine Annotations.
@@ -608,7 +629,7 @@ def api_explorer_metadata_overlay():
     Serves both the Explore and Video Analysis tabs (either permission grants
     access).
     """
-    study = request.args.get('study')
+    study = request.args.get("study")
     if not study:
         return jsonify({"error": "No study specified"}), 400
 
@@ -616,7 +637,7 @@ def api_explorer_metadata_overlay():
     if denied is not None:
         return denied
 
-    context = request.args.get('context', 'explorer')
+    context = request.args.get("context", "explorer")
 
     # The overlay is per-user enrichment (tags, annotation status) that the
     # frontend merges on top of the base metadata. A failure here is non-fatal:
@@ -624,33 +645,40 @@ def api_explorer_metadata_overlay():
     # empty overlay rather than 500-ing.
     try:
         df, col_types = get_explorer_data(
-            study, context=context, columns=OVERLAY_SOURCE_COLUMNS,
+            study,
+            context=context,
+            columns=OVERLAY_SOURCE_COLUMNS,
         )
         if df is None:
             return jsonify({"error": "Dataset not found"}), 404
 
         username = current_user.username
         shared_simple_map = _get_shared_simple_map(username, current_user.settings)
-        df, col_types = enrich_with_user_tags(df, col_types, username,
-                                              shared_users_tags=shared_simple_map,
-                                              study=study)
+        df, col_types = enrich_with_user_tags(
+            df, col_types, username, shared_users_tags=shared_simple_map, study=study
+        )
 
         overlay = _compute_dynamic_overlay(df, col_types)
         return jsonify(make_serializable(overlay))
     except Exception as e:
         print(f"    [DATA_ROUTES] Overlay metadata build failed for {study}: {e}")
         traceback.print_exc()
-        return jsonify({
-            "columns": {}, "schema_map": {}, "stats_overlay": {},
-            "filter_priority_prepend": [], "display_priority_prepend": [],
-        })
+        return jsonify(
+            {
+                "columns": {},
+                "schema_map": {},
+                "stats_overlay": {},
+                "filter_priority_prepend": [],
+                "display_priority_prepend": [],
+            }
+        )
 
 
-@explorer_bp.route('/api/explore/metadata', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis')
+@explorer_bp.route("/api/explore/metadata", methods=["GET"])
+@permission_required("tab.explore", "tab.video_analysis")
 def api_explorer_metadata():
 
-    study = request.args.get('study')
+    study = request.args.get("study")
     if not study:
         return jsonify({"error": "No study specified"}), 400
 
@@ -658,7 +686,7 @@ def api_explorer_metadata():
     if denied is not None:
         return denied
 
-    context = request.args.get('context', 'explorer')
+    context = request.args.get("context", "explorer")
 
     df, col_types = get_explorer_data(study, context=context)
 
@@ -668,19 +696,22 @@ def api_explorer_metadata():
     # Enrich with User Tags
     username = current_user.username
     shared_simple_map = _get_shared_simple_map(username, current_user.settings)
-    df, col_types = enrich_with_user_tags(df, col_types, username,
-                                          shared_users_tags=shared_simple_map,
-                                          study=study)
-
+    df, col_types = enrich_with_user_tags(
+        df, col_types, username, shared_users_tags=shared_simple_map, study=study
+    )
 
     cached_metadata = None
     # A composed ("Everyone & Me") study stores no artifacts of its own, so it
     # neither reads nor writes this file (see /api/explore/metadata/base for
     # why a composed name must never own one) — it always computes below.
     composed = resolve_compose(study) is not None
-    if not composed and data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
+    if not composed and data_io.exists(
+        storage_location="cache", filename=f"{study}_explorer_metadata.json"
+    ):
         try:
-            potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_explorer_metadata.json")
+            potential_metadata = data_io.load_json(
+                storage_location="cache", filename=f"{study}_explorer_metadata.json"
+            )
 
             # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
             # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
@@ -689,109 +720,133 @@ def api_explorer_metadata():
             # Force refresh of dynamic metadata (User Tags & Has Annotation)
             # We must re-calculate these every time because the cache might be stale w.r.t user actions
             dynamic_cols = {}
-            if 'User Tags' in col_types: dynamic_cols['User Tags'] = 'list'
-            if 'Has Annotation' in col_types: dynamic_cols['Has Annotation'] = 'category'
-            if 'Machine Annotations' in col_types: dynamic_cols['Machine Annotations'] = 'category'
+            if "User Tags" in col_types:
+                dynamic_cols["User Tags"] = "list"
+            if "Has Annotation" in col_types:
+                dynamic_cols["Has Annotation"] = "category"
+            if "Machine Annotations" in col_types:
+                dynamic_cols["Machine Annotations"] = "category"
 
             if dynamic_cols:
-                 cols_to_get = [c for c in dynamic_cols if c in df.columns]
-                 if cols_to_get:
-                      dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
-                      potential_metadata.update(dynamic_meta)
+                cols_to_get = [c for c in dynamic_cols if c in df.columns]
+                if cols_to_get:
+                    dynamic_meta = explorer.get_metadata(df[cols_to_get], dynamic_cols)
+                    potential_metadata.update(dynamic_meta)
 
-                      # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
-                      if 'User Tags' in df.columns:
-                          res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
-                          if 'stats' in res_tags:
-                              if 'total_stats' not in potential_metadata: potential_metadata['total_stats'] = {}
-                              potential_metadata['total_stats'].update(res_tags['stats'])
+                    # Force update of User Tags stats specifically if it's a list (to capture merged shared tags)
+                    if "User Tags" in df.columns:
+                        res_tags = explorer.get_current_stats(
+                            df[["User Tags"]], {"User Tags": "list"}
+                        )
+                        if "stats" in res_tags:
+                            if "total_stats" not in potential_metadata:
+                                potential_metadata["total_stats"] = {}
+                            potential_metadata["total_stats"].update(res_tags["stats"])
 
             # Ensure User Tags is in filter_priority if it exists
-            if 'User Tags' in potential_metadata and 'filter_priority' in potential_metadata:
-                if 'User Tags' in potential_metadata['filter_priority']:
-                    potential_metadata['filter_priority'].remove('User Tags')
-                potential_metadata['filter_priority'].insert(0, 'User Tags')
+            if "User Tags" in potential_metadata and "filter_priority" in potential_metadata:
+                if "User Tags" in potential_metadata["filter_priority"]:
+                    potential_metadata["filter_priority"].remove("User Tags")
+                potential_metadata["filter_priority"].insert(0, "User Tags")
 
             # Always refresh schema metadata (accepted_labels, priorities) from CSV
             potential_metadata = load_schema_metadata(potential_metadata)
 
             # Inject User Annotation Schema Info (User Tags & Has Annotation) - POST SCHEMA LOAD
-            if 'schema_map' not in potential_metadata: potential_metadata['schema_map'] = {}
+            if "schema_map" not in potential_metadata:
+                potential_metadata["schema_map"] = {}
 
             # 1. User Tags -> Tags by Humans
-            if 'User Tags' in potential_metadata:
-                potential_metadata['schema_map']['User Tags'] = {
+            if "User Tags" in potential_metadata:
+                potential_metadata["schema_map"]["User Tags"] = {
                     "section": "Annotation Status",
                     "display_name": "Tags by Humans",
-                    "description": "Tags you have assigned to items."
+                    "description": "Tags you have assigned to items.",
                 }
                 # Re-insert into priorities
-                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
-                if 'User Tags' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('User Tags')
-                potential_metadata['filter_priority'].insert(0, 'User Tags')
+                if "filter_priority" not in potential_metadata:
+                    potential_metadata["filter_priority"] = []
+                if "User Tags" in potential_metadata["filter_priority"]:
+                    potential_metadata["filter_priority"].remove("User Tags")
+                potential_metadata["filter_priority"].insert(0, "User Tags")
 
-                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
-                if 'User Tags' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('User Tags')
-                potential_metadata['display_priority'].insert(0, 'User Tags')
+                if "display_priority" not in potential_metadata:
+                    potential_metadata["display_priority"] = []
+                if "User Tags" in potential_metadata["display_priority"]:
+                    potential_metadata["display_priority"].remove("User Tags")
+                potential_metadata["display_priority"].insert(0, "User Tags")
 
             # 2. Has Annotation -> Has Human Annotations
-            if 'Has Annotation' in potential_metadata:
-                potential_metadata['schema_map']['Has Annotation'] = {
+            if "Has Annotation" in potential_metadata:
+                potential_metadata["schema_map"]["Has Annotation"] = {
                     "section": "Annotation Status",
                     "display_name": "Has Human Annotations",
-                    "description": "Filter items that have notes, tags, or closed tags."
+                    "description": "Filter items that have notes, tags, or closed tags.",
                 }
                 # Re-insert into priorities (After User Tags)
-                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
-                if 'Has Annotation' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('Has Annotation')
+                if "filter_priority" not in potential_metadata:
+                    potential_metadata["filter_priority"] = []
+                if "Has Annotation" in potential_metadata["filter_priority"]:
+                    potential_metadata["filter_priority"].remove("Has Annotation")
                 # Insert at 1 if User Tags exists, else 0
-                idx = 1 if 'User Tags' in potential_metadata else 0
-                potential_metadata['filter_priority'].insert(idx, 'Has Annotation')
+                idx = 1 if "User Tags" in potential_metadata else 0
+                potential_metadata["filter_priority"].insert(idx, "Has Annotation")
 
-                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
-                if 'Has Annotation' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('Has Annotation')
-                idx = 1 if 'User Tags' in potential_metadata else 0
-                potential_metadata['display_priority'].insert(idx, 'Has Annotation')
+                if "display_priority" not in potential_metadata:
+                    potential_metadata["display_priority"] = []
+                if "Has Annotation" in potential_metadata["display_priority"]:
+                    potential_metadata["display_priority"].remove("Has Annotation")
+                idx = 1 if "User Tags" in potential_metadata else 0
+                potential_metadata["display_priority"].insert(idx, "Has Annotation")
 
-            if 'Machine Annotations' in potential_metadata:
-                potential_metadata['schema_map']['Machine Annotations'] = {
+            if "Machine Annotations" in potential_metadata:
+                potential_metadata["schema_map"]["Machine Annotations"] = {
                     "section": "Annotation Status",
                     "display_name": "Machine Annotations",
-                    "description": "Filter items by the model that machine-annotated them (or their annotation status)."
+                    "description": "Filter items by the model that machine-annotated them (or their annotation status).",
                 }
                 # Priority
-                if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
-                if 'Machine Annotations' in potential_metadata['filter_priority']: potential_metadata['filter_priority'].remove('Machine Annotations')
+                if "filter_priority" not in potential_metadata:
+                    potential_metadata["filter_priority"] = []
+                if "Machine Annotations" in potential_metadata["filter_priority"]:
+                    potential_metadata["filter_priority"].remove("Machine Annotations")
                 # Insert after Has Annotation
                 idx = 0
-                if 'User Tags' in potential_metadata: idx += 1
-                if 'Has Annotation' in potential_metadata: idx += 1
-                potential_metadata['filter_priority'].insert(idx, 'Machine Annotations')
+                if "User Tags" in potential_metadata:
+                    idx += 1
+                if "Has Annotation" in potential_metadata:
+                    idx += 1
+                potential_metadata["filter_priority"].insert(idx, "Machine Annotations")
 
-                if 'display_priority' not in potential_metadata: potential_metadata['display_priority'] = []
-                if 'Machine Annotations' in potential_metadata['display_priority']: potential_metadata['display_priority'].remove('Machine Annotations')
-                potential_metadata['display_priority'].insert(idx, 'Machine Annotations')
+                if "display_priority" not in potential_metadata:
+                    potential_metadata["display_priority"] = []
+                if "Machine Annotations" in potential_metadata["display_priority"]:
+                    potential_metadata["display_priority"].remove("Machine Annotations")
+                potential_metadata["display_priority"].insert(idx, "Machine Annotations")
 
             # Inject Display IDs (Cached Path)
             display_map = load_display_id_map()
             if display_map:
-                for col in ['collection_id']:
-                    if col in potential_metadata and potential_metadata[col].get('type') == 'category':
-                        if 'values' in potential_metadata[col]:
+                for col in ["collection_id"]:
+                    if (
+                        col in potential_metadata
+                        and potential_metadata[col].get("type") == "category"
+                    ):
+                        if "values" in potential_metadata[col]:
                             new_values = []
-                            for item in potential_metadata[col]['values']:
-                                val = item['value']
+                            for item in potential_metadata[col]["values"]:
+                                val = item["value"]
                                 if val in display_map:
-                                    item['label'] = display_map[val]
+                                    item["label"] = display_map[val]
                                 new_values.append(item)
-                            potential_metadata[col]['values'] = new_values
+                            potential_metadata[col]["values"] = new_values
 
             # Enforce strict study membership for Donation IDs
             potential_metadata = _enforce_study_collections(potential_metadata, study)
 
             # Inject Collection Tags filter
-            if 'collection_id' in df.columns:
-                cid_col = df['collection_id'].dropna().astype(str)
+            if "collection_id" in df.columns:
+                cid_col = df["collection_id"].dropna().astype(str)
                 potential_metadata = _inject_collection_tags(
                     potential_metadata,
                     cid_col.unique().tolist(),
@@ -799,7 +854,7 @@ def api_explorer_metadata():
                 )
 
             if potential_metadata:
-                #print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
+                # print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
                 return jsonify(make_serializable(potential_metadata))
             else:
                 print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
@@ -809,129 +864,148 @@ def api_explorer_metadata():
             traceback.print_exc()
             # Fall through to regeneration
 
-
-
     print(f"    No cached explorer metadata for '{study}', calculating...")
     metadata = explorer.get_metadata(df, col_types)
 
     # Ensure User Tags is in filter_priority if it exists (for non-cached path)
-    if 'User Tags' in metadata and 'filter_priority' in metadata:
-        if 'User Tags' in metadata['filter_priority']:
-            metadata['filter_priority'].remove('User Tags')
-        metadata['filter_priority'].insert(0, 'User Tags')
+    if "User Tags" in metadata and "filter_priority" in metadata:
+        if "User Tags" in metadata["filter_priority"]:
+            metadata["filter_priority"].remove("User Tags")
+        metadata["filter_priority"].insert(0, "User Tags")
 
     res = explorer.get_current_stats(df, col_types, number_meta=metadata)
-    metadata['total_stats'] = res['stats']
+    metadata["total_stats"] = res["stats"]
     # Exact unfiltered row count of the web-exposed frame — lets the cold-open
     # fast path answer an empty-filter request without loading the frame.
-    metadata['total_rows'] = int(len(df))
+    metadata["total_rows"] = int(len(df))
 
     try:
         the_recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=the_recoded_file):
-            metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
-            metadata['source_file_modified'] = mtime.isoformat(timespec='seconds')
+            metadata["source_file"] = the_recoded_file
+            mtime = datetime.fromtimestamp(
+                data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC
+            )
+            metadata["source_file_modified"] = mtime.isoformat(timespec="seconds")
         else:
-             metadata['source_file'] = "Unknown"
-             metadata['source_file_modified'] = ""
+            metadata["source_file"] = "Unknown"
+            metadata["source_file_modified"] = ""
     except Exception as e:
         print(f"Error getting file info: {e}")
-        metadata['source_file'] = "Error"
-        metadata['source_file_modified'] = ""
+        metadata["source_file"] = "Error"
+        metadata["source_file_modified"] = ""
 
     metadata = load_schema_metadata(metadata)
 
     # Inject User Annotation Schema Info (User Tags & Has Annotation)
-    if 'schema_map' not in metadata: metadata['schema_map'] = {}
+    if "schema_map" not in metadata:
+        metadata["schema_map"] = {}
 
     # 1. User Tags -> Tags by Humans
-    if 'User Tags' in metadata:
-        metadata['schema_map']['User Tags'] = {
+    if "User Tags" in metadata:
+        metadata["schema_map"]["User Tags"] = {
             "section": "Annotation Status",
             "display_name": "Tags by Humans",
-            "description": "Tags you have assigned to items."
+            "description": "Tags you have assigned to items.",
         }
         # Re-insert into priorities
-        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-        if 'User Tags' in metadata['filter_priority']: metadata['filter_priority'].remove('User Tags')
-        metadata['filter_priority'].insert(0, 'User Tags')
+        if "filter_priority" not in metadata:
+            metadata["filter_priority"] = []
+        if "User Tags" in metadata["filter_priority"]:
+            metadata["filter_priority"].remove("User Tags")
+        metadata["filter_priority"].insert(0, "User Tags")
 
-        if 'display_priority' not in metadata: metadata['display_priority'] = []
-        if 'User Tags' in metadata['display_priority']: metadata['display_priority'].remove('User Tags')
-        metadata['display_priority'].insert(0, 'User Tags')
+        if "display_priority" not in metadata:
+            metadata["display_priority"] = []
+        if "User Tags" in metadata["display_priority"]:
+            metadata["display_priority"].remove("User Tags")
+        metadata["display_priority"].insert(0, "User Tags")
 
     # 2. Has Annotation -> Has Human Annotations
-    if 'Has Annotation' in metadata:
-        metadata['schema_map']['Has Annotation'] = {
+    if "Has Annotation" in metadata:
+        metadata["schema_map"]["Has Annotation"] = {
             "section": "Annotation Status",
             "display_name": "Has Human Annotations",
-            "description": "Filter items that have notes, tags, or closed tags."
+            "description": "Filter items that have notes, tags, or closed tags.",
         }
         # Re-insert into priorities (After User Tags)
-        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-        if 'Has Annotation' in metadata['filter_priority']: metadata['filter_priority'].remove('Has Annotation')
-        idx = 1 if 'User Tags' in metadata else 0
-        metadata['filter_priority'].insert(idx, 'Has Annotation')
+        if "filter_priority" not in metadata:
+            metadata["filter_priority"] = []
+        if "Has Annotation" in metadata["filter_priority"]:
+            metadata["filter_priority"].remove("Has Annotation")
+        idx = 1 if "User Tags" in metadata else 0
+        metadata["filter_priority"].insert(idx, "Has Annotation")
 
-        if 'display_priority' not in metadata: metadata['display_priority'] = []
-        if 'Has Annotation' in metadata['display_priority']: metadata['display_priority'].remove('Has Annotation')
-        idx = 1 if 'User Tags' in metadata else 0
-        metadata['display_priority'].insert(idx, 'Has Annotation')
+        if "display_priority" not in metadata:
+            metadata["display_priority"] = []
+        if "Has Annotation" in metadata["display_priority"]:
+            metadata["display_priority"].remove("Has Annotation")
+        idx = 1 if "User Tags" in metadata else 0
+        metadata["display_priority"].insert(idx, "Has Annotation")
 
     # 3. Machine Annotations
-    if 'Machine Annotations' in metadata:
-        metadata['schema_map']['Machine Annotations'] = {
+    if "Machine Annotations" in metadata:
+        metadata["schema_map"]["Machine Annotations"] = {
             "section": "Annotation Status",
             "display_name": "Machine Annotations",
-            "description": "Filter items by the model that machine-annotated them (or their annotation status)."
+            "description": "Filter items by the model that machine-annotated them (or their annotation status).",
         }
         # Priority
-        if 'filter_priority' not in metadata: metadata['filter_priority'] = []
-        if 'Machine Annotations' in metadata['filter_priority']: metadata['filter_priority'].remove('Machine Annotations')
+        if "filter_priority" not in metadata:
+            metadata["filter_priority"] = []
+        if "Machine Annotations" in metadata["filter_priority"]:
+            metadata["filter_priority"].remove("Machine Annotations")
         # Insert after Has Annotation
         idx = 0
-        if 'User Tags' in metadata: idx += 1
-        if 'Has Annotation' in metadata: idx += 1
-        metadata['filter_priority'].insert(idx, 'Machine Annotations')
+        if "User Tags" in metadata:
+            idx += 1
+        if "Has Annotation" in metadata:
+            idx += 1
+        metadata["filter_priority"].insert(idx, "Machine Annotations")
 
-        if 'display_priority' not in metadata: metadata['display_priority'] = []
-        if 'Machine Annotations' in metadata['display_priority']: metadata['display_priority'].remove('Machine Annotations')
-        metadata['display_priority'].insert(idx, 'Machine Annotations')
+        if "display_priority" not in metadata:
+            metadata["display_priority"] = []
+        if "Machine Annotations" in metadata["display_priority"]:
+            metadata["display_priority"].remove("Machine Annotations")
+        metadata["display_priority"].insert(idx, "Machine Annotations")
 
     # Inject Display IDs for ID Columns
     display_map = load_display_id_map()
     if display_map:
-        for col in ['collection_id']:
-            if col in metadata and metadata[col].get('type') == 'category': # IDs are often category/list in metadata
+        for col in ["collection_id"]:
+            if (
+                col in metadata and metadata[col].get("type") == "category"
+            ):  # IDs are often category/list in metadata
                 # Check values list
-                if 'values' in metadata[col]:
+                if "values" in metadata[col]:
                     new_values = []
-                    for item in metadata[col]['values']:
+                    for item in metadata[col]["values"]:
                         # item is {value: "...", count: ...}
-                        val = item['value']
+                        val = item["value"]
                         # Look up display ID
                         if val in display_map:
-                            item['label'] = display_map[val] # Add label
+                            item["label"] = display_map[val]  # Add label
                         else:
                             # Fallback? No label needed, frontend defaults to value
                             pass
                         new_values.append(item)
-                    metadata[col]['values'] = new_values
+                    metadata[col]["values"] = new_values
 
     # Enforce strict study membership for Donation IDs (before saving to cache)
     metadata = _enforce_study_collections(metadata, study)
 
     # Inject Collection Tags filter
-    if 'collection_id' in df.columns:
-        cid_col = df['collection_id'].dropna().astype(str)
+    if "collection_id" in df.columns:
+        cid_col = df["collection_id"].dropna().astype(str)
         cid_counts = {str(k): int(v) for k, v in cid_col.value_counts().items()}
         # Baked into the cached payload for the same reason as in
         # _build_full_metadata: the base-metadata fast path re-derives the
         # Collection Tags filter without a frame to count from.
-        metadata['collection_row_counts'] = cid_counts
+        metadata["collection_row_counts"] = cid_counts
         metadata = _inject_collection_tags(
-            metadata, cid_col.unique().tolist(), cid_counts,
+            metadata,
+            cid_col.unique().tolist(),
+            cid_counts,
         )
 
     # Write to the canonical filename (dropping the per-context suffix) so the
@@ -940,7 +1014,12 @@ def api_explorer_metadata():
     # because get_explorer_data() applies the same filter for explorer and
     # viewer (see data_service.py).
     if not composed:
-        data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=False)
+        data_io.save_json(
+            data=make_serializable(metadata),
+            storage_location="cache",
+            filename=f"{study}_explorer_metadata.json",
+            verbose=False,
+        )
 
     return jsonify(make_serializable(metadata))
 
@@ -971,12 +1050,12 @@ def _viz_stats_col_types(col_types, user_settings):
         Filtered col_types mapping, in the original iteration order.
     """
     schema_meta = load_schema_metadata({})
-    global_viz = schema_meta.get('viz_priority') or []
-    all_order = schema_meta.get('all_variables_order') or []
+    global_viz = schema_meta.get("viz_priority") or []
+    all_order = schema_meta.get("all_variables_order") or []
     if not global_viz:
         return col_types
 
-    prefs = ((user_settings or {}).get('variable_prefs') or {}).get('viz') or {}
+    prefs = ((user_settings or {}).get("variable_prefs") or {}).get("viz") or {}
     effective = compose_effective_variables(global_viz, prefs, all_order)
     keep = set(effective) | set(_DYNAMIC_STATS_COLUMNS)
     return {k: v for k, v in col_types.items() if k in keep}
@@ -996,37 +1075,39 @@ def _filter_request_columns(data, user_settings, full_col_types=None):
     and unsearched wide columns still stay out of the per-request copy.
     """
     schema_meta = load_schema_metadata({})
-    global_viz = schema_meta.get('viz_priority') or []
+    global_viz = schema_meta.get("viz_priority") or []
     if not global_viz:
         return None
-    prefs = ((user_settings or {}).get('variable_prefs') or {}).get('viz') or {}
+    prefs = ((user_settings or {}).get("variable_prefs") or {}).get("viz") or {}
     effective = compose_effective_variables(
-        global_viz, prefs, schema_meta.get('all_variables_order') or [])
+        global_viz, prefs, schema_meta.get("all_variables_order") or []
+    )
 
     # Enrichment sources for the dynamic columns, plus the filter keys — a
     # filter whose column is missing from the frame is silently skipped by
     # filter_dataframe, so leaving one out would corrupt counts, not error.
     wanted = set(effective) | {"item_id", "annotated_ok", "annotation_version"}
     for fdict in (data.get("filters"), data.get("filters2")):
-        for col in (fdict or {}):
+        for col in fdict or {}:
             wanted.add("collection_id" if col == "Collection Tags" else col)
 
     if data.get("search_query") or data.get("search_query2"):
         if not full_col_types:
             return None
         wanted |= explorer.search_columns(
-            full_col_types, data.get("search_query"), data.get("search_query2"))
+            full_col_types, data.get("search_query"), data.get("search_query2")
+        )
     return tuple(wanted)
 
 
-@explorer_bp.route('/api/explore/filter', methods=['POST'])
-@permission_required('tab.explore')
+@explorer_bp.route("/api/explore/filter", methods=["POST"])
+@permission_required("tab.explore")
 def api_explorer_filter():
     data = request.json or {}
     study = data.get("study")
 
     if not study:
-         return jsonify({"error": "No study specified"}), 400
+        return jsonify({"error": "No study specified"}), 400
 
     denied = study_access_error(study)
     if denied is not None:
@@ -1043,13 +1124,17 @@ def api_explorer_filter():
     # so a background warm thread stalls indefinitely.
     _no_filters_1 = (not data.get("filters")) and (not data.get("search_query"))
     _no_filters_2 = (not data.get("filters2")) and (not data.get("search_query2"))
-    if (_no_filters_1 and _no_filters_2 and not data.get("wait_for_frame")
-            and not is_study_frame_cached(study)):
+    if (
+        _no_filters_1
+        and _no_filters_2
+        and not data.get("wait_for_frame")
+        and not is_study_frame_cached(study)
+    ):
         snapshot = get_explorer_metadata_cached(study)
-        if 'total_stats' in snapshot:
+        if "total_stats" in snapshot:
             result = {
-                "stats": dict(snapshot['total_stats']),
-                "count": snapshot.get('total_rows'),
+                "stats": dict(snapshot["total_stats"]),
+                "count": snapshot.get("total_rows"),
                 "warming": True,
             }
             if "filters2" in data:
@@ -1061,12 +1146,13 @@ def api_explorer_filter():
     # is warmed by the same call, so a subsequent projected fetch is free.
     full_col_types = (
         get_study_col_types(study)
-        if (data.get("search_query") or data.get("search_query2")) else None
+        if (data.get("search_query") or data.get("search_query2"))
+        else None
     )
     df, col_types = get_explorer_data(
-        study, context="explorer",
-        columns=_filter_request_columns(data, current_user.settings,
-                                        full_col_types=full_col_types),
+        study,
+        context="explorer",
+        columns=_filter_request_columns(data, current_user.settings, full_col_types=full_col_types),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
@@ -1075,13 +1161,11 @@ def api_explorer_filter():
     username = current_user.username
     df, col_types = enrich_with_user_tags(df, col_types, username, study=study)
 
-
     filters = data.get("filters", {})
     search_query = data.get("search_query")
 
-
     # Selective Calculation Logic
-    trigger_slice = data.get("trigger_slice") # 1, 2, or None (both)
+    trigger_slice = data.get("trigger_slice")  # 1, 2, or None (both)
 
     # Cached metadata (mtime-keyed, in-process) to potentially reuse
     # total_stats. Read-only: anything grafted onto it below must copy first.
@@ -1105,26 +1189,26 @@ def api_explorer_filter():
         # Check if filters are empty and we have cached stats
         is_empty_filters = (not filters) and (not search_query)
 
-        if is_empty_filters and reuse_total_stats and 'total_stats' in cached_metadata:
-            #print("    Using cached total_stats for Slice 1")
+        if is_empty_filters and reuse_total_stats and "total_stats" in cached_metadata:
+            # print("    Using cached total_stats for Slice 1")
             # Copy: the metadata dict is a shared cache entry now, and the
             # User Tags injection below must not write into it.
-            result['stats'] = dict(cached_metadata['total_stats'])
-            result['count'] = len(df)
+            result["stats"] = dict(cached_metadata["total_stats"])
+            result["count"] = len(df)
 
             # Inject User Tags stats if missing
-            if 'User Tags' in col_types and 'User Tags' not in result['stats']:
-                 if 'User Tags' in df.columns:
-                     res_tags = explorer.get_current_stats(df[['User Tags']], {'User Tags': 'list'})
-                     result['stats'].update(res_tags['stats'])
+            if "User Tags" in col_types and "User Tags" not in result["stats"]:
+                if "User Tags" in df.columns:
+                    res_tags = explorer.get_current_stats(df[["User Tags"]], {"User Tags": "list"})
+                    result["stats"].update(res_tags["stats"])
 
         else:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
             res1 = explorer.get_current_stats(
-                filtered_df, stats_col_types, number_meta=cached_metadata)
-            result['stats'] = res1['stats']
-            result['count'] = res1['count']
-
+                filtered_df, stats_col_types, number_meta=cached_metadata
+            )
+            result["stats"] = res1["stats"]
+            result["count"] = res1["count"]
 
     # --- SLICE 2 ---
     if "filters2" in data and (trigger_slice is None or trigger_slice == 2):
@@ -1134,70 +1218,71 @@ def api_explorer_filter():
         # If filters are identical to S1 and S1 was just calculated, reuse result
         # This handles the initial load case where both are empty/default
         is_identical = (filters == filters2) and (search_query == search_query2)
-        s1_available = (trigger_slice is None or trigger_slice == 1) and 'stats' in result
+        s1_available = (trigger_slice is None or trigger_slice == 1) and "stats" in result
 
         if is_identical and s1_available:
-            #print("    Slice 2 identical to Slice 1, reusing stats")
-            result['stats2'] = result['stats']
-            result['count2'] = result['count']
+            # print("    Slice 2 identical to Slice 1, reusing stats")
+            result["stats2"] = result["stats"]
+            result["count2"] = result["count"]
         else:
             # Check if filters are empty (for S2 specific case if not identical/S1 not avail)
             is_empty_filters2 = (not filters2) and (not search_query2)
 
-            if is_empty_filters2 and reuse_total_stats and 'total_stats' in cached_metadata:
-                 #print("    Using cached total_stats for Slice 2")
-                 result['stats2'] = dict(cached_metadata['total_stats'])
-                 result['count2'] = len(df)
+            if is_empty_filters2 and reuse_total_stats and "total_stats" in cached_metadata:
+                # print("    Using cached total_stats for Slice 2")
+                result["stats2"] = dict(cached_metadata["total_stats"])
+                result["count2"] = len(df)
             else:
                 filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
                 res2 = explorer.get_current_stats(
-                    filtered_df2, stats_col_types, number_meta=cached_metadata)
+                    filtered_df2, stats_col_types, number_meta=cached_metadata
+                )
 
-                result['stats2'] = res2['stats']
-                result['count2'] = res2['count']
+                result["stats2"] = res2["stats"]
+                result["count2"] = res2["count"]
 
     return jsonify(make_serializable(result))
 
 
-@explorer_bp.route('/api/system-info')
-@permission_required('tab.admin.system_info')
+@explorer_bp.route("/api/system-info")
+@permission_required("tab.admin.system_info")
 def system_info():
     """Return basic system information for the Information panel."""
 
     # Detect Google Cloud Run via its injected environment variables
-    k_service = os.environ.get('K_SERVICE')
+    k_service = os.environ.get("K_SERVICE")
     is_cloud_run = k_service is not None
 
     if is_cloud_run:
         environment = f"Google Cloud Run ({k_service})"
-        revision = os.environ.get('K_REVISION', 'unknown')
+        revision = os.environ.get("K_REVISION", "unknown")
     else:
         environment = "Local"
         revision = None
 
     # Storage locations: Local or Remote based on the use_gcs_for_* flags
-    data_io_cf = fyp_cf.get('data_io', {})
-    data_location = "Remote" if data_io_cf.get('use_gcs_for_data') else "Local"
-    media_location = "Remote" if data_io_cf.get('use_gcs_for_media') else "Local"
-    cache_location = "Remote" if data_io_cf.get('use_gcs_for_cache') else "Local"
+    data_io_cf = fyp_cf.get("data_io", {})
+    data_location = "Remote" if data_io_cf.get("use_gcs_for_data") else "Local"
+    media_location = "Remote" if data_io_cf.get("use_gcs_for_media") else "Local"
+    cache_location = "Remote" if data_io_cf.get("use_gcs_for_cache") else "Local"
 
     info = {
-        'os': f"{platform.system()} {platform.release()}",
-        'architecture': platform.machine(),
-        'python_version': platform.python_version(),
-        'cpu_count': os.cpu_count(),
-        'environment': environment,
-        'revision': revision,
-        'data_location': data_location,
-        'media_location': media_location,
-        'cache_location': cache_location,
+        "os": f"{platform.system()} {platform.release()}",
+        "architecture": platform.machine(),
+        "python_version": platform.python_version(),
+        "cpu_count": os.cpu_count(),
+        "environment": environment,
+        "revision": revision,
+        "data_location": data_location,
+        "media_location": media_location,
+        "cache_location": cache_location,
     }
 
     return jsonify(info)
 
 
-@explorer_bp.route('/api/system-health')
-@permission_required('tab.admin.system_info')
+@explorer_bp.route("/api/system-health")
+@permission_required("tab.admin.system_info")
 def get_system_health():
     """Return the current system-health document for the Information panel.
 
@@ -1213,7 +1298,7 @@ def get_system_health():
     return jsonify(doc)
 
 
-@explorer_bp.route('/api/system-health/task-failures/ack', methods=['POST'])
+@explorer_bp.route("/api/system-health/task-failures/ack", methods=["POST"])
 @auth.admin_required
 def ack_task_failures():
     """Acknowledge one ledger entry (``{"id": ...}``) or all of them."""
@@ -1222,8 +1307,8 @@ def ack_task_failures():
     return jsonify({"status": "success", "acknowledged": changed})
 
 
-@explorer_bp.route('/api/system-health/run', methods=['POST'])
-@permission_required('tab.admin.system_info')
+@explorer_bp.route("/api/system-health/run", methods=["POST"])
+@permission_required("tab.admin.system_info")
 def run_system_health():
     """Kick off a manual health-check run; 409 when one is already running."""
     if not system_health.start_health_check(trigger="manual"):
@@ -1231,12 +1316,11 @@ def run_system_health():
     return jsonify({"started": True})
 
 
-@explorer_bp.route('/api/admin/ops-report')
-@permission_required('tab.admin.ops_report')
+@explorer_bp.route("/api/admin/ops-report")
+@permission_required("tab.admin.ops_report")
 def ops_report_meta():
     """Metadata for the latest daily ops report (Admin → System pane)."""
-    meta = data_io.load_json(storage_location="cache",
-                             filename="ops_report/latest.json")
+    meta = data_io.load_json(storage_location="cache", filename="ops_report/latest.json")
     if not meta:
         return jsonify({"available": False})
     meta.pop("narrative", None)  # the pane iframes the full HTML instead
@@ -1244,27 +1328,27 @@ def ops_report_meta():
     return jsonify(meta)
 
 
-@explorer_bp.route('/api/admin/ops-report/html')
-@permission_required('tab.admin.ops_report')
+@explorer_bp.route("/api/admin/ops-report/html")
+@permission_required("tab.admin.ops_report")
 def ops_report_html():
     """Serve the latest rendered ops report for the pane's iframe."""
     from flask import Response
-    page = data_io.load_text(storage_location="cache",
-                             filename="ops_report/latest.html")
+
+    page = data_io.load_text(storage_location="cache", filename="ops_report/latest.html")
     if not page:
         return "No ops report has been generated yet.", 404
     return Response(page, mimetype="text/html")
 
 
-@explorer_bp.route('/api/admin/ops-report/run', methods=['POST'])
-@permission_required('tab.admin.ops_report')
+@explorer_bp.route("/api/admin/ops-report/run", methods=["POST"])
+@permission_required("tab.admin.ops_report")
 def ops_report_run():
     """Generate a fresh ops report now (runs on the task-runner via the
     normal background-task dispatch)."""
     from fyp.core.fyp_config import OPS_REPORT_SCRIPT
     from web_interface.process_manager import start_process
+
     success, msg = start_process(
-        "ops_report", OPS_REPORT_SCRIPT, [],
-        started_by=getattr(current_user, "username", ""))
-    return jsonify({"started": bool(success), "message": msg}), \
-        (200 if success else 409)
+        "ops_report", OPS_REPORT_SCRIPT, [], started_by=getattr(current_user, "username", "")
+    )
+    return jsonify({"started": bool(success), "message": msg}), (200 if success else 409)

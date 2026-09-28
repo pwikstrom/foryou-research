@@ -25,12 +25,13 @@ from fyp.analysis.pca import (
 DROP_RARE = 0.01
 
 
-
-
-
-
-def _make_events(n_categories: int = 300, n_groups: int = 40, seed: int = 7,
-                 list_valued: bool = False, tie_group: bool = True) -> pd.DataFrame:
+def _make_events(
+    n_categories: int = 300,
+    n_groups: int = 40,
+    seed: int = 7,
+    list_valued: bool = False,
+    tie_group: bool = True,
+) -> pd.DataFrame:
     """Synthetic events: zipf-ish category mass so a handful clear 1%.
 
     Two grouping factors (collection_id, local_date) — the production
@@ -50,29 +51,32 @@ def _make_events(n_categories: int = 300, n_groups: int = 40, seed: int = 7,
     values: list = [cats[i] for i in cat_idx]
     if list_valued:
         # Every 10th row carries two categories (explode path).
-        values = [[v, cats[(i + 1) % n_categories]] if k % 10 == 0 else [v]
-                  for k, (v, i) in enumerate(zip(values, cat_idx))]
+        values = [
+            [v, cats[(i + 1) % n_categories]] if k % 10 == 0 else [v]
+            for k, (v, i) in enumerate(zip(values, cat_idx))
+        ]
 
-    df = pd.DataFrame({
-        "the_cat": values,
-        "collection_id": pd.array(coll, dtype="string[pyarrow]"),
-        "local_date": pd.array(date, dtype="string[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "the_cat": values,
+            "collection_id": pd.array(coll, dtype="string[pyarrow]"),
+            "local_date": pd.array(date, dtype="string[pyarrow]"),
+        }
+    )
     if tie_group:
         # A group whose two most frequent categories tie exactly — exercises
         # idxmax's first-in-column-order tie-break.
-        tie = pd.DataFrame({
-            "the_cat": [cats[3]] * 5 + [cats[1]] * 5 if not list_valued
-                       else [[cats[3]]] * 5 + [[cats[1]]] * 5,
-            "collection_id": pd.array(["tie"] * 10, dtype="string[pyarrow]"),
-            "local_date": pd.array(["2026-01-01"] * 10, dtype="string[pyarrow]"),
-        })
+        tie = pd.DataFrame(
+            {
+                "the_cat": [cats[3]] * 5 + [cats[1]] * 5
+                if not list_valued
+                else [[cats[3]]] * 5 + [[cats[1]]] * 5,
+                "collection_id": pd.array(["tie"] * 10, dtype="string[pyarrow]"),
+                "local_date": pd.array(["2026-01-01"] * 10, dtype="string[pyarrow]"),
+            }
+        )
         df = pd.concat([df, tie], ignore_index=True)
     return df
-
-
-
-
 
 
 def _both_paths(events: pd.DataFrame, monkeypatch, drop_rare: float = DROP_RARE):
@@ -81,8 +85,8 @@ def _both_paths(events: pd.DataFrame, monkeypatch, drop_rare: float = DROP_RARE)
 
     monkeypatch.setattr(pca_mod, "DENSE_CATEGORY_LIMIT", 10**9)
     dense = transform_category_column_to_counts_df(
-        events, the_column="the_cat", grouping_factors=factors,
-        drop_rare_globally_below=drop_rare)
+        events, the_column="the_cat", grouping_factors=factors, drop_rare_globally_below=drop_rare
+    )
     assert "pca_full_dist" not in dense.attrs
 
     # 50: below the fixture's ~300 categories (gate fires) but above its ~14
@@ -90,23 +94,16 @@ def _both_paths(events: pd.DataFrame, monkeypatch, drop_rare: float = DROP_RARE)
     # maximum of 100 survivors at the 1% threshold).
     monkeypatch.setattr(pca_mod, "DENSE_CATEGORY_LIMIT", 50)
     sparse = transform_category_column_to_counts_df(
-        events, the_column="the_cat", grouping_factors=factors,
-        drop_rare_globally_below=drop_rare)
+        events, the_column="the_cat", grouping_factors=factors, drop_rare_globally_below=drop_rare
+    )
     assert "pca_full_dist" in sparse.attrs
     return dense, sparse
 
 
-
-
-
-
 def _run_transform(counts_df, drop_rare: float = DROP_RARE):
     return transform_categories_to_components_and_diversity(
-        counts_df=counts_df, drop_rare_globally_below=drop_rare)
-
-
-
-
+        counts_df=counts_df, drop_rare_globally_below=drop_rare
+    )
 
 
 @pytest.mark.parametrize("list_valued", [False, True])
@@ -124,7 +121,10 @@ def test_published_outputs_identical(monkeypatch, list_valued):
     # Entropy: identical distribution, different summation order.
     np.testing.assert_allclose(
         old_result["entropy"].to_numpy(dtype=float),
-        new_result["entropy"].to_numpy(dtype=float), rtol=1e-10, atol=1e-12)
+        new_result["entropy"].to_numpy(dtype=float),
+        rtol=1e-10,
+        atol=1e-12,
+    )
 
     # top1: exact, including the tie group.
     assert old_result["top1"].tolist() == new_result["top1"].tolist()
@@ -132,21 +132,17 @@ def test_published_outputs_identical(monkeypatch, list_valued):
 
     # PC scores: same probability matrix in, same PCA out.
     np.testing.assert_allclose(
-        old_pc.to_numpy(dtype=float), new_pc.to_numpy(dtype=float),
-        rtol=1e-8, atol=1e-10)
+        old_pc.to_numpy(dtype=float), new_pc.to_numpy(dtype=float), rtol=1e-8, atol=1e-10
+    )
 
     # Interpretation: identical strings and picked categories.
     assert old_xx.keys() == new_xx.keys()
     for col in old_xx:
-        for key in ("top_positive", "top_negative",
-                    "top_positive_cat", "top_negative_cat"):
+        for key in ("top_positive", "top_negative", "top_positive_cat", "top_negative_cat"):
             assert old_xx[col].get(key) == new_xx[col].get(key), (col, key)
         assert old_xx[col].get("explained_variance_pct") == pytest.approx(
-            new_xx[col].get("explained_variance_pct"))
-
-
-
-
+            new_xx[col].get("explained_variance_pct")
+        )
 
 
 def test_survivor_set_matches_downstream_drop(monkeypatch):
@@ -160,10 +156,6 @@ def test_survivor_set_matches_downstream_drop(monkeypatch):
     assert set(sparse.columns) == downstream_kept
 
 
-
-
-
-
 def test_dense_frame_is_bounded_and_zero_padded(monkeypatch):
     events = _make_events()
     dense, sparse = _both_paths(events, monkeypatch)
@@ -175,12 +167,7 @@ def test_dense_frame_is_bounded_and_zero_padded(monkeypatch):
     assert sparse.index.names == ["collection_id", "local_date"]
 
     # Surviving columns' counts identical to the full crosstab's.
-    pd.testing.assert_frame_equal(sparse, dense[list(sparse.columns)],
-                                  check_names=False)
-
-
-
-
+    pd.testing.assert_frame_equal(sparse, dense[list(sparse.columns)], check_names=False)
 
 
 def test_degenerate_fallback_bounded(monkeypatch):
@@ -188,21 +175,22 @@ def test_degenerate_fallback_bounded(monkeypatch):
     rng = np.random.default_rng(3)
     n = 5000
     cats = [f"unique category value number {i:05d}" for i in range(n)]
-    events = pd.DataFrame({
-        "the_cat": rng.permutation(cats),  # every category appears exactly once
-        "collection_id": pd.array(["c1", "c2"] * (n // 2), dtype="string[pyarrow]"),
-        "local_date": pd.array(["2026-01-01"] * n, dtype="string[pyarrow]"),
-    })
+    events = pd.DataFrame(
+        {
+            "the_cat": rng.permutation(cats),  # every category appears exactly once
+            "collection_id": pd.array(["c1", "c2"] * (n // 2), dtype="string[pyarrow]"),
+            "local_date": pd.array(["2026-01-01"] * n, dtype="string[pyarrow]"),
+        }
+    )
     monkeypatch.setattr(pca_mod, "DENSE_CATEGORY_LIMIT", 100)
     out = transform_category_column_to_counts_df(
-        events, the_column="the_cat", grouping_factors=["collection_id", "local_date"],
-        drop_rare_globally_below=DROP_RARE)
+        events,
+        the_column="the_cat",
+        grouping_factors=["collection_id", "local_date"],
+        drop_rare_globally_below=DROP_RARE,
+    )
     assert out.shape[1] == pca_mod.RARE_FALLBACK_TOP_N
     assert out.attrs["pca_full_dist"]["n_categories"] == n
-
-
-
-
 
 
 def test_no_threshold_keeps_historical_path(monkeypatch):
@@ -210,6 +198,7 @@ def test_no_threshold_keeps_historical_path(monkeypatch):
     events = _make_events(n_categories=50)
     monkeypatch.setattr(pca_mod, "DENSE_CATEGORY_LIMIT", 10)
     out = transform_category_column_to_counts_df(
-        events, the_column="the_cat", grouping_factors=["collection_id", "local_date"])
+        events, the_column="the_cat", grouping_factors=["collection_id", "local_date"]
+    )
     assert "pca_full_dist" not in out.attrs
     assert out.shape[1] == 50

@@ -59,8 +59,10 @@ def test_study_refresh_of_a_vanished_study_is_a_noop(monkeypatch):
 def test_forget_process_stats_removes_only_that_key(monkeypatch):
     import web_interface.process_manager as pm
 
-    store = {"study_refresh__gone": {"last_run_outcome": "Fail"},
-             "pca_refresh": {"last_run_outcome": "Success"}}
+    store = {
+        "study_refresh__gone": {"last_run_outcome": "Fail"},
+        "pca_refresh": {"last_run_outcome": "Success"},
+    }
 
     def _load():
         pm.process_stats.clear()

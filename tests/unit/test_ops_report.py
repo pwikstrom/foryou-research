@@ -5,6 +5,7 @@ import pytest
 
 # --------------------------------------------------------------- wiring
 
+
 def test_ops_report_registered_everywhere():
     """The classic four-places registration must be complete."""
     from fyp.core.fyp_config import OPS_REPORT_SCRIPT
@@ -27,27 +28,46 @@ def test_ops_report_permission_key_registered():
         ALL_PERMISSION_KEYS,
         PERMISSION_KEY_IMPLIED_GRANTS,
     )
+
     assert "tab.admin.ops_report" in ALL_PERMISSION_KEYS
-    assert "tab.admin.ops_report" in \
-        PERMISSION_KEY_IMPLIED_GRANTS["tab.admin.system_info"]
+    assert "tab.admin.ops_report" in PERMISSION_KEY_IMPLIED_GRANTS["tab.admin.system_info"]
 
 
 # --------------------------------------------------------------- render
+
 
 def _minimal_doc(**overrides):
     doc = {
         "generated_at": "2026-08-27T00:00:00+00:00",
         "generated_at_local": "Thursday 27 August 2026, 10:00 AEST",
         "previous_run_at": None,
-        "stats": [{"label": "Scrape queue · tiktok", "value": 3,
-                   "status": "blue", "sub": "+1 since last report"}],
-        "sections": [{"title": "Users & access", "checks": [
-            {"title": "Accounts", "status": "blue",
-             "summary": "2 real accounts", "details": []},
-            {"title": "Pending approval", "status": "red",
-             "summary": "1 account(s) awaiting approval",
-             "details": ["<script>alert(1)</script>@example.com"]},
-        ]}],
+        "stats": [
+            {
+                "label": "Scrape queue · tiktok",
+                "value": 3,
+                "status": "blue",
+                "sub": "+1 since last report",
+            }
+        ],
+        "sections": [
+            {
+                "title": "Users & access",
+                "checks": [
+                    {
+                        "title": "Accounts",
+                        "status": "blue",
+                        "summary": "2 real accounts",
+                        "details": [],
+                    },
+                    {
+                        "title": "Pending approval",
+                        "status": "red",
+                        "summary": "1 account(s) awaiting approval",
+                        "details": ["<script>alert(1)</script>@example.com"],
+                    },
+                ],
+            }
+        ],
         "overall": "red",
         "counts": {"green": 0, "blue": 1, "yellow": 0, "red": 1},
     }
@@ -108,6 +128,7 @@ def test_md_to_html_subset():
 # hours away. The same report called 52 TikTok items parked for 14 days "no
 # unusual queue growth".
 
+
 def test_log_ts_parses_nanosecond_stamps():
     """Cloud Logging stamps have 9 fractional digits; fromisoformat refuses."""
     from web_interface.services.ops_report import _log_ts
@@ -122,8 +143,10 @@ def test_instance_drain_aborts_are_recognised():
     from web_interface.services.ops_report import _is_instance_drain, _log_ts
 
     term = _log_ts({"timestamp": "2026-08-27T11:12:25.291670Z"})
-    abort = {"timestamp": "2026-08-27T11:12:26.603430292Z",
-             "textPayload": "Uncaught signal: 6, pid=2, tid=25, fault_addr=0."}
+    abort = {
+        "timestamp": "2026-08-27T11:12:26.603430292Z",
+        "textPayload": "Uncaught signal: 6, pid=2, tid=25, fault_addr=0.",
+    }
 
     assert _is_instance_drain(abort, [term]) is True
     # The same abort with no teardown behind it is a real crash.
@@ -132,8 +155,10 @@ def test_instance_drain_aborts_are_recognised():
     stale = _log_ts({"timestamp": "2026-08-27T03:10:25.000000Z"})
     assert _is_instance_drain(abort, [stale]) is False
     # Anything that is not an abort stays an error regardless.
-    assert _is_instance_drain(
-        {"timestamp": "2026-08-27T11:12:26.6Z", "textPayload": "boom"}, [term]) is False
+    assert (
+        _is_instance_drain({"timestamp": "2026-08-27T11:12:26.6Z", "textPayload": "boom"}, [term])
+        is False
+    )
 
 
 def test_stalled_queue_is_flagged_even_when_length_is_unchanged():
@@ -148,9 +173,8 @@ def test_stalled_queue_is_flagged_even_when_length_is_unchanged():
         "queue_scraper_youtube": {"last_success": "2026-08-27T09:00:00+00:00"},
     }
     lines = _stalled_queues(
-        {"scrape_tiktok": 52, "scrape_youtube": 4, "scrape_instagram": 0,
-         "annotate": 0},
-        stats, now)
+        {"scrape_tiktok": 52, "scrape_youtube": 4, "scrape_instagram": 0, "annotate": 0}, stats, now
+    )
 
     assert len(lines) == 1
     assert "scrape_tiktok: 52 item(s) waiting" in lines[0]
@@ -180,10 +204,14 @@ def test_log_summary_drops_request_logs_and_drains(monkeypatch):
     from web_interface.services import ops_report
 
     filters = []
-    abort = {"timestamp": "2026-08-27T11:12:26.603430292Z",
-             "textPayload": "Uncaught signal: 6, pid=2, tid=25, fault_addr=0."}
-    real = {"timestamp": "2026-08-27T04:00:00.000000Z",
-            "textPayload": "Traceback: something actually broke"}
+    abort = {
+        "timestamp": "2026-08-27T11:12:26.603430292Z",
+        "textPayload": "Uncaught signal: 6, pid=2, tid=25, fault_addr=0.",
+    }
+    real = {
+        "timestamp": "2026-08-27T04:00:00.000000Z",
+        "textPayload": "Traceback: something actually broke",
+    }
 
     class _FakeSession:
         def __init__(self, creds):
@@ -194,17 +222,29 @@ def test_log_summary_drops_request_logs_and_drains(monkeypatch):
             filters.append(flt)
             if "Handling signal: term" in flt:
                 return _FakeResponse(
-                    [{"timestamp": "2026-08-27T11:12:25.291670Z",
-                      "textPayload": "[1] [INFO] Handling signal: term"}])
+                    [
+                        {
+                            "timestamp": "2026-08-27T11:12:25.291670Z",
+                            "textPayload": "[1] [INFO] Handling signal: term",
+                        }
+                    ]
+                )
             if "httpRequest.status>=500" in flt:
-                return _FakeResponse([{
-                    "timestamp": "2026-08-27T03:10:28.349273Z",
-                    "httpRequest": {"status": 500,
-                                    "requestUrl": "https://x/api/video/s/1"}}])
+                return _FakeResponse(
+                    [
+                        {
+                            "timestamp": "2026-08-27T03:10:28.349273Z",
+                            "httpRequest": {"status": 500, "requestUrl": "https://x/api/video/s/1"},
+                        }
+                    ]
+                )
             if "varlog%2Fsystem" in flt:
-                return _FakeResponse([
-                    {"textPayload": "Response size was too large."},
-                    {"textPayload": "Response size was too large."}])
+                return _FakeResponse(
+                    [
+                        {"textPayload": "Response size was too large."},
+                        {"textPayload": "Response size was too large."},
+                    ]
+                )
             return _FakeResponse([abort, real] if "fyp-data-hub" in flt else [])
 
     monkeypatch.setenv("GCP_PROJECT_ID", "proj")
@@ -216,8 +256,7 @@ def test_log_summary_drops_request_logs_and_drains(monkeypatch):
 
     # The 500's own request-log entry is never counted as a second problem.
     error_filters = [f for f in filters if "severity>=ERROR" in f]
-    assert error_filters and all("logName!=" in f and "%2Frequests" in f
-                                 for f in error_filters)
+    assert error_filters and all("logName!=" in f and "%2Frequests" in f for f in error_filters)
     # The drain abort is filtered out; the genuine error survives.
     hub = errors["fyp-data-hub"]
     assert len(hub) == 1 and "actually broke" in hub[0]
@@ -242,11 +281,9 @@ def client(monkeypatch):
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
-            return User(username=_TEST_ADMIN, role=ROLE_ADMIN,
-                        password_hash="", approved=True)
+            return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
         if uid == _TEST_VIEWER:
-            return User(username=_TEST_VIEWER, role="viewer",
-                        password_hash="", approved=True)
+            return User(username=_TEST_VIEWER, role="viewer", password_hash="", approved=True)
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
@@ -265,8 +302,8 @@ def _login(client, username):
 
 def test_ops_report_routes_require_permission(client, monkeypatch):
     from web_interface import auth
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions",
-                        lambda role: [])
+
+    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: [])
     _login(client, _TEST_VIEWER)
     assert client.get("/api/admin/ops-report").status_code == 403
     assert client.get("/api/admin/ops-report/html").status_code == 403
@@ -280,18 +317,24 @@ def test_ops_report_meta_and_html_for_admin(client, monkeypatch):
         "ops_report/latest.json": {
             "generated_at": "2026-08-27T00:00:00+00:00",
             "generated_at_local": "Thursday",
-            "overall": "green", "counts": {"green": 1},
-            "narrative_source": "fallback", "narrative": "secret-prose",
+            "overall": "green",
+            "counts": {"green": 1},
+            "narrative_source": "fallback",
+            "narrative": "secret-prose",
         },
     }
     monkeypatch.setattr(
-        data_io, "load_json",
-        lambda storage_location="", filename="", **kw: stored.get(filename))
+        data_io, "load_json", lambda storage_location="", filename="", **kw: stored.get(filename)
+    )
     monkeypatch.setattr(
-        data_io, "load_text",
-        lambda storage_location="", filename="", **kw:
-        "<!doctype html><html><body>report</body></html>"
-        if filename == "ops_report/latest.html" else None)
+        data_io,
+        "load_text",
+        lambda storage_location="", filename="", **kw: (
+            "<!doctype html><html><body>report</body></html>"
+            if filename == "ops_report/latest.html"
+            else None
+        ),
+    )
 
     _login(client, _TEST_ADMIN)
     res = client.get("/api/admin/ops-report")
@@ -308,12 +351,10 @@ def test_ops_report_meta_and_html_for_admin(client, monkeypatch):
 
 def test_ops_report_html_404_when_missing(client, monkeypatch):
     import fyp.core.data_io as data_io
-    monkeypatch.setattr(data_io, "load_text",
-                        lambda storage_location="", filename="", **kw: None)
+
+    monkeypatch.setattr(data_io, "load_text", lambda storage_location="", filename="", **kw: None)
     _login(client, _TEST_ADMIN)
     assert client.get("/api/admin/ops-report/html").status_code == 404
-
-
 
 
 def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch):
@@ -346,9 +387,8 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
         "explicitly_unassigned": {"user_id": None},
     }
     assert _linked_collections_missing(tags, {"pending"}) == [
-        "user_data_tiktok_2 (owner wendto1712@gmail.com)"]
-
-
+        "user_data_tiktok_2 (owner wendto1712@gmail.com)"
+    ]
 
 
 def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path):
@@ -364,7 +404,10 @@ def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path)
     from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from web_interface.services.ops_report import (
-        _dataset_collection_ids, _leftover_tag_entries, _linked_collections_missing)
+        _dataset_collection_ids,
+        _leftover_tag_entries,
+        _linked_collections_missing,
+    )
 
     recoded = tmp_path / "recoded"
     recoded.mkdir()
@@ -375,7 +418,10 @@ def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path)
     (recoded / "withdrawals.json").write_text(json.dumps({"withdrawn": {}}))
 
     tags = {
-        "VERIFY2_Jenny.json": {"display_collection_id": "Jenny Jackson", "user_id": "abc@example.test"},
+        "VERIFY2_Jenny.json": {
+            "display_collection_id": "Jenny Jackson",
+            "user_id": "abc@example.test",
+        },
         "4285c7a2-uuid": {"display_collection_id": "Jenny Jackson"},
         "VERIFY2_Jade.json": {"display_collection_id": "Jade Jones", "user_id": None},
         "bare_leftover": {},
@@ -401,9 +447,10 @@ def test_duplicate_display_id_lines_mark_the_side_with_no_data():
         "4285c7a2-uuid": {"display_collection_id": "jenny  jackson"},
     }
     dataset_ids = {"VERIFY2_Jenny.json"}
-    lines = [f"{label}: " + ", ".join(
-        cid if cid in dataset_ids else f"{cid} (no data)" for cid in cids)
-        for label, cids in duplicate_display_ids(tags).items()]
+    lines = [
+        f"{label}: " + ", ".join(cid if cid in dataset_ids else f"{cid} (no data)" for cid in cids)
+        for label, cids in duplicate_display_ids(tags).items()
+    ]
     assert lines == ["Jenny Jackson: 4285c7a2-uuid (no data), VERIFY2_Jenny.json"]
 
 
@@ -416,12 +463,14 @@ def test_structure_sentinel_check_follows_the_review_queue(monkeypatch):
     import fyp.core.structure_sentinel as ss
     from web_interface.services.ops_report import _structure_review_check
 
-    verdicts = {"files": {
-        "approved.json": {"status": "approved", "review_action": "approve"},
-        "rejected.json": {"status": "rejected", "review_action": "reject"},
-        "learning.json": {"status": "learning"},
-        "fine.json": {"status": "ok"},
-    }}
+    verdicts = {
+        "files": {
+            "approved.json": {"status": "approved", "review_action": "approve"},
+            "rejected.json": {"status": "rejected", "review_action": "reject"},
+            "learning.json": {"status": "learning"},
+            "fine.json": {"status": "ok"},
+        }
+    }
     monkeypatch.setattr(ss, "load_verdicts", lambda: verdicts)
     assert _structure_review_check(ss.review_queue())[0] == "green"
 
@@ -446,14 +495,17 @@ def test_scrape_failures_are_graded_by_rate_not_by_existence():
     from web_interface.services.ops_report import _scrape_failure_check
 
     def run(platform, ok, permanent, transient=0):
-        return {"kind": "scrape.finished", "platform": platform,
-                "detail": {"ok": ok, "permanent": permanent,
-                           "transient": transient}}
+        return {
+            "kind": "scrape.finished",
+            "platform": platform,
+            "detail": {"ok": ok, "permanent": permanent, "transient": transient},
+        }
 
     assert _scrape_failure_check([])[0] == "green"
 
     status, summary, details = _scrape_failure_check(
-        [run("tiktok", 900, 149), run("tiktok", 285, 41)])
+        [run("tiktok", 900, 149), run("tiktok", 285, 41)]
+    )
     assert status == "blue"
     assert "normal range" in summary
     assert details == ["tiktok: 190 of 1,375 attempt(s) failed (13.8%)"]
@@ -461,26 +513,21 @@ def test_scrape_failures_are_graded_by_rate_not_by_existence():
     # One video, one failure: 100%, and nothing at all to conclude from it.
     status, _, details = _scrape_failure_check([run("youtube", 0, 1)])
     assert status == "blue"
-    assert details == ["youtube: 1 of 1 attempt(s) failed (100.0%) "
-                       "— too few attempts to rate"]
+    assert details == ["youtube: 1 of 1 attempt(s) failed (100.0%) — too few attempts to rate"]
 
     # A broken scraper: rated sample, rate far outside the band. TikTok's
     # healthy volume must not bury it.
-    status, summary, _ = _scrape_failure_check(
-        [run("tiktok", 900, 149), run("instagram", 40, 160)])
+    status, summary, _ = _scrape_failure_check([run("tiktok", 900, 149), run("instagram", 40, 160)])
     assert status == "yellow"
     assert "instagram 80.0%" in summary and "tiktok" not in summary
 
     # One broken run inside an otherwise normal day is still a Watch — the
     # day's own rate would average it away.
     status, summary, _ = _scrape_failure_check(
-        [run("tiktok", 3000, 450), {**run("tiktok", 60, 140), "ts": "2026-09-08T03:41:11+00:00"}])
+        [run("tiktok", 3000, 450), {**run("tiktok", 60, 140), "ts": "2026-09-08T03:41:11+00:00"}]
+    )
     assert status == "yellow"
     assert "one tiktok run (2026-09-08T03:41) failed 70.0% of 200" in summary
-
-
-
-
 
 
 def test_deleted_studys_failed_refresh_does_not_count_as_a_worker_failure():
@@ -508,24 +555,38 @@ def test_active_users_merges_stamp_login_and_action_log():
     tz = timezone.utc
     users = [
         # Stamp only, 2h ago.
-        SimpleNamespace(username="stamp", role="user", last_login=None,
-                        last_active="2026-09-16T10:00:00+00:00"),
+        SimpleNamespace(
+            username="stamp", role="user", last_login=None, last_active="2026-09-16T10:00:00+00:00"
+        ),
         # Login only, 30 min ago — no other trace.
-        SimpleNamespace(username="login", role="participant",
-                        last_login="2026-09-16T11:30:00+00:00", last_active=None),
+        SimpleNamespace(
+            username="login",
+            role="participant",
+            last_login="2026-09-16T11:30:00+00:00",
+            last_active=None,
+        ),
         # Actions only (stamp is older than the window).
-        SimpleNamespace(username="actor", role="admin",
-                        last_login="2026-09-01T00:00:00+00:00",
-                        last_active="2026-09-10T00:00:00+00:00"),
+        SimpleNamespace(
+            username="actor",
+            role="admin",
+            last_login="2026-09-01T00:00:00+00:00",
+            last_active="2026-09-10T00:00:00+00:00",
+        ),
         # Nothing inside the window.
-        SimpleNamespace(username="idle", role="user",
-                        last_login="2026-09-01T00:00:00+00:00",
-                        last_active="2026-09-14T00:00:00+00:00"),
-        SimpleNamespace(username="never", role="user", last_login=None,
-                        last_active=None),
+        SimpleNamespace(
+            username="idle",
+            role="user",
+            last_login="2026-09-01T00:00:00+00:00",
+            last_active="2026-09-14T00:00:00+00:00",
+        ),
+        SimpleNamespace(username="never", role="user", last_login=None, last_active=None),
     ]
-    action_times = {"actor": [datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc),
-                              datetime(2026, 9, 16, 9, 15, tzinfo=timezone.utc)]}
+    action_times = {
+        "actor": [
+            datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc),
+            datetime(2026, 9, 16, 9, 15, tzinfo=timezone.utc),
+        ]
+    }
 
     lines = _active_users(users, action_times, now, since, tz)
 

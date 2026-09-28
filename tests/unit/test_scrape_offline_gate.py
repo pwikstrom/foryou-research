@@ -30,8 +30,6 @@ from fyp.scrape.youtube_dl import YouTubeScraper
 STORM_THRESHOLD = 5  # small, so an unguarded outage would certainly trip it
 
 
-
-
 def _failure(category: str) -> pd.DataFrame:
     """An empty fetch result carrying a failure category, like a real miss."""
     empty = pd.DataFrame()
@@ -39,18 +37,26 @@ def _failure(category: str) -> pd.DataFrame:
     return empty
 
 
-
-
 def _metadata_row(item_id: str) -> pd.DataFrame:
     """A >10-column single-row frame like a real fetch result."""
-    return pd.DataFrame([{
-        "item_id": item_id, "desc": "x", "create_time_raw": pd.Timestamp("2026-01-01"),
-        "duration_raw": 30, "author_id": "a", "author_handle": "@a",
-        "author_name_raw": "A", "play_count_raw": 1, "fave_count_raw": 0,
-        "comment_count_raw": 0, "share_count_raw": 0, "video_downloaded": True,
-    }])
-
-
+    return pd.DataFrame(
+        [
+            {
+                "item_id": item_id,
+                "desc": "x",
+                "create_time_raw": pd.Timestamp("2026-01-01"),
+                "duration_raw": 30,
+                "author_id": "a",
+                "author_handle": "@a",
+                "author_name_raw": "A",
+                "play_count_raw": 1,
+                "fave_count_raw": 0,
+                "comment_count_raw": 0,
+                "share_count_raw": 0,
+                "video_downloaded": True,
+            }
+        ]
+    )
 
 
 class _Network:
@@ -70,12 +76,9 @@ class _Network:
         with self.lock:
             if not self.up:
                 self.offline_probes += 1
-                if (self.up_after_probes is not None
-                        and self.offline_probes >= self.up_after_probes):
+                if self.up_after_probes is not None and self.offline_probes >= self.up_after_probes:
                     self.up = True
             return self.up
-
-
 
 
 def _run_batch(ids, fake_dl, net, max_wait=5.0, dry_run=False, extra=()):
@@ -88,17 +91,19 @@ def _run_batch(ids, fake_dl, net, max_wait=5.0, dry_run=False, extra=()):
     patches = [
         patch.object(scrape, "download_single_video", side_effect=fake_dl),
         patch.object(scrape, "_transient_storm_threshold", return_value=STORM_THRESHOLD),
-        patch.object(scrape.scrape_versioning, "ensure_active_version_registered",
-                     lambda: None),
+        patch.object(scrape.scrape_versioning, "ensure_active_version_registered", lambda: None),
         patch.object(YouTubeScraper, "inter_request_delay", return_value=0.0),
         patch.object(scrape, "check_existing_media", return_value={}),
         patch.object(scrape.data_io, "save_json", side_effect=lambda **kw: None),
-        patch.object(scrape, "_canonicalize_recode_save",
-                     side_effect=lambda results, *a, **k: results),
-        patch.object(scrape.scraper_alerts, "raise_alert",
-                     side_effect=lambda **kw: alerts.append(kw)),
-        patch.object(scrape.scraper_alerts, "clear_alert",
-                     side_effect=lambda *a, **kw: cleared.append(a)),
+        patch.object(
+            scrape, "_canonicalize_recode_save", side_effect=lambda results, *a, **k: results
+        ),
+        patch.object(
+            scrape.scraper_alerts, "raise_alert", side_effect=lambda **kw: alerts.append(kw)
+        ),
+        patch.object(
+            scrape.scraper_alerts, "clear_alert", side_effect=lambda *a, **kw: cleared.append(a)
+        ),
         patch.object(connectivity, "probe_online", side_effect=net.probe),
         patch.object(connectivity, "offline_max_wait", return_value=max_wait),
         patch.object(connectivity, "_POLL_SECONDS", 0.01),
@@ -108,13 +113,12 @@ def _run_batch(ids, fake_dl, net, max_wait=5.0, dry_run=False, extra=()):
         p.start()
     try:
         results, perm, trans = scrape.download_video_threads(
-            interesting_videos=ids, max_workers=2, dry_run=dry_run, platform="youtube")
+            interesting_videos=ids, max_workers=2, dry_run=dry_run, platform="youtube"
+        )
     finally:
         for p in reversed(patches):
             p.stop()
     return results, perm, trans, alerts, cleared
-
-
 
 
 def test_gate_recovers_after_outage():
@@ -127,8 +131,6 @@ def test_gate_recovers_after_outage():
     assert gate.outages == 1 and not gate.gave_up
     assert gate.check() == connectivity.ONLINE
     print("PASS: gate recovers after an outage")
-
-
 
 
 def test_gate_gives_up_past_max_wait():
@@ -144,8 +146,6 @@ def test_gate_gives_up_past_max_wait():
     print("PASS: gate gives up past the max wait")
 
 
-
-
 def test_gate_releases_on_stop_event_without_giving_up():
     """Another guard stopping the batch releases a waiting gate, not marks it gave-up."""
     net = _Network()
@@ -157,8 +157,6 @@ def test_gate_releases_on_stop_event_without_giving_up():
     assert gate.check(stop) == connectivity.GAVE_UP
     assert not gate.gave_up
     print("PASS: stop event releases the gate")
-
-
 
 
 def test_outage_mid_batch_is_waited_out():
@@ -191,8 +189,6 @@ def test_outage_mid_batch_is_waited_out():
     print("PASS: an outage mid-batch is waited out")
 
 
-
-
 def test_media_leg_failure_during_outage_is_rerun():
     """Metadata landed, then the media download (or its upload) hit the outage."""
     ids = ["v0", "v1"]
@@ -215,8 +211,6 @@ def test_media_leg_failure_during_outage_is_rerun():
     print("PASS: a media-leg failure during an outage is re-run")
 
 
-
-
 def test_ordinary_failures_online_are_untouched():
     """Online, a failure stands: the storm guard still trips as before."""
     ids = [f"v{i}" for i in range(STORM_THRESHOLD * 2)]
@@ -231,8 +225,6 @@ def test_ordinary_failures_online_are_untouched():
     assert results.attrs.get("offline") is False
     assert len(alerts) == 1 and alerts[0]["kind"] == scrape.scraper_alerts.KIND_TRANSIENT_STORM
     print("PASS: ordinary failures while online are untouched")
-
-
 
 
 def test_outage_past_the_wait_stops_cleanly():
@@ -251,10 +243,12 @@ def test_outage_past_the_wait_stops_cleanly():
         return _metadata_row(video_id) if up else _failure("network")
 
     held = []
-    hold = patch.object(connectivity.ConnectivityGate, "hold_until_online",
-                        lambda self, *a, **k: held.append(True))
+    hold = patch.object(
+        connectivity.ConnectivityGate, "hold_until_online", lambda self, *a, **k: held.append(True)
+    )
     results, perm, trans, alerts, cleared = _run_batch(
-        ids, fake_dl, net, max_wait=0.05, extra=(hold,))
+        ids, fake_dl, net, max_wait=0.05, extra=(hold,)
+    )
 
     assert results.attrs.get("offline") is True
     assert results.attrs.get("transient_storm_tripped") is False
@@ -265,8 +259,6 @@ def test_outage_past_the_wait_stops_cleanly():
     assert done | set(trans) == set(ids) and not (done & set(trans))
     assert calls["n"] < len(ids) + 3, "the batch must stop fetching once it gave up"
     print("PASS: an outage past the wait stops cleanly")
-
-
 
 
 def test_batch_loop_stops_on_offline_without_charging():
@@ -281,20 +273,27 @@ def test_batch_loop_stops_on_offline_without_charging():
         empty.attrs["offline"] = True
         return empty, [], list(interesting_videos)
 
-    with patch.object(scrape, "download_video_threads", side_effect=fake_threads), \
-         patch.object(scrape.scrape_queues, "prune_scrape_queue",
-                      side_effect=lambda p, i: prunes.append(set(i)) or (len(i), 0)), \
-         patch.object(scrape.scrape_queues, "charge_zero_progress",
-                      side_effect=lambda p, i: charges.append(list(i)) or []):
+    with (
+        patch.object(scrape, "download_video_threads", side_effect=fake_threads),
+        patch.object(
+            scrape.scrape_queues,
+            "prune_scrape_queue",
+            side_effect=lambda p, i: prunes.append(set(i)) or (len(i), 0),
+        ),
+        patch.object(
+            scrape.scrape_queues,
+            "charge_zero_progress",
+            side_effect=lambda p, i: charges.append(list(i)) or [],
+        ),
+    ):
         _, _, trans = scrape.scraper_loop_from_list(
-            video_list=ids, batch_size=2, platform="youtube")
+            video_list=ids, batch_size=2, platform="youtube"
+        )
 
     assert calls["n"] == 1, "the loop must stop after the offline batch"
     assert prunes == [] and charges == [], (prunes, charges)
     assert set(trans) == set(ids[:2])
     print("PASS: batch loop stops on offline without charging")
-
-
 
 
 if __name__ == "__main__":

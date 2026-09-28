@@ -28,13 +28,14 @@ def test_download_and_ingest_does_not_need_machine_prompt_key(monkeypatch):
     monkeypatch.setattr(batch, "_gcs_bucket", lambda: _Bucket())
     monkeypatch.setattr(batch, "platform_map_for", lambda ids: {})
     monkeypatch.setattr(batch, "_machine_annotations_label", lambda: "machine_annotations")
-    monkeypatch.setattr(batch.annotation_versioning,
-                        "active_annotation_version", lambda: "av_test")
+    monkeypatch.setattr(batch.annotation_versioning, "active_annotation_version", lambda: "av_test")
     saved = {}
     monkeypatch.setattr(
-        batch.data_io, "save_json",
+        batch.data_io,
+        "save_json",
         lambda data, storage_location, filename, **kw: saved.update(
-            {"filename": filename, "data": data}),
+            {"filename": filename, "data": data}
+        ),
     )
 
     # The prompt label comes from active_prompt_label() (a constant), not config.
@@ -48,11 +49,14 @@ def test_finished_run_writes_its_totals_to_the_enrichment_history(monkeypatch):
     import web_interface.services.enrichment_journal as journal
 
     seen = []
-    monkeypatch.setattr(journal, "record",
-                        lambda kind, message, **kw: seen.append((kind, message, kw)))
-    worker._journal_finished({"total_ok": 85, "total_fail": 5, "chunk_index": 1,
-                              "started_by": "enrichment_supervisor"},
-                             0, "Queue is now empty.")
+    monkeypatch.setattr(
+        journal, "record", lambda kind, message, **kw: seen.append((kind, message, kw))
+    )
+    worker._journal_finished(
+        {"total_ok": 85, "total_fail": 5, "chunk_index": 1, "started_by": "enrichment_supervisor"},
+        0,
+        "Queue is now empty.",
+    )
     kind, message, kw = seen[0]
     assert kind == "annotate.finished"
     assert "85 annotated, 5 failed" in message and "queue empty" in message
@@ -102,9 +106,17 @@ class FakeDataIO:
     def remove(self, storage_location, filename):
         self.store.pop(filename, None)
 
-    def update_json(self, storage_location="cache", filename="", mutate=None,
-                    default=None, max_retries=6, verbose=False):
+    def update_json(
+        self,
+        storage_location="cache",
+        filename="",
+        mutate=None,
+        default=None,
+        max_retries=6,
+        verbose=False,
+    ):
         import json as _json
+
         current = self.store.get(filename)
         if current is None:
             current = _json.loads(_json.dumps(default)) if default is not None else None
@@ -120,13 +132,14 @@ class FakeBatch:
 
     _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"}
 
-    def __init__(self, default_state="JOB_STATE_SUCCEEDED", states=None,
-                 submit_raise=False, raise_uris=()):
+    def __init__(
+        self, default_state="JOB_STATE_SUCCEEDED", states=None, submit_raise=False, raise_uris=()
+    ):
         self.default_state = default_state
-        self.states = dict(states or {})          # job_name -> state override
+        self.states = dict(states or {})  # job_name -> state override
         self.submit_raise = submit_raise
-        self.raise_uris = set(raise_uris)         # output uris whose ingest raises
-        self.submitted = []                       # job names in submission order
+        self.raise_uris = set(raise_uris)  # output uris whose ingest raises
+        self.submitted = []  # job names in submission order
         self.last_ingested_ids = None
 
     def build_and_upload_jsonl(self, slice_ids, ts):
@@ -153,8 +166,11 @@ class FakeBatch:
 def notices(monkeypatch):
     """Capture (to_email, kind, details) tuples the worker would email."""
     calls: list[tuple] = []
-    monkeypatch.setattr(worker, "send_batch_annotation_email_async",
-                        lambda to, kind, **d: calls.append((to, kind, d)))
+    monkeypatch.setattr(
+        worker,
+        "send_batch_annotation_email_async",
+        lambda to, kind, **d: calls.append((to, kind, d)),
+    )
     return calls
 
 
@@ -164,11 +180,13 @@ def _refine_echo_ingested(monkeypatch, fake_batch, fail_ids=()):
 
     def _refine(raw_json_filename, verbose=False):
         ids = fake_batch.last_ingested_ids or []
-        return pd.DataFrame({
-            "item_id": ids,
-            "annotated_ok": [i not in fail_ids for i in ids],
-            "annotated_fail": [i in fail_ids for i in ids],
-        })
+        return pd.DataFrame(
+            {
+                "item_id": ids,
+                "annotated_ok": [i not in fail_ids for i in ids],
+                "annotated_fail": [i in fail_ids for i in ids],
+            }
+        )
 
     monkeypatch.setattr(ma, "refine_one_raw_annotation_batch", _refine)
 
@@ -185,13 +203,13 @@ def test_run_fills_slots_claims_and_emails_submitted_once(notices):
 
     result = worker._run_phase(rep, ta, fb, dio)
 
-    assert fb.submitted == ["job/1", "job/2", "job/3"]     # 2000+2000+1000
-    assert dio.store["to_annotate.json"] == []             # every slice claimed out
+    assert fb.submitted == ["job/1", "job/2", "job/3"]  # 2000+2000+1000
+    assert dio.store["to_annotate.json"] == []  # every slice claimed out
     js = dio.store["annotate_batch_job.json"]
     assert js["format"] == 2 and len(js["jobs"]) == 3
     assert sum(len(j["submitted_ids"]) for j in js["jobs"]) == 5000
     assert result["chain"] is True and result["next_task_args"]["phase"] == "run"
-    assert rep.data.get("annotate_claimed_len") == 5000    # live in-flight indicator
+    assert rep.data.get("annotate_claimed_len") == 5000  # live in-flight indicator
     assert rep.data.get("annotate_queue_len") == 0
     assert any("Starting async annotation" in m for m in rep.logs)
     assert [k for _, k, _ in notices].count("submitted") == 1
@@ -219,10 +237,22 @@ def test_run_refills_free_slots_when_the_queue_grows(notices):
     # mid-run): the same chain absorbs them as additional concurrent jobs.
     dio = FakeDataIO({"to_annotate.json": ["n1", "n2"]})
     fb = FakeBatch(default_state="JOB_STATE_RUNNING")
-    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 1,
-          "jobs": [{"job_name": "job/0", "output_uri": "gs://b/out/job/0/",
-                    "jsonl_uri": "", "submitted_ids": ["a", "b"],
-                    "ts_label": "", "batch_no": 1, "submitted_at": ""}]}
+    ta = {
+        "phase": "run",
+        "batch_size": 2000,
+        "chunk_index": 1,
+        "jobs": [
+            {
+                "job_name": "job/0",
+                "output_uri": "gs://b/out/job/0/",
+                "jsonl_uri": "",
+                "submitted_ids": ["a", "b"],
+                "ts_label": "",
+                "batch_no": 1,
+                "submitted_at": "",
+            }
+        ],
+    }
 
     result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
@@ -240,15 +270,15 @@ def test_concurrent_jobs_complete_with_correct_totals(monkeypatch, notices):
     dio = FakeDataIO({"to_annotate.json": list(ids)})
     fb = FakeBatch(default_state="JOB_STATE_RUNNING")
     ta = {"phase": "run", "batch_size": 2000, "launched_by": "u@x.com"}
-    result = worker._run_phase(FakeReporter(), ta, fb, dio)   # 2 jobs submitted
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)  # 2 jobs submitted
 
     fb.default_state = "JOB_STATE_SUCCEEDED"
     _refine_echo_ingested(monkeypatch, fb, fail_ids={"v0"})
     rep = FakeReporter()
     result = worker._run_phase(rep, result["next_task_args"], fb, dio)
 
-    assert result is None                                   # terminal
-    assert "annotate_batch_job.json" not in dio.store       # cleared
+    assert result is None  # terminal
+    assert "annotate_batch_job.json" not in dio.store  # cleared
     kinds = [k for _, k, _ in notices]
     assert "completed" in kinds and "batch_done" not in kinds
     completed = next(d for _, k, d in notices if k == "completed")
@@ -259,16 +289,34 @@ def test_concurrent_jobs_complete_with_correct_totals(monkeypatch, notices):
 
 def test_one_job_completing_while_another_runs_emails_batch_done(monkeypatch, notices):
     dio = FakeDataIO({"to_annotate.json": []})
-    fb = FakeBatch(states={"job/1": "JOB_STATE_SUCCEEDED",
-                           "job/2": "JOB_STATE_RUNNING"})
+    fb = FakeBatch(states={"job/1": "JOB_STATE_SUCCEEDED", "job/2": "JOB_STATE_RUNNING"})
     _refine_echo_ingested(monkeypatch, fb)
-    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
-          "jobs": [
-              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
-               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
-              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
-               "submitted_ids": ["c"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
-          ]}
+    ta = {
+        "phase": "run",
+        "batch_size": 2000,
+        "chunk_index": 2,
+        "launched_by": "u@x.com",
+        "jobs": [
+            {
+                "job_name": "job/1",
+                "output_uri": "gs://b/out/job/1/",
+                "jsonl_uri": "",
+                "submitted_ids": ["a", "b"],
+                "ts_label": "",
+                "batch_no": 1,
+                "submitted_at": "",
+            },
+            {
+                "job_name": "job/2",
+                "output_uri": "gs://b/out/job/2/",
+                "jsonl_uri": "",
+                "submitted_ids": ["c"],
+                "ts_label": "",
+                "batch_no": 2,
+                "submitted_at": "",
+            },
+        ],
+    }
 
     result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
@@ -281,49 +329,86 @@ def test_one_job_completing_while_another_runs_emails_batch_done(monkeypatch, no
 
 
 def test_one_failed_job_restores_only_its_ids_and_halts_submits(monkeypatch, notices):
-    dio = FakeDataIO({"to_annotate.json": ["x1", "x2"]})   # would-be next slice
-    fb = FakeBatch(states={"job/1": "JOB_STATE_FAILED",
-                           "job/2": "JOB_STATE_SUCCEEDED"})
+    dio = FakeDataIO({"to_annotate.json": ["x1", "x2"]})  # would-be next slice
+    fb = FakeBatch(states={"job/1": "JOB_STATE_FAILED", "job/2": "JOB_STATE_SUCCEEDED"})
     _refine_echo_ingested(monkeypatch, fb)
-    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
-          "jobs": [
-              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
-               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
-              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
-               "submitted_ids": ["c", "d"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
-          ]}
+    ta = {
+        "phase": "run",
+        "batch_size": 2000,
+        "chunk_index": 2,
+        "launched_by": "u@x.com",
+        "jobs": [
+            {
+                "job_name": "job/1",
+                "output_uri": "gs://b/out/job/1/",
+                "jsonl_uri": "",
+                "submitted_ids": ["a", "b"],
+                "ts_label": "",
+                "batch_no": 1,
+                "submitted_at": "",
+            },
+            {
+                "job_name": "job/2",
+                "output_uri": "gs://b/out/job/2/",
+                "jsonl_uri": "",
+                "submitted_ids": ["c", "d"],
+                "ts_label": "",
+                "batch_no": 2,
+                "submitted_at": "",
+            },
+        ],
+    }
 
     result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
-    assert result is None                                   # halted + drained = done
-    assert fb.submitted == []                               # no new submits after a failure
+    assert result is None  # halted + drained = done
+    assert fb.submitted == []  # no new submits after a failure
     assert sorted(dio.store["to_annotate.json"]) == ["a", "b", "x1", "x2"]  # only job/1 restored
     assert "annotate_batch_job.json" not in dio.store
     kinds = [k for _, k, _ in notices]
     assert "failed" in kinds
     completed = next(d for _, k, d in notices if k == "completed")
-    assert completed == {"total_ok": 2, "total_fail": 0}    # job/2 still counted
+    assert completed == {"total_ok": 2, "total_fail": 0}  # job/2 still counted
 
 
 def test_ingest_exception_is_isolated_to_its_job(monkeypatch, notices):
     dio = FakeDataIO({"to_annotate.json": []})
     fb = FakeBatch(raise_uris={"gs://b/out/job/1/"})
     _refine_echo_ingested(monkeypatch, fb)
-    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
-          "jobs": [
-              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
-               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
-              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
-               "submitted_ids": ["c"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
-          ]}
+    ta = {
+        "phase": "run",
+        "batch_size": 2000,
+        "chunk_index": 2,
+        "launched_by": "u@x.com",
+        "jobs": [
+            {
+                "job_name": "job/1",
+                "output_uri": "gs://b/out/job/1/",
+                "jsonl_uri": "",
+                "submitted_ids": ["a", "b"],
+                "ts_label": "",
+                "batch_no": 1,
+                "submitted_at": "",
+            },
+            {
+                "job_name": "job/2",
+                "output_uri": "gs://b/out/job/2/",
+                "jsonl_uri": "",
+                "submitted_ids": ["c"],
+                "ts_label": "",
+                "batch_no": 2,
+                "submitted_at": "",
+            },
+        ],
+    }
 
     result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
     assert result is None
-    assert sorted(dio.store["to_annotate.json"]) == ["a", "b"]   # job/1 restored
+    assert sorted(dio.store["to_annotate.json"]) == ["a", "b"]  # job/1 restored
     assert any(k == "failed" and "boom" in str(d.get("error", "")) for _, k, d in notices)
     completed = next(d for _, k, d in notices if k == "completed")
-    assert completed["total_ok"] == 1                        # job/2 ingested fine
+    assert completed["total_ok"] == 1  # job/2 ingested fine
 
 
 def test_submit_failure_with_no_jobs_in_flight_stops(notices):
@@ -334,26 +419,36 @@ def test_submit_failure_with_no_jobs_in_flight_stops(notices):
     result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
     assert result is None
-    assert dio.store["to_annotate.json"] == ["a", "b"]      # queue untouched
+    assert dio.store["to_annotate.json"] == ["a", "b"]  # queue untouched
     assert "annotate_batch_job.json" not in dio.store
-    assert any(k == "failed" and "subboom" in str(d.get("error", ""))
-               for _, k, d in notices)
+    assert any(k == "failed" and "subboom" in str(d.get("error", "")) for _, k, d in notices)
 
 
 def test_cancellation_leaves_jobs_and_claims_as_is(notices):
     dio = FakeDataIO({"to_annotate.json": ["x"]})
     rep = FakeReporter()
     rep.cancelled = True
-    ta = {"phase": "run", "chunk_index": 1,
-          "jobs": [{"job_name": "job/1", "output_uri": "gs://b/out/job/1/",
-                    "jsonl_uri": "", "submitted_ids": ["a"], "ts_label": "",
-                    "batch_no": 1, "submitted_at": ""}]}
+    ta = {
+        "phase": "run",
+        "chunk_index": 1,
+        "jobs": [
+            {
+                "job_name": "job/1",
+                "output_uri": "gs://b/out/job/1/",
+                "jsonl_uri": "",
+                "submitted_ids": ["a"],
+                "ts_label": "",
+                "batch_no": 1,
+                "submitted_at": "",
+            }
+        ],
+    }
 
     result = worker._run_phase(rep, ta, FakeBatch(), dio)
 
     assert result is None
-    assert dio.store["to_annotate.json"] == ["x"]           # claimed ids NOT restored
-    assert "annotate_batch_job.json" not in dio.store       # file cleared
+    assert dio.store["to_annotate.json"] == ["x"]  # claimed ids NOT restored
+    assert "annotate_batch_job.json" not in dio.store  # file cleared
     assert notices == []
 
 
@@ -361,24 +456,34 @@ def test_cancellation_leaves_jobs_and_claims_as_is(notices):
 # Legacy phase adapters (a chain in flight across the deploy).
 # --------------------------------------------------------------------------- #
 def test_legacy_poll_args_wrap_into_a_one_job_table():
-    run = worker._legacy_args_to_run({
-        "phase": "poll", "job_name": "job/9", "output_uri": "gs://b/out/",
-        "jsonl_uri": "gs://b/in.jsonl", "submitted_ids": ["a", "b"],
-        "chunk_index": 1, "initial_total": 4000, "batch_size": 2000,
-        "max_batches": None, "launched_by": "u@x.com",
-        "total_ok": 5, "total_fail": 1,
-    })
+    run = worker._legacy_args_to_run(
+        {
+            "phase": "poll",
+            "job_name": "job/9",
+            "output_uri": "gs://b/out/",
+            "jsonl_uri": "gs://b/in.jsonl",
+            "submitted_ids": ["a", "b"],
+            "chunk_index": 1,
+            "initial_total": 4000,
+            "batch_size": 2000,
+            "max_batches": None,
+            "launched_by": "u@x.com",
+            "total_ok": 5,
+            "total_fail": 1,
+        }
+    )
     assert run["phase"] == "run" and len(run["jobs"]) == 1
     job = run["jobs"][0]
     assert job["job_name"] == "job/9" and job["submitted_ids"] == ["a", "b"]
-    assert run["chunk_index"] == 2          # this job counts as submitted
+    assert run["chunk_index"] == 2  # this job counts as submitted
     assert run["notified_submitted"] is True
     assert run["total_ok"] == 5 and run["total_fail"] == 1
 
 
 def test_legacy_submit_args_start_an_empty_table():
-    run = worker._legacy_args_to_run({"phase": "submit", "batch_size": 500,
-                                      "launched_by": "u@x.com"})
+    run = worker._legacy_args_to_run(
+        {"phase": "submit", "batch_size": 500, "launched_by": "u@x.com"}
+    )
     assert run["phase"] == "run" and run["jobs"] == []
     assert run["batch_size"] == 500 and run["launched_by"] == "u@x.com"
 
@@ -390,11 +495,11 @@ def test_notify_is_noop_without_launcher(notices):
 
 
 def test_total_batches_estimate():
-    assert worker._total_batches(350, 2000, None) == 1     # fits one batch
-    assert worker._total_batches(5000, 2000, None) == 3    # 2000+2000+1000
-    assert worker._total_batches(5000, 2000, 1) == 1       # capped by max_batches
-    assert worker._total_batches(0, 2000, None) == 1       # floor at 1
-    assert worker._total_batches(100, 0, None) == 1        # guard div-by-zero
+    assert worker._total_batches(350, 2000, None) == 1  # fits one batch
+    assert worker._total_batches(5000, 2000, None) == 3  # 2000+2000+1000
+    assert worker._total_batches(5000, 2000, 1) == 1  # capped by max_batches
+    assert worker._total_batches(0, 2000, None) == 1  # floor at 1
+    assert worker._total_batches(100, 0, None) == 1  # guard div-by-zero
 
 
 def test_log_forwards_bare_leaving_stamping_to_the_run_log():

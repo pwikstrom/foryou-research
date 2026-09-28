@@ -27,13 +27,9 @@ _DEFAULT_CONTRACT_PATH = (
 )
 
 
-
-
 def default_contract_path() -> Path:
     """Return the repo-relative default path to the derived contract."""
     return _DEFAULT_CONTRACT_PATH
-
-
 
 
 def load_contract(path: str | Path | None = None) -> dict:
@@ -62,13 +58,9 @@ def load_contract(path: str | Path | None = None) -> dict:
     return contract
 
 
-
-
 def derived_fields(contract: dict) -> set[str]:
     """Return the names of contract fields (all derived by definition)."""
     return {f["name"] for f in contract.get("fields", []) if f.get("name")}
-
-
 
 
 def contract_column_metadata(contract: dict) -> dict[str, dict]:
@@ -96,8 +88,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
     return out
 
 
-
-
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
@@ -113,8 +103,6 @@ def contract_field_digest(contract: dict) -> dict:
     }
 
 
-
-
 def validate_contract(contract: dict) -> list[str]:
     """Validate the derived contract; return a list of error strings (empty = valid)."""
     errors: list[str] = []
@@ -123,7 +111,12 @@ def validate_contract(contract: dict) -> list[str]:
         errors.append("contract has no [[fields]]")
 
     try:
-        from fyp.annotation.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        from fyp.annotation.recode_variables import (
+            LEGACY_ROLE_ALIASES,
+            VAR_SCHEMA_ROLES,
+            VAR_SCHEMA_SCALES,
+        )
+
         # Legacy role strings stay valid (normalized at var_schema load).
         valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)
         valid_scales = set(VAR_SCHEMA_SCALES)

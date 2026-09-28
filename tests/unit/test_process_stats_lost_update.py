@@ -31,8 +31,15 @@ from web_interface.services import stats_service as ss
 T_IMPACT = "2026-09-03T00:23:20+00:00"
 T_LATER = "2026-09-03T00:30:00+00:00"
 
-DOWNSTREAM = ["recode_refresh_studies", "meta_refresh_groups", "timelines_refresh",
-              "pca_refresh", "embeddings_refresh", "video_map_refresh", "sessions_refresh"]
+DOWNSTREAM = [
+    "recode_refresh_studies",
+    "meta_refresh_groups",
+    "timelines_refresh",
+    "pca_refresh",
+    "embeddings_refresh",
+    "video_map_refresh",
+    "sessions_refresh",
+]
 
 
 def _store_without_arm() -> dict:
@@ -86,7 +93,8 @@ def test_clearing_the_impact_keeps_an_arm_set_by_another_instance(interleaved):
     final = gcs["doc"]["consolidate_enrichment"]
     assert "consolidation_impact" not in final
     assert final.get("auto_armed") is True, (
-        "the save put back a copy loaded before the arm was written — lost update")
+        "the save put back a copy loaded before the arm was written — lost update"
+    )
     assert gcs["loads"] >= 2, "must reload immediately before mutating"
 
 
@@ -113,11 +121,15 @@ def test_no_save_when_someone_already_cleared_the_impact(monkeypatch):
 
 def test_stale_steps_leave_the_impact_alone(monkeypatch):
     doc = _store_without_arm()
-    doc["timelines_refresh"] = {"last_success": "2026-09-01T00:00:00+00:00"}  # older than the impact
+    doc["timelines_refresh"] = {
+        "last_success": "2026-09-01T00:00:00+00:00"
+    }  # older than the impact
     live: dict = {}
     saved: list[int] = []
     monkeypatch.setattr(ss, "process_stats", live)
-    monkeypatch.setattr(ss, "load_process_stats", lambda: (live.clear(), live.update(copy.deepcopy(doc))))
+    monkeypatch.setattr(
+        ss, "load_process_stats", lambda: (live.clear(), live.update(copy.deepcopy(doc)))
+    )
     monkeypatch.setattr(ss, "save_process_stats", lambda: saved.append(1))
 
     out = ss._evaluate_consolidation_staleness()
@@ -141,8 +153,7 @@ def test_every_run_record_write_reloads_first():
     for fn in (rp.seed_run, rp.mutate_run, rp.clear_run):
         src = inspect.getsource(fn)
         j = src.index("save_process_stats()")
-        assert "load_process_stats()" in src[:j], (
-            f"{fn.__name__} saves without reloading first")
+        assert "load_process_stats()" in src[:j], f"{fn.__name__} saves without reloading first"
 
 
 def test_stats_endpoint_in_flight_cleanup_goes_through_the_record():
@@ -158,13 +169,13 @@ def test_stats_endpoint_in_flight_cleanup_goes_through_the_record():
     from web_interface.routes.management import enrichment as en
 
     src = inspect.getsource(en.get_enrichment_stats)
-    i = src.index('flag_in_flight and not any_step_running')
+    i = src.index("flag_in_flight and not any_step_running")
     j = src.index("pipeline_active = flag_in_flight", i)
     window = src[i:j]
     assert "refresh_pipeline.finish_run(" in window, (
-        "the abandoned-run cleanup must go through the run record's own writer")
-    assert "save_process_stats()" not in window, (
-        "the cleanup must not write process_stats directly")
+        "the abandoned-run cleanup must go through the run record's own writer"
+    )
+    assert "save_process_stats()" not in window, "the cleanup must not write process_stats directly"
 
 
 if __name__ == "__main__":

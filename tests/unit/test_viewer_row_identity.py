@@ -43,14 +43,16 @@ def _dirty_frame():
         (_REWATCHED, "2025-03-11 13:14:22"),
         ("7000000000000000003", "2025-03-11 13:40:00"),
     ]
-    df = pd.DataFrame({
-        "item_id": [r[0] for r in rows],
-        "utc_timestamp": pd.to_datetime([r[1] for r in rows]),
-        "activity_type": ["play"] * len(rows),
-        "annotated_ok": [True] * len(rows),
-        "scraped_ok": [True] * len(rows),
-        "play_duration": [4.0, 9.0, 11.0, 28.0, 6.0],
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": [r[0] for r in rows],
+            "utc_timestamp": pd.to_datetime([r[1] for r in rows]),
+            "activity_type": ["play"] * len(rows),
+            "annotated_ok": [True] * len(rows),
+            "scraped_ok": [True] * len(rows),
+            "play_duration": [4.0, 9.0, 11.0, 28.0, 6.0],
+        }
+    )
     df.index = pd.Index([np.nan, np.nan, 884.0, np.nan, 884.0], dtype="float64")
     return df
 
@@ -112,7 +114,9 @@ def test_each_occurrence_resolves_to_its_own_row(monkeypatch):
     seen = []
     for row_idx in occurrences:
         rows, _ = study_data.get_explorer_rows(
-            study, item_id=_REWATCHED, row_index=row_idx,
+            study,
+            item_id=_REWATCHED,
+            row_index=row_idx,
         )
         # The route renders rows.iloc[0], so that is what must be right.
         record = rows.iloc[0]
@@ -134,7 +138,9 @@ def test_play_duration_also_tracks_the_occurrence(monkeypatch):
 
     durations = [
         study_data.get_explorer_rows(
-            study, item_id=_REWATCHED, row_index=r,
+            study,
+            item_id=_REWATCHED,
+            row_index=r,
         )[0].iloc[0]["play_duration"]
         for r in occurrences
     ]
@@ -149,7 +155,9 @@ def test_unusable_row_index_does_not_resolve_to_a_wrong_row(monkeypatch):
     study = _load(monkeypatch)
 
     rows, _ = study_data.get_explorer_rows(
-        study, item_id=_REWATCHED, row_index=float("nan"),
+        study,
+        item_id=_REWATCHED,
+        row_index=float("nan"),
     )
 
     # Falls back to the item_id match: every occurrence, caller disambiguates.
@@ -162,7 +170,9 @@ def test_stale_row_index_falls_back_instead_of_raising(monkeypatch):
     study = _load(monkeypatch)
 
     rows, _ = study_data.get_explorer_rows(
-        study, item_id=_REWATCHED, row_index=999_999,
+        study,
+        item_id=_REWATCHED,
+        row_index=999_999,
     )
 
     assert len(rows) == 2

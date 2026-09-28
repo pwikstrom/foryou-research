@@ -44,8 +44,6 @@ EPS_NORM = 1e-8
 EPS_EIG = 1e-12
 
 
-
-
 def to_directional(matrix: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
     """Corpus-mean-centre then L2-normalise an embedding matrix.
 
@@ -63,9 +61,9 @@ def to_directional(matrix: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
     return centred / norms
 
 
-
-
-def spectral_entropy(unit_vectors: np.ndarray, weights: np.ndarray | None = None) -> tuple[float, float]:
+def spectral_entropy(
+    unit_vectors: np.ndarray, weights: np.ndarray | None = None
+) -> tuple[float, float]:
     """Von Neumann (spectral) entropy of a window's directional vectors.
 
     The window-centred Gram matrix ``Z Z^T`` is eigendecomposed; its
@@ -115,12 +113,12 @@ def spectral_entropy(unit_vectors: np.ndarray, weights: np.ndarray | None = None
     p = vals / total
     p = p[p > EPS_EIG]
     entropy = float(-(p * np.log2(p)).sum())
-    return entropy, float(2.0 ** entropy)
+    return entropy, float(2.0**entropy)
 
 
-
-
-def mean_pairwise_cosine_distance(unit_vectors: np.ndarray, weights: np.ndarray | None = None) -> float:
+def mean_pairwise_cosine_distance(
+    unit_vectors: np.ndarray, weights: np.ndarray | None = None
+) -> float:
     """Mean ``1 - cosine`` over all distinct video pairs in a window.
 
     Args:
@@ -148,8 +146,6 @@ def mean_pairwise_cosine_distance(unit_vectors: np.ndarray, weights: np.ndarray 
     return 1.0 - float((pair_sim * pw).sum() / pw.sum())
 
 
-
-
 def coherence(unit_vectors: np.ndarray, weights: np.ndarray | None = None) -> float:
     """Length of the mean directional vector — a ``[0, 1]`` focus score.
 
@@ -174,8 +170,6 @@ def coherence(unit_vectors: np.ndarray, weights: np.ndarray | None = None) -> fl
     return float(np.linalg.norm(mean))
 
 
-
-
 def trajectory_geometry(unit_ordered: np.ndarray) -> dict:
     """Shape of a focused run — distinguishes a stationary binge from a drift.
 
@@ -198,8 +192,13 @@ def trajectory_geometry(unit_ordered: np.ndarray) -> dict:
     """
     k = unit_ordered.shape[0]
     if k < 2:
-        return {"diameter": 0.0, "step_mean": 0.0, "path_len": 0.0,
-                "net_disp": 0.0, "straightness": float("nan")}
+        return {
+            "diameter": 0.0,
+            "step_mean": 0.0,
+            "path_len": 0.0,
+            "net_disp": 0.0,
+            "straightness": float("nan"),
+        }
     sim = unit_ordered @ unit_ordered.T
     cosd = np.clip(1.0 - sim, 0.0, 2.0)
     iu = np.triu_indices(k, k=1)
@@ -210,14 +209,18 @@ def trajectory_geometry(unit_ordered: np.ndarray) -> dict:
     path_len = float(np.linalg.norm(diffs, axis=1).sum())
     net_disp = float(np.linalg.norm(unit_ordered[-1] - unit_ordered[0]))
     straightness = float(net_disp / path_len) if path_len > 0 else float("nan")
-    return {"diameter": diameter, "step_mean": step_mean, "path_len": path_len,
-            "net_disp": net_disp, "straightness": straightness}
+    return {
+        "diameter": diameter,
+        "step_mean": step_mean,
+        "path_len": path_len,
+        "net_disp": net_disp,
+        "straightness": straightness,
+    }
 
 
-
-
-def direction_permutation_p(unit_ordered: np.ndarray, max_exact: int = 8,
-                            n_perm: int = 2000, seed: int = 0) -> float:
+def direction_permutation_p(
+    unit_ordered: np.ndarray, max_exact: int = 8, n_perm: int = 2000, seed: int = 0
+) -> float:
     """How unusual the run's straightness is against reorderings of ITSELF.
 
     Raw :func:`trajectory_geometry` straightness cannot be thresholded at a
@@ -283,13 +286,11 @@ def direction_permutation_p(unit_ordered: np.ndarray, max_exact: int = 8,
     return (1 + hits) / (1 + total)
 
 
-
-
 def window_metrics(
-        matrix: np.ndarray,
-        corpus_mean: np.ndarray,
-        weights: np.ndarray | None = None,
-    ) -> dict:
+    matrix: np.ndarray,
+    corpus_mean: np.ndarray,
+    weights: np.ndarray | None = None,
+) -> dict:
     """Compute all embedding-entropy measures for one window's videos.
 
     Args:

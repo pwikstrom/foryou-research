@@ -29,8 +29,6 @@ from fyp.ingest import get_main_collection
 MANIFEST_FILENAME = "ingestion_manifest.json"
 
 
-
-
 def bootstrap() -> None:
     """Fingerprint every raw file per registered sub-collection and learn it."""
     main_collection = get_main_collection(verbose=True)
@@ -43,7 +41,8 @@ def bootstrap() -> None:
         baseline = baselines["baselines"].setdefault(key, structure_sentinel._empty_baseline())
         try:
             filenames = [
-                fn for fn in data_io.listdir(sub.raw_path)
+                fn
+                for fn in data_io.listdir(sub.raw_path)
                 if not fn.startswith(".") and fn != MANIFEST_FILENAME
             ]
         except Exception as exc:
@@ -72,15 +71,15 @@ def bootstrap() -> None:
             if fingerprint and fingerprint.get("stats"):
                 raw_stats.update(fingerprint["stats"])
             structure_sentinel.learn_file(baseline, fingerprint, raw_stats, None, fn)
-            print(f"[{key}]   {fn}: learned ({len(df):,} rows, "
-                  f"{len(fingerprint.get('key_paths', []))} key paths)")
+            print(
+                f"[{key}]   {fn}: learned ({len(df):,} rows, "
+                f"{len(fingerprint.get('key_paths', []))} key paths)"
+            )
 
         print(f"[{key}] baseline now covers {baseline['n_accepted']} accepted file(s)")
 
     structure_sentinel.save_baselines(baselines)
     print("Saved structure_baselines.json")
-
-
 
 
 if __name__ == "__main__":

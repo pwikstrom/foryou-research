@@ -8,8 +8,6 @@ import pytest
 from web_interface.services import my_collections_service as mcs
 
 
-
-
 @pytest.fixture
 def ledger(monkeypatch):
     store: dict = {}
@@ -23,19 +21,25 @@ def ledger(monkeypatch):
     return store
 
 
-
-
 def test_ledger_manifest_entries_rebuild_from_ingestion_ledger(monkeypatch):
-    ingestion_ledger = {"files": {
-        "tiktok_ddp_x.json": {
-            "outcome": "added_as_new", "collection_id": "tiktok_ddp_x",
-            "original_filename": "user_data_tiktok.json", "user_id": "p@example.org",
-            "tz": "Australia/Melbourne", "client_reviewed": True,
-            "uploaded_by": "p@example.org", "uploaded_at": "2026-09-06T11:29:18+00:00",
-            "display_collection_id": "user_data_tiktok",
-        },
-    }}
-    monkeypatch.setattr(mcs.data_io, "exists", lambda **kw: kw.get("filename") == "ingestion_ledger.json")
+    ingestion_ledger = {
+        "files": {
+            "tiktok_ddp_x.json": {
+                "outcome": "added_as_new",
+                "collection_id": "tiktok_ddp_x",
+                "original_filename": "user_data_tiktok.json",
+                "user_id": "p@example.org",
+                "tz": "Australia/Melbourne",
+                "client_reviewed": True,
+                "uploaded_by": "p@example.org",
+                "uploaded_at": "2026-09-06T11:29:18+00:00",
+                "display_collection_id": "user_data_tiktok",
+            },
+        }
+    }
+    monkeypatch.setattr(
+        mcs.data_io, "exists", lambda **kw: kw.get("filename") == "ingestion_ledger.json"
+    )
     monkeypatch.setattr(mcs.data_io, "load_json", lambda **kw: ingestion_ledger)
 
     entries = mcs.ledger_manifest_entries("tiktok_ddp_x", ["tiktok_ddp_x.json", "unknown.json"])
@@ -51,23 +55,36 @@ def test_ledger_manifest_entries_rebuild_from_ingestion_ledger(monkeypatch):
     assert "tz" not in minimal
 
 
-
-
 def test_restore_writes_the_stored_manifest_entry_back(ledger, monkeypatch):
-    stored_entry = {"collection_id": "c1", "original_filename": "user_data_tiktok.json",
-                    "tz": "Australia/Melbourne", "client_reviewed": True, "tags": [],
-                    "user_id": "p@example.org", "display_collection_id": "user_data_tiktok"}
-    mcs.record_withdrawal("c1", "p@example.org", ["tiktok_ddp_x.json"], "ddp_raw",
-                          "user_data_tiktok", "tiktok",
-                          manifest_entries={"tiktok_ddp_x.json": stored_entry})
+    stored_entry = {
+        "collection_id": "c1",
+        "original_filename": "user_data_tiktok.json",
+        "tz": "Australia/Melbourne",
+        "client_reviewed": True,
+        "tags": [],
+        "user_id": "p@example.org",
+        "display_collection_id": "user_data_tiktok",
+    }
+    mcs.record_withdrawal(
+        "c1",
+        "p@example.org",
+        ["tiktok_ddp_x.json"],
+        "ddp_raw",
+        "user_data_tiktok",
+        "tiktok",
+        manifest_entries={"tiktok_ddp_x.json": stored_entry},
+    )
     assert ledger["c1"]["manifest_entries"] == {"tiktok_ddp_x.json": stored_entry}
 
     written = {}
-    monkeypatch.setattr(mcs.data_io, "exists", lambda **kw: kw.get("filename") != mcs.MANIFEST_FILENAME)
+    monkeypatch.setattr(
+        mcs.data_io, "exists", lambda **kw: kw.get("filename") != mcs.MANIFEST_FILENAME
+    )
     monkeypatch.setattr(mcs.data_io, "move", lambda **kw: None)
     monkeypatch.setattr(mcs.data_io, "load_json", lambda **kw: {})
     monkeypatch.setattr(mcs.data_io, "save_json", lambda **kw: written.update(kw["data"]))
     import web_interface.collection_accounts as ca
+
     monkeypatch.setattr(ca, "set_collection_owner", lambda *a, **k: None)
     monkeypatch.setattr(mcs, "invalidate_cache", lambda: None)
 
@@ -81,17 +98,18 @@ def test_restore_writes_the_stored_manifest_entry_back(ledger, monkeypatch):
     assert "c1" not in ledger
 
 
-
-
 def test_restore_of_an_old_withdrawal_falls_back_to_the_minimal_entry(ledger, monkeypatch):
     mcs.record_withdrawal("c2", "p@example.org", ["old.json"], "ddp_raw", None, "tiktok")
-    ledger["c2"].pop("manifest_entries")          # a record written before this existed
+    ledger["c2"].pop("manifest_entries")  # a record written before this existed
     written = {}
-    monkeypatch.setattr(mcs.data_io, "exists", lambda **kw: kw.get("filename") != mcs.MANIFEST_FILENAME)
+    monkeypatch.setattr(
+        mcs.data_io, "exists", lambda **kw: kw.get("filename") != mcs.MANIFEST_FILENAME
+    )
     monkeypatch.setattr(mcs.data_io, "move", lambda **kw: None)
     monkeypatch.setattr(mcs.data_io, "load_json", lambda **kw: {})
     monkeypatch.setattr(mcs.data_io, "save_json", lambda **kw: written.update(kw["data"]))
     import web_interface.collection_accounts as ca
+
     monkeypatch.setattr(ca, "set_collection_owner", lambda *a, **k: None)
     monkeypatch.setattr(mcs, "invalidate_cache", lambda: None)
     mcs.restore_withdrawal("c2")

@@ -28,7 +28,9 @@ def _counts(metadata):
 
 def test_counts_are_summed_row_counts(tags):
     meta = routes._inject_collection_tags(
-        {}, ["c1", "c2", "c3"], {"c1": 1000, "c2": 40, "c3": 7},
+        {},
+        ["c1", "c2", "c3"],
+        {"c1": 1000, "c2": 40, "c3": 7},
     )
     assert _counts(meta) == {"pilot": 1040, "wave2": 1007}
 
@@ -41,7 +43,9 @@ def test_collections_outside_the_study_are_ignored(tags):
 
 def test_values_are_ordered_by_row_count(tags):
     meta = routes._inject_collection_tags(
-        {}, ["c1", "c2", "c3"], {"c1": 1, "c2": 5, "c3": 900},
+        {},
+        ["c1", "c2", "c3"],
+        {"c1": 1, "c2": 5, "c3": 900},
     )
     assert [v["value"] for v in meta["Collection Tags"]["values"]] == ["wave2", "pilot"]
 

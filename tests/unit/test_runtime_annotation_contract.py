@@ -135,6 +135,7 @@ def _desc_for(contract: dict) -> dict:
 # resolution order
 # ---------------------------------------------------------------------------
 
+
 def test_absent_is_baked() -> None:
     _reset_to_baked()
     st = ac.contract_status()
@@ -189,6 +190,7 @@ def test_baked_only_env_ignores_runtime() -> None:
 # etag movement
 # ---------------------------------------------------------------------------
 
+
 def test_etag_moves_on_content_change() -> None:
     _reset_to_baked()
     baked_etag = ac.contract_etag()
@@ -203,6 +205,7 @@ def test_etag_moves_on_content_change() -> None:
 # av_ sensitivity: metadata-only vs prompt/schema-affecting
 # ---------------------------------------------------------------------------
 
+
 def test_metadata_only_edits_keep_av() -> None:
     _reset_to_baked()
     baked = ac.load_contract()
@@ -212,8 +215,10 @@ def test_metadata_only_edits_keep_av() -> None:
         lambda c: c["fields"][0].__setitem__("display_name", "Edited Display Name"),
         lambda c: c["fields"][0].__setitem__("role", "skip"),
         lambda c: c["fields"][0].__setitem__("scale", "nominal"),
-        lambda c: c.setdefault("recode", {}).setdefault("drop", {}).__setitem__(
-            "some_col", ["ignore", "me"]
+        lambda c: (
+            c.setdefault("recode", {})
+            .setdefault("drop", {})
+            .__setitem__("some_col", ["ignore", "me"])
         ),
     ):
         edited = copy.deepcopy(baked)
@@ -252,6 +257,7 @@ def test_enum_edit_changes_av() -> None:
 # ---------------------------------------------------------------------------
 # descriptor cache busts when the live snapshot swaps (hook 1)
 # ---------------------------------------------------------------------------
+
 
 def test_descriptor_cache_busts_on_snapshot_swap() -> None:
     machine = cfg.fyp_cf["machine"]

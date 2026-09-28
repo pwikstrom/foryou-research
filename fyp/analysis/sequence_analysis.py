@@ -72,10 +72,17 @@ NEXT_SUFFIX = "__next"
 
 # Columns that can never be prediction targets: the dwell predictor itself and
 # anything derived from it (would leak the predictor into the target).
-BARRED_TARGET_COLUMNS = frozenset({
-    "play_duration", "completion_rate", "dwell_mean", "dwell_median",
-    "dwell_p90", "completion_mean", "inter_event_gap_s",
-})
+BARRED_TARGET_COLUMNS = frozenset(
+    {
+        "play_duration",
+        "completion_rate",
+        "dwell_mean",
+        "dwell_median",
+        "dwell_p90",
+        "completion_mean",
+        "inter_event_gap_s",
+    }
+)
 
 # Curated default targets: (column, extract, family). ``extract`` is how a cell
 # becomes value(s): "list" (multi-label), "single" (one categorical/Y-N value),
@@ -102,9 +109,6 @@ DEFAULT_TARGETS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-
-
-
 def _to_value_lists(series: pd.Series, extract: str) -> pd.Series:
     """Coerce a target column to an object Series of per-row value lists.
 
@@ -117,6 +121,7 @@ def _to_value_lists(series: pd.Series, extract: str) -> pd.Series:
         string values. ``"unable to detect"`` is preserved as a real value;
         nulls/blanks become empty lists.
     """
+
     def _coerce(value: Any) -> list[str]:
         if value is None or value is pd.NA:
             return []
@@ -150,12 +155,7 @@ def _to_value_lists(series: pd.Series, extract: str) -> pd.Series:
     return series.map(_coerce)
 
 
-
-
-
-def classify_targets(
-    df: pd.DataFrame, requested: list[str] | None = None
-) -> list[dict[str, str]]:
+def classify_targets(df: pd.DataFrame, requested: list[str] | None = None) -> list[dict[str, str]]:
     """Resolve the target specs available in a dataframe.
 
     Args:
@@ -184,9 +184,6 @@ def classify_targets(
         kind = "scalar" if extract == "numeric" else "share"
         specs.append({"name": column, "extract": extract, "kind": kind, "family": family})
     return specs
-
-
-
 
 
 def add_sequence_index(df: pd.DataFrame, session_gap_s: int = SESSION_GAP_S) -> pd.DataFrame:
@@ -222,15 +219,14 @@ def add_sequence_index(df: pd.DataFrame, session_gap_s: int = SESSION_GAP_S) -> 
     viewing["inter_event_gap_s"] = gap
 
     session_break = gap.isna() | (gap > session_gap_s)
-    viewing["session_id"] = session_break.groupby(viewing["collection_id"]).cumsum().astype("int64") - 1
+    viewing["session_id"] = (
+        session_break.groupby(viewing["collection_id"]).cumsum().astype("int64") - 1
+    )
     viewing["session_position"] = viewing.groupby(
         ["collection_id", "session_id"], sort=False
     ).cumcount()
 
     return viewing
-
-
-
 
 
 def _build_target_vocabulary(value_lists: pd.Series) -> list[str]:
@@ -244,22 +240,13 @@ def _build_target_vocabulary(value_lists: pd.Series) -> list[str]:
     return kept.head(TOP_K_TARGET_VALUES).index.tolist()
 
 
-
-
-
 def _share_col(target: str, value: str) -> str:
     safe = str(value).replace(SHARE_SEP, ":")
     return f"{SHARE_PREFIX}{SHARE_SEP}{target}{SHARE_SEP}{safe}"
 
 
-
-
-
 def _mean_col(target: str) -> str:
     return f"{MEAN_PREFIX}{SHARE_SEP}{target}"
-
-
-
 
 
 def build_windows(
@@ -309,7 +296,10 @@ def build_windows(
         "n_videos": ("_dwell", "size"),
         "dwell_mean": ("_dwell", "mean"),
         "dwell_median": ("_dwell", "median"),
-        "dwell_p90": ("_dwell", lambda s: float(np.nanpercentile(s, 90)) if s.notna().any() else np.nan),
+        "dwell_p90": (
+            "_dwell",
+            lambda s: float(np.nanpercentile(s, 90)) if s.notna().any() else np.nan,
+        ),
         "completion_mean": ("_completion", "mean"),
         "ts_start": ("utc_timestamp", "min"),
     }
@@ -322,8 +312,11 @@ def build_windows(
             work[mcol] = pd.to_numeric(work[name], errors="coerce").astype("float64")
             agg[mcol] = (mcol, "mean")
             new_index[name] = {
-                "kind": "scalar", "family": spec["family"],
-                "mean_column": mcol, "values": [], "value_columns": [],
+                "kind": "scalar",
+                "family": spec["family"],
+                "mean_column": mcol,
+                "values": [],
+                "value_columns": [],
             }
         else:
             value_lists = _to_value_lists(work[name], spec["extract"])
@@ -338,15 +331,15 @@ def build_windows(
                 agg[scol] = (scol, "mean")
                 value_columns.append(scol)
             new_index[name] = {
-                "kind": "share", "family": spec["family"],
-                "values": values, "value_columns": value_columns, "mean_column": None,
+                "kind": "share",
+                "family": spec["family"],
+                "values": values,
+                "value_columns": value_columns,
+                "mean_column": None,
             }
 
     windows = work.groupby(keys, sort=True).agg(**agg).reset_index()
     return windows, (target_index or new_index)
-
-
-
 
 
 def assign_dwell_bins(windows: pd.DataFrame) -> pd.DataFrame:
@@ -362,14 +355,15 @@ def assign_dwell_bins(windows: pd.DataFrame) -> pd.DataFrame:
     def _bin(values: pd.Series) -> pd.Series:
         ranks = values.rank(method="first", pct=True)
         return pd.cut(
-            ranks, bins=[0.0, 1 / 3, 2 / 3, 1.0],
-            labels=list(DWELL_BIN_LABELS), include_lowest=True,
+            ranks,
+            bins=[0.0, 1 / 3, 2 / 3, 1.0],
+            labels=list(DWELL_BIN_LABELS),
+            include_lowest=True,
         )
 
     windows = windows.copy()
-    windows["dwell_bin"] = (
-        windows.groupby("collection_id", sort=False)["dwell_mean"]
-        .transform(lambda s: _bin(s).astype(object))
+    windows["dwell_bin"] = windows.groupby("collection_id", sort=False)["dwell_mean"].transform(
+        lambda s: _bin(s).astype(object)
     )
     windows["dwell_bin"] = pd.Categorical(
         windows["dwell_bin"], categories=list(DWELL_BIN_LABELS), ordered=True
@@ -377,12 +371,7 @@ def assign_dwell_bins(windows: pd.DataFrame) -> pd.DataFrame:
     return windows
 
 
-
-
-
-def compute_participant_eligibility(
-    indexed: pd.DataFrame, windows: pd.DataFrame
-) -> pd.DataFrame:
+def compute_participant_eligibility(indexed: pd.DataFrame, windows: pd.DataFrame) -> pd.DataFrame:
     """Summarise per-participant dwell coverage and window count.
 
     Returns one row per participant with ``n_viewing_events``,
@@ -407,9 +396,6 @@ def compute_participant_eligibility(
     return cov.reset_index()
 
 
-
-
-
 def _join_horizon(windows: pd.DataFrame, horizon: int, value_cols: list[str]) -> pd.DataFrame:
     """Join each window k to the values of window k+horizon within the same session."""
     keys = ["collection_id", "session_id", "window_idx"]
@@ -417,9 +403,6 @@ def _join_horizon(windows: pd.DataFrame, horizon: int, value_cols: list[str]) ->
     nxt["window_idx"] = nxt["window_idx"] - horizon
     nxt = nxt.rename(columns={c: f"{c}{NEXT_SUFFIX}" for c in value_cols})
     return windows.merge(nxt, on=keys, how="inner")
-
-
-
 
 
 def compute_share_transition(
@@ -440,8 +423,14 @@ def compute_share_transition(
     (value→float), and ``n_participants`` (bin→int).
     """
     bins = list(DWELL_BIN_LABELS)
-    empty = {"values": value_labels, "bins": bins, "lift": {}, "prob": {},
-             "marginal": {}, "n_participants": {}}
+    empty = {
+        "values": value_labels,
+        "bins": bins,
+        "lift": {},
+        "prob": {},
+        "marginal": {},
+        "n_participants": {},
+    }
     if windows.empty or not value_columns:
         return empty
 
@@ -474,13 +463,15 @@ def compute_share_transition(
                 lift[b][label] = round(value / base, 3)
 
     return {
-        "values": value_labels, "bins": bins, "lift": lift, "prob": prob,
-        "marginal": {lab: round(float(marginal[nc]), 4) for lab, nc in zip(value_labels, next_cols)},
+        "values": value_labels,
+        "bins": bins,
+        "lift": lift,
+        "prob": prob,
+        "marginal": {
+            lab: round(float(marginal[nc]), 4) for lab, nc in zip(value_labels, next_cols)
+        },
         "n_participants": n_part,
     }
-
-
-
 
 
 def compute_scalar_transition(
@@ -516,13 +507,11 @@ def compute_scalar_transition(
             else None
         )
     return {
-        "bins": bins, "by_bin": by_bin,
+        "bins": bins,
+        "by_bin": by_bin,
         "overall": round(overall, 3) if not math.isnan(overall) else None,
         "n_participants": n_by_bin,
     }
-
-
-
 
 
 def prepare_window_table(
@@ -548,9 +537,6 @@ def prepare_window_table(
     return windows, target_index, eligibility
 
 
-
-
-
 def compute_summary(
     windows: pd.DataFrame,
     target_index: dict[str, Any],
@@ -567,8 +553,7 @@ def compute_summary(
     """
     n_eligible = int(eligibility["eligible"].sum()) if not eligibility.empty else 0
     targets_meta = {
-        name: {"kind": spec["kind"], "family": spec["family"],
-               "values": spec.get("values", [])}
+        name: {"kind": spec["kind"], "family": spec["family"], "values": spec.get("values", [])}
         for name, spec in target_index.items()
     }
     summary: dict[str, Any] = {

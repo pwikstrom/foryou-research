@@ -24,8 +24,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))        # tests/golden
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/golden
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 
 import pandas as pd
 
@@ -106,9 +106,7 @@ def _save_refined(filename: str, item_ids, version: str, story: str = "Human-Int
             "annotated_fail": [False] * len(item_ids),
         }
     )
-    data_io.save_parquet(
-        df=df, storage_location="machine_annotations_refined", filename=filename
-    )
+    data_io.save_parquet(df=df, storage_location="machine_annotations_refined", filename=filename)
 
 
 def _canon(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
@@ -124,7 +122,8 @@ def _canon(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
 def _assert_frames_equal(a: pd.DataFrame, b: pd.DataFrame, key_cols: list[str], label: str) -> None:
     ca, cb = _canon(a, key_cols), _canon(b, key_cols)
     assert list(ca.columns) == list(cb.columns), (
-        f"{label}: column drift {sorted(set(ca.columns) ^ set(cb.columns))}")
+        f"{label}: column drift {sorted(set(ca.columns) ^ set(cb.columns))}"
+    )
     pd.testing.assert_frame_equal(ca, cb, obj=label)
 
 
@@ -132,32 +131,42 @@ def _assert_frames_equal(a: pd.DataFrame, b: pd.DataFrame, key_cols: list[str], 
 # Scrape lane
 # ---------------------------------------------------------------------------
 
+
 def test_scrape_fold_equals_full_rebuild_over_cycles() -> None:
     with _isolated():
         # Cycle 1 (no ledger yet → full path establishes it + the seed flag).
-        _save_scrape_file("scrapes_20260101.parquet", [
-            {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
-            {"item_id": "a2", "scrape_ts": "2026-01-01", "play_count": 20},
-        ])
+        _save_scrape_file(
+            "scrapes_20260101.parquet",
+            [
+                {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
+                {"item_id": "a2", "scrape_ts": "2026-01-01", "play_count": 20},
+            ],
+        )
         ok, df1, ids1 = consolidate_and_save_scrape_data(incremental=True)
         assert ok and ids1 == {"a1", "a2"}
         assert "is_enrichment_seed" in df1.columns
 
         # Cycle 2: new item + a re-scrape backfilling a1's value (newer ts).
-        _save_scrape_file("scrapes_20260102.parquet", [
-            {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
-            {"item_id": "a1", "scrape_ts": "2026-01-02", "play_count": 999},
-        ])
+        _save_scrape_file(
+            "scrapes_20260102.parquet",
+            [
+                {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
+                {"item_id": "a1", "scrape_ts": "2026-01-02", "play_count": 999},
+            ],
+        )
         ok, df2, ids2 = consolidate_and_save_scrape_data(incremental=True)
         assert ok and ids2 == {"b1", "a1"}, f"changed ids: {ids2}"
         a1 = df2[df2["item_id"] == "a1"]
         assert len(a1) == 1 and int(a1["play_count"].iloc[0]) == 999
 
         # Cycle 3: a seed file appears (s1 new; a2 already has a real scrape).
-        _save_seed_file("tiktok_donated_enrichment_seed.parquet", [
-            {"item_id": "s1", "scrape_ts": "2026-01-03", "play_count": 7},
-            {"item_id": "a2", "scrape_ts": "2026-01-03", "play_count": 777},
-        ])
+        _save_seed_file(
+            "tiktok_donated_enrichment_seed.parquet",
+            [
+                {"item_id": "s1", "scrape_ts": "2026-01-03", "play_count": 7},
+                {"item_id": "a2", "scrape_ts": "2026-01-03", "play_count": 777},
+            ],
+        )
         ok, df3, ids3 = consolidate_and_save_scrape_data(incremental=True)
         assert ok
         assert "s1" in ids3 and "a2" not in ids3, f"changed ids: {ids3}"
@@ -166,9 +175,12 @@ def test_scrape_fold_equals_full_rebuild_over_cycles() -> None:
         assert len(df3[df3["item_id"] == "a2"]) == 1  # seed anti-joined away
 
         # Cycle 4: a real scrape for the seeded item evicts the seed row.
-        _save_scrape_file("scrapes_20260104.parquet", [
-            {"item_id": "s1", "scrape_ts": "2026-01-04", "play_count": 70},
-        ])
+        _save_scrape_file(
+            "scrapes_20260104.parquet",
+            [
+                {"item_id": "s1", "scrape_ts": "2026-01-04", "play_count": 70},
+            ],
+        )
         ok, df4, ids4 = consolidate_and_save_scrape_data(incremental=True)
         assert ok and "s1" in ids4
         s1 = df4[df4["item_id"] == "s1"]
@@ -188,13 +200,19 @@ def test_scrape_fold_equals_full_rebuild_over_cycles() -> None:
 def test_scrape_crash_replay_is_idempotent() -> None:
     """A crash after the save but before the ledger write replays to the same frame."""
     with _isolated():
-        _save_scrape_file("scrapes_20260101.parquet", [
-            {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
-        ])
+        _save_scrape_file(
+            "scrapes_20260101.parquet",
+            [
+                {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
+            ],
+        )
         consolidate_and_save_scrape_data(incremental=True)
-        _save_scrape_file("scrapes_20260102.parquet", [
-            {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
-        ])
+        _save_scrape_file(
+            "scrapes_20260102.parquet",
+            [
+                {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
+            ],
+        )
         ok, folded, _ = consolidate_and_save_scrape_data(incremental=True)
         assert ok
 
@@ -210,21 +228,29 @@ def test_scrape_crash_replay_is_idempotent() -> None:
         # replay reports are the batch's (the impact recipient re-refreshes
         # the same scope, which is idempotent downstream).
         assert replay_ids == set()
-        _assert_frames_equal(folded, replayed, ["source_platform", "item_id"], "scrapes crash replay")
+        _assert_frames_equal(
+            folded, replayed, ["source_platform", "item_id"], "scrapes crash replay"
+        )
 
 
 def test_contract_bump_declines_the_fold() -> None:
     with _isolated():
-        _save_scrape_file("scrapes_20260101.parquet", [
-            {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
-        ])
+        _save_scrape_file(
+            "scrapes_20260101.parquet",
+            [
+                {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
+            ],
+        )
         consolidate_and_save_scrape_data(incremental=True)
         ledger = data_io.load_json(storage_location="recoded", filename=_LEDGER)
         ledger[sc_mod._scrapes_label()]["scrape_contract_version"] = "sv_other"
         data_io.save_json(data=ledger, storage_location="recoded", filename=_LEDGER)
-        _save_scrape_file("scrapes_20260102.parquet", [
-            {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
-        ])
+        _save_scrape_file(
+            "scrapes_20260102.parquet",
+            [
+                {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
+            ],
+        )
 
         calls = []
         orig_fold = sc_mod._fold_scrape_batch
@@ -242,9 +268,12 @@ def test_contract_bump_declines_the_fold() -> None:
 
 def test_dry_run_persists_nothing() -> None:
     with _isolated():
-        _save_scrape_file("scrapes_20260101.parquet", [
-            {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
-        ])
+        _save_scrape_file(
+            "scrapes_20260101.parquet",
+            [
+                {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
+            ],
+        )
         ok, df, _ = consolidate_and_save_scrape_data(force_consolidation=True, dry_run=True)
         assert ok and len(df) == 1
         assert not data_io.exists(storage_location="recoded", filename=_SCRAPES_RECODED)
@@ -254,6 +283,7 @@ def test_dry_run_persists_nothing() -> None:
 # ---------------------------------------------------------------------------
 # Annotation lane
 # ---------------------------------------------------------------------------
+
 
 def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
     with _isolated():
@@ -278,10 +308,16 @@ def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
         # ledger's recorded preferred_version and DECLINES the fold (a fold
         # would leave untouched keys on the pre-promotion view), taking the
         # full path, which applies the promotion everywhere.
-        av.register_version(descriptor={"annotation_version": "v1", "label": "v1"},
-                            prompt_text="p1", schema_json=None)
-        av.register_version(descriptor={"annotation_version": "v2", "label": "v2"},
-                            prompt_text="p2", schema_json=None)
+        av.register_version(
+            descriptor={"annotation_version": "v1", "label": "v1"},
+            prompt_text="p1",
+            schema_json=None,
+        )
+        av.register_version(
+            descriptor={"annotation_version": "v2", "label": "v2"},
+            prompt_text="p2",
+            schema_json=None,
+        )
         av.promote_version("v1")
         _save_refined("machine_annotations_c.parquet", ["i4"], "v2")
         ok, view3, ids3 = ma.consolidate_and_save_refined_annotations(incremental=True)
@@ -305,11 +341,15 @@ def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
         ok, full_view, _ = ma.consolidate_and_save_refined_annotations(force_consolidation=True)
         assert ok
         full_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
-        _assert_frames_equal(view4, full_view,
-                             ["source_platform", "item_id"], "annotation view fold-vs-full")
-        _assert_frames_equal(folded_archive, full_archive,
-                             ["source_platform", "item_id", "annotation_version"],
-                             "annotation archive fold-vs-full")
+        _assert_frames_equal(
+            view4, full_view, ["source_platform", "item_id"], "annotation view fold-vs-full"
+        )
+        _assert_frames_equal(
+            folded_archive,
+            full_archive,
+            ["source_platform", "item_id", "annotation_version"],
+            "annotation archive fold-vs-full",
+        )
 
 
 def test_annotation_fold_view_matches_full_when_no_promotion() -> None:
@@ -322,35 +362,47 @@ def test_annotation_fold_view_matches_full_when_no_promotion() -> None:
         assert ok
         ok, full_view, _ = ma.consolidate_and_save_refined_annotations(force_consolidation=True)
         assert ok
-        _assert_frames_equal(folded_view, full_view, ["source_platform", "item_id"],
-                             "annotation fold-vs-full view")
+        _assert_frames_equal(
+            folded_view, full_view, ["source_platform", "item_id"], "annotation fold-vs-full view"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Status patch
 # ---------------------------------------------------------------------------
 
+
 def test_status_patch_equals_full_rebuild() -> None:
     with _isolated():
-        collections = pd.DataFrame({
-            "item_id": pd.array(["a1", "a1", "a2", "b1", "s1"], dtype="string[pyarrow]"),
-            od.collection_id_column: pd.array(["c1", "c2", "c1", "c1", "c2"], dtype="string[pyarrow]"),
-        })
-        scrapes = _scrape_rows([
-            {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
-            {"item_id": "a2", "scrape_ts": "2026-01-01", "play_count": 20},
-        ])
-        annotations = pd.DataFrame({
-            "item_id": pd.array(["a1"], dtype="string[pyarrow]"),
-            "annotated_ok": pd.array([True], dtype="bool[pyarrow]"),
-            "annotated_fail": pd.array([False], dtype="bool[pyarrow]"),
-        })
+        collections = pd.DataFrame(
+            {
+                "item_id": pd.array(["a1", "a1", "a2", "b1", "s1"], dtype="string[pyarrow]"),
+                od.collection_id_column: pd.array(
+                    ["c1", "c2", "c1", "c1", "c2"], dtype="string[pyarrow]"
+                ),
+            }
+        )
+        scrapes = _scrape_rows(
+            [
+                {"item_id": "a1", "scrape_ts": "2026-01-01", "play_count": 10},
+                {"item_id": "a2", "scrape_ts": "2026-01-01", "play_count": 20},
+            ]
+        )
+        annotations = pd.DataFrame(
+            {
+                "item_id": pd.array(["a1"], dtype="string[pyarrow]"),
+                "annotated_ok": pd.array([True], dtype="bool[pyarrow]"),
+                "annotated_fail": pd.array([False], dtype="bool[pyarrow]"),
+            }
+        )
 
-        baseline_annotations = pd.DataFrame({
-            "item_id": pd.array(["a2"], dtype="string[pyarrow]"),
-            "annotated_ok": pd.array([True], dtype="bool[pyarrow]"),
-            "annotated_fail": pd.array([False], dtype="bool[pyarrow]"),
-        })
+        baseline_annotations = pd.DataFrame(
+            {
+                "item_id": pd.array(["a2"], dtype="string[pyarrow]"),
+                "annotated_ok": pd.array([True], dtype="bool[pyarrow]"),
+                "annotated_fail": pd.array([False], dtype="bool[pyarrow]"),
+            }
+        )
         annotations = pd.concat([baseline_annotations, annotations], ignore_index=True)
 
         orig_failed = od.load_failed_scrapes
@@ -359,28 +411,43 @@ def test_status_patch_equals_full_rebuild() -> None:
             # Baseline status from the full rebuild — both lanes non-empty so
             # the flag columns are already in merge (NA-where-unmatched)
             # semantics, the regime status_patch_allowed requires.
-            od.update_enrichment_status(all_datasets={
-                od._collections_label(): collections,
-                od._machine_annotations_label(): baseline_annotations,
-                od._scrapes_label(): scrapes,
-            }, save_to_disk=True)
+            od.update_enrichment_status(
+                all_datasets={
+                    od._collections_label(): collections,
+                    od._machine_annotations_label(): baseline_annotations,
+                    od._scrapes_label(): scrapes,
+                },
+                save_to_disk=True,
+            )
 
             # Enrichment moves: b1 gets scraped, a1 gets annotated, and the
             # failed list changes (b1 recovers, s1 fails).
-            scrapes2 = pd.concat([scrapes, _scrape_rows([
-                {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
-            ])], ignore_index=True)
+            scrapes2 = pd.concat(
+                [
+                    scrapes,
+                    _scrape_rows(
+                        [
+                            {"item_id": "b1", "scrape_ts": "2026-01-02", "play_count": 5},
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
             od.load_failed_scrapes = lambda **k: ["s1"]
 
             patched = od.patch_enrichment_status(
-                {"b1", "a1"}, scrape_frame=scrapes2, annotation_frame=annotations)
+                {"b1", "a1"}, scrape_frame=scrapes2, annotation_frame=annotations
+            )
             assert patched is not None
 
-            full = od.update_enrichment_status(all_datasets={
-                od._collections_label(): collections,
-                od._machine_annotations_label(): annotations,
-                od._scrapes_label(): scrapes2,
-            }, save_to_disk=False)
+            full = od.update_enrichment_status(
+                all_datasets={
+                    od._collections_label(): collections,
+                    od._machine_annotations_label(): annotations,
+                    od._scrapes_label(): scrapes2,
+                },
+                save_to_disk=False,
+            )
         finally:
             od.load_failed_scrapes = orig_failed
 

@@ -31,10 +31,6 @@ def snapshot_field_metadata(contract_module) -> dict:
         return {}
 
 
-
-
-
-
 def union_field_metadata(registry: dict, versions_to_include: set | None = None) -> dict:
     """Merge ``field_metadata`` across a registry's versions.
 

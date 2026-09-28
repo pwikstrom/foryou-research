@@ -46,16 +46,13 @@ _FIELD_RE = re.compile(r"[•·]\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
 
 def _current_field_specs() -> list:
     return [
-        {"gemini_field": n, "node": node, "flatten_rule": r}
-        for (n, node, r) in schema.FIELD_SPECS
+        {"gemini_field": n, "node": node, "flatten_rule": r} for (n, node, r) in schema.FIELD_SPECS
     ]
 
 
 def _current_proto() -> dict:
     # Exactly the serialization machine_annotation_batch.py ships to Vertex batch.
-    return schema.build_response_schema().model_dump(
-        mode="json", by_alias=True, exclude_none=True
-    )
+    return schema.build_response_schema().model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def _load(path: Path):

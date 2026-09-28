@@ -17,10 +17,6 @@ _ENDPOINTS = [
 ]
 
 
-
-
-
-
 @pytest.fixture
 def client(monkeypatch):
     from web_interface import security
@@ -42,18 +38,10 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-
 
 
 def _grant_permissions(monkeypatch, perms):
@@ -63,20 +51,12 @@ def _grant_permissions(monkeypatch, perms):
     monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
-
-
-
-
 def test_unauthenticated_is_rejected(client):
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "any"})
         assert res.status_code in (302, 401), endpoint
     res = client.get("/api/correlations/status?study=any")
     assert res.status_code in (302, 401)
-
-
-
-
 
 
 def test_requires_tab_permission(client, monkeypatch):
@@ -89,15 +69,13 @@ def test_requires_tab_permission(client, monkeypatch):
     assert res.status_code == 403
 
 
-
-
-
-
 def test_inaccessible_study_is_403(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["other_study"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["other_study"]
+    )
     _login(client, _TEST_VIEWER)
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "secret", "x_col": "a", "y_col": "b"})
@@ -106,24 +84,18 @@ def test_inaccessible_study_is_403(client, monkeypatch):
     assert res.status_code == 403
 
 
-
-
-
-
 def test_accessible_study_without_pca_is_404(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"]
+    )
     monkeypatch.setattr(routes, "get_pca_df", lambda study: None)
     _login(client, _TEST_VIEWER)
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "mystudy", "x_col": "a", "y_col": "b"})
         assert res.status_code == 404, endpoint
-
-
-
-
 
 
 def test_missing_study_param_is_400(client, monkeypatch):
@@ -132,10 +104,6 @@ def test_missing_study_param_is_400(client, monkeypatch):
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={})
         assert res.status_code == 400, endpoint
-
-
-
-
 
 
 def test_format_week_value():
@@ -151,25 +119,25 @@ def test_format_week_value():
     assert format_week_value(42) == "42"
 
 
-
-
-
-
 def test_correlation_matrix_nulls_not_zero(client, monkeypatch):
     """An undefined correlation must serialize as null, not r = 0."""
     from web_interface.routes import api_correlations_routes as routes
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"]
+    )
 
     # c and d never overlap, so their pairwise correlation is undefined
-    df = pd.DataFrame({
-        "a": [1.0, 2.0, 3.0, 4.0],
-        "b": [2.0, 4.0, 6.0, 8.0],
-        "c": [1.0, 2.0, float("nan"), float("nan")],
-        "d": [float("nan"), float("nan"), 3.0, 4.0],
-    })
+    df = pd.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [2.0, 4.0, 6.0, 8.0],
+            "c": [1.0, 2.0, float("nan"), float("nan")],
+            "d": [float("nan"), float("nan"), 3.0, 4.0],
+        }
+    )
     monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
     monkeypatch.setattr(correlations_service, "load_interpretations", lambda study: {})
 
@@ -186,10 +154,6 @@ def test_correlation_matrix_nulls_not_zero(client, monkeypatch):
     assert matrix[ic][i_d] is None
 
 
-
-
-
-
 def test_corr_settings_config_overrides(monkeypatch):
     """[correlations] config values override the built-in defaults."""
     from web_interface.services import correlations_service as cs
@@ -202,11 +166,17 @@ def test_corr_settings_config_overrides(monkeypatch):
     assert cs.correlation_method() == "pearson"
 
     # Section values win
-    monkeypatch.setattr(cs, "fyp_cf", {"correlations": {
-        "min_variance_pct": 20.0,
-        "max_scatter_points": 100,
-        "correlation_method": "spearman",
-    }})
+    monkeypatch.setattr(
+        cs,
+        "fyp_cf",
+        {
+            "correlations": {
+                "min_variance_pct": 20.0,
+                "max_scatter_points": 100,
+                "correlation_method": "spearman",
+            }
+        },
+    )
     assert cs.corr_setting("min_variance_pct") == 20.0
     assert cs.corr_setting("max_scatter_points") == 100
     assert cs.correlation_method() == "spearman"
@@ -214,10 +184,6 @@ def test_corr_settings_config_overrides(monkeypatch):
     # Invalid method degrades to pearson
     monkeypatch.setattr(cs, "fyp_cf", {"correlations": {"correlation_method": "kendall-ish"}})
     assert cs.correlation_method() == "pearson"
-
-
-
-
 
 
 def test_variance_filter_uses_config_threshold(monkeypatch):
@@ -241,10 +207,6 @@ def test_variance_filter_uses_config_threshold(monkeypatch):
     assert kept == sorted(["x_C0", "plain_numeric"])
 
 
-
-
-
-
 def test_component_cap_is_per_variable(monkeypatch):
     """A high-cardinality variable is trimmed without starving a small one.
 
@@ -254,17 +216,19 @@ def test_component_cap_is_per_variable(monkeypatch):
     """
     from web_interface.services import correlations_service as cs
 
-    interpretations = {f"niche_C{i}": {"explained_variance_pct": 15.0 - i}
-                       for i in range(10)}
-    interpretations.update({
-        "gender_C0": {"explained_variance_pct": 45.0},
-        "gender_C1": {"explained_variance_pct": 33.0},
-        "gender_C2": {"explained_variance_pct": 22.0},
-    })
+    interpretations = {f"niche_C{i}": {"explained_variance_pct": 15.0 - i} for i in range(10)}
+    interpretations.update(
+        {
+            "gender_C0": {"explained_variance_pct": 45.0},
+            "gender_C1": {"explained_variance_pct": 33.0},
+            "gender_C2": {"explained_variance_pct": 22.0},
+        }
+    )
     cols = list(interpretations) + ["niche_entropy", "completion_rate"]
 
-    monkeypatch.setattr(cs, "fyp_cf", {"correlations": {
-        "min_variance_pct": 5.0, "max_components_per_variable": 3}})
+    monkeypatch.setattr(
+        cs, "fyp_cf", {"correlations": {"min_variance_pct": 5.0, "max_components_per_variable": 3}}
+    )
     kept = cs.filter_components_by_variance(cols, interpretations)
 
     # Top 3 of each variable, by variance — no more, from either.
@@ -274,10 +238,6 @@ def test_component_cap_is_per_variable(monkeypatch):
     assert "niche_entropy" in kept and "completion_rate" in kept
 
 
-
-
-
-
 def test_component_cap_keeps_every_variable_represented(monkeypatch):
     """Each variable keeps its leading component even below the floor."""
     from web_interface.services import correlations_service as cs
@@ -285,46 +245,50 @@ def test_component_cap_keeps_every_variable_represented(monkeypatch):
     interpretations = {
         "big_C0": {"explained_variance_pct": 60.0},
         "big_C1": {"explained_variance_pct": 20.0},
-        "thin_C0": {"explained_variance_pct": 2.0},   # whole variable is weak
+        "thin_C0": {"explained_variance_pct": 2.0},  # whole variable is weak
         "thin_C1": {"explained_variance_pct": 1.5},
     }
-    monkeypatch.setattr(cs, "fyp_cf", {"correlations": {
-        "min_variance_pct": 10.0, "max_components_per_variable": 3}})
+    monkeypatch.setattr(
+        cs, "fyp_cf", {"correlations": {"min_variance_pct": 10.0, "max_components_per_variable": 3}}
+    )
     kept = cs.filter_components_by_variance(list(interpretations), interpretations)
 
     assert kept == sorted(["big_C0", "big_C1", "thin_C0"])
-
-
-
-
 
 
 def test_metadata_payload_prefs_and_views(monkeypatch):
     """The metadata payload carries the stat-view manifest and viz-prefs inputs."""
     from web_interface.services import correlations_service as cs
 
-    df = pd.DataFrame({
-        "advertising_C0": [0.1, 0.5, 0.9, 0.2],
-        "collection_id": ["a", "a", "b", "b"],
-        "local_date": ["d1", "d2", "d1", "d2"],
-        "local_week": ["w1", "w1", "w1", "w1"],
-        "is_weekend": ["weekday", "weekend", "weekday", "weekend"],
-    })
+    df = pd.DataFrame(
+        {
+            "advertising_C0": [0.1, 0.5, 0.9, 0.2],
+            "collection_id": ["a", "a", "b", "b"],
+            "local_date": ["d1", "d2", "d1", "d2"],
+            "local_week": ["w1", "w1", "w1", "w1"],
+            "is_weekend": ["weekday", "weekend", "weekday", "weekend"],
+        }
+    )
 
     def fake_get_vars_by_role(roles, some_events_df=None, verbose=False):
         cols = ["is_weekend"] if "comparison" in roles else []
         if some_events_df is not None:
             cols = [c for c in cols if c in some_events_df.columns]
         return sorted(cols)
+
     monkeypatch.setattr(cs, "get_vars_by_role", fake_get_vars_by_role)
     monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
     monkeypatch.setattr(cs, "load_display_id_map", lambda: {})
-    monkeypatch.setattr(cs, "load_schema_metadata", lambda m: {
-        "viz_priority": ["advertising"],
-        "all_variables_order": ["advertising", "aigc"],
-        "section_order": ["Content"],
-        "schema_map": {"advertising": {"section": "Content", "description": ""}},
-    })
+    monkeypatch.setattr(
+        cs,
+        "load_schema_metadata",
+        lambda m: {
+            "viz_priority": ["advertising"],
+            "all_variables_order": ["advertising", "aigc"],
+            "section_order": ["Content"],
+            "schema_map": {"advertising": {"section": "Content", "description": ""}},
+        },
+    )
 
     payload = cs.build_metadata_payload(df, "mystudy")
     assert [v["key"] for v in payload["views"]] == ["scatter", "heatmap", "group_stats"]
@@ -343,10 +307,6 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
     assert payload["factor_cols"] == ["collection_id", "is_weekend"]
 
 
-
-
-
-
 def test_pca_cache_invalidates_on_mtime_change(monkeypatch):
     """get_pca_df must reload when the parquet's mtime changes on disk."""
     import fyp.core.data_io as data_io
@@ -357,7 +317,9 @@ def test_pca_cache_invalidates_on_mtime_change(monkeypatch):
     df_v2 = pd.DataFrame({"x": [1, 2]})
 
     monkeypatch.setattr(data_io, "exists", lambda storage_location, filename, **kw: True)
-    monkeypatch.setattr(data_io, "getmtime", lambda storage_location, filename, **kw: state["mtime"])
+    monkeypatch.setattr(
+        data_io, "getmtime", lambda storage_location, filename, **kw: state["mtime"]
+    )
 
     def _fake_load(storage_location, filename, **kw):
         state["loads"] += 1
@@ -382,9 +344,6 @@ def test_pca_cache_invalidates_on_mtime_change(monkeypatch):
         analysis_data._pca_cache.clear()
 
 
-
-
-
 def test_pairwise_stats_match_scipy():
     """Golden values: r/p per pair against scipy, q against manual BH."""
     import numpy as np
@@ -393,10 +352,12 @@ def test_pairwise_stats_match_scipy():
     from web_interface.services.correlations_service import pairwise_correlation_stats
 
     rng = np.random.RandomState(7)
-    df = pd.DataFrame({
-        "a": rng.normal(size=40),
-        "b": rng.normal(size=40),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=40),
+            "b": rng.normal(size=40),
+        }
+    )
     df["c"] = df["a"] * 0.8 + rng.normal(scale=0.5, size=40)
     df.loc[df.index[:5], "b"] = float("nan")  # pairwise-n differs per pair
 
@@ -434,10 +395,6 @@ def test_pairwise_stats_match_scipy():
     assert r[0][0] == 1.0 and n[0][0] == 40
 
 
-
-
-
-
 def test_regression_stats_match_scipy():
     import numpy as np
     from scipy import stats as sps
@@ -456,7 +413,7 @@ def test_regression_stats_match_scipy():
     assert stats["slope"] == pytest.approx(ref.slope)
     assert stats["intercept"] == pytest.approx(ref.intercept)
     assert stats["r"] == pytest.approx(ref.rvalue)
-    assert stats["r2"] == pytest.approx(ref.rvalue ** 2)
+    assert stats["r2"] == pytest.approx(ref.rvalue**2)
     assert stats["p"] == pytest.approx(ref.pvalue)
     assert stats["ci_low"] == pytest.approx(ref.slope - t_crit * ref.stderr)
     assert stats["ci_high"] == pytest.approx(ref.slope + t_crit * ref.stderr)
@@ -466,21 +423,19 @@ def test_regression_stats_match_scipy():
     assert compute_regression_stats([1.0, 2.0], [1.0, 2.0]) is None
 
 
-
-
-
-
 def test_group_ellipses_match_numpy_cov():
     import numpy as np
 
     from web_interface.services.correlations_service import compute_group_ellipses
 
     rng = np.random.RandomState(11)
-    df = pd.DataFrame({
-        "x": rng.normal(size=30),
-        "y": rng.normal(size=30),
-        "grp": ["a"] * 20 + ["b"] * 10,
-    })
+    df = pd.DataFrame(
+        {
+            "x": rng.normal(size=30),
+            "y": rng.normal(size=30),
+            "grp": ["a"] * 20 + ["b"] * 10,
+        }
+    )
 
     ellipses = {e["group"]: e for e in compute_group_ellipses(df, "x", "y", "grp")}
     assert set(ellipses) == {"a", "b"}
@@ -500,17 +455,15 @@ def test_group_ellipses_match_numpy_cov():
     assert compute_group_ellipses(tiny, "x", "y", "grp") == []
 
 
-
-
-
-
 def test_within_collection_centering():
     from web_interface.services.correlations_service import apply_within_collection_centering
 
-    df = pd.DataFrame({
-        "collection_id": ["a", "a", "b", "b"],
-        "v": [1.0, 3.0, 10.0, 30.0],
-    })
+    df = pd.DataFrame(
+        {
+            "collection_id": ["a", "a", "b", "b"],
+            "v": [1.0, 3.0, 10.0, 30.0],
+        }
+    )
     out, applied = apply_within_collection_centering(df, ["v"])
     assert applied
     means = out.groupby("collection_id")["v"].mean()
@@ -526,31 +479,33 @@ def test_within_collection_centering():
     assert out2 is df2
 
 
-
-
-
-
 def test_matrix_payload_v2_fields(client, monkeypatch):
     """families ordering, n/p/q matrices, method override and centering flag."""
     from web_interface.routes import api_correlations_routes as routes
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"]
+    )
     monkeypatch.setattr(correlations_service, "load_interpretations", lambda study: {})
 
     rng_vals = [0.1, 0.9, 0.4, 0.7, 0.2, 0.8]
-    df = pd.DataFrame({
-        "a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        "b": [2.0, 4.1, 5.9, 8.2, 9.9, 12.1],
-        "c": rng_vals,
-        "collection_id": ["x", "x", "x", "y", "y", "y"],
-    })
+    df = pd.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "b": [2.0, 4.1, 5.9, 8.2, 9.9, 12.1],
+            "c": rng_vals,
+            "collection_id": ["x", "x", "x", "y", "y", "y"],
+        }
+    )
     monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
 
     _login(client, _TEST_VIEWER)
-    res = client.post("/api/correlations/correlation_matrix",
-                      json={"study": "mystudy", "method": "spearman", "center": True})
+    res = client.post(
+        "/api/correlations/correlation_matrix",
+        json={"study": "mystudy", "method": "spearman", "center": True},
+    )
     assert res.status_code == 200
     payload = res.get_json()
     assert payload["method"] == "spearman"
@@ -564,13 +519,10 @@ def test_matrix_payload_v2_fields(client, monkeypatch):
     assert payload["matrix"][i][i] == pytest.approx(1.0)
     assert payload["n_matrix"][i][i] == 6
     # An invalid method degrades to the configured default
-    res = client.post("/api/correlations/correlation_matrix",
-                      json={"study": "mystudy", "method": "nonsense"})
+    res = client.post(
+        "/api/correlations/correlation_matrix", json={"study": "mystudy", "method": "nonsense"}
+    )
     assert res.get_json()["method"] in ("pearson", "spearman")
-
-
-
-
 
 
 def test_status_payload_staleness(monkeypatch):
@@ -579,10 +531,12 @@ def test_status_payload_staleness(monkeypatch):
     from web_interface.services.correlations_service import build_status_payload
 
     mtimes = {"s_PCA.parquet": 100.0, "s_recoded.parquet": 50.0}
-    monkeypatch.setattr(data_io, "exists",
-                        lambda storage_location, filename, **kw: filename in mtimes)
-    monkeypatch.setattr(data_io, "getmtime",
-                        lambda storage_location, filename, **kw: mtimes[filename])
+    monkeypatch.setattr(
+        data_io, "exists", lambda storage_location, filename, **kw: filename in mtimes
+    )
+    monkeypatch.setattr(
+        data_io, "getmtime", lambda storage_location, filename, **kw: mtimes[filename]
+    )
 
     fresh = build_status_payload("s")
     assert fresh["has_pca"] and not fresh["stale"]
@@ -595,26 +549,28 @@ def test_status_payload_staleness(monkeypatch):
     assert not missing["has_pca"] and not missing["stale"]
 
 
-
-
-
-
 def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"]
+    )
 
-    df = pd.DataFrame({
-        "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        "y": [1.1, 2.2, 2.9, 4.2, 4.8, 6.1],
-        "collection_id": ["a", "a", "a", "b", "b", "b"],
-    })
+    df = pd.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "y": [1.1, 2.2, 2.9, 4.2, 4.8, 6.1],
+            "collection_id": ["a", "a", "a", "b", "b", "b"],
+        }
+    )
     monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
 
     _login(client, _TEST_VIEWER)
-    res = client.post("/api/correlations/data", json={
-        "study": "mystudy", "x_col": "x", "y_col": "y", "color_col": "collection_id"})
+    res = client.post(
+        "/api/correlations/data",
+        json={"study": "mystudy", "x_col": "x", "y_col": "y", "color_col": "collection_id"},
+    )
     assert res.status_code == 200
     payload = res.get_json()
     stats = payload["stats"]
@@ -628,6 +584,7 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
 
     # Per-collection slopes: one entry per collection, matching scipy per group.
     from scipy import stats as scipy_stats
+
     slopes = {s["collection_id"]: s for s in payload["per_collection_slopes"]}
     assert set(slopes) == {"a", "b"}
     for coll in ("a", "b"):
@@ -648,24 +605,28 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
         assert regs[coll]["n"] == 3
 
     # No colour split -> no per-group regressions.
-    res_nc = client.post("/api/correlations/data", json={
-        "study": "mystudy", "x_col": "x", "y_col": "y"})
+    res_nc = client.post(
+        "/api/correlations/data", json={"study": "mystudy", "x_col": "x", "y_col": "y"}
+    )
     assert res_nc.get_json()["per_group_regressions"] == []
 
     # Slopes are invariant to within-collection centering.
-    res_c = client.post("/api/correlations/data", json={
-        "study": "mystudy", "x_col": "x", "y_col": "y",
-        "color_col": "collection_id", "center": True})
+    res_c = client.post(
+        "/api/correlations/data",
+        json={
+            "study": "mystudy",
+            "x_col": "x",
+            "y_col": "y",
+            "color_col": "collection_id",
+            "center": True,
+        },
+    )
     assert res_c.status_code == 200
     payload_c = res_c.get_json()
     assert payload_c["centered"] is True
-    slopes_c = {s["collection_id"]: s["slope"]
-                for s in payload_c["per_collection_slopes"]}
+    slopes_c = {s["collection_id"]: s["slope"] for s in payload_c["per_collection_slopes"]}
     for coll in ("a", "b"):
         assert slopes_c[coll] == pytest.approx(slopes[coll]["slope"])
-
-
-
 
 
 def test_group_stats_endpoint(client, monkeypatch):
@@ -673,7 +634,9 @@ def test_group_stats_endpoint(client, monkeypatch):
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(
+        "web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"]
+    )
     _login(client, _TEST_VIEWER)
 
     # Missing artifact -> 404 with a hint
@@ -683,8 +646,7 @@ def test_group_stats_endpoint(client, monkeypatch):
     assert "hint" in res.get_json()
 
     # Present artifact is served verbatim
-    artifact = {"version": 1, "study": "mystudy", "n_groups": 12,
-                "anova": [], "permanova": []}
+    artifact = {"version": 1, "study": "mystudy", "n_groups": 12, "anova": [], "permanova": []}
     monkeypatch.setattr(correlations_service, "load_group_stats", lambda study: artifact)
     res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
     assert res.status_code == 200
@@ -703,14 +665,15 @@ def test_per_group_regressions_series_cap(monkeypatch):
 
     rng = np.random.RandomState(3)
     n_series = 13  # config default cap is 12
-    df = pd.DataFrame({
-        "x": rng.normal(size=n_series * 4),
-        "y": rng.normal(size=n_series * 4),
-        "collection_id": [f"c{i}" for i in range(n_series) for _ in range(4)],
-    })
+    df = pd.DataFrame(
+        {
+            "x": rng.normal(size=n_series * 4),
+            "y": rng.normal(size=n_series * 4),
+            "collection_id": [f"c{i}" for i in range(n_series) for _ in range(4)],
+        }
+    )
     assert cs.compute_per_group_regressions(df, "x", "y", "collection_id") == []
     small = df[df["collection_id"].isin([f"c{i}" for i in range(3)])]
     out = cs.compute_per_group_regressions(small, "x", "y", "collection_id")
     assert [r["group"] for r in out] == ["c0", "c1", "c2"]
     assert cs.compute_per_group_regressions(small, "x", "y", None) == []
-

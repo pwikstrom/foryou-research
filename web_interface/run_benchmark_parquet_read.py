@@ -35,12 +35,14 @@ def _default_targets():
         MACHINE_ANNOTATIONS_LABEL,
         SCRAPES_LABEL,
     )
+
     return [
         ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
         ("recoded", f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"),
         ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
         ("recoded", "enrichment_status.parquet"),
     ]
+
 
 REPEATS = 3
 
@@ -52,7 +54,7 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
     from fyp.core.data_io import _get_bucket, _resolve_paths
 
     gcs_uri, _, mode, blob_name = _resolve_paths(storage_location, filename)
-    if mode != 'gcs':
+    if mode != "gcs":
         reporter.log(f"[BENCH] SKIP {storage_location}/{filename} — not in GCS mode")
         return
     bucket = _get_bucket()
@@ -76,8 +78,10 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
         # --- Method A: gcsfs path (current production behavior) ---
         t0 = time.perf_counter()
         df_a = pd.read_parquet(
-            gcs_uri, engine="pyarrow",
-            dtype_backend="pyarrow", use_threads=True,
+            gcs_uri,
+            engine="pyarrow",
+            dtype_backend="pyarrow",
+            use_threads=True,
         )
         t_a = time.perf_counter() - t0
         timings["A_gcsfs"].append(t_a)
@@ -104,8 +108,10 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
             blob = bucket.blob(blob_name)
             blob.download_to_filename(tmp_path)
             df_c = pd.read_parquet(
-                tmp_path, engine="pyarrow",
-                dtype_backend="pyarrow", use_threads=True,
+                tmp_path,
+                engine="pyarrow",
+                dtype_backend="pyarrow",
+                use_threads=True,
             )
         finally:
             if tmp_path and os.path.exists(tmp_path):
@@ -119,7 +125,7 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
         del df_c
 
         reporter.log(
-            f"[BENCH] run={i+1}/{REPEATS} "
+            f"[BENCH] run={i + 1}/{REPEATS} "
             f"A_gcsfs={t_a:.2f}s  B_bytes={t_b:.2f}s  C_tempfile={t_c:.2f}s  "
             f"rows(a/b/c)={rows_a}/{rows_b}/{rows_c}"
         )
@@ -131,7 +137,7 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
     reporter.log(
         f"[BENCH] MEDIAN {filename}: "
         f"A_gcsfs={med_a:.2f}s  B_bytes={med_b:.2f}s  C_tempfile={med_c:.2f}s  "
-        f"(B vs A: {med_a/med_b:.2f}x, C vs A: {med_a/med_c:.2f}x)"
+        f"(B vs A: {med_a / med_b:.2f}x, C vs A: {med_a / med_c:.2f}x)"
     )
 
 

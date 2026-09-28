@@ -35,15 +35,22 @@ _FAKE_REGISTRY = {
 
 
 def _synthetic_study_df() -> pd.DataFrame:
-    df = pd.DataFrame({
-        "item_id": pd.array(["1", "2", "3", "4"], dtype="string[pyarrow]"),
-        "collection_id": pd.array(["c1", "c1", "c2", "c2"], dtype="string[pyarrow]"),
-        "local_timestamp": pd.to_datetime(
-            ["2024-03-01 10:00", "2024-04-15 11:00", "2024-05-01 12:00", "2024-06-30 13:00"]),
-        "annotation_version": pd.array(["av_new", "av_new", "av_old", None], dtype="string[pyarrow]"),
-        "scrape_contract_version": pd.array(["sv_a", "sv_a", "sv_a", None], dtype="string[pyarrow]"),
-        "activity_contract_version": pd.array(["acv_a"] * 4, dtype="string[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "item_id": pd.array(["1", "2", "3", "4"], dtype="string[pyarrow]"),
+            "collection_id": pd.array(["c1", "c1", "c2", "c2"], dtype="string[pyarrow]"),
+            "local_timestamp": pd.to_datetime(
+                ["2024-03-01 10:00", "2024-04-15 11:00", "2024-05-01 12:00", "2024-06-30 13:00"]
+            ),
+            "annotation_version": pd.array(
+                ["av_new", "av_new", "av_old", None], dtype="string[pyarrow]"
+            ),
+            "scrape_contract_version": pd.array(
+                ["sv_a", "sv_a", "sv_a", None], dtype="string[pyarrow]"
+            ),
+            "activity_contract_version": pd.array(["acv_a"] * 4, dtype="string[pyarrow]"),
+        }
+    )
     return df
 
 
@@ -62,15 +69,11 @@ def _study_config(**overrides) -> dict:
 
 @pytest.fixture
 def stub_io(monkeypatch):
-    monkeypatch.setattr(methods_note.annotation_versioning, "load_registry",
-                        lambda: dict(_FAKE_REGISTRY))
-    monkeypatch.setattr(methods_note.data_io, "getmtime",
-                        lambda **kw: 1000.0)
+    monkeypatch.setattr(
+        methods_note.annotation_versioning, "load_registry", lambda: dict(_FAKE_REGISTRY)
+    )
+    monkeypatch.setattr(methods_note.data_io, "getmtime", lambda **kw: 1000.0)
     monkeypatch.setattr(methods_note.data_io, "exists", lambda **kw: False)
-
-
-
-
 
 
 def test_version_distribution_buckets():
@@ -83,16 +86,17 @@ def test_version_distribution_buckets():
     assert methods_note._version_distribution(None, "annotation_version") == {}
 
 
-
-
-
-
 def test_build_methods_note_full(stub_io):
     df = _synthetic_study_df()
     stats = {
-        "total_activities": 4, "unique_videos": 4, "unique_collections": 2,
-        "active_days": 4, "scraped_videos": 3, "annotated_videos": 3,
-        "activities_scraped": 3, "activities_annotated": 3,
+        "total_activities": 4,
+        "unique_videos": 4,
+        "unique_collections": 2,
+        "active_days": 4,
+        "scraped_videos": 3,
+        "annotated_videos": 3,
+        "activities_scraped": 3,
+        "activities_annotated": 3,
     }
     note = methods_note.build_methods_note(
         study_name="teststudy",
@@ -134,12 +138,6 @@ def test_build_methods_note_full(stub_io):
     assert note["freshness"]["row_level_fields_from"] == "dataframe"
 
 
-
-
-
-
-
-
 def test_build_methods_note_pinned_version(stub_io):
     note = methods_note.build_methods_note(
         study_name="teststudy",
@@ -154,20 +152,17 @@ def test_build_methods_note_pinned_version(stub_io):
     assert "pinned" in ann["version_in_use_note"]
 
 
-
-
-
-
 def test_build_methods_note_sampling_block(stub_io):
     df = _synthetic_study_df()
     df.attrs["sampling_report"] = {
-        "n_excluded_collections": 2, "n_downsampled_collections": 1,
-        "min_cells_per_collection": 20, "max_cells_per_collection": 200,
+        "n_excluded_collections": 2,
+        "n_downsampled_collections": 1,
+        "min_cells_per_collection": 20,
+        "max_cells_per_collection": 200,
     }
     note = methods_note.build_methods_note(
         study_name="teststudy",
-        study_config=_study_config(SAMPLE_FRAME="annotated",
-                                   MIN_ACTIVITY_COUNT_PER_GROUP=30),
+        study_config=_study_config(SAMPLE_FRAME="annotated", MIN_ACTIVITY_COUNT_PER_GROUP=30),
         df_study=df,
     )
     sel = note["selection"]
@@ -176,10 +171,6 @@ def test_build_methods_note_sampling_block(stub_io):
     assert sel["random_seed"] == 42
     assert sel["thresholds"]["min_activity_per_group"] == 30
     assert sel["sampling_report"]["collections_excluded_by_thresholds"] == 2
-
-
-
-
 
 
 def test_build_methods_note_without_dataframe(stub_io):
@@ -194,10 +185,6 @@ def test_build_methods_note_without_dataframe(stub_io):
     assert note["selection"]["date_window"]["actual_min"] is None
 
 
-
-
-
-
 def test_note_staleness(monkeypatch):
     monkeypatch.setattr(methods_note.data_io, "getmtime", lambda **kw: 2000.0)
     fresh_note = {"freshness": {"source_parquet_mtime": 2000.0}}
@@ -208,10 +195,6 @@ def test_note_staleness(monkeypatch):
 
     # Missing mtimes are never "stale"
     assert methods_note.note_staleness("s", {"freshness": {}})["stale"] is False
-
-
-
-
 
 
 # ============================================================================
@@ -240,18 +223,10 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-
 
 
 def _grant_permissions(monkeypatch, perms):
@@ -260,17 +235,9 @@ def _grant_permissions(monkeypatch, perms):
     monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
-
-
-
-
 def test_methods_endpoint_requires_auth(client):
     res = client.get("/api/studies/whatever/methods")
     assert res.status_code in (302, 401)
-
-
-
-
 
 
 def test_methods_endpoint_requires_tab_permission(client, monkeypatch):
@@ -278,10 +245,6 @@ def test_methods_endpoint_requires_tab_permission(client, monkeypatch):
     _login(client, _TEST_VIEWER)
     res = client.get("/api/studies/whatever/methods")
     assert res.status_code == 403
-
-
-
-
 
 
 def test_methods_endpoint_requires_study_access(client, monkeypatch):
@@ -292,10 +255,6 @@ def test_methods_endpoint_requires_study_access(client, monkeypatch):
     _login(client, _TEST_VIEWER)
     res = client.get("/api/studies/secret/methods")
     assert res.status_code == 403
-
-
-
-
 
 
 def test_methods_endpoint_missing_note_404_with_hint(client, monkeypatch):
@@ -311,18 +270,20 @@ def test_methods_endpoint_missing_note_404_with_hint(client, monkeypatch):
     assert "hint" in res.get_json()
 
 
-
-
-
-
 def test_methods_endpoint_returns_note_with_staleness(client, monkeypatch):
     from web_interface.routes import _access
 
     _grant_permissions(monkeypatch, ["tab.explore"])
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["mystudy"])
-    monkeypatch.setattr(methods_note, "read_methods_note",
-                        lambda study: {"schema_version": 1, "study": {"name": study},
-                                       "freshness": {"source_parquet_mtime": 100.0}})
+    monkeypatch.setattr(
+        methods_note,
+        "read_methods_note",
+        lambda study: {
+            "schema_version": 1,
+            "study": {"name": study},
+            "freshness": {"source_parquet_mtime": 100.0},
+        },
+    )
     monkeypatch.setattr(methods_note.data_io, "getmtime", lambda **kw: 100.0)
     _login(client, _TEST_VIEWER)
 

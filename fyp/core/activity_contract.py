@@ -38,13 +38,9 @@ _DEFAULT_CONTRACT_PATH = (
 VALID_SCOPES = frozenset({"base", "platform"})
 
 
-
-
 def default_contract_path() -> Path:
     """Return the repo-relative default path to the activity contract."""
     return _DEFAULT_CONTRACT_PATH
-
-
 
 
 def load_contract(path: str | Path | None = None) -> dict:
@@ -73,8 +69,6 @@ def load_contract(path: str | Path | None = None) -> dict:
     return contract
 
 
-
-
 def required_columns(contract: dict) -> dict[str, str]:
     """Return ``{column: pyarrow_dtype}`` for the ingested base columns.
 
@@ -88,8 +82,6 @@ def required_columns(contract: dict) -> dict[str, str]:
         if field.get("scope") == "base" and not field.get("derived"):
             out[field["name"]] = field.get("dtype")
     return out
-
-
 
 
 def platform_columns(contract: dict, platform: str | None) -> dict[str, str]:
@@ -107,8 +99,6 @@ def platform_columns(contract: dict, platform: str | None) -> dict[str, str]:
     return out
 
 
-
-
 def required_core_fields(contract: dict) -> list[str]:
     """Return the field names whose null value makes a row invalid (``required=true``).
 
@@ -117,13 +107,9 @@ def required_core_fields(contract: dict) -> list[str]:
     return [f["name"] for f in contract.get("fields", []) if f.get("required")]
 
 
-
-
 def derived_fields(contract: dict) -> set[str]:
     """Return the names of fields computed after ingestion (``derived = true``)."""
     return {f["name"] for f in contract.get("fields", []) if f.get("derived")}
-
-
 
 
 def platforms(contract: dict) -> list[str]:
@@ -134,8 +120,6 @@ def platforms(contract: dict) -> list[str]:
         if field.get("scope") == "platform" and plat and plat not in seen:
             seen.append(plat)
     return seen
-
-
 
 
 def contract_column_metadata(contract: dict) -> dict[str, dict]:
@@ -164,8 +148,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
     return out
 
 
-
-
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
@@ -188,8 +170,6 @@ def contract_field_digest(contract: dict) -> dict:
     }
 
 
-
-
 def validate_contract(contract: dict) -> list[str]:
     """Validate the activity contract; return a list of error strings (empty = valid).
 
@@ -209,7 +189,12 @@ def validate_contract(contract: dict) -> list[str]:
     # var_schema role/scale vocabularies live in recode_variables; import lazily so
     # this module never pulls in fyp_config (which recode_variables imports) at load.
     try:
-        from fyp.annotation.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        from fyp.annotation.recode_variables import (
+            LEGACY_ROLE_ALIASES,
+            VAR_SCHEMA_ROLES,
+            VAR_SCHEMA_SCALES,
+        )
+
         # Legacy role strings stay valid (normalized at var_schema load).
         valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)
         valid_scales = set(VAR_SCHEMA_SCALES)

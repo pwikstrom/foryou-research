@@ -36,7 +36,10 @@ def client(app):
     return app.test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/participate", "/data-donation", "/thehub", "/faq", "/login", "/signup"])
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/about", "/participate", "/data-donation", "/thehub", "/faq", "/login", "/signup"],
+)
 def test_public_pages_render_anonymously(client, path):
     resp = client.get(path)
     assert resp.status_code == 200
@@ -132,8 +135,11 @@ def test_participate_start_renders_all_stages_and_platforms(client):
     resp = client.get("/participate/start")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    for label in ("I want to request my data", "I'm waiting for my data",
-                  "I have received my data"):
+    for label in (
+        "I want to request my data",
+        "I'm waiting for my data",
+        "I have received my data",
+    ):
         assert label in body
     # The shared how-to partial in inline mode: one body per platform.
     for platform in ("tiktok", "instagram", "youtube"):

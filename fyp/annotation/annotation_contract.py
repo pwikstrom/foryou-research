@@ -53,9 +53,7 @@ _DEFAULT_CONTRACT_PATH = (
 
 # UI help texts for the form editor — the servable transcription of the baked
 # contract's explanatory comments (see contract_help()).
-_HELP_PATH = (
-    Path(fyp.__file__).resolve().parent.parent / "config" / "annotation_contract_help.toml"
-)
+_HELP_PATH = Path(fyp.__file__).resolve().parent.parent / "config" / "annotation_contract_help.toml"
 
 # The runtime, admin-editable copy of the contract lives in data storage
 # (location ``users``, alongside var_presentation.json / admin_settings.json).
@@ -74,15 +72,11 @@ BACKUP_PREFIX = "annotation_contract_backup_"
 _SNAPSHOT: dict = {"loaded": False}
 
 
-
-
 def _data_io():
     """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io
-
-
 
 
 def _baked_only() -> bool:
@@ -95,13 +89,9 @@ def _baked_only() -> bool:
     return os.environ.get("FYP_BAKED_CONTRACTS_ONLY", "").strip().lower() in ("1", "true", "yes")
 
 
-
-
 def default_contract_path() -> Path:
     """Return the repo-relative default path to the annotation contract."""
     return _DEFAULT_CONTRACT_PATH
-
-
 
 
 def parse_and_validate(text: str) -> tuple[dict | None, list[str]]:
@@ -126,21 +116,15 @@ def parse_and_validate(text: str) -> tuple[dict | None, list[str]]:
     return contract, validate_contract(contract)
 
 
-
-
 def _etag(text: str, source: str) -> str:
     """Return a source-prefixed content etag (``runtime:``/``baked:`` + sha256)."""
     return f"{source}:" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
-
-
 
 
 def _read_baked_text() -> str:
     """Read the baked contract file's raw text."""
     with open(_DEFAULT_CONTRACT_PATH, encoding="utf-8") as handle:
         return handle.read()
-
-
 
 
 def _apply_baked_snapshot(error: str | None) -> None:
@@ -156,8 +140,6 @@ def _apply_baked_snapshot(error: str | None) -> None:
     _SNAPSHOT["source"] = "baked"
     _SNAPSHOT["etag"] = _etag(text, "baked")
     _SNAPSHOT["error"] = error or ("; ".join(errors) if errors else None)
-
-
 
 
 def refresh_runtime_contract() -> bool:
@@ -200,14 +182,18 @@ def refresh_runtime_contract() -> bool:
         else:
             text = dio.load_text(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
             if text is None:
-                logger.warning("WARNING: runtime annotation contract present but unreadable; using baked contract.")
+                logger.warning(
+                    "WARNING: runtime annotation contract present but unreadable; using baked contract."
+                )
                 _apply_baked_snapshot(error="runtime contract unreadable")
                 _SNAPSHOT["mtime"] = mtime
             else:
                 contract, errors = parse_and_validate(text)
                 if errors:
                     joined = "; ".join(errors)
-                    logger.warning(f"WARNING: runtime annotation contract invalid ({joined}); using baked contract.")
+                    logger.warning(
+                        f"WARNING: runtime annotation contract invalid ({joined}); using baked contract."
+                    )
                     _apply_baked_snapshot(error=joined)
                     _SNAPSHOT["mtime"] = mtime
                 else:
@@ -217,7 +203,9 @@ def refresh_runtime_contract() -> bool:
                     _SNAPSHOT["error"] = None
                     _SNAPSHOT["mtime"] = mtime
     except Exception as e:
-        logger.warning(f"WARNING: runtime annotation contract probe failed ({e}); using baked contract.")
+        logger.warning(
+            f"WARNING: runtime annotation contract probe failed ({e}); using baked contract."
+        )
         try:
             _apply_baked_snapshot(error=f"runtime probe failed: {e}")
             _SNAPSHOT["mtime"] = None
@@ -228,22 +216,16 @@ def refresh_runtime_contract() -> bool:
     return _SNAPSHOT.get("etag") != old_etag
 
 
-
-
 def _ensure_loaded() -> None:
     """Load the snapshot once, lazily, on first access."""
     if not _SNAPSHOT.get("loaded"):
         refresh_runtime_contract()
 
 
-
-
 def contract_etag() -> str:
     """Return the effective contract's content etag (source-prefixed)."""
     _ensure_loaded()
     return _SNAPSHOT.get("etag") or "unknown"
-
-
 
 
 def contract_status() -> dict:
@@ -257,7 +239,12 @@ def contract_status() -> dict:
     meta: dict = {}
     if _SNAPSHOT.get("source") == "runtime" and not _baked_only():
         try:
-            meta = _data_io().load_json(storage_location=RUNTIME_LOCATION, filename=RUNTIME_META_FILENAME) or {}
+            meta = (
+                _data_io().load_json(
+                    storage_location=RUNTIME_LOCATION, filename=RUNTIME_META_FILENAME
+                )
+                or {}
+            )
         except Exception:
             meta = {}
     return {
@@ -271,8 +258,6 @@ def contract_status() -> dict:
     }
 
 
-
-
 def effective_contract_text() -> str:
     """Return the raw TOML text of the effective contract (runtime or baked).
 
@@ -281,14 +266,14 @@ def effective_contract_text() -> str:
     _ensure_loaded()
     if _SNAPSHOT.get("source") == "runtime" and not _baked_only():
         try:
-            text = _data_io().load_text(storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME)
+            text = _data_io().load_text(
+                storage_location=RUNTIME_LOCATION, filename=RUNTIME_FILENAME
+            )
             if text is not None:
                 return text
         except Exception:
             pass
     return _read_baked_text()
-
-
 
 
 def load_contract(path: str | Path | None = None) -> dict:
@@ -318,22 +303,16 @@ def load_contract(path: str | Path | None = None) -> dict:
         errors = validate_contract(contract)
         if errors:
             joined = "\n  - ".join(errors)
-            raise ValueError(
-                f"Invalid annotation contract ({contract_path}):\n  - {joined}"
-            )
+            raise ValueError(f"Invalid annotation contract ({contract_path}):\n  - {joined}")
         return contract
 
     _ensure_loaded()
     return _SNAPSHOT.get("contract")
 
 
-
-
 def sections(contract: dict) -> list[dict]:
     """Return the contract's prompt sections in document order."""
     return list(contract.get("section", []))
-
-
 
 
 def enum_values(contract: dict, name: str) -> list[str]:
@@ -348,16 +327,12 @@ def enum_values(contract: dict, name: str) -> list[str]:
     return list(enum)
 
 
-
-
 def enum_descriptions(contract: dict, name: str) -> dict | None:
     """Return the value→description map for an enum, or ``None`` if it has none."""
     enum = contract["enums"][name]
     if isinstance(enum, dict):
         return dict(enum)
     return None
-
-
 
 
 def enum_field_names(contract: dict) -> set[str]:
@@ -370,8 +345,6 @@ def enum_field_names(contract: dict) -> set[str]:
     var_schema columns.
     """
     return {f["name"] for f in contract.get("fields", []) if f.get("enum")}
-
-
 
 
 def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
@@ -397,8 +370,6 @@ def contract_numeric_ranges(contract: dict) -> dict[str, tuple[int, int]]:
     return ranges
 
 
-
-
 def contract_numeric_array_fields(contract: dict) -> set[str]:
     """Return flattened column names that are an array of numbers (one per item).
 
@@ -417,8 +388,6 @@ def contract_numeric_array_fields(contract: dict) -> set[str]:
     return out
 
 
-
-
 def field_drop_words(contract: dict) -> dict[str, list[str]]:
     """Return the per-field recode stop words declared in ``[recode.drop]``.
 
@@ -433,14 +402,10 @@ def field_drop_words(contract: dict) -> dict[str, list[str]]:
     return {k: list(v) for k, v in drop.items() if isinstance(v, list)}
 
 
-
-
 def _is_array(field: dict) -> bool:
     """Return True when a field declares ``array`` (``true`` or an integer)."""
     arr = field.get("array")
     return arr is not None and arr is not False
-
-
 
 
 def _array_max_items(field: dict) -> int | None:
@@ -451,8 +416,6 @@ def _array_max_items(field: dict) -> int | None:
     if isinstance(arr, int):
         return arr
     return None
-
-
 
 
 def _scalar_node(field: dict, contract: dict) -> dict:
@@ -470,8 +433,6 @@ def _scalar_node(field: dict, contract: dict) -> dict:
     return node
 
 
-
-
 def _subkey_spec(spec) -> str:
     """Return the schema-defining string for a ``[fields.keys]`` sub-key.
 
@@ -485,8 +446,6 @@ def _subkey_spec(spec) -> str:
     if isinstance(spec, dict):
         return str(spec.get("spec", ""))
     return spec if isinstance(spec, str) else ""
-
-
 
 
 def _subkey_metadata(spec) -> dict | None:
@@ -505,8 +464,6 @@ def _subkey_metadata(spec) -> dict | None:
     return None
 
 
-
-
 def _subkey_node(spec, contract: dict) -> dict:
     """Build a JSON-schema node for one ``[fields.keys]`` sub-key.
 
@@ -517,10 +474,10 @@ def _subkey_node(spec, contract: dict) -> dict:
     """
     spec = _subkey_spec(spec)
     if isinstance(spec, str) and spec.startswith("enum:"):
-        name = spec[len("enum:"):].strip()
+        name = spec[len("enum:") :].strip()
         return {"type": "string", "enum": enum_values(contract, name)}
     if isinstance(spec, str) and spec.startswith("list:"):
-        desc = spec[len("list:"):].strip()
+        desc = spec[len("list:") :].strip()
         node: dict = {"type": "array", "items": {"type": "string"}}
         if desc:
             node["description"] = desc
@@ -542,8 +499,6 @@ def _subkey_node(spec, contract: dict) -> dict:
     return node
 
 
-
-
 def _object_item_node(field: dict, contract: dict) -> dict:
     """Build the object node for a ``type = "object"`` field from ``keys``."""
     properties: dict = {}
@@ -554,8 +509,6 @@ def _object_item_node(field: dict, contract: dict) -> dict:
         "properties": properties,
         "required": list(field.get("keys", {}).keys()),
     }
-
-
 
 
 def _build_node(field: dict, contract: dict) -> dict:
@@ -577,8 +530,6 @@ def _build_node(field: dict, contract: dict) -> dict:
     if field.get("desc"):
         node["description"] = field["desc"]
     return node
-
-
 
 
 def infer_scale(field: dict) -> str | None:
@@ -607,8 +558,6 @@ def infer_scale(field: dict) -> str | None:
     return None
 
 
-
-
 def infer_subkey_scale(spec, parent_array: bool = False) -> str | None:
     """Infer a ``[fields.keys]`` sub-key's ``scale`` from its spec string.
 
@@ -635,13 +584,9 @@ def infer_subkey_scale(spec, parent_array: bool = False) -> str | None:
     return None
 
 
-
-
 def effective_scale(field: dict) -> str | None:
     """Return a field's declared ``scale``, or the inferred one when omitted."""
     return field.get("scale") or infer_scale(field)
-
-
 
 
 def effective_subkey_scale(spec, parent_array: bool = False) -> str | None:
@@ -651,8 +596,6 @@ def effective_subkey_scale(spec, parent_array: bool = False) -> str | None:
     return infer_subkey_scale(spec, parent_array)
 
 
-
-
 def _infer_flatten(field: dict) -> str:
     """Infer the flatten rule from a field's structure."""
     if field.get("type") == "object":
@@ -660,8 +603,6 @@ def _infer_flatten(field: dict) -> str:
     if _is_array(field):
         return "list_join"
     return "scalar"
-
-
 
 
 def build_field_specs(contract: dict) -> list[tuple[str, dict, str]]:
@@ -679,8 +620,6 @@ def build_field_specs(contract: dict) -> list[tuple[str, dict, str]]:
     return specs
 
 
-
-
 # A contract field whose flattened column is renamed downstream of the
 # flattener. ``transcript`` is rebuilt as ``transcript_no_repetitions`` in
 # ``machine_annotation.py`` (search that file for ``transcript_no_repetitions``).
@@ -691,8 +630,6 @@ _RENAMED_FIELDS = {"transcript": "transcript_no_repetitions"}
 # ``("audio_summary_", "")`` rule). Faces is NOT stripped, so it keeps the
 # ``faces_`` prefix. Keep this in lockstep with that rename map.
 _PREFIX_STRIPPED_OBJECTS = {"audio_summary"}
-
-
 
 
 def contract_output_column(field_name: str, sub_key: str | None = None) -> str:
@@ -715,8 +652,6 @@ def contract_output_column(field_name: str, sub_key: str | None = None) -> str:
     if field_name in _PREFIX_STRIPPED_OBJECTS:
         return sub_key
     return f"{field_name}_{sub_key}"
-
-
 
 
 def contract_column_metadata(contract: dict) -> dict[str, dict]:
@@ -745,7 +680,9 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
         if field.get("type") == "object":
             for key, spec in field.get("keys", {}).items():
                 meta = _subkey_metadata(spec)
-                if not meta or not (meta.get("role") or meta.get("scale") or meta.get("display_name")):
+                if not meta or not (
+                    meta.get("role") or meta.get("scale") or meta.get("display_name")
+                ):
                     continue
                 if not meta.get("scale"):
                     meta["scale"] = infer_subkey_scale(spec, parent_array=_is_array(field))
@@ -765,8 +702,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
                 "description": field.get("description", field.get("desc")),
             }
     return out
-
-
 
 
 def validate_contract(contract: dict) -> list[str]:
@@ -790,7 +725,12 @@ def validate_contract(contract: dict) -> list[str]:
     # var_schema role/scale vocabularies live in recode_variables; import lazily so
     # this module never pulls in fyp_config (which recode_variables imports) at load.
     try:
-        from fyp.annotation.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        from fyp.annotation.recode_variables import (
+            LEGACY_ROLE_ALIASES,
+            VAR_SCHEMA_ROLES,
+            VAR_SCHEMA_SCALES,
+        )
+
         # Legacy role strings stay valid: older uploaded runtime contracts /
         # registry snapshots still carry them (normalized at var_schema load).
         valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)
@@ -818,7 +758,7 @@ def validate_contract(contract: dict) -> list[str]:
             errors.append(f"enum '{name}' is empty")
 
     def _check_enum_ref(ref: str, where: str) -> None:
-        target = ref[len("enum:"):].strip() if ref.startswith("enum:") else ref
+        target = ref[len("enum:") :].strip() if ref.startswith("enum:") else ref
         if target not in enums:
             errors.append(f"{where}: unknown enum ref '{target}'")
 
@@ -840,7 +780,9 @@ def validate_contract(contract: dict) -> list[str]:
             if field.get("section") not in section_names:
                 errors.append(f"{where}: section '{field.get('section')}' not in [[section]]")
         elif "section" in field:
-            errors.append(f"{where}: 'section' declared but the contract has no [[section]] entries")
+            errors.append(
+                f"{where}: 'section' declared but the contract has no [[section]] entries"
+            )
 
         ftype = field.get("type", "string")
         if ftype not in VALID_TYPES:
@@ -892,8 +834,6 @@ def validate_contract(contract: dict) -> list[str]:
     return errors
 
 
-
-
 # ---------------------------------------------------------------------------
 # Form-editor support: help texts, sub-key spec-string round-tripping, and
 # dict → TOML serialization (tomlkit).
@@ -912,8 +852,6 @@ def _tomlkit():
     return tomlkit
 
 
-
-
 def contract_help() -> dict[str, str]:
     """Return the form-editor help texts keyed by dotted contract path.
 
@@ -928,8 +866,6 @@ def contract_help() -> dict[str, str]:
             return {str(k): str(v) for k, v in tomllib.load(handle).get("help", {}).items()}
     except Exception:
         return {}
-
-
 
 
 def parse_key_spec(spec: str) -> dict:
@@ -953,9 +889,9 @@ def parse_key_spec(spec: str) -> dict:
     """
     spec = spec if isinstance(spec, str) else ""
     if spec.startswith("enum:"):
-        return {"kind": "enum", "enum": spec[len("enum:"):].strip(), "desc": ""}
+        return {"kind": "enum", "enum": spec[len("enum:") :].strip(), "desc": ""}
     if spec.startswith("list:"):
-        return {"kind": "list", "desc": spec[len("list:"):].strip()}
+        return {"kind": "list", "desc": spec[len("list:") :].strip()}
     m = _INT_SUBKEY_RE.match(spec)
     if m:
         parts: dict = {"kind": "int", "desc": m.group(3).strip()}
@@ -964,8 +900,6 @@ def parse_key_spec(spec: str) -> dict:
             parts["max"] = int(m.group(2))
         return parts
     return {"kind": "text", "desc": spec}
-
-
 
 
 def format_key_spec(parts: dict) -> str:
@@ -994,14 +928,10 @@ def format_key_spec(parts: dict) -> str:
     return desc
 
 
-
-
 def _plain(value):
     """Return a tomlkit item as its plain-Python equivalent (or as-is)."""
     unwrap = getattr(value, "unwrap", None)
     return unwrap() if callable(unwrap) else value
-
-
 
 
 def _keys_table(keys: dict, tk):
@@ -1016,8 +946,6 @@ def _keys_table(keys: dict, tk):
         else:
             table[sub_key] = spec
     return table
-
-
 
 
 def _build_item(key: str, value, tk):
@@ -1037,16 +965,12 @@ def _build_item(key: str, value, tk):
     return value
 
 
-
-
 def _table_from(entry: dict, tk):
     """Build a tomlkit table for one ``[[section]]`` / ``[[fields]]`` entry."""
     table = tk.table()
     for k, v in entry.items():
         table[k] = _build_item(k, v, tk)
     return table
-
-
 
 
 def _update_table_in_place(table, new: dict, tk) -> None:
@@ -1063,8 +987,6 @@ def _update_table_in_place(table, new: dict, tk) -> None:
             table[key] = _build_item(key, value, tk)
 
 
-
-
 def _sync_table(doc, name: str, new: dict | None, tk) -> None:
     """Sync one top-level table (``prompt`` / ``enums`` / ``recode``) in place."""
     if not new:
@@ -1074,8 +996,6 @@ def _sync_table(doc, name: str, new: dict | None, tk) -> None:
     if name not in doc:
         doc[name] = tk.table()
     _update_table_in_place(doc[name], new, tk)
-
-
 
 
 def _sync_aot(doc, name: str, new_list: list, tk) -> None:
@@ -1112,8 +1032,6 @@ def _sync_aot(doc, name: str, new_list: list, tk) -> None:
     doc[name] = aot
 
 
-
-
 # Canonical top-level order for a regenerated contract file.
 _TOP_LEVEL_ORDER = ("prompt", "recode", "enums", "section", "fields")
 
@@ -1126,8 +1044,6 @@ _FRESH_COMMENTS = {
     "section": "Prompt sections (order = document order).",
     "fields": "The Gemini output fields, in prompt/schema order.",
 }
-
-
 
 
 def _serialize_fresh(contract: dict) -> str:
@@ -1157,8 +1073,6 @@ def _serialize_fresh(contract: dict) -> str:
         else:
             doc[key] = _build_item(key, value, tk)
     return tk.dumps(doc)
-
-
 
 
 def serialize_contract(contract: dict, base_text: str | None = None) -> str:

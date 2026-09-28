@@ -25,42 +25,40 @@ def _local_resolve(tmp: str):
     """A _resolve_paths stand-in pinning every location to tmp (local mode)."""
 
     def _resolve(storage_location="cache", filename=""):
-        return (os.path.join(tmp, filename), None, 'local', None)
+        return (os.path.join(tmp, filename), None, "local", None)
 
     return _resolve
-
-
-
-
 
 
 def test_local_update_creates_missing_file_from_default():
     with tempfile.TemporaryDirectory() as tmp:
         with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
             result = data_io.update_json(
-                storage_location="cache", filename="q.json",
-                mutate=lambda cur: cur + ["a"], default=[],
+                storage_location="cache",
+                filename="q.json",
+                mutate=lambda cur: cur + ["a"],
+                default=[],
             )
             assert result == ["a"]
             with open(os.path.join(tmp, "q.json")) as f:
                 assert json.load(f) == ["a"]
 
 
-
-
-
-
 def test_local_update_mutates_existing_and_none_skips_save():
     with tempfile.TemporaryDirectory() as tmp:
         with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
             data_io.update_json(
-                storage_location="cache", filename="q.json",
-                mutate=lambda cur: ["x", "y"], default=[],
+                storage_location="cache",
+                filename="q.json",
+                mutate=lambda cur: ["x", "y"],
+                default=[],
             )
             # None return: file must be left untouched.
             skipped = data_io.update_json(
-                storage_location="cache", filename="q.json",
-                mutate=lambda cur: None, default=[],
+                storage_location="cache",
+                filename="q.json",
+                mutate=lambda cur: None,
+                default=[],
             )
             assert skipped is None
             with open(os.path.join(tmp, "q.json")) as f:
@@ -69,24 +67,18 @@ def test_local_update_mutates_existing_and_none_skips_save():
             assert [p for p in os.listdir(tmp) if p.endswith(".tmp")] == []
 
 
-
-
-
-
 def test_local_update_default_not_shared_across_calls():
     """The default must be copied — a mutated default must not leak."""
     with tempfile.TemporaryDirectory() as tmp:
         with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
             shared_default = []
             data_io.update_json(
-                storage_location="cache", filename="a.json",
-                mutate=lambda cur: cur + ["one"], default=shared_default,
+                storage_location="cache",
+                filename="a.json",
+                mutate=lambda cur: cur + ["one"],
+                default=shared_default,
             )
             assert shared_default == []
-
-
-
-
 
 
 def test_local_concurrent_updates_lose_nothing():
@@ -97,8 +89,10 @@ def test_local_concurrent_updates_lose_nothing():
 
             def _append(i):
                 data_io.update_json(
-                    storage_location="cache", filename="c.json",
-                    mutate=lambda cur: cur + [f"id{i}"], default=[],
+                    storage_location="cache",
+                    filename="c.json",
+                    mutate=lambda cur: cur + [f"id{i}"],
+                    default=[],
                 )
 
             threads = [threading.Thread(target=_append, args=(i,)) for i in range(n)]
@@ -109,10 +103,6 @@ def test_local_concurrent_updates_lose_nothing():
             with open(os.path.join(tmp, "c.json")) as f:
                 items = json.load(f)
             assert sorted(items) == sorted(f"id{i}" for i in range(n))
-
-
-
-
 
 
 class _FakeBlob:
@@ -135,10 +125,6 @@ class _FakeBlob:
         self._bucket.store[self.name] = (payload, current_gen + 1)
 
 
-
-
-
-
 class _FakeBucket:
     def __init__(self):
         self.store = {}  # blob_name -> (payload, generation)
@@ -153,10 +139,6 @@ class _FakeBucket:
         return _FakeBlob(self, name, gen)
 
 
-
-
-
-
 def test_gcs_update_retries_on_generation_conflict():
     """A concurrent write between read and write forces a retry against the
     fresh contents — the concurrent writer's item survives."""
@@ -164,7 +146,7 @@ def test_gcs_update_retries_on_generation_conflict():
     bucket.store["cache/q.json"] = (json.dumps(["a"]), 1)
 
     def _gcs_resolve(storage_location="cache", filename=""):
-        return (f"gs://fake/cache/{filename}", None, 'gcs', f"cache/{filename}")
+        return (f"gs://fake/cache/{filename}", None, "gcs", f"cache/{filename}")
 
     calls = {"n": 0}
 
@@ -175,11 +157,15 @@ def test_gcs_update_retries_on_generation_conflict():
             bucket.store["cache/q.json"] = (json.dumps(["a", "other"]), 2)
         return cur + ["mine"]
 
-    with patch.object(data_io, "_resolve_paths", _gcs_resolve), \
-         patch.object(data_io, "_get_bucket", return_value=bucket):
+    with (
+        patch.object(data_io, "_resolve_paths", _gcs_resolve),
+        patch.object(data_io, "_get_bucket", return_value=bucket),
+    ):
         result = data_io.update_json(
-            storage_location="cache", filename="q.json",
-            mutate=_mutate, default=[],
+            storage_location="cache",
+            filename="q.json",
+            mutate=_mutate,
+            default=[],
         )
 
     assert calls["n"] == 2, "first attempt must have hit the precondition and retried"
@@ -187,29 +173,25 @@ def test_gcs_update_retries_on_generation_conflict():
     assert json.loads(bucket.store["cache/q.json"][0]) == ["a", "other", "mine"]
 
 
-
-
-
-
 def test_gcs_update_creates_missing_blob_with_default():
     bucket = _FakeBucket()
 
     def _gcs_resolve(storage_location="cache", filename=""):
-        return (f"gs://fake/cache/{filename}", None, 'gcs', f"cache/{filename}")
+        return (f"gs://fake/cache/{filename}", None, "gcs", f"cache/{filename}")
 
-    with patch.object(data_io, "_resolve_paths", _gcs_resolve), \
-         patch.object(data_io, "_get_bucket", return_value=bucket):
+    with (
+        patch.object(data_io, "_resolve_paths", _gcs_resolve),
+        patch.object(data_io, "_get_bucket", return_value=bucket),
+    ):
         result = data_io.update_json(
-            storage_location="cache", filename="new.json",
-            mutate=lambda cur: cur + ["first"], default=[],
+            storage_location="cache",
+            filename="new.json",
+            mutate=lambda cur: cur + ["first"],
+            default=[],
         )
 
     assert result == ["first"]
     assert json.loads(bucket.store["cache/new.json"][0]) == ["first"]
-
-
-
-
 
 
 def _fake_stats_io(store: dict):
@@ -229,8 +211,14 @@ def _fake_stats_io(store: dict):
             store[filename] = json.dumps(data)
 
         @staticmethod
-        def update_json(storage_location="cache", filename="", mutate=None,
-                        default=None, max_retries=6, verbose=False):
+        def update_json(
+            storage_location="cache",
+            filename="",
+            mutate=None,
+            default=None,
+            max_retries=6,
+            verbose=False,
+        ):
             current = json.loads(json.dumps(default)) if default is not None else None
             if filename in store:
                 current = json.loads(store[filename])
@@ -241,10 +229,6 @@ def _fake_stats_io(store: dict):
             return new_value
 
     return FakeIO
-
-
-
-
 
 
 def test_save_process_stats_merges_only_changed_keys():
@@ -279,10 +263,6 @@ def test_save_process_stats_merges_only_changed_keys():
         pm.process_stats.update(saved_stats)
         pm._process_stats_snapshot.clear()
         pm._process_stats_snapshot.update(saved_snapshot)
-
-
-
-
 
 
 def test_save_process_stats_propagates_deletions():

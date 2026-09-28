@@ -29,9 +29,6 @@ from fyp.scrape.scrape import (
 )
 
 
-
-
-
 def __getattr__(name: str):
     """Forward stragglers — incl. the lazy config constants — to the module."""
     return getattr(_scrape_mod, name)

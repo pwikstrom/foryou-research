@@ -25,31 +25,42 @@ def svc(monkeypatch):
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     monkeypatch.setattr(ps, "init_study_defs", lambda: None)
     saved = {"count": 0}
-    monkeypatch.setattr(ps, "save_study_defs", lambda: saved.__setitem__("count", saved["count"] + 1))
+    monkeypatch.setattr(
+        ps, "save_study_defs", lambda: saved.__setitem__("count", saved["count"] + 1)
+    )
 
     owners: dict[str, str | None] = {}
-    monkeypatch.setattr(accounts, "collections_for_user",
-                        lambda uid, fresh=False: sorted(c for c, u in owners.items() if u == uid))
+    monkeypatch.setattr(
+        accounts,
+        "collections_for_user",
+        lambda uid, fresh=False: sorted(c for c, u in owners.items() if u == uid),
+    )
     monkeypatch.setattr(accounts, "load_owner_map", lambda fresh=False: dict(owners))
 
     removed: list[str] = []
-    monkeypatch.setattr(ps.data_io, "remove",
-                        lambda storage_location, filename: removed.append(filename))
+    monkeypatch.setattr(
+        ps.data_io, "remove", lambda storage_location, filename: removed.append(filename)
+    )
 
     # A removed study also drops its worker-board entry; record the keys
     # instead of touching the shared process-stats document.
     import web_interface.process_manager as pm
+
     forgotten: list[str] = []
-    monkeypatch.setattr(pm, "forget_process_stats",
-                        lambda key: (forgotten.append(key), True)[1])
+    monkeypatch.setattr(pm, "forget_process_stats", lambda key: (forgotten.append(key), True)[1])
 
     # Fake owners have no real account records; treat them as logged-in by
     # default so the lifecycle tests exercise the normal path. The dormancy
     # test overrides this.
     monkeypatch.setattr(ps, "_account_has_logged_in", lambda username: True)
 
-    ps._test_state = {"defs": defs, "owners": owners, "removed": removed, "saved": saved,
-                      "forgotten": forgotten}
+    ps._test_state = {
+        "defs": defs,
+        "owners": owners,
+        "removed": removed,
+        "saved": saved,
+        "forgotten": forgotten,
+    }
     return ps
 
 
@@ -59,7 +70,10 @@ def test_pair_created_updated_and_removed(svc):
 
     # No collections: nothing happens.
     assert svc.ensure_participant_studies(_OWNER) == {
-        "me_changed": False, "removed": False, "collections": 0}
+        "me_changed": False,
+        "removed": False,
+        "collections": 0,
+    }
     assert defs == {}
 
     # First collection: the pair appears, Just Me needs a build.
@@ -104,8 +118,11 @@ def test_sync_for_cids_targets_owners_and_dispatches(svc, monkeypatch):
     owners["c2"] = _OTHER
 
     dispatched: list[str] = []
-    monkeypatch.setattr(svc, "dispatch_me_refresh",
-                        lambda username, wait=False, log=None: dispatched.append(username))
+    monkeypatch.setattr(
+        svc,
+        "dispatch_me_refresh",
+        lambda username, wait=False, log=None: dispatched.append(username),
+    )
 
     affected = svc.sync_for_cids(["c1"])
     assert affected == [_OWNER]
@@ -129,11 +146,13 @@ def test_dormant_accounts_get_no_pair_until_login(svc, monkeypatch):
     owners["c1"] = _OWNER
 
     logged_in = {"value": False}
-    monkeypatch.setattr(svc, "_account_has_logged_in",
-                        lambda username: logged_in["value"])
+    monkeypatch.setattr(svc, "_account_has_logged_in", lambda username: logged_in["value"])
     dispatched: list[str] = []
-    monkeypatch.setattr(svc, "dispatch_me_refresh",
-                        lambda username, wait=False, log=None: dispatched.append(username))
+    monkeypatch.setattr(
+        svc,
+        "dispatch_me_refresh",
+        lambda username, wait=False, log=None: dispatched.append(username),
+    )
 
     # Ingest-style sync: dormant owner ⇒ nothing created, nothing dispatched.
     assert svc.sync_for_cids(["c1"]) == []
@@ -162,8 +181,11 @@ def test_migration_skips_system_studies(monkeypatch):
         "regular_unshared": {"USER_ACCESS": []},
         f"__me__{_OWNER}": {"SYSTEM": "participant", "USER_ACCESS": [_OWNER]},
         # Even a system def with a broken empty list must not be opened up.
-        f"__me_plus__{_OWNER}": {"SYSTEM": "participant", "COMPOSE": {"base": "__default__"},
-                                 "USER_ACCESS": []},
+        f"__me_plus__{_OWNER}": {
+            "SYSTEM": "participant",
+            "COMPOSE": {"base": "__default__"},
+            "USER_ACCESS": [],
+        },
     }
     monkeypatch.setitem(studies._cf(), "study_defs", defs)
     monkeypatch.setattr(studies, "save_study_defs", lambda: None)
@@ -179,10 +201,14 @@ def test_default_study_picker_excludes_system_studies(monkeypatch):
     import fyp.analysis.studies as fyp_studies
     from web_interface import admin_settings
 
-    monkeypatch.setitem(fyp_cf, "study_defs", {
-        "main_study": {"USER_ACCESS": ["all"]},
-        f"__me__{_OWNER}": {"SYSTEM": "participant", "USER_ACCESS": [_OWNER]},
-    })
+    monkeypatch.setitem(
+        fyp_cf,
+        "study_defs",
+        {
+            "main_study": {"USER_ACCESS": ["all"]},
+            f"__me__{_OWNER}": {"SYSTEM": "participant", "USER_ACCESS": [_OWNER]},
+        },
+    )
     monkeypatch.setattr(fyp_studies, "init_study_defs", lambda: None)
     assert admin_settings.study_names() == ["main_study"]
     assert admin_settings.validate_setting_value("default_study", f"__me__{_OWNER}") is not None
@@ -203,19 +229,29 @@ def participant_defs(monkeypatch):
     from web_interface.services import user_variables
 
     defs = {
-        "main_study": {"USER_ACCESS": ["all"], "SELECTED_COLLECTIONS": ["c1", "c9"],
-                       "START_DATE": "2026-01-01", "END_DATE": "2026-03-31",
-                       "stats": {"unique_videos": 100, "total_activities": 1000}},
-        f"__me__{_OWNER}": {"SYSTEM": "participant", "OWNER": _OWNER,
-                            "DISPLAY_NAME": "Just Me",
-                            "SELECTED_COLLECTIONS": ["c1", "c2"],
-                            "USER_ACCESS": [_OWNER],
-                            "stats": {"unique_videos": 9, "total_activities": 40}},
-        f"__me_plus__{_OWNER}": {"SYSTEM": "participant", "OWNER": _OWNER,
-                                 "DISPLAY_NAME": "Everyone & Me",
-                                 "COMPOSE": {"base": "__default__", "overlay": "self"},
-                                 "SELECTED_COLLECTIONS": ["c1", "c2"],
-                                 "USER_ACCESS": [_OWNER]},
+        "main_study": {
+            "USER_ACCESS": ["all"],
+            "SELECTED_COLLECTIONS": ["c1", "c9"],
+            "START_DATE": "2026-01-01",
+            "END_DATE": "2026-03-31",
+            "stats": {"unique_videos": 100, "total_activities": 1000},
+        },
+        f"__me__{_OWNER}": {
+            "SYSTEM": "participant",
+            "OWNER": _OWNER,
+            "DISPLAY_NAME": "Just Me",
+            "SELECTED_COLLECTIONS": ["c1", "c2"],
+            "USER_ACCESS": [_OWNER],
+            "stats": {"unique_videos": 9, "total_activities": 40},
+        },
+        f"__me_plus__{_OWNER}": {
+            "SYSTEM": "participant",
+            "OWNER": _OWNER,
+            "DISPLAY_NAME": "Everyone & Me",
+            "COMPOSE": {"base": "__default__", "overlay": "self"},
+            "SELECTED_COLLECTIONS": ["c1", "c2"],
+            "USER_ACCESS": [_OWNER],
+        },
     }
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     monkeypatch.setattr(admin_settings, "get_default_study", lambda: "main_study")
@@ -225,8 +261,9 @@ def participant_defs(monkeypatch):
         f"__me__{_OWNER}_recoded.parquet",
     }
     monkeypatch.setattr(user_variables.data_io, "listdir", lambda **kw: sorted(cache_files))
-    monkeypatch.setattr(user_variables.data_io, "exists",
-                        lambda **kw: kw.get("filename") in cache_files)
+    monkeypatch.setattr(
+        user_variables.data_io, "exists", lambda **kw: kw.get("filename") in cache_files
+    )
     return defs, cache_files
 
 
@@ -252,19 +289,21 @@ def test_composed_listing_requires_both_sides(participant_defs):
 def test_composed_stats_and_display_names(participant_defs):
     from web_interface.services.user_variables import get_accessible_studies
 
-    entries = get_accessible_studies(username=_OWNER, role="viewer",
-                                     is_admin=False, include_stats=True)
+    entries = get_accessible_studies(
+        username=_OWNER, role="viewer", is_admin=False, include_stats=True
+    )
     by_name = {e["name"]: e for e in entries}
     plus = by_name[f"__me_plus__{_OWNER}"]
     assert plus["display_name"] == "Everyone & Me"
     assert plus["system"] is True
-    assert plus["stats"]["unique_videos"] == 109        # base 100 + overlay 9
+    assert plus["stats"]["unique_videos"] == 109  # base 100 + overlay 9
     assert plus["stats"]["total_activities"] == 1040
     assert by_name[f"__me__{_OWNER}"]["display_name"] == "Just Me"
 
     # Anyone else who can see a system study gets the owner spelled out.
-    admin_entries = get_accessible_studies(username="admin", role="admin",
-                                           is_admin=True, include_stats=True)
+    admin_entries = get_accessible_studies(
+        username="admin", role="admin", is_admin=True, include_stats=True
+    )
     admin_by_name = {e["name"]: e for e in admin_entries}
     assert admin_by_name[f"__me__{_OWNER}"]["display_name"] == f"Just Me — {_OWNER}"
 
@@ -305,8 +344,9 @@ def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch)
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.data_management.studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+    )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 
     app.testing = True
@@ -316,27 +356,30 @@ def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch)
             sess["_user_id"] = manager
             sess["_fresh"] = True
 
-        res = client.post("/api/manage/studies/save",
-                          json={"STUDY_NAME": "__new_reserved"})
+        res = client.post("/api/manage/studies/save", json={"STUDY_NAME": "__new_reserved"})
         assert res.status_code == 400 and "reserved" in res.get_json()["error"]
 
-        res = client.post("/api/manage/studies/save",
-                          json={"STUDY_NAME": f"__me__{_OWNER}",
-                                "SELECTED_COLLECTIONS": ["c1"]})
+        res = client.post(
+            "/api/manage/studies/save",
+            json={"STUDY_NAME": f"__me__{_OWNER}", "SELECTED_COLLECTIONS": ["c1"]},
+        )
         assert res.status_code == 400
 
-        res = client.post("/api/manage/studies/rename",
-                          json={"OLD_NAME": f"__me__{_OWNER}", "NEW_NAME": "renamed"})
+        res = client.post(
+            "/api/manage/studies/rename",
+            json={"OLD_NAME": f"__me__{_OWNER}", "NEW_NAME": "renamed"},
+        )
         assert res.status_code == 400 and "renamed" not in (
-            studies_mod.fyp_cf.get("study_defs") or {})
+            studies_mod.fyp_cf.get("study_defs") or {}
+        )
 
-        res = client.post("/api/manage/studies/rename",
-                          json={"OLD_NAME": "main_study", "NEW_NAME": "__sneaky"})
+        res = client.post(
+            "/api/manage/studies/rename", json={"OLD_NAME": "main_study", "NEW_NAME": "__sneaky"}
+        )
         assert res.status_code == 400
 
         # Non-admin manager cannot delete a system study; the def survives.
-        res = client.post("/api/manage/studies/delete",
-                          json={"STUDY_NAME": f"__me__{_OWNER}"})
+        res = client.post("/api/manage/studies/delete", json={"STUDY_NAME": f"__me__{_OWNER}"})
         assert res.status_code == 403
         assert f"__me__{_OWNER}" in studies_mod.fyp_cf["study_defs"]
 
@@ -346,8 +389,7 @@ def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_list_studies_keeps_presentation_keys_off_the_shared_defs(
-        participant_defs, monkeypatch):
+def test_list_studies_keeps_presentation_keys_off_the_shared_defs(participant_defs, monkeypatch):
     """``GET /api/manage/studies`` must ship STUDY_NAME/DISPLAY_LABEL in the
     payload without writing them onto ``fyp_cf['study_defs']``.
 
@@ -371,8 +413,9 @@ def test_list_studies_keeps_presentation_keys_off_the_shared_defs(
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.data_management.studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+    )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 
     app.testing = True
@@ -411,19 +454,25 @@ def test_save_study_defs_drops_derived_presentation_keys(monkeypatch):
 
     defs = {
         "main_study": {"USER_ACCESS": ["all"], "STUDY_NAME": "main_study"},
-        f"__me__{_OWNER}": {"SYSTEM": "participant", "OWNER": _OWNER,
-                            "DISPLAY_NAME": "Just Me",
-                            "USER_ACCESS": [_OWNER],
-                            "STUDY_NAME": f"__me__{_OWNER}",
-                            "DISPLAY_LABEL": f"Just Me — {_OTHER}"},
+        f"__me__{_OWNER}": {
+            "SYSTEM": "participant",
+            "OWNER": _OWNER,
+            "DISPLAY_NAME": "Just Me",
+            "USER_ACCESS": [_OWNER],
+            "STUDY_NAME": f"__me__{_OWNER}",
+            "DISPLAY_LABEL": f"Just Me — {_OTHER}",
+        },
     }
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
 
     written: dict = {}
     monkeypatch.setattr(
-        studies.data_io, "save_json",
+        studies.data_io,
+        "save_json",
         lambda data, storage_location, filename: written.update(
-            data=data, storage_location=storage_location, filename=filename))
+            data=data, storage_location=storage_location, filename=filename
+        ),
+    )
 
     studies.save_study_defs()
 
@@ -452,38 +501,55 @@ def test_composed_metadata_never_splices_two_histograms(participant_defs, monkey
     payloads = {
         "main_study": {
             "duration": {"type": "number", "min": 1.0, "max": 600.0, "log": True},
-            "total_stats": {"duration": {
-                "type": "density",
-                "x": [0.5, 0.7, 0.9], "y": [0.2, 0.9, 0.4],
-                "transform": "log10", "log_offset": 1.0,
-                "tick_vals": [1.0413, 2.0043], "tick_text": ["10", "100"],
-                "mean": 46.7, "count": 500000}},
+            "total_stats": {
+                "duration": {
+                    "type": "density",
+                    "x": [0.5, 0.7, 0.9],
+                    "y": [0.2, 0.9, 0.4],
+                    "transform": "log10",
+                    "log_offset": 1.0,
+                    "tick_vals": [1.0413, 2.0043],
+                    "tick_text": ["10", "100"],
+                    "mean": 46.7,
+                    "count": 500000,
+                }
+            },
         },
         f"__me__{_OWNER}": {
             "duration": {"type": "number", "min": 2.0, "max": 1200.0, "log": True},
-            "total_stats": {"duration": {
-                "type": "density",
-                "x": [0.6, 0.8, 1.0, 1.2], "y": [0.3, 1.0, 0.5, 0.1],
-                "transform": "log10", "log_offset": 0.004,
-                "tick_vals": [1.0002, 2.0000, 3.0000],
-                "tick_text": ["10", "100", "1,000"],
-                "mean": 51.2, "count": 9000}},
+            "total_stats": {
+                "duration": {
+                    "type": "density",
+                    "x": [0.6, 0.8, 1.0, 1.2],
+                    "y": [0.3, 1.0, 0.5, 0.1],
+                    "transform": "log10",
+                    "log_offset": 0.004,
+                    "tick_vals": [1.0002, 2.0000, 3.0000],
+                    "tick_text": ["10", "100", "1,000"],
+                    "mean": 51.2,
+                    "count": 9000,
+                }
+            },
         },
     }
     monkeypatch.setattr(study_data, "_ttl_mtime", lambda filename: 1.0)
-    monkeypatch.setattr(study_data.data_io, "load_json",
-                        lambda storage_location, filename: payloads[
-                            filename.replace("_explorer_metadata.json", "")])
+    monkeypatch.setattr(
+        study_data.data_io,
+        "load_json",
+        lambda storage_location, filename: payloads[
+            filename.replace("_explorer_metadata.json", "")
+        ],
+    )
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
 
     merged = study_data.get_explorer_metadata_cached(plus)
     hist = merged["total_stats"]["duration"]
 
-    assert hist["x"] == [0.5, 0.7, 0.9]          # one binning, evenly spaced
+    assert hist["x"] == [0.5, 0.7, 0.9]  # one binning, evenly spaced
     assert len(hist["x"]) == len(hist["y"])
     assert len(hist["tick_vals"]) == len(hist["tick_text"])
-    assert hist["log_offset"] == 1.0             # the offset its x values use
+    assert hist["log_offset"] == 1.0  # the offset its x values use
     assert merged[study_data.TOTAL_STATS_PROVISIONAL_KEY] is True
 
     # The rest of the payload still merges: bounds take the envelope.
@@ -504,20 +570,28 @@ def test_composed_metadata_keeps_the_owners_own_filter_values(participant_defs, 
     plus = f"__me_plus__{_OWNER}"
     payloads = {
         "main_study": {
-            "collection_id": {"type": "category", "total_unique": 2,
-                              "values": [{"value": "c9", "count": 90},
-                                         {"value": "c1", "count": 10}]},
+            "collection_id": {
+                "type": "category",
+                "total_unique": 2,
+                "values": [{"value": "c9", "count": 90}, {"value": "c1", "count": 10}],
+            },
         },
         f"__me__{_OWNER}": {
-            "collection_id": {"type": "category", "total_unique": 2,
-                              "values": [{"value": "c2", "count": 40},
-                                         {"value": "c1", "count": 12}]},
+            "collection_id": {
+                "type": "category",
+                "total_unique": 2,
+                "values": [{"value": "c2", "count": 40}, {"value": "c1", "count": 12}],
+            },
         },
     }
     monkeypatch.setattr(study_data, "_ttl_mtime", lambda filename: 1.0)
-    monkeypatch.setattr(study_data.data_io, "load_json",
-                        lambda storage_location, filename: payloads[
-                            filename.replace("_explorer_metadata.json", "")])
+    monkeypatch.setattr(
+        study_data.data_io,
+        "load_json",
+        lambda storage_location, filename: payloads[
+            filename.replace("_explorer_metadata.json", "")
+        ],
+    )
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
 
@@ -526,14 +600,10 @@ def test_composed_metadata_keeps_the_owners_own_filter_values(participant_defs, 
     # c2 is the owner's own; c1 is on both sides and keeps the base's count.
     assert [v["value"] for v in values["values"]] == ["c9", "c2", "c1"]
     assert [v["count"] for v in values["values"]] == [90, 40, 10]
-    assert values["total_unique"] == 3   # grown by what the overlay added
+    assert values["total_unique"] == 3  # grown by what the overlay added
 
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
-
-
-
-
 
 
 def test_removed_pair_drops_its_worker_stats_entry(svc):

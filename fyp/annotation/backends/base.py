@@ -20,10 +20,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
-
-
-
-
 @dataclass
 class BackendAvailability:
     """Outcome of a backend readiness check.
@@ -39,10 +35,6 @@ class BackendAvailability:
     ok: bool
     reason: str = ""
     checks: list = field(default_factory=list)
-
-
-
-
 
 
 class AnnotationBackend(ABC):
@@ -63,12 +55,10 @@ class AnnotationBackend(ABC):
 
     _registry: dict = {}
 
-
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls.name:
             AnnotationBackend._registry[cls.name] = cls
-
 
     def __init__(self, overrides: dict | None = None, selection: str | None = None):
         """Bind the instance to a selection (a config-declared variant).
@@ -83,7 +73,6 @@ class AnnotationBackend(ABC):
         self.overrides = dict(overrides or {})
         self.selection = selection or self.name
 
-
     @abstractmethod
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Whether the backend can run, with actionable detail.
@@ -97,7 +86,6 @@ class AnnotationBackend(ABC):
             The availability result.
         """
 
-
     def prompt_suffix(self) -> str:
         """Backend-owned addendum appended to the generated contract prompt.
 
@@ -108,7 +96,6 @@ class AnnotationBackend(ABC):
             The suffix text, or an empty string.
         """
         return ""
-
 
     def version_extra_params(self) -> dict:
         """Backend-specific generation params for the version identity.
@@ -121,7 +108,6 @@ class AnnotationBackend(ABC):
         """
         return {}
 
-
     def effective_model_id(self) -> str:
         """The model id this backend annotates with (version identity).
 
@@ -133,7 +119,6 @@ class AnnotationBackend(ABC):
         from fyp.core.fyp_config import get_config
 
         return self.overrides.get("model", get_config()["machine"]["gemini"]["model"])
-
 
     def version_gen_params(self) -> dict:
         """The standard five generation params as this backend runs them.
@@ -149,16 +134,26 @@ class AnnotationBackend(ABC):
         from fyp.core.fyp_config import get_config
 
         machine = {**get_config()["machine"]["gemini"], **self.overrides}
-        return {key: machine.get(key) for key in
-                ("use_structured_output", "temperature", "thinking_budget",
-                 "media_resolution", "max_output_tokens")}
-
+        return {
+            key: machine.get(key)
+            for key in (
+                "use_structured_output",
+                "temperature",
+                "thinking_budget",
+                "media_resolution",
+                "max_output_tokens",
+            )
+        }
 
     @abstractmethod
-    def annotate_one(self, item_id: str, platform: str | None = None,
-                     gen_overrides: dict | None = None,
-                     prompt_text: str | None = None,
-                     response_schema=None) -> dict:
+    def annotate_one(
+        self,
+        item_id: str,
+        platform: str | None = None,
+        gen_overrides: dict | None = None,
+        prompt_text: str | None = None,
+        response_schema=None,
+    ) -> dict:
         """Annotate one item and return the production raw-row dict.
 
         Args:

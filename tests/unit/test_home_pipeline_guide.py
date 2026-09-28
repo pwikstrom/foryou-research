@@ -23,8 +23,13 @@ def client(monkeypatch):
         if uid == _TEST_USER:
             # Dismissed, so the assertions below see the guide itself rather
             # than the one-shot orientation panel that sits above it.
-            return User(username=_TEST_USER, role=ROLE_VIEWER, password_hash="",
-                        approved=True, settings={"getting_started_dismissed": True})
+            return User(
+                username=_TEST_USER,
+                role=ROLE_VIEWER,
+                password_hash="",
+                approved=True,
+                settings={"getting_started_dismissed": True},
+            )
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
@@ -74,8 +79,12 @@ def test_analyse_rows_follow_the_individual_tab_grants(client, monkeypatch):
     html = _render(client, monkeypatch, ["tab.explore"])
 
     assert "Compare across the corpus" in html
-    for hidden in ("Zoom in on a single sitting", "Map the whole corpus",
-                   "Follow a feed over time", "Find structure and patterns"):
+    for hidden in (
+        "Zoom in on a single sitting",
+        "Map the whole corpus",
+        "Follow a feed over time",
+        "Find structure and patterns",
+    ):
         assert hidden not in html
 
 
@@ -125,7 +134,13 @@ def test_visible_pipeline_steps_are_returned_in_pipeline_order(monkeypatch):
         def is_admin(self):
             return False
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: [
-        "tab.admin.roles", "tab.explore", "tab.data_management.ingestion",
-    ])
+    monkeypatch.setattr(
+        auth.role_manager,
+        "get_role_permissions",
+        lambda role: [
+            "tab.admin.roles",
+            "tab.explore",
+            "tab.data_management.ingestion",
+        ],
+    )
     assert visible_pipeline_steps(_User()) == ["ingest", "analyse", "share"]

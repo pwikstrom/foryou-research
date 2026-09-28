@@ -66,27 +66,41 @@ class TikTokDDPCollection(ForYouBaseCollection):
     # hashtags / effects / collections, DMs, ads, settings, ...) are absent
     # here and stripped in the browser before upload.
     _ACTIVITY_TYPE_MAP = {
-        'videolist': 'play', 'commentslist': 'comment',
-        'searchlist': 'search', 'fanslist': 'followed_by', 'following': 'follow',
-        'itemfavoritelist': 'fave', 'favoritevideolist': 'save',
-        'sharehistorylist': 'share', 'repostlist': 'share',
+        "videolist": "play",
+        "commentslist": "comment",
+        "searchlist": "search",
+        "fanslist": "followed_by",
+        "following": "follow",
+        "itemfavoritelist": "fave",
+        "favoritevideolist": "save",
+        "sharehistorylist": "share",
+        "repostlist": "share",
     }
-    emitted_activity_types = frozenset({
-        'play', 'comment', 'search', 'followed_by', 'follow', 'fave', 'save',
-        'share', 'login',
-    })
+    emitted_activity_types = frozenset(
+        {
+            "play",
+            "comment",
+            "search",
+            "followed_by",
+            "follow",
+            "fave",
+            "save",
+            "share",
+            "login",
+        }
+    )
     # Record keys that name the video an activity was about, looked up by
     # name rather than by position: TikTok puts the link at index 1 for most
     # sections but at index 2 in ShareHistoryList (after SharedContent), and
     # newer comment records carry the video under `originalPostUrl`.
-    _LINK_KEYS = ('link', 'originalposturl')
+    _LINK_KEYS = ("link", "originalposturl")
     # Every export date is UTC wall-clock time in this format. Exports
     # uploaded from September 2026 write the comment section's dates with the
     # zone spelled out ("2026-08-01 12:00:00 UTC"); the strict format rejected
     # them, so every comment in those exports — the first to name their
     # video under `originalPostUrl` — was dropped as not parseable.
-    _DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-    _DATE_ZONE_SUFFIX = ' UTC'
+    _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+    _DATE_ZONE_SUFFIX = " UTC"
     _VIDEO_ID_RE = re.compile(r"/video/(\d+)")
     # Sections whose 'VideoList' holds the donor's OWN uploads rather than
     # watch history. TikTok reuses the key for both — Your Activity -> Watch
@@ -100,15 +114,15 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
     # Participant-facing card titles for the review UI, keyed by section id.
     _REVIEW_TITLES = {
-        'videolist': 'Videos you watched',
-        'commentslist': 'Comments you made',
-        'searchlist': 'Your searches',
-        'fanslist': 'Accounts that follow you',
-        'following': 'Accounts you follow',
-        'itemfavoritelist': 'Videos you liked',
-        'favoritevideolist': 'Videos you saved',
-        'sharehistorylist': 'Videos you shared',
-        'repostlist': 'Videos you reposted',
+        "videolist": "Videos you watched",
+        "commentslist": "Comments you made",
+        "searchlist": "Your searches",
+        "fanslist": "Accounts that follow you",
+        "following": "Accounts you follow",
+        "itemfavoritelist": "Videos you liked",
+        "favoritevideolist": "Videos you saved",
+        "sharehistorylist": "Videos you shared",
+        "repostlist": "Videos you reposted",
     }
 
     @classmethod
@@ -129,25 +143,35 @@ class TikTokDDPCollection(ForYouBaseCollection):
             {"id": sid, "title": cls._REVIEW_TITLES.get(sid, sid), "row_delete": True}
             for sid in cls._ACTIVITY_TYPE_MAP
         ]
-        sections.append({
-            "id": "__login__", "id_rule": "second_key_ip",
-            "title": "Login history (IP addresses)", "row_delete": True,
-        })
+        sections.append(
+            {
+                "id": "__login__",
+                "id_rule": "second_key_ip",
+                "title": "Login history (IP addresses)",
+                "row_delete": True,
+            }
+        )
         # The donor's own uploads sit under a second 'VideoList'. Keyed on that
         # name alone the client showed them as a *second* "Videos you watched"
         # card and counted them toward the viability floor below — the same
         # confusion _section_activity_type fixes on the parser side, so the
         # parent sections listed here are the same ones.
-        sections.append({
-            "id": "posted_videolist", "id_rule": "parent_in",
-            "match_key": "videolist", "parents": sorted(cls._POSTED_VIDEO_SECTIONS),
-            "title": "Videos you posted", "row_delete": True,
-        })
+        sections.append(
+            {
+                "id": "posted_videolist",
+                "id_rule": "parent_in",
+                "match_key": "videolist",
+                "parents": sorted(cls._POSTED_VIDEO_SECTIONS),
+                "title": "Videos you posted",
+                "row_delete": True,
+            }
+        )
         return {
             "kind": "json_sections",
             "unmapped_policy": "strip",
             "viability": {
-                "section": "videolist", "min_rows": 11,
+                "section": "videolist",
+                "min_rows": 11,
                 "message": "A TikTok donation needs at least 11 watched videos to be usable.",
             },
             "sections": sections,
@@ -161,9 +185,6 @@ class TikTokDDPCollection(ForYouBaseCollection):
         self.data_source = "ddp"
         self.raw_path = "ddp_raw"
         self.min_required_rows_per_raw_file = 10
-
-
-
 
     @classmethod
     def _walk_sections(cls, donation_dict: dict) -> list[dict]:
@@ -185,16 +206,17 @@ class TikTokDDPCollection(ForYouBaseCollection):
                 activity_type = cls._section_activity_type(parent, feature)
                 for item in obj:
                     if isinstance(item, dict) and item:
-                        donation_items.append({
-                            "activity_type": activity_type,
-                            "variable_list": [k.lower() for k in item.keys()],
-                            "value_list": list(item.values())
-                        })
+                        donation_items.append(
+                            {
+                                "activity_type": activity_type,
+                                "variable_list": [k.lower() for k in item.keys()],
+                                "value_list": list(item.values()),
+                            }
+                        )
             elif isinstance(obj, dict):
                 for k, v in obj.items():
                     stack.append((feature, k, v))
         return donation_items
-
 
     _SHARE_SECTIONS = ("sharehistorylist", "repostlist")
 
@@ -214,8 +236,11 @@ class TikTokDDPCollection(ForYouBaseCollection):
         if not is_share.any():
             return df
         shares = df[is_share]
-        key = shares["activity_type"].astype(str) + "\x1f" + shares["value_list"].map(
-            lambda v: "\x1f".join(map(str, v)))
+        key = (
+            shares["activity_type"].astype(str)
+            + "\x1f"
+            + shares["value_list"].map(lambda v: "\x1f".join(map(str, v)))
+        )
         if "raw_file" in shares.columns:
             key = shares["raw_file"].astype(str) + "\x1f" + key
         key = key.to_numpy()
@@ -259,14 +284,12 @@ class TikTokDDPCollection(ForYouBaseCollection):
             context = None
         return primary, extra, link, context
 
-
     @classmethod
     def _strip_zone_suffix(cls, value):
         """An export date with a trailing `` UTC`` removed; anything else unchanged."""
         if isinstance(value, str) and value.endswith(cls._DATE_ZONE_SUFFIX):
-            return value[:-len(cls._DATE_ZONE_SUFFIX)]
+            return value[: -len(cls._DATE_ZONE_SUFFIX)]
         return value
-
 
     @classmethod
     def _section_activity_type(cls, parent: str | None, feature: str | None) -> str:
@@ -277,15 +300,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
         process_single books it as an excluded-by-design section instead of a
         play.
         """
-        name = (feature or '').lower()
-        if name == "videolist" and (parent or '').lower() in cls._POSTED_VIDEO_SECTIONS:
+        name = (feature or "").lower()
+        if name == "videolist" and (parent or "").lower() in cls._POSTED_VIDEO_SECTIONS:
             return "posted_videolist"
         return name
 
-
     def load_single_raw(self, filename: str) -> pd.DataFrame:
 
-        donation_dict = data_io.load_json(storage_location = self.raw_path, filename = filename)
+        donation_dict = data_io.load_json(storage_location=self.raw_path, filename=filename)
 
         # load_json swallows parse errors and returns None — e.g. when the raw
         # TikTok export .zip was uploaded instead of the extracted .json.
@@ -306,20 +328,18 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # a data donation package without at least a few play activities is not useful.
         # Watch history is 'videolist'; the donor's own uploads were relabelled above
         # so they cannot prop a donation up over this floor (see _section_activity_type).
-        n_play_activities = len(df[df['activity_type'] == 'videolist'])
+        n_play_activities = len(df[df["activity_type"] == "videolist"])
         if n_play_activities <= 10:
-            if self.verbose: logger.info(f"Discarding {filename} as it only has {n_play_activities} play activities.")
+            if self.verbose:
+                logger.info(
+                    f"Discarding {filename} as it only has {n_play_activities} play activities."
+                )
             # The file is discarded as too small; the ledger still gets its
             # true record count rather than the empty frame's zero.
             self.record_load_count(filename, len(df))
             return pd.DataFrame()
 
         return df
-
-
-
-
-
 
     def process_single(self, df: pd.DataFrame):
 
@@ -352,7 +372,9 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # a record the parser failed to read. Login records carry no section
         # in the whitelist and are recognised by their second key, as below.
         in_whitelist = df["activity_type"].isin(list(self._ACTIVITY_TYPE_MAP))
-        is_login = df["variable_list"].map(lambda x: isinstance(x, list) and len(x) > 1 and x[1] == "ip")
+        is_login = df["variable_list"].map(
+            lambda x: isinstance(x, list) and len(x) > 1 and x[1] == "ip"
+        )
         outside = ~(in_whitelist | is_login)
         if outside.any() and "raw_file" in df.columns:
             self._record_file_drops(df.loc[outside, "raw_file"].value_counts(), "outside_whitelist")
@@ -367,22 +389,27 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
         # if 'date' is not the first element in the variable_list, something is wrong with this activity
         # so I keep activities/rows that have at least two elements in the variable_list and the first element is 'date'
-        mask_date = df['variable_list'].map(lambda x: isinstance(x, list) and len(x) > 1 and x[0] == 'date')
+        mask_date = df["variable_list"].map(
+            lambda x: isinstance(x, list) and len(x) > 1 and x[0] == "date"
+        )
         df = df[mask_date].copy()
         if len(df) == 0:
             return df
 
-        mask_activity_type = df['activity_type'].map(lambda x:"chat history with" not in x)
+        mask_activity_type = df["activity_type"].map(lambda x: "chat history with" not in x)
         df = df[mask_activity_type].copy()
         if len(df) == 0:
             return df
 
         # get the date from index zero (I don't need the variable name)
-        df['date'] = pd.to_datetime(df['value_list'].str[0].map(self._strip_zone_suffix),
-                                    format=self._DATE_FORMAT, errors='coerce')
+        df["date"] = pd.to_datetime(
+            df["value_list"].str[0].map(self._strip_zone_suffix),
+            format=self._DATE_FORMAT,
+            errors="coerce",
+        )
 
         # remove rows with invalid dates
-        df = df[df['date'].notna()].copy()
+        df = df[df["date"].notna()].copy()
         if len(df) == 0:
             return df
 
@@ -390,7 +417,6 @@ class TikTokDDPCollection(ForYouBaseCollection):
             logger.info(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
 
         df = self._collapse_identical_shares(df)
-
 
         # Unpack the record. `primary_label` / `extra_data` are the name and
         # value at index 1 (the comment text, search term, followed username,
@@ -402,27 +428,27 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # share carries (Method).
         try:
             unpacked = [
-                self._unpack_record(v, x)
-                for v, x in zip(df['variable_list'], df['value_list'])
+                self._unpack_record(v, x) for v, x in zip(df["variable_list"], df["value_list"])
             ]
-            df['primary_label'] = [u[0] for u in unpacked]
-            df['extra_data'] = [u[1] for u in unpacked]
-            df['_link'] = [u[2] for u in unpacked]
-            df['_context'] = [u[3] for u in unpacked]
+            df["primary_label"] = [u[0] for u in unpacked]
+            df["extra_data"] = [u[1] for u in unpacked]
+            df["_link"] = [u[2] for u in unpacked]
+            df["_context"] = [u[3] for u in unpacked]
         except Exception as e:
             logger.warning(f"Could not unpack variable_list/value_list ({e}); filling with NA.")
-            df['primary_label'] = pd.NA
-            df['extra_data'] = pd.NA
-            df['_link'] = pd.NA
-            df['_context'] = pd.NA
-
+            df["primary_label"] = pd.NA
+            df["extra_data"] = pd.NA
+            df["_link"] = pd.NA
+            df["_context"] = pd.NA
 
         # -----------------------------------------------------
         # item_id: the video id inside the link, for any section that has one.
         # Comments carry no link in older exports (item_id NA, back-filled
         # below); a share of a LIVE has a non-video link and stays NA too.
         df["item_id"] = (
-            df["_link"].astype("string").str.extract(self._VIDEO_ID_RE, expand=False)
+            df["_link"]
+            .astype("string")
+            .str.extract(self._VIDEO_ID_RE, expand=False)
             .where(df["activity_type"].notna())
             .astype("string[pyarrow]")
         )
@@ -435,7 +461,9 @@ class TikTokDDPCollection(ForYouBaseCollection):
         is_repost = df["activity_type"] == "repostlist"
         df.loc[is_repost, "_context"] = "repost"
         has_context = df["_context"].notna()
-        df.loc[has_context, "extra_data"] = df.loc[has_context, "_context"].astype("string").str.lower()
+        df.loc[has_context, "extra_data"] = (
+            df.loc[has_context, "_context"].astype("string").str.lower()
+        )
         # One row per send: say how many identical records it stood for.
         multi = df["_share_copies"] > 1
         if multi.any():
@@ -445,7 +473,6 @@ class TikTokDDPCollection(ForYouBaseCollection):
             ]
         df.drop(columns=["_link", "_context", "_share_copies"], inplace=True)
 
-
         # -----------------------------------------------------
         # activity_type:
 
@@ -453,23 +480,22 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df["activity_type"] = df["activity_type"].map(self._ACTIVITY_TYPE_MAP)
 
         # activity_type is NA for login activities - this fixes that by creating a new activity type
-        df.loc[df[df["primary_label"]=="ip"].index,"activity_type"] = "login"
-        
+        df.loc[df[df["primary_label"] == "ip"].index, "activity_type"] = "login"
+
         # Convert activity_type to pyarrow string
         df["activity_type"] = df["activity_type"].astype("string[pyarrow]")
 
         # cleanup - remove play activities that don't have an item_id
         df = df[((df["activity_type"] != "play") | (df["item_id"].notna()))].copy()
-        
 
         # -----------------------------------------------------
         # utc_timestamp and tz_offset:
 
         # tiktok timestamps are in nanoseconds - convert date to seconds since epoch
         # rename timestamp to utc_timestamp and convert to datetime
-        df['timestamp'] = (df['date'].astype("int64") // 1_000_000_000)
+        df["timestamp"] = df["date"].astype("int64") // 1_000_000_000
         df = df.rename(columns={"timestamp": "utc_timestamp"})
-        df["utc_timestamp"] = pd.to_datetime(df["utc_timestamp"], unit='s', utc=True)
+        df["utc_timestamp"] = pd.to_datetime(df["utc_timestamp"], unit="s", utc=True)
 
         # tz_offset comes from the shared tail: a donor timezone supplied at upload
         # (the manifest `tz`) is authoritative; without one the offset is inferred
@@ -480,18 +506,16 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # donations. The tail also sorts chronologically and resets the index.
         df = self._finalize_activity_frame(df)
 
-
         # -----------------------------------------------------
         # It seems like the data donation packages keep play logs for a certain time back
         # in time, but they keep other engagement stats for longer. It is difficult to handle
-        # engagement stats without connection to a play activity, so I remove all activities before 
+        # engagement stats without connection to a play activity, so I remove all activities before
         # the first play activity. It feels a bit brutal to throw away data, but I'm not sure what else to do.
-        #if (df["activity_type"] == "play").any():
+        # if (df["activity_type"] == "play").any():
         #    first_play_idx = df[df["activity_type"] == "play"].index[0]
         #    df = df.loc[first_play_idx:].copy()
 
-        #print(len(df))
-
+        # print(len(df))
 
         # ----------------------------------------------------------------------------------------------
         # Associate comments without an item_id to the item_id of the preceding activity within
@@ -505,20 +529,20 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # per-collection sequence after migration, and persisted for downstream analysis).
 
         # 1. calculate time between activities (in seconds)
-        df['delta'] = df['utc_timestamp'] - df['utc_timestamp'].shift(1)
-        df['delta'] = df['delta'].dt.total_seconds()
+        df["delta"] = df["utc_timestamp"] - df["utc_timestamp"].shift(1)
+        df["delta"] = df["delta"].dt.total_seconds()
 
         # 2. use the time delta to establish bursts of activities very close together, which I
         # assume belong to the same brief engagement (e.g. watching a video and commenting on
         # it). The 180s limit is a reasonable max time to spend on one video and engage with it.
-        df['_assoc_break'] = (df['delta'].isna()) | (df['delta'] > 180)
-        df['_assoc_session'] = df['_assoc_break'].astype(bool).cumsum()
+        df["_assoc_break"] = (df["delta"].isna()) | (df["delta"] > 180)
+        df["_assoc_session"] = df["_assoc_break"].astype(bool).cumsum()
 
         # 3. Forward-fill item_id within each burst, then apply only to comment rows that
         # are missing an item_id. All other activity types keep their original value.
-        ffilled_item_id = df.groupby('_assoc_session')['item_id'].ffill()
-        comment_missing = (df['activity_type'] == 'comment') & df['item_id'].isna()
-        df.loc[comment_missing, 'item_id'] = ffilled_item_id[comment_missing]
+        ffilled_item_id = df.groupby("_assoc_session")["item_id"].ffill()
+        comment_missing = (df["activity_type"] == "comment") & df["item_id"].isna()
+        df.loc[comment_missing, "item_id"] = ffilled_item_id[comment_missing]
 
         # 4. Say so on the row. A comment whose item_id was supplied by the
         # forward fill carries link_method="ffill_180s", so an analysis can tell
@@ -527,24 +551,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df["link_method"] = pd.array([pd.NA] * len(df), dtype="string[pyarrow]")
         df.loc[comment_missing & df["item_id"].notna(), "link_method"] = "ffill_180s"
 
-        df.drop(columns=['_assoc_break', '_assoc_session', 'delta'], inplace=True)
-
+        df.drop(columns=["_assoc_break", "_assoc_session", "delta"], inplace=True)
 
         # -----------------------------------------------------
         # play_duration: forward time-delta to the next recorded activity, attributed
         # to play events (shared, platform-agnostic derivation — see derive_play_duration).
 
         return derive_play_duration(df)
-
-
-
-
-
-
-
-
-
-
 
 
 class TikTokAIOCollection(TikTokDDPCollection):
@@ -562,7 +575,6 @@ class TikTokAIOCollection(TikTokDDPCollection):
         super().__init__(collection_id, verbose)
         self.data_source = "aio"
         self.raw_path = "aio_raw"
-
 
     @staticmethod
     def _aws_fetch_enabled() -> bool:
@@ -582,30 +594,30 @@ class TikTokAIOCollection(TikTokDDPCollection):
             return bool(configured)
         return bool(os.environ.get("K_SERVICE"))
 
-
-    def load_raw(self, skip_these_raw_files: list[str] = [],
-                 held_for_review: set[str] | None = None):
+    def load_raw(
+        self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None
+    ):
         """Fetch recent donations and participant metadata from AWS, then load files."""
         from fyp.analysis.donations import (
             get_donation_metadata_from_aio_aws,
             get_recent_data_donations_from_aio_aws,
         )
+
         if not self._aws_fetch_enabled():
             if self.verbose:
                 logger.info(
                     "AIO AWS auto-fetch disabled ([features].aio_aws_fetch; "
                     "default off outside Cloud Run). Processing existing local files."
                 )
-            super().load_raw(skip_these_raw_files=skip_these_raw_files,
-                             held_for_review=held_for_review)
+            super().load_raw(
+                skip_these_raw_files=skip_these_raw_files, held_for_review=held_for_review
+            )
             return
 
         if self.verbose:
             logger.info("Fetching recent AIO donations from AWS...")
         try:
-            get_recent_data_donations_from_aio_aws(
-                storage_location=self.raw_path
-            )
+            get_recent_data_donations_from_aio_aws(storage_location=self.raw_path)
         except Exception as e:
             if self.verbose:
                 logger.warning(f"AWS data fetch failed: {e}. Processing existing local files.")
@@ -618,15 +630,10 @@ class TikTokAIOCollection(TikTokDDPCollection):
             if self.verbose:
                 logger.warning(f"AWS metadata fetch failed: {e}.")
 
-        super().load_raw(skip_these_raw_files=skip_these_raw_files,
-                             held_for_review=held_for_review)
-
-
-
+        super().load_raw(skip_these_raw_files=skip_these_raw_files, held_for_review=held_for_review)
 
 
 class TikTokZeeschuimerCollection(ForYouBaseCollection):
-
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
     source_platform = "tiktok"
 
@@ -647,64 +654,54 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         self.source_platform = "tiktok"
         self.data_source = "zeeschuimer"
         self.accepted_tiktok_urls = [
-            'https://www.tiktok.com/foryou',
-            'https://www.tiktok.com/',
-            'https://www.tiktok.com/en',
+            "https://www.tiktok.com/foryou",
+            "https://www.tiktok.com/",
+            "https://www.tiktok.com/en",
         ]
 
-
-
-
-
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        #data = []
-        #with open(filename, 'r') as file:
+        # data = []
+        # with open(filename, 'r') as file:
         #    for line in file:
         #        data.append(json.loads(line))
-            
-        data = data_io.read_ndjson_file(storage_location = self.raw_path, filename = filename)
+
+        data = data_io.read_ndjson_file(storage_location=self.raw_path, filename=filename)
         if not data:
             return pd.DataFrame()
         df = pd.json_normalize(data)
 
         # Only keeping data from accepted tiktok urls. Records captured on
         # other pages (search, profiles) are excluded by design and counted.
-        if 'source_platform_url' in df.columns:
-            keep = df['source_platform_url'].isin(self.accepted_tiktok_urls)
+        if "source_platform_url" in df.columns:
+            keep = df["source_platform_url"].isin(self.accepted_tiktok_urls)
             self.record_load_count(filename, len(df), {"outside_whitelist": int((~keep).sum())})
             df = df[keep].copy()
         return df
-
-
-
-
-
 
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
         # zeeschuimer data is really basic - well, there is a lot of useful data in the ndjson, but to generate
         # an activity collection, which is the purpose here, I am only using the item_id and the timestamp
 
         df = df.copy()
-        
+
         # Extract lots of useful data from the source_url to get tz_offset etc
         source_details = []
         for ii in df.index:
-            source_details += [clean_url(df['source_url'][ii])]
+            source_details += [clean_url(df["source_url"][ii])]
         source_details = pd.DataFrame(source_details, index=df.index)
         df = pd.merge(left=df, right=source_details, left_index=True, right_index=True)
-
 
         # -----------------------------------------------------
         # I call all activities from zeeschuimer 'observe' to distinguish it from 'play'
         df["activity_type"] = "observe"
 
-
         # -----------------------------------------------------
-        # item_id: 
+        # item_id:
         # Filter valid item_ids to make sure they're not corrupted
-        if 'item_id' in df.columns:
-             df = df[df.item_id.map(lambda x:all([u in "0123456789" for u in x]) and len(x) == 19)].copy()
-        
+        if "item_id" in df.columns:
+            df = df[
+                df.item_id.map(lambda x: all([u in "0123456789" for u in x]) and len(x) == 19)
+            ].copy()
 
         # -----------------------------------------------------
         # tz_offset and utc_timestamp:
@@ -716,7 +713,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # correct UTC when the ingestion server and the user happened to share a
         # timezone — off by the local offset otherwise.
         df["utc_timestamp"] = pd.to_datetime(
-            df["timestamp_collected"].astype(np.int64), unit='ms', utc=True
+            df["timestamp_collected"].astype(np.int64), unit="ms", utc=True
         )
 
         unique_tz = df["source_url.tz_name"].dropna().unique()
@@ -726,32 +723,25 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         if len(unique_tz) == 1:
             tz = ZoneInfo(unique_tz[0])
             df["tz_offset"] = (
-                df["utc_timestamp"].dt.tz_convert(tz).apply(
-                    lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan
-                )
+                df["utc_timestamp"]
+                .dt.tz_convert(tz)
+                .apply(lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan)
             )
         elif len(unique_tz) > 1:
             offset_parts = []
             for tz_name, block in df.groupby("source_url.tz_name", sort=False):
                 tz = ZoneInfo(tz_name)
-                part = block["utc_timestamp"].dt.tz_convert(tz).apply(
-                    lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan
+                part = (
+                    block["utc_timestamp"]
+                    .dt.tz_convert(tz)
+                    .apply(
+                        lambda t: t.utcoffset().total_seconds() / 3600 if pd.notna(t) else np.nan
+                    )
                 )
                 offset_parts.append(part)
             df["tz_offset"] = pd.concat(offset_parts).sort_index()
-        
+
         # I'm keeping this information in the extra_data column. It's a string so it works fine
         df.rename(columns={"source_url.tz_name": "extra_data"}, inplace=True)
 
         return df
-
-
-
-
-
-
-
-
-
-
-

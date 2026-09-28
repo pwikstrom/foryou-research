@@ -41,9 +41,6 @@ def get_robust_bounds(series):
     return low, high, False
 
 
-
-
-
 def log_axis_offset(series: pd.Series) -> float:
     """Return the offset ``o`` used by the log display transform ``log10(x + o)``.
 
@@ -72,17 +69,9 @@ def log_axis_offset(series: pd.Series) -> float:
     return float(max(p01 / 2.0, max_pos * 1e-6, 1e-12))
 
 
-
-
-
-
 # Interior percentiles shipped to the frontend so numeric filter sliders can be
 # frequency-scaled (equal data mass per slider segment).
 SLIDER_QUANTILE_PCTS = (5, 10, 25, 50, 75, 90, 95, 99)
-
-
-
-
 
 
 def slider_quantiles(series: pd.Series) -> dict:
@@ -102,14 +91,10 @@ def slider_quantiles(series: pd.Series) -> dict:
     return {str(p): float(v) for p, v in zip(SLIDER_QUANTILE_PCTS, qs) if pd.notna(v)}
 
 
-
-
 # Multiplicative spread (p99 / p10 of positive values) above which a numeric
 # column reads better on a log axis. Counts and per-play / per-day rates span
 # many decades and clear this bar; bounded 0-1 scores barely span one.
 LOG_SCALE_SPREAD_THRESHOLD = 25.0
-
-
 
 
 def derive_log_scale(series: pd.Series) -> bool:
@@ -143,8 +128,6 @@ def derive_log_scale(series: pd.Series) -> bool:
     return (hi / lo) >= LOG_SCALE_SPREAD_THRESHOLD
 
 
-
-
 def derive_bin_count(use_log: bool) -> int:
     """Return the histogram bin target for a numeric column.
 
@@ -160,11 +143,9 @@ def derive_bin_count(use_log: bool) -> int:
     return 50 if use_log else 10
 
 
-
-
-
-
-def column_value_counts(series: pd.Series, dtype: str, date_like: bool = False) -> list[tuple[str, int]]:
+def column_value_counts(
+    series: pd.Series, dtype: str, date_like: bool = False
+) -> list[tuple[str, int]]:
     """Return every (value, count) pair for a filterable column, most frequent first.
 
     Includes single-occurrence values: :func:`get_metadata` applies its own
@@ -204,10 +185,6 @@ def column_value_counts(series: pd.Series, dtype: str, date_like: bool = False) 
     return [(str(k), int(v)) for k, v in col_data.value_counts().items()]
 
 
-
-
-
-
 def get_metadata(df, column_types, verbose=False):
     """
     Returns metadata for frontend:
@@ -222,28 +199,31 @@ def get_metadata(df, column_types, verbose=False):
         # Calculate Null Count
         null_count = int(df[col].isna().sum())
 
-        base_meta = {
-            "null_count": null_count
-        }
+        base_meta = {"null_count": null_count}
 
         # Special case: `extra_data` is a folded comma-separated record of
         # engagement activities (fave / save / comment / share). Expose it as
         # a list-typed filter whose values are the known engagement tokens
         # with document-frequency counts and their UI labels ("Like" for
         # `fave`) — the stored token stays the filter value.
-        if col == 'extra_data':
+        if col == "extra_data":
             counts = {t: 0 for t in ENGAGEMENT_TYPES}
             for cell in df[col].dropna():
                 for t in parse_extra_data_tokens(cell):
                     if t in counts:
                         counts[t] += 1
-            items_list = [{"value": t, "label": ENGAGEMENT_LABELS[t], "count": counts[t]}
-                          for t in ENGAGEMENT_TYPES if counts[t] > 0]
-            base_meta.update({
-                "type": "list",
-                "values": items_list,
-                "total_unique": len(items_list),
-            })
+            items_list = [
+                {"value": t, "label": ENGAGEMENT_LABELS[t], "count": counts[t]}
+                for t in ENGAGEMENT_TYPES
+                if counts[t] > 0
+            ]
+            base_meta.update(
+                {
+                    "type": "list",
+                    "values": items_list,
+                    "total_unique": len(items_list),
+                }
+            )
             metadata[col] = base_meta
             continue
 
@@ -254,16 +234,18 @@ def get_metadata(df, column_types, verbose=False):
             # consumer (sliders, density histogram, timeline) reads one stable
             # answer rather than recomputing on a filtered subset.
             log_flag = derive_log_scale(df[col])
-            base_meta.update({
-                "type": "number",
-                "min": min_val,
-                "max": max_val,
-                "max_capped": max_capped,
-                "log": log_flag,
-                "bins": derive_bin_count(log_flag),
-                "log_offset": log_axis_offset(df[col]),
-                "quantiles": slider_quantiles(df[col])
-            })
+            base_meta.update(
+                {
+                    "type": "number",
+                    "min": min_val,
+                    "max": max_val,
+                    "max_capped": max_capped,
+                    "log": log_flag,
+                    "bins": derive_bin_count(log_flag),
+                    "log_offset": log_axis_offset(df[col]),
+                    "quantiles": slider_quantiles(df[col]),
+                }
+            )
             metadata[col] = base_meta
         elif dtype == "category":
             # Limit for UI filters — show top 200 most frequent values.
@@ -271,18 +253,15 @@ def get_metadata(df, column_types, verbose=False):
             # slice (noise in small studies). The frontend hides a column once
             # ≤1 selectable value remains. total_unique counts only selectable
             # (count>1) values so the "showing top X of Y" notice stays honest.
-            pairs = column_value_counts(df[col], "category",
-                                        date_like="date" in col.lower())
+            pairs = column_value_counts(df[col], "category", date_like="date" in col.lower())
             multi = [(k, v) for k, v in pairs if v > 1]
             total_unique = len(multi)
 
             unique_vals = [{"value": k, "count": v} for k, v in multi[:200]]
 
-            base_meta.update({
-                "type": "category",
-                "values": unique_vals,
-                "total_unique": total_unique
-            })
+            base_meta.update(
+                {"type": "category", "values": unique_vals, "total_unique": total_unique}
+            )
             metadata[col] = base_meta
 
         elif dtype == "list":
@@ -294,23 +273,18 @@ def get_metadata(df, column_types, verbose=False):
 
             items_list = [{"value": k, "count": v} for k, v in multi[:200]]
 
-            base_meta.update({
-                "type": "list",
-                "values": items_list,
-                "total_unique": total_unique
-            })
+            base_meta.update({"type": "list", "values": items_list, "total_unique": total_unique})
             metadata[col] = base_meta
-        
+
         # Explicitly ignore long_text and identifier
         elif dtype in ["long_text", "identifier"]:
             continue
-    
+
     if verbose:
-        print(f"    ...done calculating things for viewer and explorer. Time: {_dt.datetime.now()-t1}")
+        print(
+            f"    ...done calculating things for viewer and explorer. Time: {_dt.datetime.now() - t1}"
+        )
     return metadata
-
-
-
 
 
 def search_columns(column_types: dict, *queries) -> set:
@@ -321,17 +295,11 @@ def search_columns(column_types: dict, *queries) -> set:
     comma-separated term looks numeric. Used by the routes to project a
     search request's frame instead of falling back to the full width.
     """
-    wanted = {c for c, t in (column_types or {}).items()
-              if t in ("category", "long_text", "list")}
-    terms = [t.strip() for q in queries if isinstance(q, str)
-             for t in q.split(",") if t.strip()]
-    if any(t.replace('.', '', 1).isdigit() for t in terms):
+    wanted = {c for c, t in (column_types or {}).items() if t in ("category", "long_text", "list")}
+    terms = [t.strip() for q in queries if isinstance(q, str) for t in q.split(",") if t.strip()]
+    if any(t.replace(".", "", 1).isdigit() for t in terms):
         wanted |= {c for c, t in (column_types or {}).items() if t == "number"}
     return wanted
-
-
-
-
 
 
 def _arrow_values(series: pd.Series):
@@ -342,10 +310,6 @@ def _arrow_values(series: pd.Series):
     request time on numpy storage returns ``None`` and takes the pandas path.
     """
     return getattr(getattr(series, "array", None), "_pa_array", None)
-
-
-
-
 
 
 def _list_column_search_mask(values, term: str) -> np.ndarray:
@@ -366,17 +330,11 @@ def _list_column_search_mask(values, term: str) -> np.ndarray:
     base = 0
     for chunk in values.chunks:
         if len(chunk):
-            hits = pc.fill_null(
-                pc.match_substring(chunk.flatten(), term, ignore_case=True),
-                False)
+            hits = pc.fill_null(pc.match_substring(chunk.flatten(), term, ignore_case=True), False)
             parents = np.asarray(pc.list_parent_indices(chunk))
             mask[base + parents[np.asarray(hits)]] = True
         base += len(chunk)
     return mask
-
-
-
-
 
 
 def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
@@ -405,31 +363,29 @@ def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
     if values is not None:
         pa_type = values.type
         if pa.types.is_string(pa_type) or pa.types.is_large_string(pa_type):
-            hits = pc.fill_null(
-                pc.match_substring(values, term, ignore_case=True), False)
+            hits = pc.fill_null(pc.match_substring(values, term, ignore_case=True), False)
             return np.asarray(hits.to_numpy(zero_copy_only=False), dtype=bool)
 
         is_list = pa.types.is_list(pa_type) or pa.types.is_large_list(pa_type)
-        if is_list and (pa.types.is_string(pa_type.value_type)
-                        or pa.types.is_large_string(pa_type.value_type)):
+        if is_list and (
+            pa.types.is_string(pa_type.value_type) or pa.types.is_large_string(pa_type.value_type)
+        ):
             if " " in term:
                 # Elements used to be joined with a space before matching, so a
                 # term spanning two of them matched. Preserve that by joining
                 # only for the terms that can span — the join is transient and
                 # this column alone, not the corpus.
                 hits = pc.fill_null(
-                    pc.match_substring(pc.binary_join(values, " "), term,
-                                       ignore_case=True), False)
-                return np.asarray(hits.to_numpy(zero_copy_only=False),
-                                  dtype=bool)
+                    pc.match_substring(pc.binary_join(values, " "), term, ignore_case=True), False
+                )
+                return np.asarray(hits.to_numpy(zero_copy_only=False), dtype=bool)
             return _list_column_search_mask(values, term)
 
-    return series.astype("string[pyarrow]").str.contains(
-        term, case=False, regex=False, na=False).to_numpy(dtype=bool)
-
-
-
-
+    return (
+        series.astype("string[pyarrow]")
+        .str.contains(term, case=False, regex=False, na=False)
+        .to_numpy(dtype=bool)
+    )
 
 
 def filter_dataframe(df, column_types, filters, search_query=None):
@@ -442,8 +398,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     # multi-million-row study. Python-per-row criteria (list overlap,
     # extra_data token overlap) are deferred until after that single
     # narrowing, so they scan surviving rows only, as before.
-    combined = None   # np.bool_ mask over df; None = no vectorized criteria
-    deferred = []     # (col, val) pairs evaluated per-row after narrowing
+    combined = None  # np.bool_ mask over df; None = no vectorized criteria
+    deferred = []  # (col, val) pairs evaluated per-row after narrowing
 
     def _and_mask(mask):
         nonlocal combined
@@ -456,22 +412,27 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
     for col, criteria in filters.items():
         # Handle virtual Collection Tags filter
-        if col == 'Collection Tags':
+        if col == "Collection Tags":
             val = criteria.get("value")
-            if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in df.columns:
+            if (
+                isinstance(val, (list, np.ndarray))
+                and len(val) > 0
+                and "collection_id" in df.columns
+            ):
                 try:
                     # Lazy import to avoid circular dependency with data_service
                     from .data_service import get_collection_tags
+
                     annotations = get_collection_tags()
                 except Exception:
                     annotations = {}
                 selected_tags = set(str(v) for v in val)
                 matching_cids = set()
                 for cid, anno in annotations.items():
-                    anno_tags = set(str(t).strip() for t in anno.get('annotation_tags', []))
+                    anno_tags = set(str(t).strip() for t in anno.get("annotation_tags", []))
                     if anno_tags & selected_tags:
                         matching_cids.add(str(cid))
-                _and_mask(df['collection_id'].astype(str).isin(matching_cids))
+                _and_mask(df["collection_id"].astype(str).isin(matching_cids))
             continue
 
         if col not in df.columns:
@@ -486,7 +447,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         # engagement record. `val` is a list of selected engagement types
         # (e.g. ['fave', 'comment']); a row passes if any of those tokens
         # appears in its parsed `extra_data` cell. Python per row — deferred.
-        if col == 'extra_data':
+        if col == "extra_data":
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:
                 deferred.append((col, val))
             continue
@@ -514,9 +475,10 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 else:
                     col_series = df[col]
                     col_dtype = col_series.dtype
-                    if (isinstance(col_dtype, pd.ArrowDtype)
-                            and (pa.types.is_string(col_dtype.pyarrow_dtype)
-                                 or pa.types.is_large_string(col_dtype.pyarrow_dtype))):
+                    if isinstance(col_dtype, pd.ArrowDtype) and (
+                        pa.types.is_string(col_dtype.pyarrow_dtype)
+                        or pa.types.is_large_string(col_dtype.pyarrow_dtype)
+                    ):
                         # Arrow string columns compare in-place — astype(str)
                         # would round-trip every value through a python object
                         # (seconds per filter on a multi-million-row study).
@@ -541,11 +503,14 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
     # Python-per-row criteria on the already-narrowed frame.
     for col, val in deferred:
-        if col == 'extra_data':
+        if col == "extra_data":
             selected = set(str(v).lower() for v in val)
-            mask = filtered_df[col].astype('string').map(
-                lambda s: bool(parse_extra_data_tokens(s) & selected)
-                if pd.notna(s) else False
+            mask = (
+                filtered_df[col]
+                .astype("string")
+                .map(
+                    lambda s: bool(parse_extra_data_tokens(s) & selected) if pd.notna(s) else False
+                )
             )
             filtered_df = filtered_df[mask]
             continue
@@ -553,7 +518,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         search_set = set(str(v) for v in val)  # Ensure strings
 
         def robust_check(x):
-            if not isinstance(x, (list, np.ndarray)): return False
+            if not isinstance(x, (list, np.ndarray)):
+                return False
             try:
                 # Ensure x items are also hashable/strings
                 check_set = set(str(item) for item in x)
@@ -581,13 +547,14 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             # text/categorical/list fields, so free-text search targets the latter
             # and never matches inside IDs, hashes, or storage links.
             searchable_cols = [
-                col for col in filtered_df.columns
+                col
+                for col in filtered_df.columns
                 if column_types.get(col) in ("category", "long_text", "list")
             ]
-            
+
             for term in terms:
                 term_mask = np.zeros(n_rows, dtype=bool)
-                term_is_numeric = term.replace('.', '', 1).isdigit()
+                term_is_numeric = term.replace(".", "", 1).isdigit()
 
                 cols_to_search = searchable_cols.copy()
                 if term_is_numeric:
@@ -608,36 +575,29 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     return filtered_df
 
 
-
-
-
 def calculate_adaptive_histogram(data, min_val, max_val, bins=50, max_empty_ratio=0.1):
     """
     Recursively reduces bin count if too many bins are empty.
     """
     counts, bin_edges = np.histogram(data, bins=bins, range=(min_val, max_val), density=True)
-    
+
     # Check emptiness
     # Count bins with 0 data
     empty_bins = np.sum(counts == 0)
     empty_ratio = empty_bins / bins
-    
+
     if empty_ratio > max_empty_ratio and bins > 5:
         # Reduce bins by ~50% (Agilent approach)
         new_bins = int(bins * 0.5)
         # Ensure we don't get stuck if bins * 0.5 rounds to same int (unlikely with >5)
-        if new_bins == bins: new_bins -= 1
-        return calculate_adaptive_histogram(data, min_val, max_val, bins=new_bins, max_empty_ratio=max_empty_ratio)
-    
+        if new_bins == bins:
+            new_bins -= 1
+        return calculate_adaptive_histogram(
+            data, min_val, max_val, bins=new_bins, max_empty_ratio=max_empty_ratio
+        )
+
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     return counts, bin_centers
-
-
-
-
-
-
-
 
 
 def make_serializable(obj):
@@ -645,17 +605,17 @@ def make_serializable(obj):
 
     if obj is None:
         return None
-        
+
     # Check for containers FIRST to avoid pd.isna() returning an array
     if isinstance(obj, dict):
         return {str(k): make_serializable(v) for k, v in obj.items()}
 
     if isinstance(obj, np.ndarray):
         return [make_serializable(x) for x in obj.tolist()]
-        
+
     if isinstance(obj, (list, tuple)):
         return [make_serializable(x) for x in obj]
-    
+
     # Check for scalar NAs (NaN, NaT, None)
     # This is safe now because we've handled most containers
     try:
@@ -666,10 +626,10 @@ def make_serializable(obj):
 
     if isinstance(obj, (pd.Timestamp, _dt.datetime)):
         return obj.isoformat()
-        
-    if hasattr(obj, 'tolist'):  # generic numpy scalar fallback
+
+    if hasattr(obj, "tolist"):  # generic numpy scalar fallback
         return obj.tolist()
-        
+
     return obj
 
 
@@ -688,9 +648,11 @@ def classify_columns(df: pd.DataFrame) -> dict:
         is_list = False
         if isinstance(dtype, pd.ArrowDtype):
             pa_type = dtype.pyarrow_dtype
-            if (pa.types.is_list(pa_type) or
-                pa.types.is_large_list(pa_type) or
-                pa.types.is_fixed_size_list(pa_type)):
+            if (
+                pa.types.is_list(pa_type)
+                or pa.types.is_large_list(pa_type)
+                or pa.types.is_fixed_size_list(pa_type)
+            ):
                 is_list = True
 
         if is_list:
@@ -716,17 +678,17 @@ def classify_columns(df: pd.DataFrame) -> dict:
                 is_numeric = True
 
         if is_numeric:
-             try:
-                 max_val = df[col].max()
-                 if pd.isna(max_val):
-                     column_types[col] = "number"
-                 elif max_val > 1e15:
-                     column_types[col] = "identifier"
-                 else:
-                     column_types[col] = "number"
-             except Exception:
-                 column_types[col] = "number"
-             continue
+            try:
+                max_val = df[col].max()
+                if pd.isna(max_val):
+                    column_types[col] = "number"
+                elif max_val > 1e15:
+                    column_types[col] = "identifier"
+                else:
+                    column_types[col] = "number"
+            except Exception:
+                column_types[col] = "number"
+            continue
 
         # 3. Strings / Categories
         # Boolean also falls through here to be treated as category (heuristic)
@@ -750,7 +712,7 @@ def classify_columns(df: pd.DataFrame) -> dict:
             series_sample = col_series.dropna()
         series_sample = series_sample.head(1000)
 
-        series_sample = series_sample[series_sample != fyp_cf['labels']['OTHER_THINGS']]
+        series_sample = series_sample[series_sample != fyp_cf["labels"]["OTHER_THINGS"]]
 
         if series_sample.empty:
             column_types[col] = "category"
@@ -760,22 +722,22 @@ def classify_columns(df: pd.DataFrame) -> dict:
         lengths = lengths[lengths > 0]
 
         if not lengths.empty and lengths.mean() > 60:
-             column_types[col] = "long_text"
+            column_types[col] = "long_text"
         else:
-             if n_rows > 100:
-                 try:
-                     # Arrow-native distinct count (C, multithreaded); NAs are
-                     # excluded to match pandas nunique(dropna=True).
-                     arr = col_series.array._pa_array
-                     n_unique = pc.count_distinct(arr, mode="only_valid").as_py()
-                 except Exception:
-                     n_unique = col_series.nunique()
-                 if n_unique > 0.9 * n_rows:
-                     column_types[col] = "identifier"
-                 else:
-                     column_types[col] = "category"
-             else:
-                 column_types[col] = "category"
+            if n_rows > 100:
+                try:
+                    # Arrow-native distinct count (C, multithreaded); NAs are
+                    # excluded to match pandas nunique(dropna=True).
+                    arr = col_series.array._pa_array
+                    n_unique = pc.count_distinct(arr, mode="only_valid").as_py()
+                except Exception:
+                    n_unique = col_series.nunique()
+                if n_unique > 0.9 * n_rows:
+                    column_types[col] = "identifier"
+                else:
+                    column_types[col] = "category"
+            else:
+                column_types[col] = "category"
 
     return column_types
 
@@ -790,16 +752,15 @@ def load_data(study: str, verbose: bool = False):
     # reach the cold-build path below — their frame is assembled upstream in
     # services.study_data from the base + overlay parquets.
     from fyp.analysis.studies import is_composed_study
+
     if is_composed_study((fyp_cf.get("study_defs", {}) or {}).get(study)):
         if verbose:
             print(f"    Study '{study}' is composed; load its sources instead.")
         return None, {}
 
     if not data_io.exists(
-        storage_location = "cache",
-        filename = f"{study}_recoded.parquet",
-        verbose=verbose
-        ):
+        storage_location="cache", filename=f"{study}_recoded.parquet", verbose=verbose
+    ):
         # Cold-start path: only attempt to build the recoded dataset for a
         # study that actually exists in the config. An unknown name would
         # otherwise crash deep inside create_study_recoded_dataset and
@@ -810,19 +771,17 @@ def load_data(study: str, verbose: bool = False):
                 print(f"    Study '{study}' is not defined in config; nothing to load.")
             return None, {}
 
-        print("@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment...")
-        df = create_study_recoded_dataset(
-            study_name = study,
-            save_to_cache=True,
-            verbose = verbose
+        print(
+            "@@ No cached recoded study dataset found. I must run the recoding process to create it. Please wait a moment..."
         )
+        df = create_study_recoded_dataset(study_name=study, save_to_cache=True, verbose=verbose)
         print("@@ Back after finalising the recoding process.")
     else:
         df = data_io.load_parquet(
             storage_location="cache",
             filename=f"{study}_recoded.parquet",
             verbose=verbose,
-            )
+        )
 
     if df is None:
         print("ERROR: This process cannot run without a study dataset. Process failed.")
@@ -831,9 +790,6 @@ def load_data(study: str, verbose: bool = False):
     column_types = classify_columns(df)
 
     return df, column_types
-
-
-
 
 
 def _list_value_counts_top(col_data: pd.Series, n: int = 20) -> dict:
@@ -862,9 +818,9 @@ def _list_value_counts_top(col_data: pd.Series, n: int = 20) -> dict:
     if len(flat) == 0:
         return {}
     vc = pc.value_counts(flat.combine_chunks())
-    counts = vc.field('counts').to_numpy()
-    order = np.argsort(-counts, kind='stable')[:n]
-    top_values = vc.field('values').take(pa.array(order)).to_pylist()
+    counts = vc.field("counts").to_numpy()
+    order = np.argsort(-counts, kind="stable")[:n]
+    top_values = vc.field("values").take(pa.array(order)).to_pylist()
     top_counts = counts[order]
     return {str(v): int(c) for v, c in zip(top_values, top_counts)}
 
@@ -880,7 +836,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
             so a filtered view never flips a column's axis or bin count.
         verbose: When True, print timing.
     """
-    pd.set_option('future.no_silent_downcasting', True)
+    pd.set_option("future.no_silent_downcasting", True)
 
     t1 = _dt.datetime.now()
 
@@ -889,7 +845,8 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
 
     count = len(df)
     stats = {}
-    if number_meta is None: number_meta = {}
+    if number_meta is None:
+        number_meta = {}
 
     if count == 0:
         return {"count": 0, "stats": {}}
@@ -902,41 +859,41 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
         release the GIL, which is what makes the thread pool below pay off).
         """
         if dtype == "number":
-             col_data = df[col]
+            col_data = df[col]
 
-             if pd.api.types.is_integer_dtype(col_data):
-                  if col_data.nunique() < 20:
-                      vc = col_data.value_counts().sort_index().to_dict()
-                      return {str(k): v for k, v in vc.items()}
+            if pd.api.types.is_integer_dtype(col_data):
+                if col_data.nunique() < 20:
+                    vc = col_data.value_counts().sort_index().to_dict()
+                    return {str(k): v for k, v in vc.items()}
 
-             series = col_data.dropna()
-             series = series[series >= 0]
+            series = col_data.dropna()
+            series = series[series >= 0]
 
-             if series.empty:
-                 return {"type": "density", "x": [], "y": []}
+            if series.empty:
+                return {"type": "density", "x": [], "y": []}
 
-             count_val = len(series)
-             # std() of a single-value series is undefined and returns NA on a
-             # PyArrow-backed column, so float(NA) raises TypeError — guard it
-             # (and the other reducers) so filtering down to one video doesn't
-             # 500 the Explore tab.
-             _std = series.std()
-             mean_val = float(series.mean())
-             std_val = float(_std) if pd.notna(_std) else 0.0
-             min_val = float(series.min())
-             max_val = float(series.max())
-             
-             col_meta = number_meta.get(col, {})
-             use_log = bool(col_meta.get('log'))
-             transform = "log10" if use_log else "linear"
+            count_val = len(series)
+            # std() of a single-value series is undefined and returns NA on a
+            # PyArrow-backed column, so float(NA) raises TypeError — guard it
+            # (and the other reducers) so filtering down to one video doesn't
+            # 500 the Explore tab.
+            _std = series.std()
+            mean_val = float(series.mean())
+            std_val = float(_std) if pd.notna(_std) else 0.0
+            min_val = float(series.min())
+            max_val = float(series.max())
 
-             clamped_series = series
-             log_offset = log_axis_offset(clamped_series) if use_log else 1.0
+            col_meta = number_meta.get(col, {})
+            use_log = bool(col_meta.get("log"))
+            transform = "log10" if use_log else "linear"
 
-             try:
-                 if min_val == max_val:
-                     x_val = np.log10(min_val + log_offset) if transform == "log10" else min_val
-                     return {
+            clamped_series = series
+            log_offset = log_axis_offset(clamped_series) if use_log else 1.0
+
+            try:
+                if min_val == max_val:
+                    x_val = np.log10(min_val + log_offset) if transform == "log10" else min_val
+                    return {
                         "type": "density",
                         "x": [float(x_val)],
                         "y": [float(count_val)],
@@ -946,49 +903,50 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "max": max_val,
                         "mean": mean_val,
                         "std": std_val,
-                        "count": count_val
+                        "count": count_val,
                     }
 
-                 bins_target = col_meta.get('bins')
-                 if not isinstance(bins_target, int) or bins_target <= 0:
-                     bins_target = derive_bin_count(use_log)
+                bins_target = col_meta.get("bins")
+                if not isinstance(bins_target, int) or bins_target <= 0:
+                    bins_target = derive_bin_count(use_log)
 
+                if transform == "log10":
+                    # Log Transform: log10(x + offset). The offset is 1 for
+                    # count-like data and data-driven for fractional data
+                    # (see log_axis_offset).
+                    if isinstance(clamped_series.dtype, pd.ArrowDtype):
+                        log_data = np.log10(clamped_series.to_numpy() + log_offset)
+                    else:
+                        log_data = np.log10(clamped_series + log_offset)
 
-                 if transform == "log10":
-                     # Log Transform: log10(x + offset). The offset is 1 for
-                     # count-like data and data-driven for fractional data
-                     # (see log_axis_offset).
-                     if isinstance(clamped_series.dtype, pd.ArrowDtype):
-                         log_data = np.log10(clamped_series.to_numpy() + log_offset)
-                     else:
-                         log_data = np.log10(clamped_series + log_offset)
+                    log_min = np.log10(min_val + log_offset)
+                    log_max = np.log10(max_val + log_offset)
 
-                     log_min = np.log10(min_val + log_offset)
-                     log_max = np.log10(max_val + log_offset)
+                    counts, bin_centers = calculate_adaptive_histogram(
+                        log_data, log_min, log_max, bins=bins_target
+                    )
 
-                     counts, bin_centers = calculate_adaptive_histogram(log_data, log_min, log_max, bins=bins_target)
-
-                     # Decade ticks labelled in ORIGINAL units. Zeros sit at
-                     # log10(offset), so the "0" tick marks that position.
-                     tick_vals = []
-                     tick_text = []
-                     if min_val <= 0 and max_val >= 0:
+                    # Decade ticks labelled in ORIGINAL units. Zeros sit at
+                    # log10(offset), so the "0" tick marks that position.
+                    tick_vals = []
+                    tick_text = []
+                    if min_val <= 0 and max_val >= 0:
                         tick_vals.append(np.log10(log_offset))
                         tick_text.append("0")
-                     # Build decade ticks only for a finite range, so a non-finite
-                     # max_val can never spin this loop forever. Start at the
-                     # offset's decade so sub-1 ranges (e.g. per-play ratios)
-                     # still get labelled ticks.
-                     if np.isfinite(max_val) and max_val > 0:
-                         p = int(np.ceil(np.log10(log_offset)))
-                         while 10**p <= max_val:
+                    # Build decade ticks only for a finite range, so a non-finite
+                    # max_val can never spin this loop forever. Start at the
+                    # offset's decade so sub-1 ranges (e.g. per-play ratios)
+                    # still get labelled ticks.
+                    if np.isfinite(max_val) and max_val > 0:
+                        p = int(np.ceil(np.log10(log_offset)))
+                        while 10**p <= max_val:
                             v = 10**p
                             if v >= min_val:
                                 tick_vals.append(np.log10(v + log_offset))
                                 tick_text.append(f"{v:,}" if v >= 1 else f"{v:.{-p}f}")
                             p += 1
 
-                     return {
+                    return {
                         "type": "density",
                         "x": bin_centers.tolist(),
                         "y": counts.tolist(),
@@ -1000,16 +958,17 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "tick_text": tick_text,
                         "mean": mean_val,
                         "std": std_val,
-                        "count": count_val
-                     }
+                        "count": count_val,
+                    }
 
-                 else:
-                     arr_data = clamped_series.to_numpy()
+                else:
+                    arr_data = clamped_series.to_numpy()
 
-                     counts, bin_centers = calculate_adaptive_histogram(arr_data, min_val, max_val, bins=bins_target)
+                    counts, bin_centers = calculate_adaptive_histogram(
+                        arr_data, min_val, max_val, bins=bins_target
+                    )
 
-
-                     return {
+                    return {
                         "type": "density",
                         "x": bin_centers.tolist(),
                         "y": counts.tolist(),
@@ -1018,38 +977,38 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "max": max_val,
                         "mean": mean_val,
                         "std": std_val,
-                        "count": count_val
-                     }
+                        "count": count_val,
+                    }
 
-             except Exception as e:
-                 print(f"Error stats {col}: {e}")
-                 return {}
+            except Exception as e:
+                print(f"Error stats {col}: {e}")
+                return {}
 
         elif dtype == "category":
             return df[col].value_counts().head(20).to_dict()
 
         elif dtype == "list":
-             if isinstance(df[col].dtype, pd.ArrowDtype) and 'list' in str(df[col].dtype):
-                  try:
-                      return _list_value_counts_top(df[col], n=20)
-                  except Exception:
-                      pass
-                  try:
-                      exploded = df[col].explode().dropna()
-                      return exploded.value_counts().head(20).to_dict()
-                  except Exception:
-                      pass
+            if isinstance(df[col].dtype, pd.ArrowDtype) and "list" in str(df[col].dtype):
+                try:
+                    return _list_value_counts_top(df[col], n=20)
+                except Exception:
+                    pass
+                try:
+                    exploded = df[col].explode().dropna()
+                    return exploded.value_counts().head(20).to_dict()
+                except Exception:
+                    pass
 
-             all_items = []
-             s = df[col].dropna()
-             for row in s:
-                  if isinstance(row, (list, np.ndarray)):
-                      # Deduplicate within row to count Document Frequency
-                      try:
-                          all_items.extend(list(set(str(x) for x in row)))
-                      except Exception:
-                          pass
-             return dict(Counter(all_items).most_common(20))
+            all_items = []
+            s = df[col].dropna()
+            for row in s:
+                if isinstance(row, (list, np.ndarray)):
+                    # Deduplicate within row to count Document Frequency
+                    try:
+                        all_items.extend(list(set(str(x) for x in row)))
+                    except Exception:
+                        pass
+            return dict(Counter(all_items).most_common(20))
 
         return None
 
@@ -1069,7 +1028,8 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
             stats[col] = value
 
     if verbose:
-        print(f"    ...done calculating stats for viewer and explorer. Time: {_dt.datetime.now()-t1}")
-
+        print(
+            f"    ...done calculating stats for viewer and explorer. Time: {_dt.datetime.now() - t1}"
+        )
 
     return {"count": count, "stats": stats}

@@ -42,9 +42,6 @@ ITEM_ID_COL = "item_id"
 NICHE_COL = "niche"
 
 
-
-
-
 def _cell_to_text(value) -> str:
     """Flatten a scalar / list / array annotation cell to a plain string."""
     if value is None or value is pd.NA:
@@ -59,9 +56,6 @@ def _cell_to_text(value) -> str:
     except (TypeError, ValueError):
         pass
     return str(value)
-
-
-
 
 
 def assemble_documents(df: pd.DataFrame, fields: dict[str, int] | None = None) -> pd.Series:
@@ -89,9 +83,6 @@ def assemble_documents(df: pd.DataFrame, fields: dict[str, int] | None = None) -
     return doc.str.lower().str.strip()
 
 
-
-
-
 def fit_niche_model(
     documents: pd.Series,
     n_niches: int = 150,
@@ -113,17 +104,24 @@ def fit_niche_model(
         training ``labels``, and ``params``.
     """
     vectorizer = TfidfVectorizer(
-        ngram_range=(1, 2), min_df=5, max_df=0.5,
-        max_features=max_features, stop_words="english",
+        ngram_range=(1, 2),
+        min_df=5,
+        max_df=0.5,
+        max_features=max_features,
+        stop_words="english",
     )
     tfidf = vectorizer.fit_transform(documents)
 
     svd_dim = min(svd_dim, tfidf.shape[1] - 1) if tfidf.shape[1] > 1 else 1
-    lsa = make_pipeline(TruncatedSVD(n_components=svd_dim, random_state=random_state), Normalizer(copy=False))
+    lsa = make_pipeline(
+        TruncatedSVD(n_components=svd_dim, random_state=random_state), Normalizer(copy=False)
+    )
     reduced = lsa.fit_transform(tfidf)
 
     n_niches = min(n_niches, len(documents))
-    kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=random_state, n_init=3, batch_size=2048)
+    kmeans = MiniBatchKMeans(
+        n_clusters=n_niches, random_state=random_state, n_init=3, batch_size=2048
+    )
     labels = kmeans.fit_predict(reduced)
 
     return {
@@ -134,9 +132,6 @@ def fit_niche_model(
         "tfidf": tfidf,
         "params": {"n_niches": n_niches, "svd_dim": svd_dim, "max_features": max_features},
     }
-
-
-
 
 
 def top_terms_per_niche(model: dict, top_n: int = 8) -> dict[int, list[str]]:
@@ -162,9 +157,6 @@ def top_terms_per_niche(model: dict, top_n: int = 8) -> dict[int, list[str]]:
         top_idx = mean_tfidf.argsort()[::-1][:top_n]
         out[int(niche)] = vocab[top_idx].tolist()
     return out
-
-
-
 
 
 def detect_niches(

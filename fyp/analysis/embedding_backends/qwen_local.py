@@ -30,10 +30,6 @@ except ImportError:  # installed only via the local_embeddings extra
 logger = get_logger(__name__)
 
 
-
-
-
-
 def _qwen_cf() -> dict:
     """The ``[embedding.qwen_local]`` config block with defaults."""
     stored = get_config().get("embedding", {}).get("qwen_local", {}) or {}
@@ -43,10 +39,6 @@ def _qwen_cf() -> dict:
         "batch_size": 64,
     }
     return {**defaults, **stored}
-
-
-
-
 
 
 def _pick_device() -> str:
@@ -60,10 +52,6 @@ def _pick_device() -> str:
     return "cpu"
 
 
-
-
-
-
 class QwenLocalEmbeddingBackend(EmbeddingBackend):
     """Qwen3-Embedding running locally via sentence-transformers."""
 
@@ -73,16 +61,13 @@ class QwenLocalEmbeddingBackend(EmbeddingBackend):
     _model = None
     _load_lock = threading.Lock()
 
-
     def model_id(self) -> str:
         """The configured HF model id."""
         return _qwen_cf()["model_id"]
 
-
     def dim(self) -> int:
         """The configured (Matryoshka-truncated) output dimensionality."""
         return int(_qwen_cf()["dim"])
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Dependency/model readiness (see ``qwen_support.check_all``).
@@ -98,7 +83,6 @@ class QwenLocalEmbeddingBackend(EmbeddingBackend):
 
         return qwen_support.availability(self.model_id())
 
-
     def _ensure_model(self):
         """Load the model once per process (thread-safe); return it."""
         if self._model is not None:
@@ -107,15 +91,17 @@ class QwenLocalEmbeddingBackend(EmbeddingBackend):
             if QwenLocalEmbeddingBackend._model is None:
                 if SentenceTransformer is None:
                     raise RuntimeError(
-                        'sentence-transformers is not installed — pip install -e ".[local_embeddings]"')
+                        'sentence-transformers is not installed — pip install -e ".[local_embeddings]"'
+                    )
                 cf = _qwen_cf()
                 device = _pick_device()
                 logger.info(f"Loading {cf['model_id']} (dim={cf['dim']}) on {device}...")
                 QwenLocalEmbeddingBackend._model = SentenceTransformer(
-                    cf["model_id"], device=device, truncate_dim=int(cf["dim"]),
+                    cf["model_id"],
+                    device=device,
+                    truncate_dim=int(cf["dim"]),
                 )
         return QwenLocalEmbeddingBackend._model
-
 
     def embed_texts(self, texts: list[str], reporter=None) -> np.ndarray:
         """Embed a list of texts into an ``(n, dim)`` float32 matrix.
@@ -139,11 +125,13 @@ class QwenLocalEmbeddingBackend(EmbeddingBackend):
         parts: list[np.ndarray] = []
 
         for done, start in enumerate(starts, 1):
-            chunk = safe[start:start + batch_size]
+            chunk = safe[start : start + batch_size]
             try:
                 vecs = model.encode(
-                    chunk, batch_size=batch_size,
-                    normalize_embeddings=False, show_progress_bar=False,
+                    chunk,
+                    batch_size=batch_size,
+                    normalize_embeddings=False,
+                    show_progress_bar=False,
                 )
                 parts.append(np.asarray(vecs, dtype=np.float32))
             except Exception as e:

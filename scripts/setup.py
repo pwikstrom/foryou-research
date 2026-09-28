@@ -66,10 +66,6 @@ GEMINI_MODES = ("off", "api_key", "vertex")
 GCS_SURFACES = ("data", "media", "cache")
 
 
-
-
-
-
 @dataclass
 class Answers:
     """Collected wizard answers that drive the generated files."""
@@ -108,10 +104,6 @@ class Answers:
         return not self.gcs_media
 
 
-
-
-
-
 @dataclass
 class CheckResult:
     """One environment-check outcome.
@@ -129,17 +121,9 @@ class CheckResult:
     level: str = "required"
 
 
-
-
-
-
 def resolve_media_dir(answers: Answers) -> str:
     """Return the effective media directory (default: ``<data_dir>/media``)."""
     return answers.media_dir or os.path.join(answers.data_dir, "media")
-
-
-
-
 
 
 def free_space_gb(path: str) -> float | None:
@@ -157,10 +141,6 @@ def free_space_gb(path: str) -> float | None:
         return None
 
 
-
-
-
-
 def dependencies_installed() -> bool:
     """True when the project's dependencies are importable in this interpreter.
 
@@ -175,10 +155,6 @@ def dependencies_installed() -> bool:
         except (ImportError, ValueError):
             return False
     return True
-
-
-
-
 
 
 def build_config_toml(answers: Answers, generated_on: str = "") -> str:
@@ -273,10 +249,6 @@ def build_config_toml(answers: Answers, generated_on: str = "") -> str:
     return text
 
 
-
-
-
-
 def build_env_file(answers: Answers, existing_text: str) -> str:
     """Merge collected env values into ``.env`` text, append-only.
 
@@ -313,13 +285,11 @@ def build_env_file(answers: Answers, existing_text: str) -> str:
     if text and not text.endswith("\n"):
         text += "\n"
     if not text:
-        text = "# Written by scripts/setup.py. Loaded automatically when the app starts;\n" \
-               "# values already exported in the shell always take precedence.\n"
+        text = (
+            "# Written by scripts/setup.py. Loaded automatically when the app starts;\n"
+            "# values already exported in the shell always take precedence.\n"
+        )
     return text + "\n".join(new_lines) + "\n"
-
-
-
-
 
 
 def validate_data_dir(raw: str) -> tuple[str, str]:
@@ -358,10 +328,6 @@ def validate_data_dir(raw: str) -> tuple[str, str]:
     return resolved, ""
 
 
-
-
-
-
 def check_environment(include_local_models: bool = False) -> list[CheckResult]:
     """Probe the local environment for required and optional tooling.
 
@@ -391,49 +357,61 @@ def check_environment(include_local_models: bool = False) -> list[CheckResult]:
         CheckResult(
             name="dependencies",
             ok=deps_ok,
-            detail=("installed for this interpreter" if deps_ok
-                    else "not installed yet - the install step adds them"),
+            detail=(
+                "installed for this interpreter"
+                if deps_ok
+                else "not installed yet - the install step adds them"
+            ),
             needed_for="running the app (pip install -r requirements-dev.txt && pip install -e .)",
             level="info",
         ),
     ]
     tools = (
-        ("ffmpeg", "YouTube HD (DASH) media merges only - slideshows use the bundled imageio-ffmpeg"),
+        (
+            "ffmpeg",
+            "YouTube HD (DASH) media merges only - slideshows use the bundled imageio-ffmpeg",
+        ),
         ("node", "YouTube media downloads from datacenter IPs (not needed on home networks)"),
         ("deno", "alternative JS runtime for the same YouTube path as node"),
     )
     for tool, needed_for in tools:
         path = shutil.which(tool)
-        results.append(CheckResult(
-            name=tool, ok=bool(path), detail=path or "not found",
-            needed_for=needed_for, level="optional",
-        ))
+        results.append(
+            CheckResult(
+                name=tool,
+                ok=bool(path),
+                detail=path or "not found",
+                needed_for=needed_for,
+                level="optional",
+            )
+        )
     # yt-dlp arrives with `pip install -r requirements-dev.txt` — missing
     # before that step is the normal state, not a problem to go fix.
     ytdlp = shutil.which("yt-dlp")
-    results.append(CheckResult(
-        name="yt-dlp",
-        ok=bool(ytdlp),
-        detail=ytdlp or "not found - installed automatically by pip in the install step; nothing to do now",
-        needed_for="scraping (comes with the project requirements)",
-        level="info",
-    ))
-    if sys.platform not in ("darwin", "win32"):
-        results.append(CheckResult(
-            name="browser cookies",
-            ok=False,
-            detail="Linux: Chrome-profile cookie extraction is macOS-only",
-            needed_for="authenticated scraping (Instagram needs cookies; TikTok/YouTube degrade to public access)",
+    results.append(
+        CheckResult(
+            name="yt-dlp",
+            ok=bool(ytdlp),
+            detail=ytdlp
+            or "not found - installed automatically by pip in the install step; nothing to do now",
+            needed_for="scraping (comes with the project requirements)",
             level="info",
-        ))
+        )
+    )
+    if sys.platform not in ("darwin", "win32"):
+        results.append(
+            CheckResult(
+                name="browser cookies",
+                ok=False,
+                detail="Linux: Chrome-profile cookie extraction is macOS-only",
+                needed_for="authenticated scraping (Instagram needs cookies; TikTok/YouTube degrade to public access)",
+                level="info",
+            )
+        )
     if include_local_models:
         results.extend(check_local_qwen())
         results.extend(check_local_minicpm())
     return results
-
-
-
-
 
 
 def check_local_qwen() -> list[CheckResult]:
@@ -456,30 +434,30 @@ def check_local_qwen() -> list[CheckResult]:
 
             checks = qwen_support.check_all()
     except Exception as exc:
-        return [CheckResult(
-            name="local qwen annotation",
-            ok=False,
-            detail=f"checks unavailable: {exc}",
-            needed_for="optional local Qwen annotation backend",
-            level="optional",
-        )]
+        return [
+            CheckResult(
+                name="local qwen annotation",
+                ok=False,
+                detail=f"checks unavailable: {exc}",
+                needed_for="optional local Qwen annotation backend",
+                level="optional",
+            )
+        ]
     results = []
     for check in checks:
         needed = "optional local Qwen annotation backend"
         if not check["ok"] and check["fix"]:
             needed += f" — fix: {check['fix']}"
-        results.append(CheckResult(
-            name=f"local qwen: {check['name']}",
-            ok=check["ok"],
-            detail=check["detail"],
-            needed_for=needed,
-            level="optional",
-        ))
+        results.append(
+            CheckResult(
+                name=f"local qwen: {check['name']}",
+                ok=check["ok"],
+                detail=check["detail"],
+                needed_for=needed,
+                level="optional",
+            )
+        )
     return results
-
-
-
-
 
 
 def check_local_minicpm() -> list[CheckResult]:
@@ -498,30 +476,30 @@ def check_local_minicpm() -> list[CheckResult]:
 
             checks = minicpm_support.check_all()
     except Exception as exc:
-        return [CheckResult(
-            name="local minicpm annotation",
-            ok=False,
-            detail=f"checks unavailable: {exc}",
-            needed_for="optional local MiniCPM annotation backend",
-            level="optional",
-        )]
+        return [
+            CheckResult(
+                name="local minicpm annotation",
+                ok=False,
+                detail=f"checks unavailable: {exc}",
+                needed_for="optional local MiniCPM annotation backend",
+                level="optional",
+            )
+        ]
     results = []
     for check in checks:
         needed = "optional local MiniCPM annotation backend"
         if not check["ok"] and check["fix"]:
             needed += f" — fix: {check['fix']}"
-        results.append(CheckResult(
-            name=f"local minicpm: {check['name']}",
-            ok=check["ok"],
-            detail=check["detail"],
-            needed_for=needed,
-            level="optional",
-        ))
+        results.append(
+            CheckResult(
+                name=f"local minicpm: {check['name']}",
+                ok=check["ok"],
+                detail=check["detail"],
+                needed_for=needed,
+                level="optional",
+            )
+        )
     return results
-
-
-
-
 
 
 def prompt(question: str, default: str = "") -> str:
@@ -531,10 +509,6 @@ def prompt(question: str, default: str = "") -> str:
     return answer or default
 
 
-
-
-
-
 def prompt_yes_no(question: str, default: bool) -> bool:
     """Ask a yes/no question, returning the default on empty input."""
     hint = "Y/n" if default else "y/N"
@@ -542,10 +516,6 @@ def prompt_yes_no(question: str, default: bool) -> bool:
     if not answer:
         return default
     return answer in ("y", "yes")
-
-
-
-
 
 
 def load_existing_defaults() -> Answers:
@@ -579,10 +549,6 @@ def load_existing_defaults() -> Answers:
         answers.gemini_mode = "api_key"
     answers.contact_email = existing.get("site", {}).get("contact_email", "")
     return answers
-
-
-
-
 
 
 def ask_storage(answers: Answers, defaults: Answers) -> None:
@@ -638,16 +604,14 @@ def ask_storage(answers: Answers, defaults: Answers) -> None:
 
     if answers.needs_local_media:
         default_media = defaults.media_dir or os.path.join(answers.data_dir, "media")
-        answers.media_dir = os.path.abspath(os.path.expanduser(
-            prompt("Media directory (video files; needs disk space)", default_media)
-        ))
+        answers.media_dir = os.path.abspath(
+            os.path.expanduser(
+                prompt("Media directory (video files; needs disk space)", default_media)
+            )
+        )
         free = free_space_gb(answers.media_dir)
         if free is not None:
             print(f"  Free space on that volume: {free:.0f} GB")
-
-
-
-
 
 
 def run_interactive(defaults: Answers) -> Answers:
@@ -684,14 +648,13 @@ def run_interactive(defaults: Answers) -> Answers:
         defaults.contact_email,
     )
 
-    if prompt_yes_no("Generate a FLASK_SECRET_KEY into .env? (optional locally, required if deployed)", default=False):
+    if prompt_yes_no(
+        "Generate a FLASK_SECRET_KEY into .env? (optional locally, required if deployed)",
+        default=False,
+    ):
         answers.flask_secret = secrets.token_urlsafe(32)
 
     return answers
-
-
-
-
 
 
 def gcs_surfaces_from_args(args: argparse.Namespace, defaults: Answers) -> Answers:
@@ -729,10 +692,6 @@ def gcs_surfaces_from_args(args: argparse.Namespace, defaults: Answers) -> Answe
     return answers
 
 
-
-
-
-
 def answers_from_args(args: argparse.Namespace, defaults: Answers) -> Answers:
     """Build ``Answers`` non-interactively from CLI flags + defaults."""
     answers = gcs_surfaces_from_args(args, defaults)
@@ -744,12 +703,15 @@ def answers_from_args(args: argparse.Namespace, defaults: Answers) -> Answers:
             sys.exit(f"error: data dir {resolved}: {problem}")
         answers.data_dir = resolved
     if answers.needs_local_media:
-        answers.media_dir = os.path.abspath(os.path.expanduser(
-            args.media_dir or defaults.media_dir
-            or os.path.join(answers.data_dir, "media")
-        ))
+        answers.media_dir = os.path.abspath(
+            os.path.expanduser(
+                args.media_dir or defaults.media_dir or os.path.join(answers.data_dir, "media")
+            )
+        )
     if args.platforms:
-        answers.platforms = [p.strip() for p in args.platforms.split(",") if p.strip() in ALL_PLATFORMS]
+        answers.platforms = [
+            p.strip() for p in args.platforms.split(",") if p.strip() in ALL_PLATFORMS
+        ]
     else:
         answers.platforms = defaults.platforms
     if args.no_gemini:
@@ -764,10 +726,6 @@ def answers_from_args(args: argparse.Namespace, defaults: Answers) -> Answers:
         answers.vertex_project = defaults.vertex_project
     answers.contact_email = args.contact_email or defaults.contact_email
     return answers
-
-
-
-
 
 
 def print_checks(results: list[CheckResult], local_models_hidden: bool = False) -> bool:
@@ -814,10 +772,6 @@ def print_checks(results: list[CheckResult], local_models_hidden: bool = False) 
     return required_ok
 
 
-
-
-
-
 def print_next_steps(answers: Answers, in_venv: bool, deps_ready: bool = False) -> None:
     """Print the final what-to-do-next summary (platform-aware).
 
@@ -850,9 +804,13 @@ def print_next_steps(answers: Answers, in_venv: bool, deps_ready: bool = False) 
     print(f"  {step}. python scripts/setup.py --verify   (live-checks your configuration)")
     step += 1
     if windows:
-        print(f'  {step}. python -m pytest -q -m "not requires_data and not requires_gcs and not slow"')
+        print(
+            f'  {step}. python -m pytest -q -m "not requires_data and not requires_gcs and not slow"'
+        )
     else:
-        print(f"  {step}. bash scripts/verify.sh   (checks the install: lint + tests + import smoke)")
+        print(
+            f"  {step}. bash scripts/verify.sh   (checks the install: lint + tests + import smoke)"
+        )
 
     if answers.gemini_api_key or answers.flask_secret:
         print("\n  Values in .env are loaded automatically when the app starts;")
@@ -872,20 +830,22 @@ def print_next_steps(answers: Answers, in_venv: bool, deps_ready: bool = False) 
 
     notes = []
     if "youtube" in answers.platforms:
-        notes.append("youtube: install ffmpeg for HD merges; node/deno only matter on datacenter IPs")
+        notes.append(
+            "youtube: install ffmpeg for HD merges; node/deno only matter on datacenter IPs"
+        )
     if "instagram" in answers.platforms:
-        notes.append("instagram: scraping needs a logged-in Chrome session (cookies; macOS only locally)")
+        notes.append(
+            "instagram: scraping needs a logged-in Chrome session (cookies; macOS only locally)"
+        )
     if "tiktok" in answers.platforms:
-        notes.append("tiktok: works unauthenticated for public content; Chrome cookies improve access")
+        notes.append(
+            "tiktok: works unauthenticated for public content; Chrome cookies improve access"
+        )
     if notes:
         print("\nPlatform notes:")
         for n in notes:
             print(f"  - {n}")
     print("\nFull guide: docs/installation.md")
-
-
-
-
 
 
 def _python312_command() -> list[str] | None:
@@ -898,10 +858,6 @@ def _python312_command() -> list[str] | None:
     if os.name == "nt" and shutil.which("py"):
         return ["py", "-3.12"]
     return None
-
-
-
-
 
 
 def run_install() -> bool:
@@ -932,15 +888,26 @@ def run_install() -> bool:
             venv_python = venv_dir / "bin" / "python"
         steps = []
         if not venv_python.exists():
-            steps.append(([*py312, "-m", "venv", str(venv_dir)],
-                          "Creating virtual environment .venv"))
+            steps.append(
+                ([*py312, "-m", "venv", str(venv_dir)], "Creating virtual environment .venv")
+            )
 
     steps += [
-        ([str(venv_python), "-m", "pip", "install", "-r",
-          str(REPO_ROOT / "requirements-dev.txt")],
-         "Installing dependencies (this takes a few minutes)"),
-        ([str(venv_python), "-m", "pip", "install", "-e", str(REPO_ROOT)],
-         "Installing the fyp package (editable)"),
+        (
+            [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(REPO_ROOT / "requirements-dev.txt"),
+            ],
+            "Installing dependencies (this takes a few minutes)",
+        ),
+        (
+            [str(venv_python), "-m", "pip", "install", "-e", str(REPO_ROOT)],
+            "Installing the fyp package (editable)",
+        ),
     ]
     for cmd, label in steps:
         print(f"\n== {label}")
@@ -955,10 +922,6 @@ def run_install() -> bool:
             return False
     print("\nDependencies installed.")
     return True
-
-
-
-
 
 
 def run_verify() -> int:
@@ -1032,7 +995,9 @@ def run_verify() -> int:
         print("  --  gemini            not configured (optional - annotation features stay off)")
 
     data_io_cfg = cf.get("data_io", {})
-    if any(data_io_cfg.get(k) for k in ("use_gcs_for_data", "use_gcs_for_media", "use_gcs_for_cache")):
+    if any(
+        data_io_cfg.get(k) for k in ("use_gcs_for_data", "use_gcs_for_media", "use_gcs_for_cache")
+    ):
         bucket_name = str(data_io_cfg.get("GCS_bucket_name") or "").strip()
         if not bucket_name:
             problems += 1
@@ -1046,7 +1011,9 @@ def run_verify() -> int:
                     print(f"  OK  gcs               bucket '{bucket_name}' is reachable")
                 else:
                     problems += 1
-                    print(f"  --  gcs               bucket '{bucket_name}' not found (or no access)")
+                    print(
+                        f"  --  gcs               bucket '{bucket_name}' not found (or no access)"
+                    )
             except Exception as exc:
                 problems += 1
                 print(f"  --  gcs               cannot reach bucket '{bucket_name}': {exc}")
@@ -1061,10 +1028,6 @@ def run_verify() -> int:
     return 1 if problems else 0
 
 
-
-
-
-
 def main() -> None:
     """Entry point: parse flags, collect answers, write outputs."""
     parser = argparse.ArgumentParser(description="For You Data Hub local setup wizard")
@@ -1072,24 +1035,46 @@ def main() -> None:
     parser.add_argument("--media-dir", help="media directory (default <data-dir>/media)")
     parser.add_argument("--platforms", help="comma-separated platforms you plan to scrape")
     parser.add_argument("--no-gemini", action="store_true", help="skip Gemini configuration")
-    parser.add_argument("--gemini-api-key-mode", action="store_true",
-                        help="use the plain Gemini API (GEMINI_API_KEY env) instead of Vertex")
+    parser.add_argument(
+        "--gemini-api-key-mode",
+        action="store_true",
+        help="use the plain Gemini API (GEMINI_API_KEY env) instead of Vertex",
+    )
     parser.add_argument("--vertex-project", help="GCP project id for Vertex AI annotation")
-    parser.add_argument("--gcs-bucket",
-                        help="use GCS with this bucket name (all three surfaces unless --gcs-for narrows it)")
-    parser.add_argument("--gcs-for",
-                        help="comma-separated subset of data,media,cache to store on GCS "
-                             "(the rest stay on the local disk); needs --gcs-bucket")
+    parser.add_argument(
+        "--gcs-bucket",
+        help="use GCS with this bucket name (all three surfaces unless --gcs-for narrows it)",
+    )
+    parser.add_argument(
+        "--gcs-for",
+        help="comma-separated subset of data,media,cache to store on GCS "
+        "(the rest stay on the local disk); needs --gcs-bucket",
+    )
     parser.add_argument("--contact-email", help="contact email shown on the public pages")
-    parser.add_argument("--yes", action="store_true", help="non-interactive: accept defaults for anything unset")
-    parser.add_argument("--force", action="store_true", help="overwrite config.local.toml without asking")
-    parser.add_argument("--check-only", action="store_true", help="run environment checks and exit (non-zero if a required check fails)")
-    parser.add_argument("--verbose", action="store_true",
-                        help="include the optional local-model (Qwen/MiniCPM) backend checks")
-    parser.add_argument("--install", action="store_true",
-                        help="also create .venv and pip-install the dependencies")
-    parser.add_argument("--verify", action="store_true",
-                        help="post-install: live-check the configured services (Gemini, GCS) and exit")
+    parser.add_argument(
+        "--yes", action="store_true", help="non-interactive: accept defaults for anything unset"
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="overwrite config.local.toml without asking"
+    )
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="run environment checks and exit (non-zero if a required check fails)",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="include the optional local-model (Qwen/MiniCPM) backend checks",
+    )
+    parser.add_argument(
+        "--install", action="store_true", help="also create .venv and pip-install the dependencies"
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="post-install: live-check the configured services (Gemini, GCS) and exit",
+    )
     args = parser.parse_args()
 
     if args.verify:
@@ -1108,7 +1093,9 @@ def main() -> None:
 
     if CONFIG_LOCAL.exists():
         if not args.force and not args.yes:
-            if not prompt_yes_no(f"{CONFIG_LOCAL} exists - back it up and overwrite?", default=True):
+            if not prompt_yes_no(
+                f"{CONFIG_LOCAL} exists - back it up and overwrite?", default=True
+            ):
                 print("Aborted - nothing written.")
                 return
         backup = CONFIG_LOCAL.with_suffix(".toml.bak")
@@ -1127,7 +1114,9 @@ def main() -> None:
 
     in_venv = sys.prefix != sys.base_prefix
     venv_python_exists = (
-        REPO_ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+        REPO_ROOT
+        / ".venv"
+        / ("Scripts" if os.name == "nt" else "bin")
         / ("python.exe" if os.name == "nt" else "python")
     ).exists()
     # Offer to run the venv + pip steps so a first-time user never has to
@@ -1136,17 +1125,17 @@ def main() -> None:
     # and asking there reads as though the wizard doubted that worked - so the
     # question is only put when there is actually something to install.
     deps_ready = in_venv and dependencies_installed()
-    if args.install or (not args.yes and not deps_ready and prompt_yes_no(
-        "\nCreate the virtualenv and install the dependencies now? (a few minutes)",
-        default=not (in_venv or venv_python_exists),
-    )):
+    if args.install or (
+        not args.yes
+        and not deps_ready
+        and prompt_yes_no(
+            "\nCreate the virtualenv and install the dependencies now? (a few minutes)",
+            default=not (in_venv or venv_python_exists),
+        )
+    ):
         deps_ready = run_install()
 
     print_next_steps(answers, in_venv, deps_ready=deps_ready)
-
-
-
-
 
 
 if __name__ == "__main__":

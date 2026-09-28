@@ -21,8 +21,13 @@ def client(monkeypatch):
 
     def _fake_get(uid):
         if uid == _TEST_VIEWER:
-            user = User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="",
-                        approved=True, settings=dict(state["settings"]))
+            user = User(
+                username=_TEST_VIEWER,
+                role=ROLE_VIEWER,
+                password_hash="",
+                approved=True,
+                settings=dict(state["settings"]),
+            )
             return user
         return orig_get_user(uid)
 
@@ -35,28 +40,16 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
 
 
-
-
-
-
 def _grant_permissions(monkeypatch, perms):
     from web_interface import auth
 
     monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
-
-
-
-
 
 
 def test_panel_renders_for_default_viewer(client, monkeypatch):
@@ -79,10 +72,6 @@ def test_panel_renders_for_default_viewer(client, monkeypatch):
     assert "/thehub" in html
 
 
-
-
-
-
 def test_upload_pointer_needs_ingestion_permission(client, monkeypatch):
     _grant_permissions(monkeypatch, ["tab.explore", "tab.data_management.ingestion"])
     _login(client, _TEST_VIEWER)
@@ -91,10 +80,6 @@ def test_upload_pointer_needs_ingestion_permission(client, monkeypatch):
     assert "Have participant data to add?" in html
     # Cards for tabs the user does NOT hold are omitted
     assert "<h3>Timelines</h3>" not in html
-
-
-
-
 
 
 def test_panel_hidden_after_dismissal(client, monkeypatch):
@@ -106,8 +91,6 @@ def test_panel_hidden_after_dismissal(client, monkeypatch):
 
     html = client.get("/").data.decode()
     assert 'id="getting-started-panel"' not in html
-
-
 
 
 def test_dismissed_panel_can_be_restored_from_preferences(client, monkeypatch):
@@ -122,10 +105,6 @@ def test_dismissed_panel_can_be_restored_from_preferences(client, monkeypatch):
     # My stuff -> Preferences, and the help modal, both offer a way back.
     assert 'id="getting-started-restore"' in html
     assert "restoreGettingStarted()" in html
-
-
-
-
 
 
 def test_shell_carries_the_platform_url_templates(client, monkeypatch):
@@ -144,10 +123,6 @@ def test_shell_carries_the_platform_url_templates(client, monkeypatch):
     assert "window.PLATFORM_URL_TEMPLATES" in html
     for platform in platform_url_templates():
         assert platform in html
-
-
-
-
 
 
 def test_shell_renders_the_relocated_surfaces_for_a_plain_viewer(client, monkeypatch):

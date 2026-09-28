@@ -45,7 +45,7 @@ class StudyCache:
             entry = self.cache.get(study_name)
             if entry is None:
                 return None
-            cached_mtime = entry.get('mtime')
+            cached_mtime = entry.get("mtime")
             if current_mtime is not None and cached_mtime is not None:
                 # Treat any mtime change as stale — workers (potentially in
                 # another process) may have rewritten the parquet.
@@ -70,8 +70,6 @@ class StudyCache:
                 del self.cache[key]
 
 
-
-
 study_cache = StudyCache(maxsize=2)
 
 # Studies at or above this raw row count evict every other cached study
@@ -92,8 +90,6 @@ _user_json_cache: dict[str, tuple[float, dict | None]] = {}
 _user_json_lock = threading.Lock()
 
 
-
-
 def invalidate_user_json_cache(username: str | None = None) -> None:
     """Drop the cached JSON for one user (or all users when ``None``).
 
@@ -108,19 +104,17 @@ def invalidate_user_json_cache(username: str | None = None) -> None:
             _user_json_cache.pop(username.lower(), None)
 
 
-
-
 def _read_user_json_uncached(username: str) -> dict | None:
     """Load one user's JSON file (exact-case, then lowercase fallback)."""
     filename = f"{username}.json"
     if data_io.exists(storage_location="users", filename=filename):
         return data_io.load_json(storage_location="users", filename=filename) or None
     filename_lower = f"{username.lower()}.json"
-    if filename_lower != filename and data_io.exists(storage_location="users", filename=filename_lower):
+    if filename_lower != filename and data_io.exists(
+        storage_location="users", filename=filename_lower
+    ):
         return data_io.load_json(storage_location="users", filename=filename_lower) or None
     return None
-
-
 
 
 def get_user_json_cached(username: str) -> dict | None:
@@ -140,8 +134,6 @@ def get_user_json_cached(username: str) -> dict | None:
     return blob
 
 
-
-
 def _prefetch_user_jsons(usernames: list[str]) -> None:
     """Warm the user-JSON cache for many users with parallel reads.
 
@@ -151,8 +143,7 @@ def _prefetch_user_jsons(usernames: list[str]) -> None:
     """
     now = time.time()
     with _user_json_lock:
-        missing = [u for u in usernames
-                   if (e := _user_json_cache.get(u)) is None or e[0] <= now]
+        missing = [u for u in usernames if (e := _user_json_cache.get(u)) is None or e[0] <= now]
     if not missing:
         return
     with ThreadPoolExecutor(max_workers=min(16, len(missing))) as pool:
@@ -167,10 +158,10 @@ SECTION_ORDER = ["Activity", "Item metadata", "Popularity", "AI Annotations"]
 # ``scale`` values that count as categorical for the categorical-before-numerical
 # ordering rule. Everything else (numeric/datetime/blank) is numerical.
 _CAT_SCALES = {
-    "categorical", "list", "text",
+    "categorical",
+    "list",
+    "text",
 }
-
-
 
 
 # Freshness probes (getmtime) ride a short TTL: on Cloud Run each is a GCS
@@ -232,6 +223,7 @@ def resolve_compose(study):
     if not is_composed_study(cfg):
         return None
     from ..admin_settings import get_default_study
+
     base = get_default_study()
     owner = cfg.get("OWNER")
     if not base or not owner or base == study:
@@ -262,8 +254,6 @@ def _composed_mtime(base, overlay):
     if base_mtime is None or overlay_mtime is None:
         return None
     return (base_mtime, overlay_mtime)
-
-
 
 
 # In-process cache for study sidecars. Sidecars carry the (cid, day) cell map
@@ -353,15 +343,18 @@ def _merge_explorer_metadata(base_meta, overlay_meta):
         return merged
     if isinstance(base_meta, list) and isinstance(overlay_meta, list):
         seen = {v for v in base_meta if not isinstance(v, (dict, list))}
-        extra = [v for v in overlay_meta
-                 if isinstance(v, (dict, list)) or v not in seen]
+        extra = [v for v in overlay_meta if isinstance(v, (dict, list)) or v not in seen]
         # Unhashable entries (dicts/lists) can't be deduped cheaply; keep base
         # only in that case to avoid duplicating structured rows.
         if any(isinstance(v, (dict, list)) for v in base_meta + overlay_meta):
             return base_meta
         return base_meta + extra
-    if isinstance(base_meta, (int, float)) and isinstance(overlay_meta, (int, float)) \
-            and not isinstance(base_meta, bool) and not isinstance(overlay_meta, bool):
+    if (
+        isinstance(base_meta, (int, float))
+        and isinstance(overlay_meta, (int, float))
+        and not isinstance(base_meta, bool)
+        and not isinstance(overlay_meta, bool)
+    ):
         # Only meaningful for min/max-style bounds; for other numerics the
         # envelope is harmless (they are display hints, not counts the API
         # promises to be exact).
@@ -371,18 +364,22 @@ def _merge_explorer_metadata(base_meta, overlay_meta):
 
 def _merge_meta_bounds(merged, base_meta, overlay_meta):
     """Second pass: min/max envelopes wherever both sides carry them."""
-    if not (isinstance(merged, dict) and isinstance(base_meta, dict)
-            and isinstance(overlay_meta, dict)):
+    if not (
+        isinstance(merged, dict) and isinstance(base_meta, dict) and isinstance(overlay_meta, dict)
+    ):
         return merged
     for key in ("min", "max"):
         b, o = base_meta.get(key), overlay_meta.get(key)
-        if isinstance(b, (int, float)) and isinstance(o, (int, float)) \
-                and not isinstance(b, bool) and not isinstance(o, bool):
+        if (
+            isinstance(b, (int, float))
+            and isinstance(o, (int, float))
+            and not isinstance(b, bool)
+            and not isinstance(o, bool)
+        ):
             merged[key] = min(b, o) if key == "min" else max(b, o)
     for key, m_val in merged.items():
         if isinstance(m_val, dict):
-            merged[key] = _merge_meta_bounds(
-                m_val, base_meta.get(key), overlay_meta.get(key))
+            merged[key] = _merge_meta_bounds(m_val, base_meta.get(key), overlay_meta.get(key))
     return merged
 
 
@@ -398,10 +395,14 @@ def _is_filter_value_list(candidate):
     ``value`` must be a scalar — get_metadata stringifies every one of them, and
     the union below keys a dict on it, which an unhashable value would break.
     """
-    return (isinstance(candidate, list) and candidate
-            and all(isinstance(row, dict)
-                    and isinstance(row.get("value"), (str, int, float, bool))
-                    for row in candidate))
+    return (
+        isinstance(candidate, list)
+        and candidate
+        and all(
+            isinstance(row, dict) and isinstance(row.get("value"), (str, int, float, bool))
+            for row in candidate
+        )
+    )
 
 
 def _merge_filter_values(merged, base_meta, overlay_meta):
@@ -421,8 +422,9 @@ def _merge_filter_values(merged, base_meta, overlay_meta):
     the way get_metadata built it, and ``total_unique`` grows by what the
     overlay added.
     """
-    if not (isinstance(merged, dict) and isinstance(base_meta, dict)
-            and isinstance(overlay_meta, dict)):
+    if not (
+        isinstance(merged, dict) and isinstance(base_meta, dict) and isinstance(overlay_meta, dict)
+    ):
         return merged
     base_values = base_meta.get("values")
     overlay_values = overlay_meta.get("values")
@@ -442,8 +444,7 @@ def _merge_filter_values(merged, base_meta, overlay_meta):
             merged["total_unique"] = total_unique + added
     for key, m_val in merged.items():
         if isinstance(m_val, dict):
-            merged[key] = _merge_filter_values(
-                m_val, base_meta.get(key), overlay_meta.get(key))
+            merged[key] = _merge_filter_values(m_val, base_meta.get(key), overlay_meta.get(key))
     return merged
 
 
@@ -467,12 +468,12 @@ def _stand_in_total_stats(merged, base_meta):
     already provisional, already followed by a second request — ever shows
     these.
     """
-    base_stats = base_meta.get('total_stats')
+    base_stats = base_meta.get("total_stats")
     if isinstance(base_stats, dict):
-        merged['total_stats'] = base_stats
+        merged["total_stats"] = base_stats
         merged[TOTAL_STATS_PROVISIONAL_KEY] = True
     else:
-        merged.pop('total_stats', None)
+        merged.pop("total_stats", None)
         merged.pop(TOTAL_STATS_PROVISIONAL_KEY, None)
     return merged
 
@@ -489,8 +490,10 @@ def get_explorer_metadata_cached(study):
     compose = resolve_compose(study)
     if compose:
         base_name, overlay_name = compose
-        token = (_ttl_mtime(f"{base_name}_explorer_metadata.json"),
-                 _ttl_mtime(f"{overlay_name}_explorer_metadata.json"))
+        token = (
+            _ttl_mtime(f"{base_name}_explorer_metadata.json"),
+            _ttl_mtime(f"{overlay_name}_explorer_metadata.json"),
+        )
         with _explorer_meta_lock:
             entry = _explorer_meta_cache.get(study)
             if entry is not None and entry[0] == token:
@@ -529,8 +532,6 @@ def get_explorer_metadata_cached(study):
     return payload
 
 
-
-
 def _enrichment_status(raw_df, require_annotated):
     """Describe whether the loaded recoded dataset has the column needed to
     satisfy the current ``require_annotated_items`` setting. Returned dict
@@ -559,8 +560,6 @@ def _enrichment_status(raw_df, require_annotated):
         "missing_column": needed,
         "message": msg,
     }
-
-
 
 
 # Columns the context filter itself reads. A projected request keeps these on
@@ -593,8 +592,8 @@ def _apply_context_filter(raw_df, verbose=False):
 
     filtered = raw_df[
         enrichment_mask
-        & (raw_df['activity_type'].isin(['play', 'observe']))
-        & (raw_df['item_id'].notna())
+        & (raw_df["activity_type"].isin(["play", "observe"]))
+        & (raw_df["item_id"].notna())
     ]
     if verbose:
         print(f"    Context filter: {len(raw_df):,} -> {len(filtered):,} rows")
@@ -620,14 +619,16 @@ def _load_composed_raw(study, base, overlay, verbose=False):
         # parquet), but serving just the base beats a 500.
         return raw_base, col_types
 
-    own_cids = set(raw_overlay['collection_id'].astype(str).unique())
-    base_kept = raw_base[~raw_base['collection_id'].astype(str).isin(own_cids)]
+    own_cids = set(raw_overlay["collection_id"].astype(str).unique())
+    base_kept = raw_base[~raw_base["collection_id"].astype(str).isin(own_cids)]
     del raw_base
     combined = pd.concat([base_kept, raw_overlay], ignore_index=True, copy=False)
     if verbose:
-        print(f"    Composed {study}: base {len(base_kept):,} rows "
-              f"(after dropping {len(own_cids)} owned collection(s)) "
-              f"+ overlay {len(raw_overlay):,} rows -> {len(combined):,}")
+        print(
+            f"    Composed {study}: base {len(base_kept):,} rows "
+            f"(after dropping {len(own_cids)} owned collection(s)) "
+            f"+ overlay {len(raw_overlay):,} rows -> {len(combined):,}"
+        )
     return combined, col_types
 
 
@@ -661,15 +662,17 @@ def _cached_study_frame(study, verbose=False):
     if cached:
         if verbose:
             print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
-        return cached['df'], cached['col_types'], cached['status']
+        return cached["df"], cached["col_types"], cached["status"]
 
     with study_cache.loading_lock:
         # Check cache again (Second Check)
         cached = study_cache.get(study, current_mtime=current_mtime)
         if cached:
             if verbose:
-                print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
-            return cached['df'], cached['col_types'], cached['status']
+                print(
+                    f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows"
+                )
+            return cached["df"], cached["col_types"], cached["status"]
 
         if verbose:
             print(f"    Loading study {study} from disk (with lock)...")
@@ -684,7 +687,7 @@ def _cached_study_frame(study, verbose=False):
         # sidecar reads as big — the cost of over-evicting is a re-load,
         # the cost of under-evicting is the instance.
         sidecar = get_study_sidecar(compose[0] if compose else study)
-        row_count = (sidecar or {}).get('row_count')
+        row_count = (sidecar or {}).get("row_count")
         if row_count is None or row_count >= _BIG_STUDY_ROW_THRESHOLD:
             study_cache.clear_except(study)
 
@@ -778,8 +781,7 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
         return None, None
 
     if columns is not None:
-        keep = [c for c in dict.fromkeys([*columns, *_CONTEXT_FILTER_COLUMNS])
-                if c in df.columns]
+        keep = [c for c in dict.fromkeys([*columns, *_CONTEXT_FILTER_COLUMNS]) if c in df.columns]
         out_col_types = {k: v for k, v in col_types.items() if k in keep}
     else:
         keep = list(df.columns)
@@ -794,7 +796,7 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
     # clear message when an empty result is caused by missing enrichment
     # columns (i.e. the recoded parquet predates the current pipeline).
     try:
-        view.attrs['fyp_dataset_status'] = status
+        view.attrs["fyp_dataset_status"] = status
     except Exception:
         pass
 
@@ -810,10 +812,6 @@ def get_study_col_types(study):
     """
     _df, col_types, _status = _cached_study_frame(study)
     return col_types
-
-
-
-
 
 
 def get_search_column(study, column):
@@ -832,10 +830,10 @@ def get_search_column(study, column):
 
     cached = study_cache.get(study, current_mtime=current_mtime)
     if cached is not None:
-        df = cached['df']
+        df = cached["df"]
         if column not in df.columns:
             return None, None
-        return df[column], cached['col_types'].get(column)
+        return df[column], cached["col_types"].get(column)
 
     try:
         frame = data_io.load_parquet_selective(
@@ -852,10 +850,6 @@ def get_search_column(study, column):
     return filtered[column], col_types.get(column)
 
 
-
-
-
-
 # Per-(study, column) full value-count cache backing the value-search
 # endpoint. The counts pass over the column is the expensive step (one scan,
 # or a Counter pass for list columns); it runs once per parquet version and
@@ -863,10 +857,6 @@ def get_search_column(study, column):
 # unique values only.
 _value_search_cache = LRUCache(maxsize=16)
 _value_search_lock = threading.Lock()
-
-
-
-
 
 
 def search_column_value_counts(study, column):
@@ -886,14 +876,13 @@ def search_column_value_counts(study, column):
     key = (study, column)
     with _value_search_lock:
         entry = _value_search_cache.get(key)
-        if entry is not None and entry['mtime'] == mtime:
+        if entry is not None and entry["mtime"] == mtime:
             return entry
 
     series, dtype = get_search_column(study, column)
     if series is None or dtype not in ("category", "list"):
         return None
-    pairs = explorer.column_value_counts(
-        series, dtype, date_like="date" in column.lower())
+    pairs = explorer.column_value_counts(series, dtype, date_like="date" in column.lower())
     values = [k for k, _ in pairs]
     entry = {
         "mtime": mtime,
@@ -905,10 +894,6 @@ def search_column_value_counts(study, column):
     with _value_search_lock:
         _value_search_cache[key] = entry
     return entry
-
-
-
-
 
 
 def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
@@ -935,8 +920,9 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
     if df is None:
         return None, None
 
-    id_col = 'item_id' if 'item_id' in df.columns else (
-        'video_id' if 'video_id' in df.columns else None)
+    id_col = (
+        "item_id" if "item_id" in df.columns else ("video_id" if "video_id" in df.columns else None)
+    )
 
     # Row lookup via a plain array comparison rather than .loc, so a label the
     # frame no longer carries is an empty result rather than a KeyError.
@@ -962,14 +948,11 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
 
     rows = rows.copy()
     try:
-        rows.attrs['fyp_dataset_status'] = status
+        rows.attrs["fyp_dataset_status"] = status
     except Exception:
         pass
 
     return rows, col_types.copy()
-
-
-
 
 
 # The single shared empty-list cell used for every untagged row of the
@@ -1010,8 +993,7 @@ def _attach_columns(df, col_types, computed):
     return df, col_types
 
 
-def enrich_with_user_tags(df, col_types, username, shared_users_tags=None,
-                          study=None):
+def enrich_with_user_tags(df, col_types, username, shared_users_tags=None, study=None):
     """
     Injects a 'User Tags' column into the DataFrame based on the user's tag file.
     Returns (enriched_df, enriched_col_types).
@@ -1032,9 +1014,11 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None,
     # which source columns this projection carries.
     machine_token = None
     if cache_token is not None:
-        machine_token = (*cache_token,
-                         'annotated_ok' in df.columns,
-                         'annotation_version' in df.columns)
+        machine_token = (
+            *cache_token,
+            "annotated_ok" in df.columns,
+            "annotation_version" in df.columns,
+        )
         with _annot_cols_lock:
             entry = _machine_annot_cols_cache.get(study)
         machine = entry[1] if entry is not None and entry[0] == machine_token else None
@@ -1075,36 +1059,36 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
     user_tags = {}
 
     if user_data:
-        user_tags = user_data.get('annotations', {})
+        user_tags = user_data.get("annotations", {})
 
     # user_tags: { item_id: { var: [tags...] } }
     # We want a map: item_id -> unique list of tags (flattened across variables)
-    
+
     # Pre-calculate map for Tags
     id_to_tags = {}
-    
+
     # Set of IDs with ANY annotation (tags, notes, closed tags)
     annotated_ids = set()
-    
+
     for item_id, var_map in user_tags.items():
         # If item is in user_tags, it has SOME annotation (due to cleanup logic on save)
         annotated_ids.add(str(item_id))
-        
+
         # Collect explicit tags for the list column
         all_tags = set()
         for key, val in var_map.items():
-            if isinstance(val, list): # It's a tag list
+            if isinstance(val, list):  # It's a tag list
                 all_tags.update(val)
-                
+
         if all_tags:
             id_to_tags[str(item_id)] = list(all_tags)
-            
+
     # Merge Shared Tags
     if shared_users_tags:
         for iid, tags in shared_users_tags.items():
             str_id = str(iid)
-            annotated_ids.add(str_id) # Ensure ID is marked as annotated
-            
+            annotated_ids.add(str_id)  # Ensure ID is marked as annotated
+
             # Update id_to_tags
             if str_id in id_to_tags:
                 existing = set(id_to_tags[str_id])
@@ -1125,7 +1109,7 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
     # to thousands, not millions). The old implementation mapped and re-checked
     # every row through python callables, which alone cost tens of seconds per
     # request on a multi-million-row study.
-    str_ids = df['item_id'].astype('string[pyarrow]')
+    str_ids = df["item_id"].astype("string[pyarrow]")
 
     # 1. User Tags (List) — built as an Arrow list column, NOT a python-object
     # column. get_current_stats' list path has an Arrow fast path (value
@@ -1151,7 +1135,7 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
                     pa.array(offsets, type=pa.int64()),
                     pa.array(values, type=pa.large_string()),
                 )
-                cols['User Tags'] = pd.arrays.ArrowExtensionArray(arr)
+                cols["User Tags"] = pd.arrays.ArrowExtensionArray(arr)
             except Exception:
                 # Fallback: the shared-empty-list object column (read-only by
                 # contract — every untagged row shares ONE empty list).
@@ -1159,8 +1143,8 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
                 tags_col.fill(_NO_TAGS)
                 for pos, iid in zip(positions, str_ids.iloc[positions]):
                     tags_col[pos] = id_to_tags.get(str(iid)) or _NO_TAGS
-                cols['User Tags'] = tags_col
-            ctypes['User Tags'] = 'list'
+                cols["User Tags"] = tags_col
+            ctypes["User Tags"] = "list"
 
     # 2. Has Annotation (Boolean/Category)
     if shared_users_tags:
@@ -1169,8 +1153,8 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
     # numpy bools rather than Arrow: downstream astype(str) must keep yielding
     # 'True'/'False' (Arrow bools stringify lowercase), and the filter/metadata
     # payloads are built from these values.
-    cols['Has Annotation'] = str_ids.isin(annotated_ids).fillna(False).to_numpy(dtype=bool)
-    ctypes['Has Annotation'] = 'category'  # Treat as category to trigger checkbox UI
+    cols["Has Annotation"] = str_ids.isin(annotated_ids).fillna(False).to_numpy(dtype=bool)
+    ctypes["Has Annotation"] = "category"  # Treat as category to trigger checkbox UI
 
     return cols, ctypes
 
@@ -1188,37 +1172,38 @@ def _compute_machine_annotation_columns(df):
     cols = {}
     ctypes = {}
     n = len(df)
-    if 'annotated_ok' in df.columns:
+    if "annotated_ok" in df.columns:
         # annotated_ok is bool[pyarrow] and can hold NA — fill before the numpy
         # coercion (NA rows count as neither annotated nor failed).
-        ok = df['annotated_ok'].fillna(False).to_numpy(dtype=bool)
-        fail = (df['annotated_ok'] == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712 — pyarrow-NA-safe comparison
+        ok = df["annotated_ok"].fillna(False).to_numpy(dtype=bool)
+        fail = (df["annotated_ok"] == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712 — pyarrow-NA-safe comparison
 
-        machine = np.full(n, 'Not Attempted', dtype=object)
-        machine[fail] = 'Cannot Machine Annotate'
-        machine[ok] = 'Machine Annotated'
+        machine = np.full(n, "Not Attempted", dtype=object)
+        machine[fail] = "Cannot Machine Annotate"
+        machine[ok] = "Machine Annotated"
 
-        if 'annotation_version' in df.columns:
+        if "annotation_version" in df.columns:
             model_labels = _annotation_model_labels()
             if model_labels:
                 # Factorize instead of mapping row-by-row: versions repeat, so
                 # the python-level dict lookup runs once per distinct version.
                 ok_positions = np.flatnonzero(ok)
-                codes, uniques = pd.factorize(df['annotation_version'].iloc[ok_positions])
+                codes, uniques = pd.factorize(df["annotation_version"].iloc[ok_positions])
                 mapped = np.array(
-                    [model_labels.get(str(u), 'Machine Annotated') for u in uniques],
+                    [model_labels.get(str(u), "Machine Annotated") for u in uniques],
                     dtype=object,
                 )
-                labelled = np.where(codes >= 0, mapped[codes] if len(mapped) else 'Machine Annotated',
-                                    'Machine Annotated')
+                labelled = np.where(
+                    codes >= 0,
+                    mapped[codes] if len(mapped) else "Machine Annotated",
+                    "Machine Annotated",
+                )
                 machine[ok_positions] = labelled
 
-        cols['Machine Annotations'] = machine
-        ctypes['Machine Annotations'] = 'category'
+        cols["Machine Annotations"] = machine
+        ctypes["Machine Annotations"] = "category"
 
     return cols, ctypes
-
-
 
 
 def _annotation_model_labels() -> dict:
@@ -1231,6 +1216,7 @@ def _annotation_model_labels() -> dict:
     """
     try:
         from fyp.annotation import annotation_versioning
+
         versions = annotation_versioning.load_registry().get("versions", {})
     except Exception:
         return {}
@@ -1251,7 +1237,7 @@ def load_shared_tags(allowed_usernames):
     """
     simple_map = {}
     detailed_map = {}
-    
+
     if not allowed_usernames:
         return simple_map, detailed_map
 
@@ -1264,56 +1250,60 @@ def load_shared_tags(allowed_usernames):
             user_blob = get_user_json_cached(user)
             if not user_blob:
                 continue
-                
-            user_data = user_blob.get('annotations', {})
-            
+
+            user_data = user_blob.get("annotations", {})
+
             if not user_data:
                 continue
-            
+
             for item_id, item_vars in user_data.items():
                 str_id = str(item_id)
-                
+
                 # --- Simple Map (All tags flattened) ---
-                if str_id not in simple_map: simple_map[str_id] = set()
-                
+                if str_id not in simple_map:
+                    simple_map[str_id] = set()
+
                 # --- Detailed Map ---
-                if str_id not in detailed_map: detailed_map[str_id] = {}
-                
+                if str_id not in detailed_map:
+                    detailed_map[str_id] = {}
+
                 for var, val in item_vars.items():
                     # Parse Special Keys
                     real_var = var
-                    type_ = 'tags'
-                    
-                    if var.endswith('__NOTES'):
+                    type_ = "tags"
+
+                    if var.endswith("__NOTES"):
                         real_var = var[:-7]
-                        type_ = 'notes'
-                    elif var.endswith('__CLOSED_TAGGING'):
+                        type_ = "notes"
+                    elif var.endswith("__CLOSED_TAGGING"):
                         real_var = var[:-16]
-                        type_ = 'closed'
-                    
+                        type_ = "closed"
+
                     # Ensure struct
-                    if real_var not in detailed_map[str_id]: detailed_map[str_id][real_var] = {}
-                    if user not in detailed_map[str_id][real_var]: 
-                        detailed_map[str_id][real_var][user] = {'tags': [], 'notes': None, 'closed': None}
-                    
+                    if real_var not in detailed_map[str_id]:
+                        detailed_map[str_id][real_var] = {}
+                    if user not in detailed_map[str_id][real_var]:
+                        detailed_map[str_id][real_var][user] = {
+                            "tags": [],
+                            "notes": None,
+                            "closed": None,
+                        }
+
                     entry = detailed_map[str_id][real_var][user]
-                    
-                    if type_ == 'tags':
+
+                    if type_ == "tags":
                         if isinstance(val, list):
                             simple_map[str_id].update(val)
-                            entry['tags'] = val
-                    elif type_ == 'notes':
-                        entry['notes'] = val
-                    elif type_ == 'closed':
-                        entry['closed'] = val
-                        
+                            entry["tags"] = val
+                    elif type_ == "notes":
+                        entry["notes"] = val
+                    elif type_ == "closed":
+                        entry["closed"] = val
+
         except Exception as e:
             print(f"Error loading tokens for {user}: {e}")
-            
+
     return simple_map, detailed_map
-
-
-
 
 
 _collection_tags_cache: dict | None = None
@@ -1329,17 +1319,20 @@ def get_collection_tags(force_reload: bool = False) -> dict:
     """
     global _collection_tags_cache, _collection_tags_cache_time
     now = time.monotonic()
-    if _collection_tags_cache is None or force_reload or (now - _collection_tags_cache_time > _COLLECTION_TAGS_TTL):
+    if (
+        _collection_tags_cache is None
+        or force_reload
+        or (now - _collection_tags_cache_time > _COLLECTION_TAGS_TTL)
+    ):
         fn = f"{COLLECTIONS_LABEL}_tags.json"
         if data_io.exists(storage_location="recoded", filename=fn):
-            _collection_tags_cache = data_io.load_json(storage_location="recoded", filename=fn) or {}
+            _collection_tags_cache = (
+                data_io.load_json(storage_location="recoded", filename=fn) or {}
+            )
         else:
             _collection_tags_cache = {}
         _collection_tags_cache_time = now
     return _collection_tags_cache
-
-
-
 
 
 def invalidate_collection_tags_cache() -> None:
@@ -1349,16 +1342,13 @@ def invalidate_collection_tags_cache() -> None:
     _collection_tags_cache_time = 0.0
 
 
-
-
-
 def load_display_id_map() -> dict[str, str]:
     """Return a map of { raw_collection_id: display_id } from the cached collection tags."""
     mapping = {}
     try:
         annotations = get_collection_tags()
         for raw_id, tag_data in annotations.items():
-            disp = tag_data.get('display_collection_id')
+            disp = tag_data.get("display_collection_id")
             if disp and str(disp).strip():
                 mapping[str(raw_id)] = str(disp).strip()
     except Exception as e:
@@ -1366,13 +1356,10 @@ def load_display_id_map() -> dict[str, str]:
     return mapping
 
 
-
 # Collections a study's BUILT frame actually contains, keyed on that frame's
 # mtime so a refresh worker rewriting the parquet invalidates the entry.
 _frame_collections_cache = LRUCache(maxsize=8)
 _frame_collections_lock = threading.Lock()
-
-
 
 
 def get_study_frame_collections(study) -> set | None:
@@ -1431,21 +1418,21 @@ def get_study_frame_collections(study) -> set | None:
         try:
             cids = set()
             for batch in data_io.iter_parquet_batches(
-                    storage_location="cache",
-                    filename=f"{study}_recoded.parquet",
-                    columns=["collection_id"]):
+                storage_location="cache",
+                filename=f"{study}_recoded.parquet",
+                columns=["collection_id"],
+            ):
                 if batch.num_columns == 0:
                     return None
-                cids.update(str(c) for c in pa_compute.unique(batch.column(0)).to_pylist()
-                            if c is not None)
+                cids.update(
+                    str(c) for c in pa_compute.unique(batch.column(0)).to_pylist() if c is not None
+                )
         except Exception:
             return None
 
     with _frame_collections_lock:
         _frame_collections_cache[study] = (mtime, cids)
     return cids
-
-
 
 
 def get_study_selected_cells(study) -> dict[str, set[str]] | None:
@@ -1492,8 +1479,6 @@ def get_study_selected_cells(study) -> dict[str, set[str]] | None:
     if not isinstance(cells, dict):
         return None
     return {str(cid): {str(d) for d in (days or [])} for cid, days in cells.items()}
-
-
 
 
 def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -1550,8 +1535,6 @@ def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
     return start, end_bound
 
 
-
-
 def get_study_collections(study):
     """
     Returns a list of unique collections present in the study dataset.
@@ -1571,16 +1554,16 @@ def get_study_collections(study):
         # A composed study's own list holds only the owner's collections; the
         # base (default) study contributes the rest at read time.
         base_selected = (fyp_cf["study_defs"].get(compose[0]) or {}).get(
-            "SELECTED_COLLECTIONS", []) or []
+            "SELECTED_COLLECTIONS", []
+        ) or []
         seen = {str(c).strip() for c in selected_collections}
         selected_collections = list(selected_collections) + [
-            c for c in base_selected if str(c).strip() not in seen]
+            c for c in base_selected if str(c).strip() not in seen
+        ]
 
     selected_collections = [{"collection_id": str(d).strip()} for d in selected_collections]
 
     return selected_collections
-
-
 
     """try:
         
@@ -1618,10 +1601,8 @@ def get_study_collections(study):
         return []"""
 
 
-
 # Alias from explorer to handle serialization issues
 make_serializable = explorer.make_serializable
 
 
 # --- PCA Visualization Endpoints ---
-

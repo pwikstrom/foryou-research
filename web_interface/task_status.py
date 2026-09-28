@@ -28,8 +28,6 @@ CANCEL_SUFFIX = "_cancel.json"
 THROTTLE_INTERVAL = 5  # seconds between GCS writes
 
 
-
-
 class TaskStatusReporter(ABC):
     """Base interface for task status reporting."""
 
@@ -66,8 +64,7 @@ class TaskStatusReporter(ABC):
         )
 
     @abstractmethod
-    def start(self) -> None:
-        ...
+    def start(self) -> None: ...
 
     @abstractmethod
     def update_progress(
@@ -77,30 +74,22 @@ class TaskStatusReporter(ABC):
         stage_index: int | None = None,
         stage_total: int | None = None,
         stage_name: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def emit_data(self, payload: dict) -> None:
-        ...
+    def emit_data(self, payload: dict) -> None: ...
 
     @abstractmethod
-    def complete(self, data: dict | None = None) -> None:
-        ...
+    def complete(self, data: dict | None = None) -> None: ...
 
     @abstractmethod
-    def fail(self, error: str) -> None:
-        ...
+    def fail(self, error: str) -> None: ...
 
     @abstractmethod
-    def log(self, message: str) -> None:
-        ...
+    def log(self, message: str) -> None: ...
 
     @abstractmethod
-    def check_cancelled(self) -> bool:
-        ...
-
-
+    def check_cancelled(self) -> bool: ...
 
 
 class LocalStatusReporter(TaskStatusReporter):
@@ -154,9 +143,8 @@ class LocalStatusReporter(TaskStatusReporter):
 
     def check_cancelled(self) -> bool:
         from web_interface.process_manager import check_graceful_stop
+
         return check_graceful_stop(self.name)
-
-
 
 
 # In-memory store for locally-run study_refresh tasks (one thread per study key).
@@ -164,8 +152,6 @@ class LocalStatusReporter(TaskStatusReporter):
 # poller (`/api/status/study_refresh/<name>`) can consume either source.
 _local_thread_status: dict[str, dict] = {}
 _local_thread_status_lock = threading.Lock()
-
-
 
 
 class LocalThreadStatusReporter(TaskStatusReporter):
@@ -237,10 +223,12 @@ class LocalThreadStatusReporter(TaskStatusReporter):
     def complete(self, data: dict | None = None) -> None:
         if data:
             self.emit_data(data)
-        self._update({
-            "state": "succeeded",
-            "progress": {"percent": 100, "message": "Completed"},
-        })
+        self._update(
+            {
+                "state": "succeeded",
+                "progress": {"percent": 100, "message": "Completed"},
+            }
+        )
         run_logs.finalize(self.key, run_logs.STATE_COMPLETED)
 
     def fail(self, error: str) -> None:
@@ -258,15 +246,11 @@ class LocalThreadStatusReporter(TaskStatusReporter):
             return bool(_local_thread_status.get(self.key, {}).get("cancelled"))
 
 
-
-
 def read_local_thread_status(key: str) -> dict | None:
     """Return a shallow copy of the in-process status for `key`, or None."""
     with _local_thread_status_lock:
         status = _local_thread_status.get(key)
         return dict(status) if status else None
-
-
 
 
 class GCSStatusReporter(TaskStatusReporter):
@@ -424,9 +408,7 @@ class GCSStatusReporter(TaskStatusReporter):
 
     def check_cancelled(self) -> bool:
         try:
-            return data_io.exists(
-                storage_location="cache", filename=self._cancel_filename()
-            )
+            return data_io.exists(storage_location="cache", filename=self._cancel_filename())
         except Exception:
             return False
 
@@ -436,8 +418,6 @@ class GCSStatusReporter(TaskStatusReporter):
                 data_io.remove(storage_location="cache", filename=self._cancel_filename())
         except Exception:
             pass
-
-
 
 
 def read_task_status(name: str) -> dict | None:
@@ -451,8 +431,6 @@ def read_task_status(name: str) -> dict | None:
     return None
 
 
-
-
 def write_cancel_request(name: str) -> None:
     """Write a cancellation sentinel to GCS."""
     filename = f"{STATUS_PREFIX}/{name}{CANCEL_SUFFIX}"
@@ -462,8 +440,6 @@ def write_cancel_request(name: str) -> None:
         filename=filename,
         verbose=False,
     )
-
-
 
 
 def force_clear_status(name: str, reason: str = "cancelled") -> None:
@@ -488,8 +464,6 @@ def force_clear_status(name: str, reason: str = "cancelled") -> None:
         )
     except Exception as e:
         print(f"[task_status] Failed to force-clear status for {name}: {e}")
-
-
 
 
 def stamp_task_status(
@@ -535,8 +509,6 @@ def stamp_task_status(
         )
     except Exception as e:
         print(f"[task_status] Failed to stamp status for {name} ({state}): {e}")
-
-
 
 
 def is_cloud_run() -> bool:

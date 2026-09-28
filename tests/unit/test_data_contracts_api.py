@@ -16,10 +16,6 @@ _TEST_ADMIN = "__data_contracts_test_admin__"
 _TEST_PLAIN = "__data_contracts_plain_user__"
 
 
-
-
-
-
 @pytest.fixture
 def client(monkeypatch):
     from web_interface import security
@@ -43,18 +39,10 @@ def client(monkeypatch):
         yield test_client
 
 
-
-
-
-
 def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-
 
 
 def test_requires_permission(client):
@@ -63,28 +51,16 @@ def test_requires_permission(client):
     assert res.status_code == 403
 
 
-
-
-
-
 def test_unknown_kind_is_404(client):
     _login(client, _TEST_ADMIN)
     res = client.get("/api/manage/data-contracts/nonsense")
     assert res.status_code == 404
 
 
-
-
-
-
 def test_versions_for_derived_is_404(client):
     _login(client, _TEST_ADMIN)
     res = client.get("/api/manage/data-contracts/derived/versions")
     assert res.status_code == 404
-
-
-
-
 
 
 @pytest.mark.parametrize("kind", ["scrape", "activity", "derived"])
@@ -108,10 +84,6 @@ def test_parsed_payload_shape(client, kind):
             assert body["platforms"]
 
 
-
-
-
-
 def test_raw_and_download_return_toml(client):
     _login(client, _TEST_ADMIN)
     res = client.get("/api/manage/data-contracts/activity/raw")
@@ -124,34 +96,37 @@ def test_raw_and_download_return_toml(client):
     assert b"[[fields]]" in res.data
 
 
-
-
-
-
 def _fake_registry(id_key):
     return {
         "preferred": "x_old",
         "versions": {
             "x_old": {
-                id_key: "x_old", "label": "old", "created_at": "2026-01-01T00:00:00",
-                "platforms": ["tiktok"], "field_digest": {"a": 1}, "field_metadata": {},
+                id_key: "x_old",
+                "label": "old",
+                "created_at": "2026-01-01T00:00:00",
+                "platforms": ["tiktok"],
+                "field_digest": {"a": 1},
+                "field_metadata": {},
             },
             "x_new": {
-                id_key: "x_new", "label": "new", "created_at": "2026-06-01T00:00:00",
-                "platforms": ["tiktok", "youtube"], "field_digest": {"a": 2}, "field_metadata": {},
+                id_key: "x_new",
+                "label": "new",
+                "created_at": "2026-06-01T00:00:00",
+                "platforms": ["tiktok", "youtube"],
+                "field_digest": {"a": 2},
+                "field_metadata": {},
             },
         },
     }
 
 
-
-
-
-
-@pytest.mark.parametrize("kind,module,id_key", [
-    ("scrape", scrape_versioning, "scrape_contract_version"),
-    ("activity", activity_versioning, "activity_contract_version"),
-])
+@pytest.mark.parametrize(
+    "kind,module,id_key",
+    [
+        ("scrape", scrape_versioning, "scrape_contract_version"),
+        ("activity", activity_versioning, "activity_contract_version"),
+    ],
+)
 def test_versions_payload(client, monkeypatch, kind, module, id_key):
     _login(client, _TEST_ADMIN)
     monkeypatch.setattr(module, "load_registry", lambda: _fake_registry(id_key))

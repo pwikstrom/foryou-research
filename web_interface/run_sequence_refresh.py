@@ -41,15 +41,19 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     if target_studies_str:
         target_names = [s.strip() for s in target_studies_str.split(",")]
         studies = {k: v for k, v in studies.items() if k in target_names}
-        reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
+        reporter.log(
+            f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}"
+        )
 
     # System-managed participant studies refresh only when explicitly targeted
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
     from fyp.analysis.studies import is_composed_study, is_system_study
+
     _skipped_system = sorted(
-        k for k, v in studies.items()
+        k
+        for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)
     )
     if _skipped_system:
@@ -65,14 +69,18 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if reporter.check_cancelled():
             reporter.log("Cancelled by user.")
             break
-        reporter.update_progress(int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})...")
+        reporter.update_progress(
+            int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})..."
+        )
         reporter.log(f"Processing study: {study_name}")
         _t_study_start = time.perf_counter()
 
         try:
             stats = config.get("stats", {})
             if stats.get("annotated_videos", 0) == 0:
-                reporter.log(f"  Skipping {study_name}: no annotated videos (no prediction targets).")
+                reporter.log(
+                    f"  Skipping {study_name}: no annotated videos (no prediction targets)."
+                )
                 continue
 
             recoded_filename = f"{study_name}_recoded.parquet"
@@ -85,8 +93,11 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 df, window_n=window_n, session_gap_s=session_gap_s
             )
             summary = sequence_analysis.compute_summary(
-                windows, target_index, eligibility,
-                window_n=window_n, session_gap_s=session_gap_s,
+                windows,
+                target_index,
+                eligibility,
+                window_n=window_n,
+                session_gap_s=session_gap_s,
             )
 
             # Persist the window frame (dwell_bin cast to string for portable parquet).
@@ -122,8 +133,6 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     reporter.log("Sequence Analysis refresh completed.")
 
 
-
-
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
@@ -143,16 +152,40 @@ if __name__ == "__main__":
         run_sequence_refresh,
         "sequence_refresh",
         arg_specs=[
-            (("--studies",), {"type": str, "default": None,
-                              "help": "Comma-separated study names to refresh (default: all)"}),
-            (("--window-n",), {"type": int, "default": None,
-                               "help": "Videos per sequence window "
-                                       "(default: sequence_analysis.DEFAULT_WINDOW_N)"}),
-            (("--session-gap-s",), {"type": int, "default": None,
-                                    "help": "Idle seconds that end a session "
-                                            "(default: sequence_analysis.SESSION_GAP_S)"}),
-            (("study_name",), {"nargs": "?", "default": None,
-                               "help": "Single study to refresh; ignored when --studies is given"}),
+            (
+                ("--studies",),
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated study names to refresh (default: all)",
+                },
+            ),
+            (
+                ("--window-n",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Videos per sequence window "
+                    "(default: sequence_analysis.DEFAULT_WINDOW_N)",
+                },
+            ),
+            (
+                ("--session-gap-s",),
+                {
+                    "type": int,
+                    "default": None,
+                    "help": "Idle seconds that end a session "
+                    "(default: sequence_analysis.SESSION_GAP_S)",
+                },
+            ),
+            (
+                ("study_name",),
+                {
+                    "nargs": "?",
+                    "default": None,
+                    "help": "Single study to refresh; ignored when --studies is given",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Refresh sequence-analysis artifacts (dwell -> next-window lift)",

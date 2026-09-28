@@ -86,13 +86,9 @@ PER_PLAY_TO_PER_K: dict[str, str] = {
 }
 
 
-
-
 def default_contract_path() -> Path:
     """Return the repo-relative default path to the scrape contract."""
     return _DEFAULT_CONTRACT_PATH
-
-
 
 
 def load_contract(path: str | Path | None = None) -> dict:
@@ -121,13 +117,9 @@ def load_contract(path: str | Path | None = None) -> dict:
     return contract
 
 
-
-
 def default_platform(contract: dict) -> str | None:
     """Return the platform a no-argument ``get_scraper()`` selects by default."""
     return contract.get("meta", {}).get("default_platform")
-
-
 
 
 def platforms(contract: dict) -> list[str]:
@@ -150,20 +142,14 @@ def platforms(contract: dict) -> list[str]:
     return seen
 
 
-
-
 def base_fields(contract: dict) -> list[dict]:
     """Return the base (cross-platform) fields in document order."""
     return [f for f in contract.get("fields", []) if f.get("scope") == "base"]
 
 
-
-
 def base_field_names(contract: dict) -> list[str]:
     """Return the ordered canonical column names of the base fields."""
     return [f["name"] for f in base_fields(contract)]
-
-
 
 
 def field_dtypes(contract: dict, platform: str | None = None) -> dict[str, str]:
@@ -190,8 +176,6 @@ def field_dtypes(contract: dict, platform: str | None = None) -> dict[str, str]:
     return out
 
 
-
-
 def derived_fields(contract: dict, platform: str | None = None) -> set[str]:
     """Return the names of fields computed at scrape time (``derived = true``).
 
@@ -211,8 +195,6 @@ def derived_fields(contract: dict, platform: str | None = None) -> set[str]:
     return out
 
 
-
-
 def per_k_sources(contract: dict) -> dict[str, str]:
     """Return ``{rate_field: generic_count_column}`` for the per-K ratios.
 
@@ -222,8 +204,6 @@ def per_k_sources(contract: dict) -> dict[str, str]:
     NA and the rate stays NA.
     """
     return dict(contract.get("perk", {}))
-
-
 
 
 def contract_column_metadata(contract: dict) -> dict[str, dict]:
@@ -261,8 +241,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
     return out
 
 
-
-
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
@@ -285,8 +263,6 @@ def contract_field_digest(contract: dict) -> dict:
         },
         "perk": contract.get("perk", {}),
     }
-
-
 
 
 def validate_contract(contract: dict) -> list[str]:
@@ -313,7 +289,12 @@ def validate_contract(contract: dict) -> list[str]:
     # var_schema role/scale vocabularies live in recode_variables; import lazily so
     # this module never pulls in fyp_config (which recode_variables imports) at load.
     try:
-        from fyp.annotation.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        from fyp.annotation.recode_variables import (
+            LEGACY_ROLE_ALIASES,
+            VAR_SCHEMA_ROLES,
+            VAR_SCHEMA_SCALES,
+        )
+
         # Legacy role strings stay valid (normalized at var_schema load).
         valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)
         valid_scales = set(VAR_SCHEMA_SCALES)
@@ -372,7 +353,9 @@ def validate_contract(contract: dict) -> list[str]:
     for field in fields:
         plat = field.get("platform")
         if field.get("scope") == "platform" and plat and plat not in registered:
-            errors.append(f"field '{field.get('name')}': platform '{plat}' is not in [meta].platforms")
+            errors.append(
+                f"field '{field.get('name')}': platform '{plat}' is not in [meta].platforms"
+            )
 
     # Every flat [perk] entry maps a base rate field to an existing source column.
     for rate_field, source_col in contract.get("perk", {}).items():

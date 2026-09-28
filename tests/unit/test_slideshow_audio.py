@@ -29,8 +29,6 @@ SECONDS_PER_IMAGE = 2
 EXPECTED_DURATION = N_IMAGES * SECONDS_PER_IMAGE
 
 
-
-
 def _make_images(dirpath: str) -> list[str]:
     """Write three small solid-color JPEGs and return their paths."""
     paths = []
@@ -39,8 +37,6 @@ def _make_images(dirpath: str) -> list[str]:
         Image.new("RGB", (320, 568), color).save(p, "JPEG")
         paths.append(p)
     return paths
-
-
 
 
 def _make_tone(path: str, seconds: float, freq: float = 440.0, rate: int = 22050) -> str:
@@ -58,8 +54,6 @@ def _make_tone(path: str, seconds: float, freq: float = 440.0, rate: int = 22050
     return path
 
 
-
-
 def _probe(path: str) -> tuple[float, bool]:
     """Return (duration_seconds, has_audio) of a video file via moviepy."""
     from moviepy import VideoFileClip
@@ -69,8 +63,6 @@ def _probe(path: str) -> tuple[float, bool]:
         return float(clip.duration), clip.audio is not None
     finally:
         clip.close()
-
-
 
 
 def test_silent_slideshow():
@@ -85,21 +77,18 @@ def test_silent_slideshow():
     print("PASS: silent slideshow")
 
 
-
-
 def test_short_audio_kept():
     """3s tone under a 6s slideshow → audio present, video still 6s."""
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "out.mp4")
         tone = _make_tone(os.path.join(td, "tone.wav"), seconds=3.0)
-        make_slideshow(_make_images(td), output=out, duration=SECONDS_PER_IMAGE,
-                       swipe=False, audio_path=tone)
+        make_slideshow(
+            _make_images(td), output=out, duration=SECONDS_PER_IMAGE, swipe=False, audio_path=tone
+        )
         dur, has_audio = _probe(out)
         assert has_audio, "audio stream expected"
         assert abs(dur - EXPECTED_DURATION) < 0.5, f"duration {dur} != ~{EXPECTED_DURATION}"
     print("PASS: short audio kept")
-
-
 
 
 def test_long_audio_trimmed():
@@ -107,14 +96,13 @@ def test_long_audio_trimmed():
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "out.mp4")
         tone = _make_tone(os.path.join(td, "tone.wav"), seconds=20.0)
-        make_slideshow(_make_images(td), output=out, duration=SECONDS_PER_IMAGE,
-                       swipe=False, audio_path=tone)
+        make_slideshow(
+            _make_images(td), output=out, duration=SECONDS_PER_IMAGE, swipe=False, audio_path=tone
+        )
         dur, has_audio = _probe(out)
         assert has_audio, "audio stream expected"
         assert abs(dur - EXPECTED_DURATION) < 0.5, f"duration {dur} != ~{EXPECTED_DURATION}"
     print("PASS: long audio trimmed")
-
-
 
 
 def test_bad_audio_degrades_to_silent():
@@ -124,15 +112,18 @@ def test_bad_audio_degrades_to_silent():
         garbage = os.path.join(td, "not_audio.wav")
         with open(garbage, "wb") as f:
             f.write(b"this is not audio data")
-        make_slideshow(_make_images(td), output=out, duration=SECONDS_PER_IMAGE,
-                       swipe=False, audio_path=garbage)
+        make_slideshow(
+            _make_images(td),
+            output=out,
+            duration=SECONDS_PER_IMAGE,
+            swipe=False,
+            audio_path=garbage,
+        )
         assert os.path.getsize(out) > 0
         dur, has_audio = _probe(out)
         assert not has_audio, "unusable audio must degrade to a silent slideshow"
         assert abs(dur - EXPECTED_DURATION) < 0.5
     print("PASS: bad audio degrades to silent")
-
-
 
 
 if __name__ == "__main__":

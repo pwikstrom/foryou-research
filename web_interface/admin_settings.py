@@ -111,10 +111,6 @@ SETTING_TYPES: dict = {
 }
 
 
-
-
-
-
 def validate_setting_value(key: str, value) -> str | None:
     """Validate one settings value beyond its base type.
 
@@ -130,11 +126,13 @@ def validate_setting_value(key: str, value) -> str | None:
 
     if key == ANNOTATION_BACKEND_KEY:
         from fyp.annotation.backends import variants
+
         known = variants.selection_ids()
         if value not in known:
             return f"Unknown annotation backend: {value!r} (known: {list(known)})"
     elif key == EMBEDDING_BACKEND_KEY:
         from fyp.analysis.embedding_backends import BACKEND_IDS
+
         if value not in BACKEND_IDS:
             return f"Unknown embedding backend: {value!r} (known: {list(BACKEND_IDS)})"
     elif key in ("queue_cap_annotation_items", "queue_cap_scrape_items"):
@@ -165,10 +163,6 @@ def validate_setting_value(key: str, value) -> str | None:
     return None
 
 
-
-
-
-
 def get_queue_cap(queue_kind: str) -> int:
     """Return the non-admin per-request queue-build cap for a queue kind.
 
@@ -184,10 +178,6 @@ def get_queue_cap(queue_kind: str) -> int:
     except (TypeError, ValueError):
         value = int(DEFAULTS.get(key, 0))
     return max(0, value)
-
-
-
-
 
 
 def get_session_floors() -> dict:
@@ -227,8 +217,6 @@ def get_session_floors() -> dict:
     return out
 
 
-
-
 # Short-TTL read cache: the settings ride on hot request paths (session
 # floors, queue caps), and on GCS each uncached read is two network
 # round-trips. The web service is the only writer, and save_admin_settings
@@ -237,8 +225,6 @@ def get_session_floors() -> dict:
 _SETTINGS_CACHE: dict = {"ts": 0.0, "data": None}
 _SETTINGS_TTL_S = 15.0
 _settings_lock = threading.Lock()
-
-
 
 
 def load_admin_settings() -> dict:
@@ -265,8 +251,6 @@ def load_admin_settings() -> dict:
     return dict(data)
 
 
-
-
 def save_admin_settings(settings: dict) -> None:
     """Persist admin settings, replacing any existing file.
 
@@ -275,8 +259,6 @@ def save_admin_settings(settings: dict) -> None:
     """
     data_io.save_json(data=settings, storage_location="users", filename=SETTINGS_FILENAME)
     _SETTINGS_CACHE.update({"ts": 0.0, "data": None})
-
-
 
 
 def get_setting(key: str):
@@ -290,8 +272,6 @@ def get_setting(key: str):
         else ``None``.
     """
     return load_admin_settings().get(key, DEFAULTS.get(key))
-
-
 
 
 def get_new_user_approval_required() -> bool:
@@ -309,8 +289,6 @@ def get_signup_email_verification_required() -> bool:
     return bool(get_setting("signup_email_verification_required"))
 
 
-
-
 def get_default_study() -> str:
     """The admin-selected site-wide default study name, or ``""`` when unset.
 
@@ -322,8 +300,6 @@ def get_default_study() -> str:
     """
     value = get_setting("default_study")
     return value.strip() if isinstance(value, str) else ""
-
-
 
 
 def get_demo_collection() -> str:
@@ -348,6 +324,7 @@ def demo_collection_choices() -> list[str]:
         return []
     try:
         from web_interface.services.study_data import get_study_collections
+
         rows = get_study_collections(default) or []
         return sorted({str(r.get("collection_id")) for r in rows if r.get("collection_id")})
     except Exception:
@@ -371,12 +348,13 @@ def study_names() -> list[str]:
         # site-wide default at one would share that participant's data with
         # every account (the default-study grant bypasses USER_ACCESS), and
         # the Everyone & Me composition resolves against the default.
-        return sorted(name for name, cfg in (fyp_cf.get('study_defs') or {}).items()
-                      if not is_system_study(cfg))
+        return sorted(
+            name
+            for name, cfg in (fyp_cf.get("study_defs") or {}).items()
+            if not is_system_study(cfg)
+        )
     except Exception:
         return []
-
-
 
 
 def get_default_new_user_role() -> str:
@@ -389,6 +367,7 @@ def get_default_new_user_role() -> str:
     name = get_setting("default_new_user_role") or "viewer"
     try:
         from web_interface.auth import role_manager
+
         if not role_manager.role_exists(name):
             return "viewer"
     except Exception:

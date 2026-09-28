@@ -21,9 +21,6 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
-
-
-
 # How long to trust the locally-cached copy before re-pulling from GCS.
 # 6h so a freshly-uploaded cookies.txt is picked up by all running containers
 # without a redeploy.
@@ -74,16 +71,11 @@ _PLATFORM_EXPORT_DOMAINS = {
 }
 
 
-
-
-
 def _cf():
     """Lazy config accessor — keeps this module import-cycle safe."""
     from fyp.core.fyp_config import fyp_cf
+
     return fyp_cf
-
-
-
 
 
 def _local_path(platform: str) -> str:
@@ -91,24 +83,15 @@ def _local_path(platform: str) -> str:
     return os.path.join(tempfile.gettempdir(), f"{platform}_cookies.txt")
 
 
-
-
-
 def _gcs_blob_name(platform: str) -> str:
     """GCS object path for a platform's cookie file (within the bucket)."""
     return f"secrets/{platform}_cookies.txt"
-
-
-
 
 
 def _download_lock(platform: str) -> threading.Lock:
     """Return the per-platform download lock (defaultdict access is guarded)."""
     with _LOCKS_GUARD:
         return _DOWNLOAD_LOCKS[platform]
-
-
-
 
 
 def _looks_like_netscape(path: str) -> bool:
@@ -125,9 +108,6 @@ def _looks_like_netscape(path: str) -> bool:
     except OSError:
         return False
     return bool(first_line) and bool(_NETSCAPE_MAGIC_RE.search(first_line))
-
-
-
 
 
 def _fresh_and_valid(local_path: str) -> bool:
@@ -154,9 +134,6 @@ def _fresh_and_valid(local_path: str) -> bool:
     return True
 
 
-
-
-
 def _reap_stale_copies() -> None:
     """Delete disposable cookie copies older than ``_COPY_TTL_SEC`` (best effort).
 
@@ -177,9 +154,6 @@ def _reap_stale_copies() -> None:
         pass
 
 
-
-
-
 def _private_cookie_copy(platform: str, src: str) -> str:
     """Return a private, disposable copy of ``src`` for a single yt-dlp call.
 
@@ -198,18 +172,18 @@ def _private_cookie_copy(platform: str, src: str) -> str:
     try:
         os.makedirs(_COOKIE_WORK_DIR, exist_ok=True)
         _reap_stale_copies()
-        fd, dst = tempfile.mkstemp(prefix=f"{platform}_", suffix=".txt",
-                                   dir=_COOKIE_WORK_DIR)
+        fd, dst = tempfile.mkstemp(prefix=f"{platform}_", suffix=".txt", dir=_COOKIE_WORK_DIR)
         with os.fdopen(fd, "wb") as out, open(src, "rb") as f:
             shutil.copyfileobj(f, out)
         return dst
     except OSError as e:
-        logger.warning("Could not make private %s cookie copy (%s) — using shared "
-                       "path; concurrent yt-dlp write-back may race", platform, e)
+        logger.warning(
+            "Could not make private %s cookie copy (%s) — using shared "
+            "path; concurrent yt-dlp write-back may race",
+            platform,
+            e,
+        )
         return src
-
-
-
 
 
 def _env_cookie_file(platform: str) -> str:
@@ -223,15 +197,9 @@ def _env_cookie_file(platform: str) -> str:
     return ""
 
 
-
-
-
 def _is_local_dev() -> bool:
     """True when running on a dev machine with a browser (not Cloud Run/Docker)."""
     return not os.environ.get("K_SERVICE") and os.path.exists("/Applications")
-
-
-
 
 
 def _chrome_export_fresh(path: str) -> bool:
@@ -243,9 +211,6 @@ def _chrome_export_fresh(path: str) -> bool:
     except OSError:
         return False
     return age < _CHROME_EXPORT_TTL_SEC and _looks_like_netscape(path)
-
-
-
 
 
 def _export_chrome_cookies(platform: str) -> str | None:
@@ -279,8 +244,12 @@ def _export_chrome_cookies(platform: str) -> str | None:
 
             full_jar = extract_cookies_from_browser("chrome")
         except Exception as e:
-            logger.warning("Chrome cookie export failed for %s (%s) — falling "
-                           "back to per-call browser extraction", platform, e)
+            logger.warning(
+                "Chrome cookie export failed for %s (%s) — falling "
+                "back to per-call browser extraction",
+                platform,
+                e,
+            )
             return None
         needles = _PLATFORM_EXPORT_DOMAINS.get(platform, (platform,))
         export_jar = YoutubeDLCookieJar()
@@ -291,22 +260,28 @@ def _export_chrome_cookies(platform: str) -> str | None:
             # Write-then-replace so a concurrent process never reads a
             # half-written file (the lock only covers this process's threads).
             tmp_path = f"{path}.{os.getpid()}.tmp"
-            export_jar.save(filename=tmp_path, ignore_discard=True,
-                            ignore_expires=True)
+            export_jar.save(filename=tmp_path, ignore_discard=True, ignore_expires=True)
             os.replace(tmp_path, path)
         except OSError as e:
-            logger.warning("Could not persist %s Chrome cookie export (%s) — "
-                           "falling back to per-call browser extraction",
-                           platform, e)
+            logger.warning(
+                "Could not persist %s Chrome cookie export (%s) — "
+                "falling back to per-call browser extraction",
+                platform,
+                e,
+            )
             return None
-        logger.info("Exported %d Chrome cookies for %s (re-extracted every %d min)",
-                    len(export_jar), platform, _CHROME_EXPORT_TTL_SEC // 60)
+        logger.info(
+            "Exported %d Chrome cookies for %s (re-extracted every %d min)",
+            len(export_jar),
+            platform,
+            _CHROME_EXPORT_TTL_SEC // 60,
+        )
         return path
 
 
-
-
-def _chrome_session_status(platform: str, session_cookie: str) -> tuple[str, int | None, str | None]:
+def _chrome_session_status(
+    platform: str, session_cookie: str
+) -> tuple[str, int | None, str | None]:
     """Probe the local Chrome profile for a platform's login session cookie.
 
     In dev the scraper authenticates via ``cookiesfrombrowser=("chrome",)``, so
@@ -339,12 +314,13 @@ def _chrome_session_status(platform: str, session_cookie: str) -> tuple[str, int
         if cookie.name == session_cookie:
             # A logged-out browser can retain an empty session-cookie row.
             if not (cookie.value or "").strip():
-                return "absent", None, f"'{session_cookie}' cookie on {domain} is empty (logged out)"
+                return (
+                    "absent",
+                    None,
+                    f"'{session_cookie}' cookie on {domain} is empty (logged out)",
+                )
             return "present", cookie.expires, None
     return "absent", None, f"no '{session_cookie}' cookie on {domain} in Chrome"
-
-
-
 
 
 def ensure_cookie_file(platform: str) -> str | None:
@@ -391,7 +367,8 @@ def ensure_cookie_file(platform: str) -> str | None:
                     "Cookie file not found at gs://%s/%s — running without "
                     "authentication. Upload a Netscape-format cookies.txt "
                     "to enable session-authenticated scraping.",
-                    bucket.name, blob_name,
+                    bucket.name,
+                    blob_name,
                 )
                 return None
 
@@ -404,7 +381,9 @@ def ensure_cookie_file(platform: str) -> str | None:
                     "Downloaded %s cookie file from gs://%s/%s is not "
                     "Netscape-format (missing header) — not caching; running "
                     "without authentication until a valid file is uploaded",
-                    platform, bucket.name, blob_name,
+                    platform,
+                    bucket.name,
+                    blob_name,
                 )
                 try:
                     os.remove(tmp_path)
@@ -412,16 +391,17 @@ def ensure_cookie_file(platform: str) -> str | None:
                     pass
                 return None
             os.replace(tmp_path, local_path)
-            logger.info("Downloaded %s cookies from gs://%s/%s to %s",
-                        platform, bucket.name, blob_name, local_path)
+            logger.info(
+                "Downloaded %s cookies from gs://%s/%s to %s",
+                platform,
+                bucket.name,
+                blob_name,
+                local_path,
+            )
             return local_path
         except Exception as e:
-            logger.warning("%s cookie fetch failed: %s — running without cookies",
-                           platform, e)
+            logger.warning("%s cookie fetch failed: %s — running without cookies", platform, e)
             return None
-
-
-
 
 
 def cookie_opts(platform: str) -> dict:
@@ -453,9 +433,6 @@ def cookie_opts(platform: str) -> dict:
     return {"cookiesfrombrowser": ("chrome",)}
 
 
-
-
-
 def _chrome_requests_cookies(platform: str):
     """Local-dev fallback: the platform's cookies straight from Chrome.
 
@@ -473,8 +450,6 @@ def _chrome_requests_cookies(platform: str):
     except Exception as e:
         logger.debug("Chrome cookie fallback failed for %s: %s", platform, e)
         return None
-
-
 
 
 def requests_cookiejar(platform: str):
@@ -499,6 +474,7 @@ def requests_cookiejar(platform: str):
         return None
 
     from http.cookiejar import MozillaCookieJar
+
     try:
         jar = MozillaCookieJar(path)
         jar.load(ignore_discard=True, ignore_expires=True)
@@ -506,9 +482,6 @@ def requests_cookiejar(platform: str):
     except Exception as e:
         logger.debug("Failed to load %s cookies for requests: %s", platform, e)
         return None
-
-
-
 
 
 def cookie_health(platform: str, session_cookie: str = "sessionid") -> dict:
@@ -661,9 +634,7 @@ def cookie_health(platform: str, session_cookie: str = "sessionid") -> dict:
             )
         else:
             health["status"] = "unknown"
-            health["message"] = (
-                f"Cookie file present but '{session_cookie}' row not found"
-            )
+            health["message"] = f"Cookie file present but '{session_cookie}' row not found"
     elif health["session_days_left"] <= 0:
         health["status"] = "expired"
         health["message"] = (
@@ -679,8 +650,7 @@ def cookie_health(platform: str, session_cookie: str = "sessionid") -> dict:
     elif age is not None and age > 25:
         health["status"] = "stale"
         health["message"] = (
-            f"cookie file is {age:.0f} days old — "
-            f"consider re-exporting to refresh auxiliary tokens"
+            f"cookie file is {age:.0f} days old — consider re-exporting to refresh auxiliary tokens"
         )
     else:
         days = health["session_days_left"]

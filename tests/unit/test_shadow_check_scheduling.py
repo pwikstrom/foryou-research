@@ -69,14 +69,16 @@ def test_a_fresh_check_is_not_repeated(monkeypatch, no_verification):
     assert rce._run_shadow_verification(reporter) is None
     assert not no_verification, (
         "a re-delivery re-ran the full corpus rebuild; the age guard is not "
-        "in front of verify_consolidation_equivalence")
+        "in front of verify_consolidation_equivalence"
+    )
     assert any("skipped" in line for line in reporter.lines), reporter.lines
 
 
 def test_a_due_check_runs(monkeypatch, no_verification):
     """Past the interval, the check goes ahead."""
-    monkeypatch.setattr(rce, "_shadow_check_age_days",
-                        lambda: rce._SHADOW_CHECK_INTERVAL_DAYS + 0.5)
+    monkeypatch.setattr(
+        rce, "_shadow_check_age_days", lambda: rce._SHADOW_CHECK_INTERVAL_DAYS + 0.5
+    )
     reporter = _Reporter()
 
     rce._run_shadow_verification(reporter)
@@ -109,8 +111,8 @@ def test_scheduler_and_worker_share_the_age_source():
 
     src = inspect.getsource(rce._maybe_schedule_shadow_check)
     assert "_shadow_check_age_days" in src, (
-        "the scheduler re-implements the age check; it must call the shared "
-        "helper the worker uses")
+        "the scheduler re-implements the age check; it must call the shared helper the worker uses"
+    )
 
 
 if __name__ == "__main__":

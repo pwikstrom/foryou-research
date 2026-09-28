@@ -37,18 +37,10 @@ _TEST_ADMIN = "__grad_test_admin__"
 _CAND_NAME = "grad-test-cand"
 
 
-
-
-
-
 def _snapshot_file(location: str, filename: str):
     if data_io.exists(storage_location=location, filename=filename):
         return data_io.load_json(storage_location=location, filename=filename)
     return None
-
-
-
-
 
 
 def _restore_file(location: str, filename: str, snap) -> None:
@@ -56,10 +48,6 @@ def _restore_file(location: str, filename: str, snap) -> None:
         data_io.save_json(data=snap, storage_location=location, filename=filename)
     elif data_io.exists(storage_location=location, filename=filename):
         data_io.remove(storage_location=location, filename=filename)
-
-
-
-
 
 
 @pytest.fixture
@@ -86,11 +74,13 @@ def client(monkeypatch):
 
     settings_snap = _snapshot_file("users", backend_settings.SETTINGS_FILENAME)
     registry_snap = _snapshot_file(
-        annotation_versioning.REGISTRY_LOCATION, annotation_versioning.REGISTRY_FILENAME)
+        annotation_versioning.REGISTRY_LOCATION, annotation_versioning.REGISTRY_FILENAME
+    )
     runtime_text = None
     if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
-        runtime_text = data_io.load_text(storage_location=ac.RUNTIME_LOCATION,
-                                         filename=ac.RUNTIME_FILENAME)
+        runtime_text = data_io.load_text(
+            storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
+        )
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
@@ -101,14 +91,18 @@ def client(monkeypatch):
         yield test_client
 
     _restore_file("users", backend_settings.SETTINGS_FILENAME, settings_snap)
-    _restore_file(annotation_versioning.REGISTRY_LOCATION,
-                  annotation_versioning.REGISTRY_FILENAME, registry_snap)
+    _restore_file(
+        annotation_versioning.REGISTRY_LOCATION,
+        annotation_versioning.REGISTRY_FILENAME,
+        registry_snap,
+    )
     for fname in (ac.RUNTIME_FILENAME, ac.RUNTIME_META_FILENAME):
         if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=fname):
             data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=fname)
     if runtime_text is not None:
-        data_io.save_text(runtime_text, storage_location=ac.RUNTIME_LOCATION,
-                          filename=ac.RUNTIME_FILENAME)
+        data_io.save_text(
+            runtime_text, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
+        )
     ac.refresh_runtime_contract()
     from fyp.core.fyp_config import fyp_cf, load_var_schema
 
@@ -119,16 +113,8 @@ def client(monkeypatch):
         pass
 
 
-
-
-
-
 def _baked_contract() -> dict:
     return tomllib.loads(ac._read_baked_text())
-
-
-
-
 
 
 def _variant_contract_text(marker: str) -> str:
@@ -144,10 +130,6 @@ def _variant_contract_text(marker: str) -> str:
     return ac.serialize_contract(contract, base_text=ac._read_baked_text())
 
 
-
-
-
-
 def test_impact_gemini_path_unchanged():
     """Baked contract vs itself on the gemini path → metadata-only, same av_."""
     impact = _annotation_contract_impact(_baked_contract(), target_backend="gemini")
@@ -157,25 +139,24 @@ def test_impact_gemini_path_unchanged():
     assert impact["candidate_version"] == cur["annotation_version"]
     assert impact["metadata_only"] is True
     assert impact["target_backend"] == "gemini"
-    assert impact["backend_mismatch"] is (annotation_versioning.active_version_descriptor().get("backend") is not None)
-
-
-
-
+    assert impact["backend_mismatch"] is (
+        annotation_versioning.active_version_descriptor().get("backend") is not None
+    )
 
 
 def test_impact_reports_backend_fields():
     impact = _annotation_contract_impact(_baked_contract())
-    for key in ("target_backend", "target_model", "active_backend", "active_model",
-                "backend_mismatch"):
+    for key in (
+        "target_backend",
+        "target_model",
+        "active_backend",
+        "active_model",
+        "backend_mismatch",
+    ):
         assert key in impact
     # Default target is the active backend → never a mismatch.
     assert impact["backend_mismatch"] is False
     assert impact["target_backend"] == impact["active_backend"]
-
-
-
-
 
 
 def test_impact_non_gemini_target():
@@ -193,19 +174,11 @@ def test_impact_non_gemini_target():
     assert impact["candidate_version"] != gem["candidate_version"]
 
 
-
-
-
-
 def test_backend_target_info_unknown_selection():
     info = _backend_target_info("no_such_backend_xyz")
     assert info["target_available"] is False
     assert info["target_unavailable_reason"]
     assert info["mismatch"] is True
-
-
-
-
 
 
 def test_dry_run_backend_block(client):
@@ -220,20 +193,13 @@ def test_dry_run_backend_block(client):
     assert "impact" in body and "text" in body
 
 
-
-
-
-
 def test_dry_run_unknown_backend_rejected(client):
     ab_eval.save_candidate(_CAND_NAME, ac._read_baked_text(), actor="test", overwrite=True)
-    res = client.post(f"/api/manage/ab-candidates/{_CAND_NAME}/activate",
-                      json={"backend": "no_such_backend_xyz"})
+    res = client.post(
+        f"/api/manage/ab-candidates/{_CAND_NAME}/activate", json={"backend": "no_such_backend_xyz"}
+    )
     assert res.status_code == 400
     assert "unknown backend" in res.get_json()["error"]
-
-
-
-
 
 
 def test_confirm_switch_backend_requires_permission(client, monkeypatch):
@@ -249,33 +215,32 @@ def test_confirm_switch_backend_requires_permission(client, monkeypatch):
 
     monkeypatch.setattr(permissions, "user_has_permission", _no_backends)
     before = ac.contract_status().get("source")
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": ac._read_baked_text(), "confirm": True,
-                            "switch_backend": "qwen_api"})
+    res = client.post(
+        "/api/manage/annotation-contract",
+        json={"text": ac._read_baked_text(), "confirm": True, "switch_backend": "qwen_api"},
+    )
     assert res.status_code == 403
     assert ac.contract_status().get("source") == before  # nothing written
 
 
-
-
-
-
 def test_confirm_unknown_switch_backend_rejected(client):
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": ac._read_baked_text(), "confirm": True,
-                            "switch_backend": "no_such_backend_xyz"})
+    res = client.post(
+        "/api/manage/annotation-contract",
+        json={
+            "text": ac._read_baked_text(),
+            "confirm": True,
+            "switch_backend": "no_such_backend_xyz",
+        },
+    )
     assert res.status_code == 400
-
-
-
-
 
 
 def test_confirm_mints_version_eagerly(client):
     """A confirmed upload registers the resulting version immediately."""
     upload_text = _variant_contract_text("EAGER MINT TEST MARKER")
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": upload_text, "confirm": True})
+    res = client.post(
+        "/api/manage/annotation-contract", json={"text": upload_text, "confirm": True}
+    )
     body = res.get_json()
     assert res.status_code == 200, body
     minted = body.get("minted_version")
@@ -289,15 +254,12 @@ def test_confirm_mints_version_eagerly(client):
     assert record.get("contract_text") == upload_text
 
 
-
-
-
-
 def test_version_summaries_report_restorable(client):
     """list endpoint: no bulky contract_text, but a restorable flag per version."""
     upload_text = _variant_contract_text("RESTORABLE SUMMARY TEST MARKER")
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": upload_text, "confirm": True})
+    res = client.post(
+        "/api/manage/annotation-contract", json={"text": upload_text, "confirm": True}
+    )
     minted = (res.get_json() or {}).get("minted_version")
     res = client.get("/api/manage/annotation-versions")
     body = res.get_json()
@@ -308,16 +270,13 @@ def test_version_summaries_report_restorable(client):
     assert "contract_text" not in by_version[minted]
 
 
-
-
-
-
 def test_make_current_restores_exact_version(client):
     """Detail endpoint exposes the restore block; re-uploading the snapshot
     reproduces the same av_ (exact restore) while config is unchanged."""
     upload_text = _variant_contract_text("EXACT RESTORE TEST MARKER")
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": upload_text, "confirm": True})
+    res = client.post(
+        "/api/manage/annotation-contract", json={"text": upload_text, "confirm": True}
+    )
     minted = (res.get_json() or {}).get("minted_version")
 
     res = client.get(f"/api/manage/annotation-versions/{minted}")
@@ -331,16 +290,14 @@ def test_make_current_restores_exact_version(client):
 
     # Move the live contract elsewhere, then dry-run the snapshot back:
     # the predicted candidate version must equal the recorded one.
-    res = client.post("/api/manage/annotation-contract",
-                      json={"text": _variant_contract_text("ELSEWHERE MARKER"), "confirm": True})
+    res = client.post(
+        "/api/manage/annotation-contract",
+        json={"text": _variant_contract_text("ELSEWHERE MARKER"), "confirm": True},
+    )
     assert res.status_code == 200
     res = client.post("/api/manage/annotation-contract", json={"text": snapshot})
     impact = (res.get_json() or {}).get("impact") or {}
     assert impact.get("candidate_version") == minted
-
-
-
-
 
 
 def test_default_pseudo_candidate(client):
@@ -364,8 +321,9 @@ def test_default_pseudo_candidate(client):
     assert body["text"] == ac._read_baked_text()
 
     # The reserved name cannot be claimed by a stored candidate.
-    res = client.post("/api/manage/ab-candidates",
-                      json={"name": "default", "text": ac._read_baked_text()})
+    res = client.post(
+        "/api/manage/ab-candidates", json={"name": "default", "text": ac._read_baked_text()}
+    )
     assert res.status_code == 400
     assert "reserved" in res.get_json()["error"]
 
@@ -376,10 +334,6 @@ def test_default_pseudo_candidate(client):
     assert res.status_code == 200, body
     assert body["builtin_default"] is True
     assert "impact" in body
-
-
-
-
 
 
 def test_candidate_version_is_computed_live(client):
@@ -398,12 +352,10 @@ def test_candidate_version_is_computed_live(client):
     res = client.get("/api/manage/ab-candidates")
     row = next(m for m in res.get_json()["candidates"] if m["name"] == _CAND_NAME)
     assert row["version"] != "av_stale_snapshot"
-    assert row["version"] == _annotation_contract_impact(
-        tomllib.loads(ac._read_baked_text()))["candidate_version"]
-
-
-
-
+    assert (
+        row["version"]
+        == _annotation_contract_impact(tomllib.loads(ac._read_baked_text()))["candidate_version"]
+    )
 
 
 def test_impact_helper_still_flags_prompt_change():

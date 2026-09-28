@@ -34,8 +34,11 @@ def study_defs(monkeypatch):
     monkeypatch.setattr(user_variables.data_io, "exists", lambda **kw: True)
     # The listing now answers existence from one cache listdir; failing it
     # forces the per-study exists() fallback the line above satisfies.
-    monkeypatch.setattr(user_variables.data_io, "listdir",
-                        lambda **kw: (_ for _ in ()).throw(RuntimeError("no cache")))
+    monkeypatch.setattr(
+        user_variables.data_io,
+        "listdir",
+        lambda **kw: (_ for _ in ()).throw(RuntimeError("no cache")),
+    )
     # Both the My Studies listing and the settings picker reload studies.json
     # from disk before reading — keep the synthetic dict in place instead.
     monkeypatch.setattr(fyp_studies, "init_study_defs", lambda: None)
@@ -47,10 +50,6 @@ def _set_default(monkeypatch, name):
     from web_interface import admin_settings
 
     monkeypatch.setattr(admin_settings, "get_default_study", lambda: name)
-
-
-
-
 
 
 def test_default_study_is_readable_by_every_role(study_defs, monkeypatch):
@@ -77,10 +76,6 @@ def test_deleted_default_study_reverts_to_the_old_behaviour(study_defs, monkeypa
     assert names == {"open_study"}
 
 
-
-
-
-
 @pytest.fixture
 def viewer_client(monkeypatch):
     """A non-manager user whose only permission is the My Studies listing."""
@@ -98,8 +93,9 @@ def viewer_client(monkeypatch):
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.my_stuff.my_studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
+    )
     # The route reloads defs from disk — keep the fixture's dict in place.
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 
@@ -124,10 +120,6 @@ def test_my_studies_without_a_default_denies_unshared(study_defs, viewer_client,
     res = viewer_client.get("/api/manage/studies")
     assert res.status_code == 200
     assert {s["STUDY_NAME"] for s in res.get_json()} == {"open_study"}
-
-
-
-
 
 
 @pytest.fixture
@@ -198,21 +190,18 @@ def test_put_roundtrips_and_clears_the_default_study(study_defs, admin_client):
     assert get_default_study() == ""
 
 
-
-
-
-
 def test_rename_follows_the_default_study(monkeypatch):
     """Renaming the default study retargets the setting, not drops it."""
     import web_interface.routes.management.studies as studies_mod
 
     stored = {"default_study": "old_name"}
-    monkeypatch.setattr("web_interface.admin_settings.get_default_study",
-                        lambda: stored.get("default_study", ""))
-    monkeypatch.setattr("web_interface.admin_settings.load_admin_settings",
-                        lambda: dict(stored))
-    monkeypatch.setattr("web_interface.admin_settings.save_admin_settings",
-                        lambda settings: stored.update(settings))
+    monkeypatch.setattr(
+        "web_interface.admin_settings.get_default_study", lambda: stored.get("default_study", "")
+    )
+    monkeypatch.setattr("web_interface.admin_settings.load_admin_settings", lambda: dict(stored))
+    monkeypatch.setattr(
+        "web_interface.admin_settings.save_admin_settings", lambda settings: stored.update(settings)
+    )
 
     studies_mod._retarget_default_study("old_name", "new_name")
     assert stored["default_study"] == "new_name"

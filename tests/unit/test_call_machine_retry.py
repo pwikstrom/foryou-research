@@ -97,6 +97,7 @@ _MISSING = object()
 # _is_transient_error
 # ---------------------------------------------------------------------------
 
+
 def test_is_transient_by_status_code() -> None:
     assert ma._is_transient_error(_ApiError("boom", code=503)) is True
     assert ma._is_transient_error(_ApiError("boom", code=429)) is True
@@ -125,6 +126,7 @@ def test_is_transient_builtin_types() -> None:
 # _generate_with_retry
 # ---------------------------------------------------------------------------
 
+
 def test_retry_succeeds_after_transient() -> None:
     err = _ApiError("503 unavailable", code=503)
     with _Harness([err, err, "OK"], max_retries=2) as h:
@@ -143,7 +145,7 @@ def test_retry_exhausted_raises() -> None:
         except Exception as exc:  # noqa: BLE001 — we assert the type below
             raised = exc
     assert isinstance(raised, _ApiError)
-    assert h.calls == 3          # 1 initial attempt + 2 retries
+    assert h.calls == 3  # 1 initial attempt + 2 retries
     assert len(h.sleeps) == 2
 
 

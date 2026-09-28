@@ -9,7 +9,9 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 
-def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
+def run_collection_metadata_refresh(
+    reporter: TaskStatusReporter, task_args: dict | None = None
+) -> dict | None:
     """Regenerate collections_metadata.parquet from collections_recoded.parquet.
 
     Loads the full activity parquet (1+ GB) and runs generate_collection_metadata
@@ -63,8 +65,9 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
     if old_metadata is not None and not old_metadata.empty:
         # Demographic columns moved to user accounts — never carry them over.
         demographic = set(demographic_metadata_columns(old_metadata.columns))
-        preserved_cols = [c for c in old_metadata.columns
-                          if c not in result.columns and c not in demographic]
+        preserved_cols = [
+            c for c in old_metadata.columns if c not in result.columns and c not in demographic
+        ]
         if preserved_cols:
             reporter.update_progress(
                 80,
@@ -75,7 +78,7 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
                 old_metadata[preserved_cols],
                 left_index=True,
                 right_index=True,
-                how='left',
+                how="left",
             )
 
     result = strip_demographic_columns(result)
@@ -91,10 +94,12 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
     _t_save = time.perf_counter() - _t_phase
 
     _t_total = time.perf_counter() - _t_start
-    reporter.emit_data({
-        "events": int(len(events_df)),
-        "collections": int(len(result)),
-    })
+    reporter.emit_data(
+        {
+            "events": int(len(events_df)),
+            "collections": int(len(result)),
+        }
+    )
     reporter.update_progress(
         100,
         f"Metadata regenerated for {len(result):,} collections ({_t_total:.0f}s).",
@@ -106,8 +111,6 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
     )
 
     return None
-
-
 
 
 if __name__ == "__main__":

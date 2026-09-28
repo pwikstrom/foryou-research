@@ -54,6 +54,7 @@ NEW_SHARD = ["shard_c.parquet", 50, 3.0]
 # Pure helpers
 # --------------------------------------------------------------------------
 
+
 def test_shards_appended_only_accepts_growth_and_rejects_rewrites():
     assert se.shards_appended_only(OLD_SHARDS, OLD_SHARDS + [NEW_SHARD])
     assert se.shards_appended_only(OLD_SHARDS, OLD_SHARDS)
@@ -69,8 +70,9 @@ def test_shards_appended_only_accepts_growth_and_rejects_rewrites():
 
 
 def _index(ids, rows):
-    return types.SimpleNamespace(ids=pa.array(ids, type=pa.string()),
-                                 rows=np.asarray(rows, dtype=np.int32))
+    return types.SimpleNamespace(
+        ids=pa.array(ids, type=pa.string()), rows=np.asarray(rows, dtype=np.int32)
+    )
 
 
 def test_new_vector_item_ids_are_the_rows_past_the_old_count():
@@ -84,6 +86,7 @@ def test_new_vector_item_ids_are_the_rows_past_the_old_count():
 
 def _batches(monkeypatch, frames_by_file: dict):
     """iter_parquet_batches / exists stand-ins serving one frame per filename."""
+
     def fake_iter(storage_location="", filename="", columns=None, filters=None, **kw):
         df = frames_by_file[filename]
         if filters:
@@ -95,8 +98,9 @@ def _batches(monkeypatch, frames_by_file: dict):
         yield pa.RecordBatch.from_pandas(df.reset_index(drop=True), preserve_index=False)
 
     monkeypatch.setattr(data_io, "iter_parquet_batches", fake_iter)
-    monkeypatch.setattr(data_io, "exists",
-                        lambda storage_location="", filename="", **k: filename in frames_by_file)
+    monkeypatch.setattr(
+        data_io, "exists", lambda storage_location="", filename="", **k: filename in frames_by_file
+    )
 
 
 def _epoch(iso: str) -> int:
@@ -107,12 +111,20 @@ def test_changed_annotations_are_those_past_the_watermark(monkeypatch):
     # inference_ts is an int64 Unix epoch in SECONDS in the real corpus
     # (2026-09-03: read as nanoseconds it made every row 1970 and the
     # watermark scan came back empty).
-    anno = pd.DataFrame({
-        "item_id": ["v1", "v2", "v3", "v4"],
-        "inference_ts": pd.array([_epoch("2026-09-01T00:00:00+00:00"),
-                                  _epoch("2026-09-03T03:20:00+00:00"), None,
-                                  _epoch("2026-09-03T03:25:00+00:00")], dtype="Int64"),
-    })
+    anno = pd.DataFrame(
+        {
+            "item_id": ["v1", "v2", "v3", "v4"],
+            "inference_ts": pd.array(
+                [
+                    _epoch("2026-09-01T00:00:00+00:00"),
+                    _epoch("2026-09-03T03:20:00+00:00"),
+                    None,
+                    _epoch("2026-09-03T03:25:00+00:00"),
+                ],
+                dtype="Int64",
+            ),
+        }
+    )
     _batches(monkeypatch, {embeddings.ANNOTATIONS_FILE: anno})
 
     changed, max_ts = se.annotation_items_changed_since("2026-09-02T00:00:00+00:00")
@@ -134,16 +146,19 @@ def test_epoch_seconds_handles_the_column_types_a_corpus_may_carry():
     out = se._epoch_seconds(pa.array([secs * 1000], type=pa.int64()))
     assert out[0] == pytest.approx(secs)
     # a real timestamp column
-    out = se._epoch_seconds(pa.array([pd.Timestamp(secs, unit="s", tz="UTC")],
-                                     type=pa.timestamp("us", tz="UTC")))
+    out = se._epoch_seconds(
+        pa.array([pd.Timestamp(secs, unit="s", tz="UTC")], type=pa.timestamp("us", tz="UTC"))
+    )
     assert out[0] == pytest.approx(secs)
 
 
 def test_collections_containing_maps_items_within_the_covered_set(monkeypatch):
-    activity = pd.DataFrame({
-        "collection_id": ["c1", "c1", "c2", "c3", "c9"],
-        "item_id": ["v1", "v2", "v2", "v7", "v1"],
-    })
+    activity = pd.DataFrame(
+        {
+            "collection_id": ["c1", "c1", "c2", "c3", "c9"],
+            "item_id": ["v1", "v2", "v2", "v7", "v1"],
+        }
+    )
     _batches(monkeypatch, {f"{se.COLLECTIONS_LABEL}_recoded.parquet": activity})
 
     assert se.collections_containing({"v1", "v2"}, allow={"c1", "c2", "c3"}) == {"c1", "c2"}
@@ -157,11 +172,17 @@ def test_collections_containing_maps_items_within_the_covered_set(monkeypatch):
 # enrichment_change_scope — the decision, end to end on stubs
 # --------------------------------------------------------------------------
 
+
 def _meta(**over):
-    meta = {"store_fingerprint": "fp-old", "annotations_fingerprint": "afp-old",
-            "corpus_mean_count": 4, "baseline_corpus_count": 4,
-            "store_shards": OLD_SHARDS, "annotations_max_ts": "2026-09-02T00:00:00+00:00",
-            "collections": {}}
+    meta = {
+        "store_fingerprint": "fp-old",
+        "annotations_fingerprint": "afp-old",
+        "corpus_mean_count": 4,
+        "baseline_corpus_count": 4,
+        "store_shards": OLD_SHARDS,
+        "annotations_max_ts": "2026-09-02T00:00:00+00:00",
+        "collections": {},
+    }
     meta.update(over)
     return meta
 
@@ -169,24 +190,38 @@ def _meta(**over):
 @pytest.fixture
 def world(monkeypatch):
     """A store that grew by two vectors (items e, f) and one new annotation (f)."""
-    monkeypatch.setattr(embedding_store, "shard_entries",
-                        lambda: [tuple(s) for s in OLD_SHARDS] + [tuple(NEW_SHARD)])
-    monkeypatch.setattr(embedding_store, "load_index",
-                        lambda model: _index(["a", "b", "c", "d", "e", "f"], [0, 1, 2, 3, 4, 5]))
-    anno = pd.DataFrame({"item_id": ["a", "f"],
-                         "inference_ts": ["2026-08-01T00:00:00+00:00", "2026-09-03T03:25:00+00:00"]})
-    activity = pd.DataFrame({"collection_id": ["c1", "c2", "c2", "c3", "c4"],
-                             "item_id": ["a", "e", "b", "f", "e"]})
-    _batches(monkeypatch, {embeddings.ANNOTATIONS_FILE: anno,
-                           f"{se.COLLECTIONS_LABEL}_recoded.parquet": activity})
-    return {"covered": {"c1", "c2", "c3"}}   # c4 is in no study
+    monkeypatch.setattr(
+        embedding_store,
+        "shard_entries",
+        lambda: [tuple(s) for s in OLD_SHARDS] + [tuple(NEW_SHARD)],
+    )
+    monkeypatch.setattr(
+        embedding_store,
+        "load_index",
+        lambda model: _index(["a", "b", "c", "d", "e", "f"], [0, 1, 2, 3, 4, 5]),
+    )
+    anno = pd.DataFrame(
+        {
+            "item_id": ["a", "f"],
+            "inference_ts": ["2026-08-01T00:00:00+00:00", "2026-09-03T03:25:00+00:00"],
+        }
+    )
+    activity = pd.DataFrame(
+        {"collection_id": ["c1", "c2", "c2", "c3", "c4"], "item_id": ["a", "e", "b", "f", "e"]}
+    )
+    _batches(
+        monkeypatch,
+        {embeddings.ANNOTATIONS_FILE: anno, f"{se.COLLECTIONS_LABEL}_recoded.parquet": activity},
+    )
+    return {"covered": {"c1", "c2", "c3"}}  # c4 is in no study
 
 
 def test_append_scopes_to_the_collections_holding_the_new_items(world):
-    out = se.enrichment_change_scope(_meta(), "fp-new", 6, "afp-new", MODEL,
-                                     world["covered"], fraction=0.5)
+    out = se.enrichment_change_scope(
+        _meta(), "fp-new", 6, "afp-new", MODEL, world["covered"], fraction=0.5
+    )
     assert out["local"] is True
-    assert out["affected"] == {"c2", "c3"}          # e→c2 (c4 uncovered), f→c3
+    assert out["affected"] == {"c2", "c3"}  # e→c2 (c4 uncovered), f→c3
     assert out["n_new_vectors"] == 2 and out["n_changed_annotations"] == 1
     assert out["annotations_max_ts"] == "2026-09-03T03:25:00+00:00"
 
@@ -197,40 +232,55 @@ def test_unchanged_enrichment_is_local_and_empty(world):
 
 
 def test_rewritten_shards_are_not_local(world, monkeypatch):
-    monkeypatch.setattr(embedding_store, "shard_entries",
-                        lambda: [("shard_a.parquet", 999, 1.0), tuple(OLD_SHARDS[1])])
+    monkeypatch.setattr(
+        embedding_store,
+        "shard_entries",
+        lambda: [("shard_a.parquet", 999, 1.0), tuple(OLD_SHARDS[1])],
+    )
     out = se.enrichment_change_scope(_meta(), "fp-new", 6, "afp-old", MODEL, world["covered"])
     assert out["local"] is False and "rewritten" in out["reason"]
 
 
 def test_drift_budget_forces_a_rebaseline(world):
     # 4 → 6 vectors is +50 % on the baseline; a 10 % budget refuses
-    out = se.enrichment_change_scope(_meta(), "fp-new", 6, "afp-old", MODEL,
-                                     world["covered"], fraction=0.10)
+    out = se.enrichment_change_scope(
+        _meta(), "fp-new", 6, "afp-old", MODEL, world["covered"], fraction=0.10
+    )
     assert out["local"] is False and "drift budget" in out["reason"]
     # …and the budget is measured from the last FULL build, not the last merge
-    out = se.enrichment_change_scope(_meta(baseline_corpus_count=100, corpus_mean_count=4),
-                                     "fp-new", 6, "afp-old", MODEL, world["covered"], fraction=0.10)
+    out = se.enrichment_change_scope(
+        _meta(baseline_corpus_count=100, corpus_mean_count=4),
+        "fp-new",
+        6,
+        "afp-old",
+        MODEL,
+        world["covered"],
+        fraction=0.10,
+    )
     assert out["local"] is True
 
 
 def test_first_build_after_this_rule_bootstraps_once(world):
     # a meta from before shard sets were recorded
-    out = se.enrichment_change_scope(_meta(store_shards=None), "fp-new", 6, "afp-old",
-                                     MODEL, world["covered"])
+    out = se.enrichment_change_scope(
+        _meta(store_shards=None), "fp-new", 6, "afp-old", MODEL, world["covered"]
+    )
     assert out["local"] is False and "no shard set" in out["reason"]
     # a meta from before the annotation watermark was recorded
-    out = se.enrichment_change_scope(_meta(annotations_max_ts=None), "fp-old", 4, "afp-new",
-                                     MODEL, world["covered"])
+    out = se.enrichment_change_scope(
+        _meta(annotations_max_ts=None), "fp-old", 4, "afp-new", MODEL, world["covered"]
+    )
     assert out["local"] is False and "no annotation watermark" in out["reason"]
-    assert out["annotations_max_ts"] == "2026-09-03T03:25:00+00:00", \
+    assert out["annotations_max_ts"] == "2026-09-03T03:25:00+00:00", (
         "the watermark is still reported so this build can record it"
+    )
 
 
 def test_unmappable_ids_are_not_local(world, monkeypatch):
     monkeypatch.setattr(se, "collections_containing", lambda *a, **k: None)
-    out = se.enrichment_change_scope(_meta(), "fp-new", 6, "afp-old", MODEL, world["covered"],
-                                     fraction=0.9)
+    out = se.enrichment_change_scope(
+        _meta(), "fp-new", 6, "afp-old", MODEL, world["covered"], fraction=0.9
+    )
     assert out["local"] is False and "could not map" in out["reason"]
 
 
@@ -238,10 +288,16 @@ def test_unmappable_ids_are_not_local(world, monkeypatch):
 # The planner with a scope
 # --------------------------------------------------------------------------
 
+
 def _plan_meta(collections, **over):
-    meta = {"embedding_model": MODEL, "params": dict(PARAMS), "trend_vars": list(TREND),
-            "store_fingerprint": "fp1", "annotations_fingerprint": "afp1",
-            "collections": collections}
+    meta = {
+        "embedding_model": MODEL,
+        "params": dict(PARAMS),
+        "trend_vars": list(TREND),
+        "store_fingerprint": "fp1",
+        "annotations_fingerprint": "afp1",
+        "collections": collections,
+    }
     meta.update(over)
     return meta
 
@@ -251,9 +307,17 @@ def _rec(n):
 
 
 def _plan(discovered, meta, **over):
-    kwargs = {"params": PARAMS, "model": MODEL, "trend_cols": TREND,
-              "artifacts_exist": True, "plays_schema_ok": True, "scope": None,
-              "store_fp": "fp1", "annotations_fp": "afp1", "enrichment_scope": None}
+    kwargs = {
+        "params": PARAMS,
+        "model": MODEL,
+        "trend_cols": TREND,
+        "artifacts_exist": True,
+        "plays_schema_ok": True,
+        "scope": None,
+        "store_fp": "fp1",
+        "annotations_fp": "afp1",
+        "enrichment_scope": None,
+    }
     kwargs.update(over)
     return se.compute_refresh_plan(discovered, {c: WIDE for c, _ in discovered}, meta, **kwargs)
 
@@ -284,7 +348,7 @@ def test_touched_and_stale_combine_in_discovery_order():
     disc = [("a", 10), ("b", 20), ("c", 30)]
     meta = _plan_meta({"a": _rec(10), "b": _rec(99), "c": _rec(30)}, store_fingerprint="OLD")
     plan = _plan(disc, meta, enrichment_scope={"local": True, "affected": {"c"}})
-    assert plan["refresh"] == ["b", "c"]   # b stale by play count, c touched
+    assert plan["refresh"] == ["b", "c"]  # b stale by play count, c touched
 
 
 def test_a_local_change_touching_nothing_records_the_fingerprints():
@@ -306,17 +370,36 @@ def test_explicit_scope_still_narrows_touched_collections():
 # The published meta carries what the next run needs
 # --------------------------------------------------------------------------
 
+
 def test_merge_meta_records_shards_watermark_and_carries_the_baseline(monkeypatch):
     from web_interface import run_sessions_refresh as rsr
 
-    monkeypatch.setattr(embedding_store, "shard_entries",
-                        lambda: [tuple(s) for s in OLD_SHARDS] + [tuple(NEW_SHARD)])
+    monkeypatch.setattr(
+        embedding_store,
+        "shard_entries",
+        lambda: [tuple(s) for s in OLD_SHARDS] + [tuple(NEW_SHARD)],
+    )
     fp = embedding_store.fingerprint_of([tuple(s) for s in OLD_SHARDS] + [tuple(NEW_SHARD)])
-    old = {"store_fingerprint": "fp-old", "baseline_corpus_count": 4, "corpus_mean_count": 4,
-           "annotations_max_ts": "2026-09-02T00:00:00+00:00", "collections": {}}
+    old = {
+        "store_fingerprint": "fp-old",
+        "baseline_corpus_count": 4,
+        "corpus_mean_count": 4,
+        "annotations_max_ts": "2026-09-02T00:00:00+00:00",
+        "collections": {},
+    }
 
-    meta = rsr._merge_meta(old, {"refresh": [], "drop": []}, PARAMS, MODEL, fp, 6, 8,
-                           TREND, "afp-new", "2026-09-03T03:25:00+00:00")
+    meta = rsr._merge_meta(
+        old,
+        {"refresh": [], "drop": []},
+        PARAMS,
+        MODEL,
+        fp,
+        6,
+        8,
+        TREND,
+        "afp-new",
+        "2026-09-03T03:25:00+00:00",
+    )
     assert meta["baseline_corpus_count"] == 4, "a merge does not move the baseline"
     assert meta["corpus_mean_count"] == 6
     assert meta["annotations_max_ts"] == "2026-09-03T03:25:00+00:00"
@@ -324,7 +407,9 @@ def test_merge_meta_records_shards_watermark_and_carries_the_baseline(monkeypatc
     assert meta["corpus_mean_drift"] is True
 
     # watermark carried forward when this run did not scan the corpus
-    meta = rsr._merge_meta(old, {"refresh": [], "drop": []}, PARAMS, MODEL, fp, 6, 8, TREND, "afp-old")
+    meta = rsr._merge_meta(
+        old, {"refresh": [], "drop": []}, PARAMS, MODEL, fp, 6, 8, TREND, "afp-old"
+    )
     assert meta["annotations_max_ts"] == "2026-09-02T00:00:00+00:00"
 
     # shards are only recorded when they still match the pinned fingerprint

@@ -22,6 +22,7 @@ from web_interface import auth, collection_accounts as ca
 # Harness
 # --------------------------------------------------------------------------
 
+
 class _Store:
     """Stateful stand-in for data_io over {location: {filename: obj}}."""
 
@@ -54,6 +55,7 @@ class _Store:
 def env():
     store = _Store()
     import web_interface.services.study_data as sd
+
     # auth, collection_accounts and study_data all import the same data_io
     # module object — patch each function ONCE (double-patching the same
     # attribute and unwinding in the wrong order would leak a mock into the
@@ -61,7 +63,15 @@ def env():
     modules = {id(m): m for m in (auth.data_io, ca.data_io, sd.data_io)}.values()
     patches = []
     for mod in modules:
-        for name in ("exists", "listdir", "load_json", "save_json", "remove", "load_parquet", "save_parquet"):
+        for name in (
+            "exists",
+            "listdir",
+            "load_json",
+            "save_json",
+            "remove",
+            "load_parquet",
+            "save_parquet",
+        ):
             patches.append(patch.object(mod, name, side_effect=getattr(store, name)))
     patches.append(patch.object(ca, "placeholder_domain", return_value="example.test"))
     for p in patches:
@@ -85,6 +95,7 @@ def _tags(store):
 # Profile validation
 # --------------------------------------------------------------------------
 
+
 def test_validate_profile_accepts_age_number_and_bracket():
     cleaned, err = auth.validate_profile({"age": "34"})
     assert err is None and cleaned["age"] == "34"
@@ -105,7 +116,9 @@ def test_validate_profile_rejects_bad_values_and_unknown_keys():
 
 
 def test_validate_profile_clears_empty_and_maps_consent():
-    cleaned, err = auth.validate_profile({"postcode": "  ", "consent_to_contact": "yes", "country": " AU "})
+    cleaned, err = auth.validate_profile(
+        {"postcode": "  ", "consent_to_contact": "yes", "country": " AU "}
+    )
     assert err is None
     assert cleaned == {"postcode": None, "consent_to_contact": True, "country": "AU"}
 
@@ -120,10 +133,17 @@ def test_sanitize_profile_drops_only_bad_fields():
 # Passwordless participant accounts
 # --------------------------------------------------------------------------
 
+
 def test_participant_account_cannot_login_until_claimed(env):
     store, um = env
-    ok, _ = um.add_user("p@x.org", None, "viewer", approved=True,
-                        account_kind=auth.ACCOUNT_KIND_PARTICIPANT, profile={"age": "30"})
+    ok, _ = um.add_user(
+        "p@x.org",
+        None,
+        "viewer",
+        approved=True,
+        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
+        profile={"age": "30"},
+    )
     assert ok
     u = um.get_user("p@x.org")
     assert not u.can_login()
@@ -145,8 +165,14 @@ def test_participant_account_cannot_login_until_claimed(env):
 
 def test_placeholder_cannot_be_claimed(env):
     store, um = env
-    um.add_user("p-1@example.test", None, "viewer", approved=True,
-                account_kind=auth.ACCOUNT_KIND_PARTICIPANT, placeholder=True)
+    um.add_user(
+        "p-1@example.test",
+        None,
+        "viewer",
+        approved=True,
+        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
+        placeholder=True,
+    )
     assert not um.claim_participant_account("p-1@example.test", "pw")[0]
 
 
@@ -171,7 +197,9 @@ def test_find_user_by_email_is_case_insensitive_and_placeholder_numbering(env):
 def test_fill_profile_gaps_never_overwrites(env):
     store, um = env
     um.add_user("a@x.org", "pw", "viewer", profile={"full_name": "Set By Person"})
-    filled, conflicts = um.fill_profile_gaps("a@x.org", {"full_name": "Donation Name", "age": "34", "postcode": ""})
+    filled, conflicts = um.fill_profile_gaps(
+        "a@x.org", {"full_name": "Donation Name", "age": "34", "postcode": ""}
+    )
     assert filled == {"age": "34"}
     assert conflicts == {"full_name": {"kept": "Set By Person", "offered": "Donation Name"}}
     assert um.get_user("a@x.org").profile["full_name"] == "Set By Person"
@@ -189,6 +217,7 @@ def test_delete_user_removes_log_sidecar(env):
 # --------------------------------------------------------------------------
 # Link semantics
 # --------------------------------------------------------------------------
+
 
 def test_set_owner_preserves_other_keys_and_unlink(env):
     store, um = env
@@ -213,12 +242,23 @@ def test_link_aio_respects_decided_links_and_creates_accounts(env):
     store, um = env
     um.add_user("Known@Example.org", "pw", "viewer")
     store.files["recoded"]["collections_tags.json"] = {
-        "c_unassigned": {"annotation_tags": [], "user_id": None},   # admin said: no account
+        "c_unassigned": {"annotation_tags": [], "user_id": None},  # admin said: no account
         "c_linked": {"annotation_tags": [], "user_id": "admin@admin.net"},
     }
     raw = {
-        "c_known": {"id": "c_known", "email": "known@example.org", "age": ["34"], "profile": "x", "pk": "y"},
-        "c_new": {"id": "c_new", "email": "New.Person@Example.org", "name": "New Person", "postCode": "4000"},
+        "c_known": {
+            "id": "c_known",
+            "email": "known@example.org",
+            "age": ["34"],
+            "profile": "x",
+            "pk": "y",
+        },
+        "c_new": {
+            "id": "c_new",
+            "email": "New.Person@Example.org",
+            "name": "New Person",
+            "postCode": "4000",
+        },
         "c_noemail": {"id": "c_noemail", "age": ["21 - 25"], "country": "Australia"},
         "c_consent_only": {"id": "c_consent_only", "consentToContact": True},
         "c_unassigned": {"id": "c_unassigned", "email": "known@example.org"},
@@ -249,7 +289,9 @@ def test_link_aio_respects_decided_links_and_creates_accounts(env):
     assert new.profile["full_name"] == "New Person" and new.profile["postcode"] == "4000"
     assert new.origin["source"] == "aio_ingest" and new.origin["collection_id"] == "c_new"
     ph = um.get_user("p-1@example.test")
-    assert ph.placeholder and ph.profile["age"] == "21 - 25" and ph.profile["country"] == "Australia"
+    assert (
+        ph.placeholder and ph.profile["age"] == "21 - 25" and ph.profile["country"] == "Australia"
+    )
 
     # Second run is a no-op: everything is decided now.
     again = ca.link_aio_collections(raw, restrict_to=set(raw) - {"c_not_in_dataset"}, um=um)
@@ -266,7 +308,12 @@ def test_link_aio_dry_run_writes_nothing_but_reports(env):
         "c4": {"id": "c4", "age": ["41"]},
     }
     report = ca.link_aio_collections(raw, dry_run=True, um=um)
-    assert report["outcomes"] == {"c1": "created", "c2": "existing", "c3": "placeholder", "c4": "placeholder"}
+    assert report["outcomes"] == {
+        "c1": "created",
+        "c2": "existing",
+        "c3": "placeholder",
+        "c4": "placeholder",
+    }
     assert report["placeholders"] == ["p-1@example.test", "p-2@example.test"]
     assert "collections_tags.json" not in store.files["recoded"]
     assert um.get_user("a@b.org") is None
@@ -285,6 +332,7 @@ def test_orphan_placeholders(env):
 # cid remap carries the link
 # --------------------------------------------------------------------------
 
+
 def test_cid_remap_carries_user_id():
     from fyp.ingest import base as ingest_base
 
@@ -294,9 +342,25 @@ def test_cid_remap_carries_user_id():
         "old2": {"annotation_tags": [], "user_id": "u2"},
     }
     files = {"collections_tags.json": tags}
-    with patch.object(ingest_base.data_io, "exists", side_effect=lambda storage_location, filename: filename in files), \
-         patch.object(ingest_base.data_io, "load_json", side_effect=lambda storage_location, filename, **kw: copy.deepcopy(files[filename])), \
-         patch.object(ingest_base.data_io, "save_json", side_effect=lambda data, storage_location, filename, **kw: files.__setitem__(filename, data)):
+    with (
+        patch.object(
+            ingest_base.data_io,
+            "exists",
+            side_effect=lambda storage_location, filename: filename in files,
+        ),
+        patch.object(
+            ingest_base.data_io,
+            "load_json",
+            side_effect=lambda storage_location, filename, **kw: copy.deepcopy(files[filename]),
+        ),
+        patch.object(
+            ingest_base.data_io,
+            "save_json",
+            side_effect=lambda data, storage_location, filename, **kw: files.__setitem__(
+                filename, data
+            ),
+        ),
+    ):
         ingest_base.apply_cid_remap_to_metadata({"old1": "new1", "old2": "new2"})
     assert files["collections_tags.json"]["new1"]["user_id"] == "u1"
     assert files["collections_tags.json"]["new2"]["user_id"] == "u2"
@@ -306,15 +370,24 @@ def test_cid_remap_carries_user_id():
 # Metadata writers never emit demographic columns
 # --------------------------------------------------------------------------
 
+
 def test_strip_demographic_columns_handles_tuple_and_string_labels():
     from fyp.analysis.donations import strip_demographic_columns
 
-    df = pd.DataFrame({("counts", "total"): [1], ("participants", "email"): ["a@b"],
-                       ("participants", "campaign"): ["qut"], ("participants", "age"): [["34"]]})
+    df = pd.DataFrame(
+        {
+            ("counts", "total"): [1],
+            ("participants", "email"): ["a@b"],
+            ("participants", "campaign"): ["qut"],
+            ("participants", "age"): [["34"]],
+        }
+    )
     out = strip_demographic_columns(df)
     assert list(out.columns) == [("counts", "total"), ("participants", "campaign")]
 
-    df2 = pd.DataFrame({"('participants', 'email')": ["a@b"], "('participants', 'campaign')": ["qut"]})
+    df2 = pd.DataFrame(
+        {"('participants', 'email')": ["a@b"], "('participants', 'campaign')": ["qut"]}
+    )
     assert list(strip_demographic_columns(df2).columns) == ["('participants', 'campaign')"]
 
 
@@ -322,19 +395,30 @@ def test_strip_demographic_columns_handles_tuple_and_string_labels():
 # Migration
 # --------------------------------------------------------------------------
 
+
 def _metadata_frame():
-    cols = pd.MultiIndex.from_tuples([
-        ("counts", "total"), ("participants", "campaign"), ("participants", "email"),
-        ("participants", "name"), ("participants", "age"), ("participants", "postCode"),
-        ("participants", "consentToContact"),
-    ])
-    df = pd.DataFrame([
-        [10, "qut", "Known@Example.org", "Known Person", ["34"], None, True],
-        [20, "qut", None, "Anon", ["21 - 25"], "4000", None],
-        [30, "qut", None, None, None, None, False],
-        [40, "qut", "dup@example.org", "Dup", ["30"], None, None],
-        [50, "qut", "dup@example.org", "Dup", ["30"], None, None],
-    ], columns=cols, index=pd.Index(["c1", "c2", "c3", "c4", "c5"], name="collection_id"))
+    cols = pd.MultiIndex.from_tuples(
+        [
+            ("counts", "total"),
+            ("participants", "campaign"),
+            ("participants", "email"),
+            ("participants", "name"),
+            ("participants", "age"),
+            ("participants", "postCode"),
+            ("participants", "consentToContact"),
+        ]
+    )
+    df = pd.DataFrame(
+        [
+            [10, "qut", "Known@Example.org", "Known Person", ["34"], None, True],
+            [20, "qut", None, "Anon", ["21 - 25"], "4000", None],
+            [30, "qut", None, None, None, None, False],
+            [40, "qut", "dup@example.org", "Dup", ["30"], None, None],
+            [50, "qut", "dup@example.org", "Dup", ["30"], None, None],
+        ],
+        columns=cols,
+        index=pd.Index(["c1", "c2", "c3", "c4", "c5"], name="collection_id"),
+    )
     return df
 
 
@@ -351,7 +435,12 @@ def test_migration_dry_run_then_apply_then_noop(env):
     assert store.files["archive"] == {}
 
     applied = ca.migrate_existing_collections(dry_run=False, um=um, log=lambda *_: None)
-    assert applied["outcomes"] == {"c1": "existing", "c2": "placeholder", "c4": "created", "c5": "existing"}
+    assert applied["outcomes"] == {
+        "c1": "existing",
+        "c2": "placeholder",
+        "c4": "created",
+        "c5": "existing",
+    }
     t = _tags(store)
     assert t["c1"]["user_id"] == "known@example.org" and t["c1"]["annotation_tags"] == ["keep"]
     assert t["c2"]["user_id"] == "p-1@example.test"

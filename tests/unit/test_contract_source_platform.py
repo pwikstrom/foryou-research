@@ -43,6 +43,7 @@ def main() -> int:
     # Ownership is contract membership (the stored ``source`` column is retired).
     from fyp.core import activity_contract as acy
     from fyp.core.fyp_config import fyp_cf
+
     vs = fyp_cf["var_schema"]
     rows = vs[vs["variable_name"] == "source_platform"]
     assert len(rows) == 1, f"expected exactly one var_schema row, got {len(rows)}"

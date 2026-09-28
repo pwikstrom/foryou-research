@@ -67,10 +67,14 @@ def storage(monkeypatch):
     monkeypatch.setattr(routes, "load_schema_metadata", lambda m: m)
     monkeypatch.setattr(routes, "load_display_id_map", lambda: {})
     monkeypatch.setattr(routes, "get_collection_tags", lambda: {})
-    monkeypatch.setattr(routes, "get_study_collections",
-                        lambda s: [{"collection_id": c} for c in ("c1", "c2", "c9")])
-    monkeypatch.setattr(routes, "resolve_compose",
-                        lambda s: ("main_study", "__me__p-9@example.org"))
+    monkeypatch.setattr(
+        routes,
+        "get_study_collections",
+        lambda s: [{"collection_id": c} for c in ("c1", "c2", "c9")],
+    )
+    monkeypatch.setattr(
+        routes, "resolve_compose", lambda s: ("main_study", "__me__p-9@example.org")
+    )
     return seen
 
 
@@ -78,9 +82,11 @@ def _merged_payload():
     return {
         "collection_id": {
             "type": "category",
-            "values": [{"value": "c9", "count": 90},
-                       {"value": "c2", "count": 40},   # the owner's own
-                       {"value": "c1", "count": 10}],
+            "values": [
+                {"value": "c9", "count": 90},
+                {"value": "c2", "count": 40},  # the owner's own
+                {"value": "c1", "count": 10},
+            ],
             "total_unique": 3,
         },
         "collection_ids": ["c1", "c9", "c2"],
@@ -90,10 +96,8 @@ def _merged_payload():
     }
 
 
-def test_composed_metadata_comes_from_the_merge_and_is_never_written(client, storage,
-                                                                    monkeypatch):
-    monkeypatch.setattr(routes, "get_explorer_metadata_cached",
-                        lambda s: _merged_payload())
+def test_composed_metadata_comes_from_the_merge_and_is_never_written(client, storage, monkeypatch):
+    monkeypatch.setattr(routes, "get_explorer_metadata_cached", lambda s: _merged_payload())
 
     res = client.get(f"/api/explore/metadata/base?study={_STUDY}")
     payload = res.get_json()
@@ -108,15 +112,15 @@ def test_composed_metadata_comes_from_the_merge_and_is_never_written(client, sto
     assert routes.TOTAL_STATS_PROVISIONAL_KEY not in payload
 
 
-def test_composed_metadata_never_mutates_the_shared_cache_entry(client, storage,
-                                                                monkeypatch):
+def test_composed_metadata_never_mutates_the_shared_cache_entry(client, storage, monkeypatch):
     """Finalization writes into the payload (display-id labels, the
     study-membership filter). The merge is a shared cache entry, so the
     endpoint must work on its own copy."""
     cached = _merged_payload()
     monkeypatch.setattr(routes, "get_explorer_metadata_cached", lambda s: cached)
-    monkeypatch.setattr(routes, "get_study_collections",
-                        lambda s: [{"collection_id": "c1"}])  # drops c2 and c9
+    monkeypatch.setattr(
+        routes, "get_study_collections", lambda s: [{"collection_id": "c1"}]
+    )  # drops c2 and c9
 
     res = client.get(f"/api/explore/metadata/base?study={_STUDY}")
 
@@ -129,10 +133,12 @@ def test_composed_cold_build_still_writes_nothing(client, storage, monkeypatch):
     """With a source's metadata missing there is nothing to merge, so the
     endpoint falls back to the frame — and still saves no artifact."""
     monkeypatch.setattr(routes, "get_explorer_metadata_cached", lambda s: {})
-    monkeypatch.setattr(routes, "get_explorer_data",
-                        lambda study, **kw: ("frame", {"collection_id": "category"}))
-    monkeypatch.setattr(routes, "_build_full_metadata",
-                        lambda df, col_types, study: _merged_payload())
+    monkeypatch.setattr(
+        routes, "get_explorer_data", lambda study, **kw: ("frame", {"collection_id": "category"})
+    )
+    monkeypatch.setattr(
+        routes, "_build_full_metadata", lambda df, col_types, study: _merged_payload()
+    )
 
     res = client.get(f"/api/explore/metadata/base?study={_STUDY}")
 
@@ -143,10 +149,12 @@ def test_composed_cold_build_still_writes_nothing(client, storage, monkeypatch):
 def test_a_regular_study_still_uses_its_file(client, storage, monkeypatch):
     """The guard is composed-only: a normal study still cold-builds and saves."""
     monkeypatch.setattr(routes, "resolve_compose", lambda s: None)
-    monkeypatch.setattr(routes, "get_explorer_data",
-                        lambda study, **kw: ("frame", {"collection_id": "category"}))
-    monkeypatch.setattr(routes, "_build_full_metadata",
-                        lambda df, col_types, study: _merged_payload())
+    monkeypatch.setattr(
+        routes, "get_explorer_data", lambda study, **kw: ("frame", {"collection_id": "category"})
+    )
+    monkeypatch.setattr(
+        routes, "_build_full_metadata", lambda df, col_types, study: _merged_payload()
+    )
 
     res = client.get("/api/explore/metadata/base?study=main_study")
 

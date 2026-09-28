@@ -33,49 +33,43 @@ from fyp.scrape.instagram_dl import (
 # A trimmed yt-dlp Instagram info dict. 'id' is the numeric media pk — the
 # raw row must carry the requested shortcode instead.
 _INFO = {
-    'id': '3521098765432109876',
-    'description': 'A reel caption #tag',
-    'timestamp': 1750000000,
-    'duration': 17.4,
-    'channel_id': 'someuser',
-    'uploader_id': 'someuser',
-    'uploader': 'Some User',
-    'channel': 'someuser',
-    'view_count': 250000,
-    'like_count': 12500,
-    'comment_count': 250,
+    "id": "3521098765432109876",
+    "description": "A reel caption #tag",
+    "timestamp": 1750000000,
+    "duration": 17.4,
+    "channel_id": "someuser",
+    "uploader_id": "someuser",
+    "uploader": "Some User",
+    "channel": "someuser",
+    "view_count": 250000,
+    "like_count": 12500,
+    "comment_count": 250,
 }
-
-
 
 
 def test_info_to_row_stamps_requested_id():
     row = _info_to_row(_INFO, "DY1zHU_xQM2")
-    assert row.loc[0, 'item_id'] == "DY1zHU_xQM2"
+    assert row.loc[0, "item_id"] == "DY1zHU_xQM2"
     assert row.shape[0] == 1
     # The orchestrator gates success on > 10 columns.
     assert row.shape[1] > 10
-    assert row.loc[0, 'desc'] == 'A reel caption #tag'
-    assert row.loc[0, 'ig_author_handle'] == 'someuser'
-    assert row.loc[0, 'author_name_raw'] == 'Some User'
-    assert row.loc[0, 'video_downloaded'] is False or row.loc[0, 'video_downloaded'] == False  # noqa: E712
+    assert row.loc[0, "desc"] == "A reel caption #tag"
+    assert row.loc[0, "ig_author_handle"] == "someuser"
+    assert row.loc[0, "author_name_raw"] == "Some User"
+    assert row.loc[0, "video_downloaded"] is False or row.loc[0, "video_downloaded"] == False  # noqa: E712
     print("PASS: Instagram _info_to_row stamps the requested shortcode")
-
-
 
 
 def test_missing_counts_use_sentinel():
     info = dict(_INFO)
-    del info['like_count']
-    info['comment_count'] = None
-    info['view_count'] = None
+    del info["like_count"]
+    info["comment_count"] = None
+    info["view_count"] = None
     row = _info_to_row(info, "DY1zHU_xQM2")
-    assert row.loc[0, 'ig_like_count'] == -1
-    assert row.loc[0, 'ig_comment_count'] == -1
-    assert row.loc[0, 'play_count_raw'] == -1
+    assert row.loc[0, "ig_like_count"] == -1
+    assert row.loc[0, "ig_comment_count"] == -1
+    assert row.loc[0, "play_count_raw"] == -1
     print("PASS: Instagram missing counts fall back to the -1 sentinel")
-
-
 
 
 def test_canonicalize_batch():
@@ -84,47 +78,43 @@ def test_canonicalize_batch():
     df = scraper.prepare_raw_batch(df)
     out = scraper.canonicalize_batch(df.copy(), status="ok")
 
-    for col in ('create_time', 'duration', 'play_count', 'author_name', 'scrape_ts'):
+    for col in ("create_time", "duration", "play_count", "author_name", "scrape_ts"):
         assert col in out.columns, f"missing canonical column {col}"
 
-    assert out.loc[0, 'source_platform'] == 'instagram'
-    assert out.loc[0, 'scrape_status'] == 'ok'
-    assert str(out.loc[0, 'scrape_contract_version']).startswith('sv_')
+    assert out.loc[0, "source_platform"] == "instagram"
+    assert out.loc[0, "scrape_status"] == "ok"
+    assert str(out.loc[0, "scrape_contract_version"]).startswith("sv_")
 
     # Raw ig_* counts/handle landed in the generic base fields.
-    assert out.loc[0, 'fave_count'] == 12500
-    assert out.loc[0, 'comment_count'] == 250
-    assert out.loc[0, 'author_handle'] == 'someuser'
-    for retired in ('ig_like_count', 'ig_comment_count', 'ig_author_handle'):
+    assert out.loc[0, "fave_count"] == 12500
+    assert out.loc[0, "comment_count"] == 250
+    assert out.loc[0, "author_handle"] == "someuser"
+    for retired in ("ig_like_count", "ig_comment_count", "ig_author_handle"):
         assert retired not in out.columns, retired
     # Instagram exposes no share/save counts — the generic counts stay NA.
-    assert pd.isna(out.loc[0, 'share_count'])
-    assert pd.isna(out.loc[0, 'save_count'])
+    assert pd.isna(out.loc[0, "share_count"])
+    assert pd.isna(out.loc[0, "save_count"])
 
     # Per-K rates from the flat [perk] map.
     expected_faves = 12500 / 250000 * 1000
-    assert abs(out.loc[0, 'faves_per_K_play'] - expected_faves) < 1e-9
+    assert abs(out.loc[0, "faves_per_K_play"] - expected_faves) < 1e-9
     expected_comments = 250 / 250000 * 1000
-    assert abs(out.loc[0, 'comments_per_K_play'] - expected_comments) < 1e-9
+    assert abs(out.loc[0, "comments_per_K_play"] - expected_comments) < 1e-9
 
     # Instagram exposes no share/save counts — those base rates stay NA.
-    assert pd.isna(out.loc[0, 'shares_per_K_play'])
-    assert pd.isna(out.loc[0, 'saves_per_K_play'])
+    assert pd.isna(out.loc[0, "shares_per_K_play"])
+    assert pd.isna(out.loc[0, "saves_per_K_play"])
     print("PASS: Instagram canonicalize_batch derives per-K and stamps provenance")
-
-
 
 
 def test_sentinel_counts_yield_na_rates():
     scraper = InstagramScraper()
     info = dict(_INFO)
-    info['like_count'] = None
+    info["like_count"] = None
     df = _info_to_row(info, "DY1zHU_xQM2")
     out = scraper.canonicalize_batch(scraper.prepare_raw_batch(df), status="ok")
-    assert pd.isna(out.loc[0, 'faves_per_K_play'])
+    assert pd.isna(out.loc[0, "faves_per_K_play"])
     print("PASS: Instagram -1 sentinel count yields NA rate")
-
-
 
 
 def test_plays_per_day_sentinel_masked():
@@ -132,64 +122,60 @@ def test_plays_per_day_sentinel_masked():
 
     # Missing view count (-1 sentinel) must yield NA, never a negative rate.
     info = dict(_INFO)
-    info['view_count'] = None
-    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok")
-    assert pd.isna(out.loc[0, 'plays_per_day']), f"expected NA, got {out.loc[0, 'plays_per_day']}"
+    info["view_count"] = None
+    out = scraper.canonicalize_batch(
+        scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok"
+    )
+    assert pd.isna(out.loc[0, "plays_per_day"]), f"expected NA, got {out.loc[0, 'plays_per_day']}"
 
     # A genuine zero-play item is a real value: 0 plays/day.
     info = dict(_INFO)
-    info['view_count'] = 0
-    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok")
-    assert out.loc[0, 'plays_per_day'] == 0
+    info["view_count"] = 0
+    out = scraper.canonicalize_batch(
+        scraper.prepare_raw_batch(_info_to_row(info, "DY1zHU_xQM2")), status="ok"
+    )
+    assert out.loc[0, "plays_per_day"] == 0
 
     # And a real count still yields a positive rate.
-    out = scraper.canonicalize_batch(scraper.prepare_raw_batch(_info_to_row(_INFO, "DY1zHU_xQM2")), status="ok")
-    assert out.loc[0, 'plays_per_day'] > 0
+    out = scraper.canonicalize_batch(
+        scraper.prepare_raw_batch(_info_to_row(_INFO, "DY1zHU_xQM2")), status="ok"
+    )
+    assert out.loc[0, "plays_per_day"] > 0
     print("PASS: plays_per_day masks the -1 sentinel (NA), keeps 0 and positive counts")
 
 
-
-
 _RELAY_HTML = (
-    '<html><head></head><body>'
+    "<html><head></head><body>"
     '<script type="application/json">{"require": [{"data": {'
     '"xdt_api__v1__media__shortcode__web_info": {"items": [{'
     '"code": "DY1zHU_xQM2", "play_count": 98765, "ig_play_count": 98765, '
     '"like_count": 432, "comment_count": 21}]}}}]}</script>'
-    '</body></html>'
+    "</body></html>"
 )
-
-
 
 
 def test_parse_page_counts_relay_json():
     counts = _parse_page_counts(_RELAY_HTML, "DY1zHU_xQM2")
-    assert counts == {'play_count': 98765, 'like_count': 432, 'comment_count': 21}
+    assert counts == {"play_count": 98765, "like_count": 432, "comment_count": 21}
     # A different shortcode in the same payload finds nothing structured and no
     # window-scoped fallback match either... the regex fallback is page-global,
     # so it still returns the play count.
     counts_other = _parse_page_counts(_RELAY_HTML, "ZZZZZZZZZZZ")
-    assert counts_other == {'play_count': 98765, 'like_count': None, 'comment_count': None}
+    assert counts_other == {"play_count": 98765, "like_count": None, "comment_count": None}
     print("PASS: page relay JSON counts extracted")
-
-
 
 
 def test_parse_page_counts_regex_fallback():
     html = '<html><script>window.__data = {"media": {"ig_play_count": 5555}};</script></html>'
     counts = _parse_page_counts(html, "DY1zHU_xQM2")
-    assert counts == {'play_count': 5555, 'like_count': None, 'comment_count': None}
+    assert counts == {"play_count": 5555, "like_count": None, "comment_count": None}
     print("PASS: page regex fallback extracts play count")
-
-
 
 
 def test_parse_page_counts_garbage():
     assert _parse_page_counts("<html><body>login wall</body></html>", "DY1zHU_xQM2") is None
     assert _parse_page_counts("", "DY1zHU_xQM2") is None
     print("PASS: garbage page yields None (never raises)")
-
-
 
 
 def test_shortcode_to_mediaid_roundtrip():
@@ -203,14 +189,23 @@ def test_shortcode_to_mediaid_roundtrip():
     print("PASS: _shortcode_to_mediaid decodes and rejects invalid chars")
 
 
-
-
 def test_parse_media_info_counts():
-    payload = {"items": [{
-        "play_count": 135190510, "ig_play_count": 135180109,
-        "like_count": 3398765, "comment_count": 39771, "media_type": 2}]}
+    payload = {
+        "items": [
+            {
+                "play_count": 135190510,
+                "ig_play_count": 135180109,
+                "like_count": 3398765,
+                "comment_count": 39771,
+                "media_type": 2,
+            }
+        ]
+    }
     assert _parse_media_info_counts(payload, "DW9rrgZy6nH") == {
-        "play_count": 135190510, "like_count": 3398765, "comment_count": 39771}
+        "play_count": 135190510,
+        "like_count": 3398765,
+        "comment_count": 39771,
+    }
 
     # play_count absent → falls back to ig_play_count.
     payload2 = {"items": [{"ig_play_count": 500, "like_count": 5, "comment_count": 1}]}
@@ -223,25 +218,21 @@ def test_parse_media_info_counts():
     print("PASS: _parse_media_info_counts prefers play_count, handles gaps")
 
 
-
-
 def test_media_info_gated_off():
     """The config gate short-circuits the endpoint call (returns None, no network)."""
-    fyp_cf['misc']['ig_fetch_view_counts'] = False
+    fyp_cf["misc"]["ig_fetch_view_counts"] = False
     try:
         assert instagram_dl._fetch_media_info_counts("DW9rrgZy6nH") is None
     finally:
-        del fyp_cf['misc']['ig_fetch_view_counts']
+        del fyp_cf["misc"]["ig_fetch_view_counts"]
     print("PASS: ig_fetch_view_counts=false disables media-info supplementation")
-
-
 
 
 def test_fetch_supplements_sentinels(monkeypatch=None):
     """A -1 sentinel row is supplemented (page-JSON fallback path); failures keep -1."""
     scraper = InstagramScraper()
     info = dict(_INFO)
-    info['view_count'] = None
+    info["view_count"] = None
 
     orig_extract = instagram_dl._extract_metadata
     orig_media = instagram_dl._fetch_media_info_counts
@@ -251,15 +242,18 @@ def test_fetch_supplements_sentinels(monkeypatch=None):
     instagram_dl._fetch_media_info_counts = lambda item_id: None
     try:
         instagram_dl._fetch_page_counts = lambda url, item_id: {
-            'play_count': 98765, 'like_count': None, 'comment_count': None}
+            "play_count": 98765,
+            "like_count": None,
+            "comment_count": None,
+        }
         row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
-        assert row.loc[0, 'play_count_raw'] == 98765
+        assert row.loc[0, "play_count_raw"] == 98765
         # like/comment came from yt-dlp and must not be overwritten.
-        assert row.loc[0, 'ig_like_count'] == _INFO['like_count']
+        assert row.loc[0, "ig_like_count"] == _INFO["like_count"]
 
         instagram_dl._fetch_page_counts = lambda url, item_id: None
         row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
-        assert row.loc[0, 'play_count_raw'] == -1
+        assert row.loc[0, "play_count_raw"] == -1
     finally:
         instagram_dl._extract_metadata = orig_extract
         instagram_dl._fetch_media_info_counts = orig_media
@@ -267,13 +261,11 @@ def test_fetch_supplements_sentinels(monkeypatch=None):
     print("PASS: fetch supplements -1 sentinels from page counts and degrades to -1")
 
 
-
-
 def test_fetch_prefers_media_info(monkeypatch=None):
     """The authenticated media-info counts take precedence over the page-JSON walk."""
     scraper = InstagramScraper()
     info = dict(_INFO)
-    info['view_count'] = None
+    info["view_count"] = None
 
     orig_extract = instagram_dl._extract_metadata
     orig_media = instagram_dl._fetch_media_info_counts
@@ -282,11 +274,16 @@ def test_fetch_prefers_media_info(monkeypatch=None):
     page_called = []
     try:
         instagram_dl._fetch_media_info_counts = lambda item_id: {
-            'play_count': 111111, 'like_count': None, 'comment_count': None}
-        instagram_dl._fetch_page_counts = lambda url, item_id: page_called.append(1) or {
-            'play_count': 222222, 'like_count': None, 'comment_count': None}
+            "play_count": 111111,
+            "like_count": None,
+            "comment_count": None,
+        }
+        instagram_dl._fetch_page_counts = lambda url, item_id: (
+            page_called.append(1)
+            or {"play_count": 222222, "like_count": None, "comment_count": None}
+        )
         row = scraper.fetch("DY1zHU_xQM2", save_media=False, save_path="")
-        assert row.loc[0, 'play_count_raw'] == 111111
+        assert row.loc[0, "play_count_raw"] == 111111
         # media-info succeeded, so the page-JSON fallback must not be called.
         assert not page_called
     finally:
@@ -296,26 +293,24 @@ def test_fetch_prefers_media_info(monkeypatch=None):
     print("PASS: fetch prefers media-info counts and skips the page-JSON fallback")
 
 
-
-
 def test_duration_sentinel_becomes_na():
     scraper = InstagramScraper()
     info = dict(_INFO)
-    info['duration'] = None
+    info["duration"] = None
     df = _info_to_row(info, "DY1zHU_xQM2")
     out = scraper.prepare_raw_batch(df)
-    assert pd.isna(out.loc[0, 'duration_raw'])
+    assert pd.isna(out.loc[0, "duration_raw"])
     print("PASS: Instagram unknown duration becomes NA")
-
-
 
 
 def test_classify_error_truth_table():
     scraper = InstagramScraper()
     cases = {
         "There is no video in this post": ("no_video", "permanent"),
-        "Requested content is not available, rate-limit reached or login required":
-            ("rate_limited", "transient"),
+        "Requested content is not available, rate-limit reached or login required": (
+            "rate_limited",
+            "transient",
+        ),
         "Instagram sent an empty media response": ("rate_limited", "transient"),
         "This account is private": ("private", "permanent"),
         "Login required to access this content": ("login_required", "transient"),
@@ -332,11 +327,9 @@ def test_classify_error_truth_table():
     print("PASS: Instagram classify_error truth table")
 
 
-
-
 def test_duration_cap_and_override():
     scraper = InstagramScraper()
-    default_cap = int(fyp_cf['misc']['max_duration_for_download'])
+    default_cap = int(fyp_cf["misc"]["max_duration_for_download"])
     assert scraper.media_duration_cap() == default_cap
     assert scraper.should_download_media(default_cap) is True
     assert scraper.should_download_media(default_cap + 1) is False
@@ -344,15 +337,13 @@ def test_duration_cap_and_override():
     assert scraper.should_download_media(pd.NA) is True
     assert scraper.should_download_media(-1) is True  # sentinel: unknown
 
-    fyp_cf['misc']['max_duration_for_download_instagram'] = 90
+    fyp_cf["misc"]["max_duration_for_download_instagram"] = 90
     try:
         assert scraper.media_duration_cap() == 90
         assert scraper.should_download_media(91) is False
     finally:
-        del fyp_cf['misc']['max_duration_for_download_instagram']
+        del fyp_cf["misc"]["max_duration_for_download_instagram"]
     print("PASS: Instagram duration cap + per-platform override")
-
-
 
 
 def test_throttle_limits_capped():
@@ -360,8 +351,6 @@ def test_throttle_limits_capped():
     assert scraper.throttle_limits(8) == (2, 1, 3)
     assert scraper.throttle_limits(1) == (1, 1, 3)
     print("PASS: Instagram throttle limits capped")
-
-
 
 
 if __name__ == "__main__":

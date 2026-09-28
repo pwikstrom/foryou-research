@@ -29,22 +29,26 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
     # Init studies
     init_study_defs()
-    studies = fyp_cf.get('study_defs', {})
+    studies = fyp_cf.get("study_defs", {})
 
     # Filter to targeted studies if specified
     target_studies_str = task_args.get("studies")
     if target_studies_str:
-        target_names = [s.strip() for s in target_studies_str.split(',')]
+        target_names = [s.strip() for s in target_studies_str.split(",")]
         studies = {k: v for k, v in studies.items() if k in target_names}
-        reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
+        reporter.log(
+            f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}"
+        )
 
     # System-managed participant studies refresh only when explicitly targeted
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
     from fyp.analysis.studies import is_composed_study, is_system_study
+
     _skipped_system = sorted(
-        k for k, v in studies.items()
+        k
+        for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)
     )
     if _skipped_system:
@@ -57,8 +61,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         # An explicit empty list, not a missing signal: nothing was rebuilt, so
         # the metadata and correlation refreshes that read these datasets have
         # nothing to do either.
-        reporter.emit_data({"studies_changed": [], "studies_unchanged": [],
-                            "studies_failed": []})
+        reporter.emit_data({"studies_changed": [], "studies_unchanged": [], "studies_failed": []})
         return
 
     # Which studies this run actually rebuilt. create_study_recoded_dataset
@@ -71,9 +74,11 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
     # Pre-load enrichment status once for all studies
     _t_phase = time.perf_counter()
-    df_status = data_io.load_parquet(storage_location="recoded", filename='enrichment_status.parquet')
+    df_status = data_io.load_parquet(
+        storage_location="recoded", filename="enrichment_status.parquet"
+    )
     if df_status is not None and not df_status.empty:
-        if 'item_id' not in df_status.columns and df_status.index.name == 'item_id':
+        if "item_id" not in df_status.columns and df_status.index.name == "item_id":
             df_status = df_status.reset_index()
     _t_status_load = time.perf_counter() - _t_phase
     reporter.log(f"[TIMING] enrichment_status load={_t_status_load:.2f}s")
@@ -107,7 +112,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                 if df_study is None:
                     reporter.log(f"Skipping {study_name}: No data generated.")
                     studies_unchanged.append(study_name)
-                    studies[study_name]['stats'] = {
+                    studies[study_name]["stats"] = {
                         "total_activities": 0,
                         "unique_videos": 0,
                         "scraped_videos": 0,
@@ -121,20 +126,27 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                     refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
                     if refresh_action == "short_circuit":
                         studies_unchanged.append(study_name)
-                        reporter.log(f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)")
+                        reporter.log(
+                            f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)"
+                        )
                     elif refresh_action == "enrichment_patch":
                         studies_changed.append(study_name)
-                        reporter.log(f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)")
+                        reporter.log(
+                            f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)"
+                        )
                     else:
                         studies_changed.append(study_name)
-                        reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
+                        reporter.log(
+                            f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)"
+                        )
 
                     # Same stats definition (and full key set, incl. total_activities)
                     # as the single-study refresh — see compute_study_dataset_stats.
                     selected = config.get("SELECTED_COLLECTIONS") or []
-                    studies[study_name]['stats'] = compute_study_dataset_stats(
-                        df_study, df_status, selected)
-                    studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
+                    studies[study_name]["stats"] = compute_study_dataset_stats(
+                        df_study, df_status, selected
+                    )
+                    studies[study_name]["last_updated"] = datetime.now(UTC).isoformat()
 
                     # Methods/provenance note — written on every refresh, even a
                     # short-circuit, so it tracks registry moves (e.g. a newly
@@ -144,7 +156,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                         study_config=studies[study_name],
                         df_study=df_study,
                         df_status=df_status,
-                        stats=studies[study_name]['stats'],
+                        stats=studies[study_name]["stats"],
                         refresh_action=refresh_action,
                         refresh_trigger="pipeline",
                     )
@@ -158,14 +170,15 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
             # Same message as the emit above: advances the bar without adding a
             # second, content-free line to the run log (the reporter dedupes
             # consecutive identical progress messages).
-            reporter.update_progress(int(((i + 1) / total) * 100),
-                                     f"Study {i + 1}/{total}: {study_name}")
+            reporter.update_progress(
+                int(((i + 1) / total) * 100), f"Study {i + 1}/{total}: {study_name}"
+            )
 
     # Persist updated stats to studies.json
     # Merge updated studies back into the full study_defs to avoid clobbering
     # non-targeted studies when a filtered refresh is run.
     for sn, sc in studies.items():
-        fyp_cf['study_defs'][sn] = sc
+        fyp_cf["study_defs"][sn] = sc
     save_study_defs()
     reporter.log("Stats saved to studies.json.")
     _t_run = time.perf_counter() - _t_run_start
@@ -183,17 +196,19 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         except Exception as exc:
             reporter.log(f"Participant-study reconciliation failed (sweep unaffected): {exc}")
 
-    reporter.emit_data({"studies_changed": studies_changed,
-                        "studies_unchanged": studies_unchanged,
-                        "studies_failed": studies_failed})
+    reporter.emit_data(
+        {
+            "studies_changed": studies_changed,
+            "studies_unchanged": studies_unchanged,
+            "studies_failed": studies_failed,
+        }
+    )
     reporter.log(
         f"Study datasets: {len(studies_changed)} rebuilt, "
         f"{len(studies_unchanged)} already current, {len(studies_failed)} failed."
     )
     reporter.log(f"[TIMING] recode_refresh_studies wall={_t_run:.2f}s studies={total}")
     reporter.log("Study Definitions (Recoded Data) refresh completed.")
-
-
 
 
 if __name__ == "__main__":
@@ -213,12 +228,29 @@ if __name__ == "__main__":
         run_recode_refresh_studies,
         "recode_refresh_studies",
         arg_specs=[
-            (('--studies',), {'type': str, 'default': None,
-                              'help': 'Comma-separated study names to refresh (default: all)'}),
-            (('--force',), {'action': 'store_true',
-                            'help': 'Force full rebuild of every study, ignoring sidecar fingerprints'}),
-            (('study_name',), {'nargs': '?', 'default': None,
-                               'help': 'Single study to refresh; ignored when --studies is given'}),
+            (
+                ("--studies",),
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated study names to refresh (default: all)",
+                },
+            ),
+            (
+                ("--force",),
+                {
+                    "action": "store_true",
+                    "help": "Force full rebuild of every study, ignoring sidecar fingerprints",
+                },
+            ),
+            (
+                ("study_name",),
+                {
+                    "nargs": "?",
+                    "default": None,
+                    "help": "Single study to refresh; ignored when --studies is given",
+                },
+            ),
         ],
         make_task_args=_make_task_args,
         description="Refresh recoded datasets and stats for studies",

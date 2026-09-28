@@ -6,7 +6,6 @@ Returns the same single-row DataFrame as the retired PykTok-fork backend (mypykt
 that generate_data_row() produces so downstream code is unchanged.
 """
 
-
 import os
 from datetime import datetime, timezone
 from glob import glob
@@ -61,7 +60,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         - "unknown"       — unrecognised error
     """
     msg = str(exc)
-    cause = getattr(exc, 'cause', None)
+    cause = getattr(exc, "cause", None)
 
     # GeoRestrictedError is a subclass of ExtractorError
     if isinstance(exc, GeoRestrictedError):
@@ -83,31 +82,42 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
     # String-based classification from TikTok extractor messages
     # Normalize typographic apostrophes so ASCII keyword matching works.
-    msg_lower = msg.lower().replace('\u2019', "'")
+    msg_lower = msg.lower().replace("\u2019", "'")
 
     # yt-dlp often wraps the HTTPError inside DownloadError and flattens the
     # cause into the message ("...HTTP Error 403: Forbidden (caused by
     # <HTTPError 403: Forbidden>)"), so the isinstance(cause, HTTPError)
     # branch above doesn't fire. Catch via string match and classify as
     # rate_limited (retryable + triggers ThrottleController backoff).
-    if 'http error 403' in msg_lower or 'httperror 403' in msg_lower:
+    if "http error 403" in msg_lower or "httperror 403" in msg_lower:
         return "rate_limited", msg
 
-    if 'http error 429' in msg_lower or 'httperror 429' in msg_lower:
+    if "http error 429" in msg_lower or "httperror 429" in msg_lower:
         return "rate_limited", msg
 
-    if 'ip address is blocked' in msg_lower or 'status code 10204' in msg_lower:
+    if "ip address is blocked" in msg_lower or "status code 10204" in msg_lower:
         return "ip_blocked", msg
 
-    if 'not have permission' in msg_lower or 'log into' in msg_lower:
+    if "not have permission" in msg_lower or "log into" in msg_lower:
         return "private", msg
 
-    if any(kw in msg_lower for kw in ('unavailable', 'removed', 'deleted', 'not found',
-                                       'does not exist', 'status code 10')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "unavailable",
+            "removed",
+            "deleted",
+            "not found",
+            "does not exist",
+            "status code 10",
+        )
+    ):
         return "removed", msg
 
-    if any(kw in msg_lower for kw in ('challenge', 'js challenge', 'unable to extract',
-                                       'unable to solve')):
+    if any(
+        kw in msg_lower
+        for kw in ("challenge", "js challenge", "unable to extract", "unable to solve")
+    ):
         return "extraction", msg
 
     # yt-dlp raises this when the post's page parses but exposes no playable
@@ -115,14 +125,25 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     # was missed. It never recovers on retry, so treating it as transient left
     # items stuck in the queue forever (2026-09-01: five such items stalled
     # the enrichment supervisor's whole scrape queue).
-    if 'no video formats found' in msg_lower:
+    if "no video formats found" in msg_lower:
         return "extraction", msg
 
-    if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
-                                       'ssl', 'certificate', 'dns', 'reset by peer')):
+    if any(
+        kw in msg_lower
+        for kw in (
+            "timed out",
+            "timeout",
+            "connection",
+            "network",
+            "ssl",
+            "certificate",
+            "dns",
+            "reset by peer",
+        )
+    ):
         return "network", msg
 
-    if any(kw in msg_lower for kw in ('429', 'rate limit', 'too many requests')):
+    if any(kw in msg_lower for kw in ("429", "rate limit", "too many requests")):
         return "rate_limited", msg
 
     return "unknown", msg
@@ -132,11 +153,11 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 # re-exported via the top-of-file import for back-compat with existing imports.
 
 
-
 # -------------------------------------------------------------------------
 # Cookie handling — generic per-platform plumbing lives in fyp.scraper_cookies;
 # these thin wrappers keep the module-internal call sites unchanged.
 # -------------------------------------------------------------------------
+
 
 def _cookie_opts() -> dict:
     """Return yt-dlp cookie options for TikTok (see :mod:`fyp.scraper_cookies`)."""
@@ -157,49 +178,46 @@ def cookie_health() -> dict:
     return scraper_cookies.cookie_health("tiktok", session_cookie="sessionid")
 
 
-
-
-
 # -------------------------------------------------------------------------
 # Field mapping helpers
 # -------------------------------------------------------------------------
 
 _DEFAULTS = {
-    'desc': "",
-    'createTime': "no default",
-    'item_id': "",
-    'video_duration': -1,
-    'image_list': "",
-    'author_id': "",
-    'author_uniqueId': "",
-    'author_nickname': "",
-    'author_signature': "",
-    'author_verified': False,
-    'music_id': "",
-    'music_title': "",
-    'music_authorName': "",
-    'music_album': "",
-    'music_original': False,
-    'music_duration': 0,
-    'playlistId': "",
-    'stats_diggCount': -1,
-    'stats_commentCount': -1,
-    'stats_playCount': -1,
-    'stats_collectCount': -1,
-    'stats_shareCount': -1,
-    'anchors': "",
-    'challenges': "",
-    'poi_name': "",
-    'poi_address': "",
-    'poi_city': "",
-    'poi_province': "",
-    'poi_country': "",
-    'IsAigc': False,
-    'AIGCDescription': "",
-    'aigcLabelType': "",
-    'isAd': False,
-    'video_downloaded': False,
-    'last_modified': "no default",
+    "desc": "",
+    "createTime": "no default",
+    "item_id": "",
+    "video_duration": -1,
+    "image_list": "",
+    "author_id": "",
+    "author_uniqueId": "",
+    "author_nickname": "",
+    "author_signature": "",
+    "author_verified": False,
+    "music_id": "",
+    "music_title": "",
+    "music_authorName": "",
+    "music_album": "",
+    "music_original": False,
+    "music_duration": 0,
+    "playlistId": "",
+    "stats_diggCount": -1,
+    "stats_commentCount": -1,
+    "stats_playCount": -1,
+    "stats_collectCount": -1,
+    "stats_shareCount": -1,
+    "anchors": "",
+    "challenges": "",
+    "poi_name": "",
+    "poi_address": "",
+    "poi_city": "",
+    "poi_province": "",
+    "poi_country": "",
+    "IsAigc": False,
+    "AIGCDescription": "",
+    "aigcLabelType": "",
+    "isAd": False,
+    "video_downloaded": False,
+    "last_modified": "no default",
 }
 
 
@@ -212,56 +230,63 @@ def _info_to_row(info: dict) -> pd.DataFrame:
         # the *scraping machine's* local time, so the same video would get a
         # different create_time on Cloud Run than on a local drain.
         create_time = datetime.fromtimestamp(
-            int(info.get('timestamp', 0)), tz=timezone.utc,
+            int(info.get("timestamp", 0)),
+            tz=timezone.utc,
         ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)
 
-    artists_raw = info.get('artists') or []
-    artist_str = info.get('artist', '') or (', '.join(artists_raw) if artists_raw else '')
+    artists_raw = info.get("artists") or []
+    artist_str = info.get("artist", "") or (", ".join(artists_raw) if artists_raw else "")
 
     row = {
-        'item_id': str(info.get('id', '')),
-        'createTime': create_time,
-        'desc': info.get('description', '') or '',
-        'video_duration': info.get('duration') or -1,
-        'image_list': "",
-        'author_id': str(info.get('uploader_id', '') or ''),
-        'author_uniqueId': str(info.get('uploader', '') or ''),
-        'author_nickname': str(info.get('channel', '') or info.get('creator', '') or info.get('uploader', '') or ''),
-        'author_signature': "",
-        'author_verified': False,
-        'music_id': str(info.get('track_id', '') or ''),
-        'music_title': str(info.get('track', '') or ''),
-        'music_authorName': artist_str,
-        'music_album': str(info.get('album', '') or ''),
-        'music_original': False,
-        'music_duration': 0,
-        'playlistId': "",
-        'stats_diggCount': info.get('like_count') if info.get('like_count') is not None else -1,
-        'stats_commentCount': info.get('comment_count') if info.get('comment_count') is not None else -1,
-        'stats_playCount': info.get('view_count') if info.get('view_count') is not None else -1,
-        'stats_collectCount': info.get('save_count') if info.get('save_count') is not None else -1,
-        'stats_shareCount': info.get('repost_count') if info.get('repost_count') is not None else -1,
-        'challenges': "",
-        'anchors': "",
-        'poi_name': "",
-        'poi_address': "",
-        'poi_city': "",
-        'poi_province': "",
-        'poi_country': "",
-        'IsAigc': False,
-        'AIGCDescription': "",
-        'aigcLabelType': "",
-        'isAd': False,
-        'video_downloaded': False,
-        'last_modified': datetime.now(),
+        "item_id": str(info.get("id", "")),
+        "createTime": create_time,
+        "desc": info.get("description", "") or "",
+        "video_duration": info.get("duration") or -1,
+        "image_list": "",
+        "author_id": str(info.get("uploader_id", "") or ""),
+        "author_uniqueId": str(info.get("uploader", "") or ""),
+        "author_nickname": str(
+            info.get("channel", "") or info.get("creator", "") or info.get("uploader", "") or ""
+        ),
+        "author_signature": "",
+        "author_verified": False,
+        "music_id": str(info.get("track_id", "") or ""),
+        "music_title": str(info.get("track", "") or ""),
+        "music_authorName": artist_str,
+        "music_album": str(info.get("album", "") or ""),
+        "music_original": False,
+        "music_duration": 0,
+        "playlistId": "",
+        "stats_diggCount": info.get("like_count") if info.get("like_count") is not None else -1,
+        "stats_commentCount": info.get("comment_count")
+        if info.get("comment_count") is not None
+        else -1,
+        "stats_playCount": info.get("view_count") if info.get("view_count") is not None else -1,
+        "stats_collectCount": info.get("save_count") if info.get("save_count") is not None else -1,
+        "stats_shareCount": info.get("repost_count")
+        if info.get("repost_count") is not None
+        else -1,
+        "challenges": "",
+        "anchors": "",
+        "poi_name": "",
+        "poi_address": "",
+        "poi_city": "",
+        "poi_province": "",
+        "poi_country": "",
+        "IsAigc": False,
+        "AIGCDescription": "",
+        "aigcLabelType": "",
+        "isAd": False,
+        "video_downloaded": False,
+        "last_modified": datetime.now(),
     }
 
     # Build types dict (same logic as mypyktok.generate_data_row)
     pyk_data_types = {}
     for key, default in _DEFAULTS.items():
-        if key not in ('createTime', 'last_modified'):
+        if key not in ("createTime", "last_modified"):
             pyk_data_types[key] = type(default)
 
     df = pd.DataFrame([row])
@@ -269,9 +294,6 @@ def _info_to_row(info: dict) -> pd.DataFrame:
     df = df.astype(pyk_data_types)
 
     return df
-
-
-
 
 
 # -------------------------------------------------------------------------
@@ -288,15 +310,15 @@ _JSON_PATHS: list[tuple[str, str]] = [
 
 
 def _struct_rehydration(data: dict, video_id: str) -> dict:
-    return data['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
+    return data["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
 
 
 def _struct_next_data(data: dict, video_id: str) -> dict:
-    return data['props']['pageProps']['itemInfo']['itemStruct']
+    return data["props"]["pageProps"]["itemInfo"]["itemStruct"]
 
 
 def _struct_sigi_state(data: dict, video_id: str) -> dict:
-    return data['ItemModule'][video_id]
+    return data["ItemModule"][video_id]
 
 
 _STRUCT_EXTRACTORS = {
@@ -320,13 +342,13 @@ def _fetch_item_struct(video_url: str) -> dict | None:
     from bs4 import BeautifulSoup
     from requests import get as requests_get
 
-    video_id = video_url.rstrip('/').split('/')[-1]
+    video_id = video_url.rstrip("/").split("/")[-1]
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                       'AppleWebKit/537.36 (KHTML, like Gecko) '
-                       'Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
 
     try:
@@ -344,18 +366,20 @@ def _fetch_item_struct(video_url: str) -> dict | None:
             total += len(chunk)
             if total > _PAGE_BYTE_CAP:
                 logger.warning(
-                    "Page for %s exceeds %d bytes; skipping page-JSON supplement "
-                    "to bound memory.", video_id, _PAGE_BYTE_CAP)
+                    "Page for %s exceeds %d bytes; skipping page-JSON supplement to bound memory.",
+                    video_id,
+                    _PAGE_BYTE_CAP,
+                )
                 resp.close()
                 return None
         resp.close()
-        soup = BeautifulSoup(b"".join(chunks), 'html.parser')
+        soup = BeautifulSoup(b"".join(chunks), "html.parser")
     except Exception as e:
         logger.warning("Page fetch failed for %s: %s", video_url, e)
         return None
 
     for script_id, extractor_name in _JSON_PATHS:
-        script = soup.find('script', attrs={'id': script_id})
+        script = soup.find("script", attrs={"id": script_id})
         if script is None or not script.string:
             continue
 
@@ -366,11 +390,9 @@ def _fetch_item_struct(video_url: str) -> dict | None:
                 logger.info("Page JSON extracted via '%s' for %s", script_id, video_id)
                 return item_struct
         except KeyError as e:
-            logger.debug("Page JSON path '%s' missing key %s for %s",
-                         script_id, e, video_id)
+            logger.debug("Page JSON path '%s' missing key %s for %s", script_id, e, video_id)
         except Exception as e:
-            logger.debug("Page JSON path '%s' failed for %s: %s",
-                         script_id, video_id, e)
+            logger.debug("Page JSON path '%s' failed for %s: %s", script_id, video_id, e)
 
     logger.warning("All page JSON extraction paths failed for %s", video_url)
     return None
@@ -378,49 +400,46 @@ def _fetch_item_struct(video_url: str) -> dict | None:
 
 def _get_image_urls_from_struct(item_struct: dict) -> list[str]:
     """Extract carousel image URLs from an itemStruct dict."""
-    image_post = item_struct.get('imagePost', {})
-    images = image_post.get('images', [])
-    return [img['imageURL']['urlList'][0]
-            for img in images
-            if img.get('imageURL', {}).get('urlList')]
+    image_post = item_struct.get("imagePost", {})
+    images = image_post.get("images", [])
+    return [
+        img["imageURL"]["urlList"][0] for img in images if img.get("imageURL", {}).get("urlList")
+    ]
 
 
 def _supplement_from_struct(data_row: pd.DataFrame, item_struct: dict) -> None:
     """Fill in metadata fields that yt-dlp doesn't extract, using the page JSON."""
-    music = item_struct.get('music', {})
-    author = item_struct.get('author', {})
-    challenges = item_struct.get('challenges', [])
+    music = item_struct.get("music", {})
+    author = item_struct.get("author", {})
+    challenges = item_struct.get("challenges", [])
 
     # Music fields
-    if music.get('id'):
-        data_row.loc[0, 'music_id'] = str(music['id'])
-    if music.get('duration'):
-        data_row.loc[0, 'music_duration'] = int(music['duration'])
-    if 'original' in music:
-        data_row.loc[0, 'music_original'] = bool(music['original'])
+    if music.get("id"):
+        data_row.loc[0, "music_id"] = str(music["id"])
+    if music.get("duration"):
+        data_row.loc[0, "music_duration"] = int(music["duration"])
+    if "original" in music:
+        data_row.loc[0, "music_original"] = bool(music["original"])
 
     # Author fields
-    if author.get('signature'):
-        data_row.loc[0, 'author_signature'] = str(author['signature'])
-    if 'verified' in author:
-        data_row.loc[0, 'author_verified'] = bool(author['verified'])
+    if author.get("signature"):
+        data_row.loc[0, "author_signature"] = str(author["signature"])
+    if "verified" in author:
+        data_row.loc[0, "author_verified"] = bool(author["verified"])
 
     # Challenges (hashtag names, pipe-separated)
     if challenges:
-        challenge_titles = [c.get('title', '') for c in challenges if c.get('title')]
+        challenge_titles = [c.get("title", "") for c in challenges if c.get("title")]
         if challenge_titles:
-            data_row.loc[0, 'challenges'] = " | ".join(challenge_titles)
+            data_row.loc[0, "challenges"] = " | ".join(challenge_titles)
 
     # AIGC fields
-    if 'IsAigc' in item_struct:
-        data_row.loc[0, 'IsAigc'] = bool(item_struct['IsAigc'])
-    if item_struct.get('AIGCDescription'):
-        data_row.loc[0, 'AIGCDescription'] = str(item_struct['AIGCDescription'])
-    if item_struct.get('aigcLabelType') is not None:
-        data_row.loc[0, 'aigcLabelType'] = str(item_struct['aigcLabelType'])
-
-
-
+    if "IsAigc" in item_struct:
+        data_row.loc[0, "IsAigc"] = bool(item_struct["IsAigc"])
+    if item_struct.get("AIGCDescription"):
+        data_row.loc[0, "AIGCDescription"] = str(item_struct["AIGCDescription"])
+    if item_struct.get("aigcLabelType") is not None:
+        data_row.loc[0, "aigcLabelType"] = str(item_struct["aigcLabelType"])
 
 
 def _download_images(
@@ -436,10 +455,10 @@ def _download_images(
     _CHUNK = 8 * 1024 * 1024
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                       'AppleWebKit/537.36 (KHTML, like Gecko) '
-                       'Chrome/124.0.0.0 Safari/537.36',
-        'Referer': 'https://www.tiktok.com/',
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://www.tiktok.com/",
     }
 
     cookies = _requests_cookies()
@@ -448,16 +467,18 @@ def _download_images(
         for k, one_image in enumerate(image_urls):
             image_fn = f"{video_id}_{k + 1:02}.jpeg"
             if stream_to_bucket is None:
-                resp = requests_get(one_image, allow_redirects=True, headers=headers,
-                                    cookies=cookies, timeout=60)
-                with open(join(save_path, image_fn), 'wb') as f:
+                resp = requests_get(
+                    one_image, allow_redirects=True, headers=headers, cookies=cookies, timeout=60
+                )
+                with open(join(save_path, image_fn), "wb") as f:
                     f.write(resp.content)
                 written.append(join(save_path, image_fn))
             else:
-                resp = requests_get(one_image, headers=headers, cookies=cookies,
-                                    stream=True, timeout=60)
+                resp = requests_get(
+                    one_image, headers=headers, cookies=cookies, stream=True, timeout=60
+                )
                 blob = stream_to_bucket.blob(f"{save_path}/{image_fn}")
-                with blob.open('wb') as gcs_file:
+                with blob.open("wb") as gcs_file:
                     for chunk in resp.iter_content(chunk_size=_CHUNK):
                         if chunk:
                             gcs_file.write(chunk)
@@ -481,12 +502,10 @@ def _download_images(
         return False
 
 
-
-
-
 # -------------------------------------------------------------------------
 # Main entry point — matches mypyktok.save_tiktok() interface
 # -------------------------------------------------------------------------
+
 
 def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata."""
@@ -501,13 +520,12 @@ def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
 _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
 
+
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
-
-
 
 
 def _max_media_bytes() -> int:
@@ -523,6 +541,7 @@ def _max_media_bytes() -> int:
         return int(_cf()["misc"].get("max_media_download_bytes", 1 << 30))
     except (KeyError, TypeError, ValueError):
         return 1 << 30
+
 
 # Hard cap on the raw page read in _fetch_item_struct. A normal TikTok page is
 # 1-3 MB; the optional page-JSON supplement loads the whole body into memory and
@@ -554,20 +573,20 @@ def save_tiktok(
     return the metadata row for such posts.
     """
 
-    video_id = video_url.rstrip('/').split('/')[-1]
-    temp_dir = _cf()['paths']['temp']
+    video_id = video_url.rstrip("/").split("/")[-1]
+    temp_dir = _cf()["paths"]["temp"]
 
     # -------------------------------------------
     # Step 1: extract metadata (no download yet)
     # -------------------------------------------
     ydl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **_cookie_opts(),
-        'skip_download': True,
-        'no_color': True,
-        'extractor_retries': 3,
-        'socket_timeout': 30,
+        "skip_download": True,
+        "no_color": True,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
     }
 
     info = None
@@ -580,11 +599,16 @@ def save_tiktok(
             break
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             last_category, last_detail = _classify_error(e)
-            logger.warning("Scrape %s metadata attempt %d/%d failed: [%s] %s",
-                           video_id, attempt + 1, _META_MAX_RETRIES,
-                           last_category, last_detail)
+            logger.warning(
+                "Scrape %s metadata attempt %d/%d failed: [%s] %s",
+                video_id,
+                attempt + 1,
+                _META_MAX_RETRIES,
+                last_category,
+                last_detail,
+            )
             if last_category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
-                backoff = 3 * (2 ** attempt)
+                backoff = 3 * (2**attempt)
                 logger.info("Retrying %s in %ds...", video_id, backoff)
                 sleep(backoff)
                 continue
@@ -611,18 +635,21 @@ def save_tiktok(
     is_slideshow = False
     image_urls: list[str] = []
 
-    formats = info.get('formats') or []
-    has_video_format = any(f.get('vcodec', 'none') != 'none' for f in formats)
+    formats = info.get("formats") or []
+    has_video_format = any(f.get("vcodec", "none") != "none" for f in formats)
 
-    if not has_video_format or (info.get('duration') or 0) == 0:
+    if not has_video_format or (info.get("duration") or 0) == 0:
         if item_struct:
             image_urls = _get_image_urls_from_struct(item_struct)
         if image_urls:
             is_slideshow = True
-            data_row.loc[0, 'image_list'] = " | ".join(image_urls)
+            data_row.loc[0, "image_list"] = " | ".join(image_urls)
         elif not has_video_format:
-            logger.warning("Suspected image post (no video formats) but carousel "
-                           "extraction returned no images: %s", video_url)
+            logger.warning(
+                "Suspected image post (no video formats) but carousel "
+                "extraction returned no images: %s",
+                video_url,
+            )
 
     # -------------------------------------------
     # Step 3: download media
@@ -630,10 +657,14 @@ def save_tiktok(
     if not save_video:
         return data_row
 
-    duration = data_row.loc[0, 'video_duration']
+    duration = data_row.loc[0, "video_duration"]
     if isinstance(duration, (int, float)) and duration > max_duration_to_save:
-        logger.info("Video '%s' duration (%ss) exceeds %ss. Skipping download.",
-                     video_id, duration, max_duration_to_save)
+        logger.info(
+            "Video '%s' duration (%ss) exceeds %ss. Skipping download.",
+            video_id,
+            duration,
+            max_duration_to_save,
+        )
         return data_row
 
     if is_slideshow and image_urls:
@@ -649,7 +680,7 @@ def save_tiktok(
                 "carousel",
                 f"failed downloading {len(image_urls)} carousel images",
             )
-        data_row.loc[0, 'video_downloaded'] = True
+        data_row.loc[0, "video_downloaded"] = True
 
     elif not has_video_format:
         # Photo post detected but page-JSON extraction produced no image URLs.
@@ -664,17 +695,17 @@ def save_tiktok(
         # Download video via yt-dlp to temp, then upload to GCS
         out_template = join(temp_dir, f"{video_id}.%(ext)s")
         dl_opts: dict = {
-            'quiet': True,
-            'no_warnings': not verbose,
+            "quiet": True,
+            "no_warnings": not verbose,
             **_cookie_opts(),
-            'outtmpl': out_template,
-            'no_color': True,
-            'overwrites': True,
-            'format': 'best[ext=mp4]/best',
-            'merge_output_format': 'mp4',
-            'retries': 3,
-            'socket_timeout': 30,
-            'max_filesize': _max_media_bytes(),
+            "outtmpl": out_template,
+            "no_color": True,
+            "overwrites": True,
+            "format": "best[ext=mp4]/best",
+            "merge_output_format": "mp4",
+            "retries": 3,
+            "socket_timeout": 30,
+            "max_filesize": _max_media_bytes(),
         }
 
         for attempt in range(_DL_MAX_RETRIES):
@@ -686,8 +717,12 @@ def save_tiktok(
                 downloaded = join(temp_dir, f"{video_id}.mp4")
                 if not exists(downloaded):
                     candidates = glob(join(temp_dir, f"{video_id}.*"))
-                    mp4_candidates = [c for c in candidates if c.endswith('.mp4')]
-                    downloaded = mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+                    mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
+                    downloaded = (
+                        mp4_candidates[0]
+                        if mp4_candidates
+                        else (candidates[0] if candidates else None)
+                    )
 
                 if downloaded and exists(downloaded):
                     video_fn = f"{video_id}.mp4"
@@ -695,14 +730,14 @@ def save_tiktok(
                     if stream_to_bucket is not None:
                         blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
                         blob.upload_from_filename(downloaded)
-                        data_row.loc[0, 'video_downloaded'] = True
+                        data_row.loc[0, "video_downloaded"] = True
                     else:
                         target = join(save_path, video_fn)
                         if downloaded != target:
                             # Atomic rename when src and dst are on the same filesystem.
                             # Avoids partial-file reads if another thread/process touches dst.
                             os.replace(downloaded, target)
-                        data_row.loc[0, 'video_downloaded'] = True
+                        data_row.loc[0, "video_downloaded"] = True
 
                     # Clean up temp file
                     if exists(downloaded):
@@ -715,37 +750,41 @@ def save_tiktok(
                     # Metadata row is still saved; the orchestrator uses these
                     # attrs to keep transient media failures queued for retry
                     # (see BaseScraper.fetch contract).
-                    data_row.attrs['media_error_type'] = 'unknown'
-                    data_row.attrs['media_error_detail'] = 'download finished but no output file found'
+                    data_row.attrs["media_error_type"] = "unknown"
+                    data_row.attrs["media_error_detail"] = (
+                        "download finished but no output file found"
+                    )
 
                 break
 
             except (yt_dlp.utils.DownloadError, ExtractorError) as e:
                 category, detail = _classify_error(e)
-                logger.warning("Scrape %s download attempt %d/%d failed: [%s] %s",
-                               video_id, attempt + 1, _DL_MAX_RETRIES,
-                               category, detail)
+                logger.warning(
+                    "Scrape %s download attempt %d/%d failed: [%s] %s",
+                    video_id,
+                    attempt + 1,
+                    _DL_MAX_RETRIES,
+                    category,
+                    detail,
+                )
                 _cleanup_temp_files(temp_dir, video_id)
                 if category in _RETRYABLE and attempt < _DL_MAX_RETRIES - 1:
-                    backoff = 3 * (3 ** attempt)
+                    backoff = 3 * (3**attempt)
                     logger.info("Retrying download %s in %ds...", video_id, backoff)
                     sleep(backoff)
                     continue
-                data_row.attrs['media_error_type'] = category
-                data_row.attrs['media_error_detail'] = detail
+                data_row.attrs["media_error_type"] = category
+                data_row.attrs["media_error_detail"] = detail
                 break
 
             except Exception as e:
                 logger.error("Scrape %s download unexpected error: %s", video_id, e)
                 _cleanup_temp_files(temp_dir, video_id)
-                data_row.attrs['media_error_type'] = 'unknown'
-                data_row.attrs['media_error_detail'] = str(e)
+                data_row.attrs["media_error_type"] = "unknown"
+                data_row.attrs["media_error_detail"] = str(e)
                 break
 
     return data_row
-
-
-
 
 
 def _download_slideshow_audio(
@@ -767,15 +806,15 @@ def _download_slideshow_audio(
     """
     out_template = join(temp_dir, f"{video_id}_audio.%(ext)s")
     dl_opts: dict = {
-        'quiet': True,
-        'no_warnings': not verbose,
+        "quiet": True,
+        "no_warnings": not verbose,
         **_cookie_opts(),
-        'outtmpl': out_template,
-        'format': 'bestaudio/best',
-        'no_color': True,
-        'overwrites': True,
-        'retries': 2,
-        'socket_timeout': 30,
+        "outtmpl": out_template,
+        "format": "bestaudio/best",
+        "no_color": True,
+        "overwrites": True,
+        "retries": 2,
+        "socket_timeout": 30,
     }
     try:
         with yt_dlp.YoutubeDL(dl_opts) as ydl:
@@ -793,8 +832,6 @@ def _download_slideshow_audio(
             except OSError:
                 pass
         return None
-
-
 
 
 # -------------------------------------------------------------------------
@@ -836,8 +873,6 @@ _RAW_TO_CANONICAL: dict[str, str] = {
 }
 
 
-
-
 def repair_overflowed_counts(
     df: pd.DataFrame,
     columns: tuple[str, ...] = OVERFLOW_REPAIR_COLUMNS,
@@ -866,10 +901,10 @@ def repair_overflowed_counts(
         if n_repaired:
             df[col] = series.mask(mask, series + _UINT32_RANGE)
             if verbose:
-                logger.info(f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}")
+                logger.info(
+                    f"    Recovered {n_repaired:,} signed-32-bit-overflowed value(s) in {col}"
+                )
     return df
-
-
 
 
 class TikTokScraper(BaseScraper):
@@ -888,10 +923,8 @@ class TikTokScraper(BaseScraper):
     # and legacy pyktok backends. Drives the base image_count() default.
     slideshow_image_column = "image_list"
 
-
     def item_url(self, item_id: str) -> str:
         return self.url_template.format(item_id=item_id)
-
 
     def fetch(
         self,
@@ -911,10 +944,8 @@ class TikTokScraper(BaseScraper):
             verbose=verbose,
         )
 
-
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         return raw.rename(columns=_RAW_TO_CANONICAL)
-
 
     def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
         """Raw fix-ups: image_list URL string → count, slideshow duration override.
@@ -923,25 +954,25 @@ class TikTokScraper(BaseScraper):
         (the orchestrator assembles slideshows at that rate); zero/negative
         durations become NA.
         """
-        if 'image_list' in df.columns:
-            df['image_list'] = df['image_list'].map(
-                lambda x: len(x.split("|")) if isinstance(x, str) and x else 0
-            ).astype("int64[pyarrow]")
-            mask = (df['image_list'] > 0).fillna(False)
-            if 'video_duration' in df.columns:
-                df.loc[mask, 'video_duration'] = (
-                    df.loc[mask, 'image_list'] * SLIDESHOW_SECONDS_PER_IMAGE
+        if "image_list" in df.columns:
+            df["image_list"] = (
+                df["image_list"]
+                .map(lambda x: len(x.split("|")) if isinstance(x, str) and x else 0)
+                .astype("int64[pyarrow]")
+            )
+            mask = (df["image_list"] > 0).fillna(False)
+            if "video_duration" in df.columns:
+                df.loc[mask, "video_duration"] = (
+                    df.loc[mask, "image_list"] * SLIDESHOW_SECONDS_PER_IMAGE
                 )
-        if 'video_duration' in df.columns:
-            df.loc[(df['video_duration'] < 1).fillna(False), 'video_duration'] = pd.NA
+        if "video_duration" in df.columns:
+            df.loc[(df["video_duration"] < 1).fillna(False), "video_duration"] = pd.NA
         return df
-
 
     def fetch_slideshow_audio(self, item_id: str, temp_dir: str) -> str | None:
         return _download_slideshow_audio(
             self.item_url(item_id), item_id, temp_dir, verbose=self.verbose
         )
-
 
     def classify_error(self, error_type: str | None) -> str:
         if error_type is None:
@@ -949,10 +980,8 @@ class TikTokScraper(BaseScraper):
         bucket = "permanent" if error_type in _PERMANENT else "transient"
         return f"{bucket}:{error_type}"
 
-
     def repair_counts(self, df: pd.DataFrame) -> pd.DataFrame:
         return repair_overflowed_counts(df, verbose=self.verbose)
-
 
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
         # All threads share a single TikTok session behind the same cookies, so
@@ -962,20 +991,18 @@ class TikTokScraper(BaseScraper):
         # bounded at the root by SLIDESHOW_MAX_DIMENSION in fyp.scrape.)
         return (max_workers, 2, max(max_workers, 6))
 
-
     def health_check(self) -> dict | None:
         return cookie_health()
 
-
     def media_probe_url(self, item_id: str) -> dict | None:
         ydl_opts: dict = {
-            'quiet': True,
-            'no_warnings': True,
+            "quiet": True,
+            "no_warnings": True,
             **_cookie_opts(),
-            'skip_download': True,
-            'no_color': True,
-            'socket_timeout': 30,
-            'format': 'best[ext=mp4]/best',
+            "skip_download": True,
+            "no_color": True,
+            "socket_timeout": 30,
+            "format": "best[ext=mp4]/best",
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(self.item_url(item_id), download=False)

@@ -23,20 +23,12 @@ import fyp.core.fyp_config as fyp_config
 ROOT = Path(__file__).resolve().parents[2]
 
 
-
-
-
-
 def _temp_project(tmp_path: Path) -> Path:
     """Create a throwaway project root holding a copy of the committed config."""
     root = tmp_path / "proj"
     (root / "config").mkdir(parents=True)
     shutil.copy(ROOT / "config" / "config.toml", root / "config" / "config.toml")
     return root
-
-
-
-
 
 
 def test_committed_defaults_are_local_first():
@@ -49,10 +41,6 @@ def test_committed_defaults_are_local_first():
     assert cf["data_io"]["use_gcs_for_media"] is False
     assert cf["data_io"]["use_gcs_for_cache"] is False
     assert cf["machine"]["gemini"]["project"] == ""
-
-
-
-
 
 
 def test_initialize_expands_home_relative_paths(tmp_path, monkeypatch):
@@ -70,10 +58,6 @@ def test_initialize_expands_home_relative_paths(tmp_path, monkeypatch):
     assert cf["data_io"]["use_gcs_for_data"] is False
 
 
-
-
-
-
 def test_initialize_keeps_absolute_override(tmp_path, monkeypatch):
     """An absolute path from config.local.toml passes through untouched."""
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -88,10 +72,6 @@ def test_initialize_keeps_absolute_override(tmp_path, monkeypatch):
     cf = fyp_config.initialize(abs_project_root_path=str(root))
 
     assert cf["paths"]["local_data"] == str(override)
-
-
-
-
 
 
 def test_change_me_placeholder_fails_loud(tmp_path, monkeypatch):

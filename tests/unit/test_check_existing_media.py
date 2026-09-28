@@ -18,15 +18,15 @@ from fyp.core.fyp_config import fyp_cf
 
 
 def main() -> int:
-    min_size = fyp_cf['misc']['min_media_object_size']
+    min_size = fyp_cf["misc"]["min_media_object_size"]
     print(f"min_media_object_size = {min_size}")
 
     with tempfile.TemporaryDirectory() as tmp:
         # Save and override the configured media path
-        original_media = fyp_cf['paths']['media']
-        original_use_gcs = fyp_cf['data_io']['use_gcs_for_media']
-        fyp_cf['paths']['media'] = tmp
-        fyp_cf['data_io']['use_gcs_for_media'] = False
+        original_media = fyp_cf["paths"]["media"]
+        original_use_gcs = fyp_cf["data_io"]["use_gcs_for_media"]
+        fyp_cf["paths"]["media"] = tmp
+        fyp_cf["data_io"]["use_gcs_for_media"] = False
 
         try:
             VID_OK = "1111111111111111111"
@@ -67,8 +67,8 @@ def main() -> int:
             print("OK — check_existing_media local-mode behaviour verified")
             return 0
         finally:
-            fyp_cf['paths']['media'] = original_media
-            fyp_cf['data_io']['use_gcs_for_media'] = original_use_gcs
+            fyp_cf["paths"]["media"] = original_media
+            fyp_cf["data_io"]["use_gcs_for_media"] = original_use_gcs
 
 
 def test_check_existing_media():

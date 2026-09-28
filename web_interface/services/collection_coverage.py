@@ -56,11 +56,13 @@ def coverage_from_activities(df) -> dict[str, dict]:
 
     iid_keys = views["item_id"].astype(str).to_numpy()
     scraped, annotated = preview_cache.status_flags(iid_keys, status)
-    flags = pd.DataFrame({
-        "collection_id": views["collection_id"].astype(str).to_numpy(),
-        "scraped": scraped,
-        "annotated": annotated,
-    })
+    flags = pd.DataFrame(
+        {
+            "collection_id": views["collection_id"].astype(str).to_numpy(),
+            "scraped": scraped,
+            "annotated": annotated,
+        }
+    )
     for cid, grp in flags.groupby("collection_id", observed=True):
         coverage[str(cid)] = {
             "pct_scraped": round(float(grp["scraped"].mean()), 4),

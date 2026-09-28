@@ -59,50 +59,26 @@ CORPUS_MEAN_PREFIX = "embedding_corpus_mean__"
 DEFAULT_COALESCE_BYTES = 65_536
 
 
-
-
-
-
 def _safe_model(model: str) -> str:
     """Filesystem-safe form of a model id (mirrors the corpus-mean naming)."""
     return "".join(c if (c.isalnum() or c in "._-") else "_" for c in model)
-
-
-
-
 
 
 def _manifest_filename(model: str) -> str:
     return f"{DENSE_MANIFEST_PREFIX}{_safe_model(model)}.json"
 
 
-
-
-
-
 def _index_filename(model: str) -> str:
     return f"{DENSE_INDEX_PREFIX}{_safe_model(model)}.parquet"
-
-
-
-
 
 
 def _part_filename(model: str, k: int) -> str:
     return f"{DENSE_BLOB_PREFIX}{_safe_model(model)}__part{k:04d}.f16"
 
 
-
-
-
-
 def corpus_mean_filename(model: str) -> str:
     """Per-model corpus-mean cache filename (shared with session_explorer)."""
     return f"{CORPUS_MEAN_PREFIX}{_safe_model(model)}.json"
-
-
-
-
 
 
 def shard_entries() -> list[tuple[str, int, float]]:
@@ -139,12 +115,7 @@ def store_fingerprint() -> str:
     return fingerprint_of(shard_entries())
 
 
-
-
-
-
-def save_corpus_mean(model: str, mean: np.ndarray, count: int,
-                     store_fp: str | None = None) -> None:
+def save_corpus_mean(model: str, mean: np.ndarray, count: int, store_fp: str | None = None) -> None:
     """Persist the corpus mean for ``model`` (optionally fingerprint-stamped).
 
     Args:
@@ -163,16 +134,12 @@ def save_corpus_mean(model: str, mean: np.ndarray, count: int,
     }
     if store_fp is not None:
         payload["store_fingerprint"] = store_fp
-    data_io.save_json(data=payload, storage_location=STORE_LOCATION,
-                      filename=corpus_mean_filename(model))
+    data_io.save_json(
+        data=payload, storage_location=STORE_LOCATION, filename=corpus_mean_filename(model)
+    )
 
 
-
-
-
-
-def load_corpus_mean(model: str, expected_fp: str | None = None
-                     ) -> np.ndarray | None:
+def load_corpus_mean(model: str, expected_fp: str | None = None) -> np.ndarray | None:
     """Load the cached corpus mean for ``model``, or None when absent/stale.
 
     Args:
@@ -197,16 +164,8 @@ def load_corpus_mean(model: str, expected_fp: str | None = None
     return np.asarray(payload["mean"], dtype=np.float64)
 
 
-
-
-
-
 class CorpusMeanDrift(RuntimeError):
     """The shard store changed under a consumer pinned to one corpus mean."""
-
-
-
-
 
 
 @dataclass
@@ -220,11 +179,10 @@ class DenseIndex:
     model: str
     dim: int
     n_rows: int
-    ids: pa.Array          # sorted item_ids
-    rows: np.ndarray       # int32 global rows, aligned with ids
-    parts: list            # [{"filename", "start_row", "rows"}, ...]
+    ids: pa.Array  # sorted item_ids
+    rows: np.ndarray  # int32 global rows, aligned with ids
+    parts: list  # [{"filename", "start_row", "rows"}, ...]
     store_fp: str
-
 
     def lookup(self, item_ids) -> tuple[np.ndarray, np.ndarray]:
         """Map item ids to global rows.
@@ -243,10 +201,6 @@ class DenseIndex:
         return self.rows[pos_np[found]].astype(np.int64), found
 
 
-
-
-
-
 def load_manifest(model: str) -> dict | None:
     """Load the model's dense-store manifest, or None when absent."""
     fname = _manifest_filename(model)
@@ -254,10 +208,6 @@ def load_manifest(model: str) -> dict | None:
         return None
     manifest = data_io.load_json(storage_location=STORE_LOCATION, filename=fname)
     return manifest if isinstance(manifest, dict) else None
-
-
-
-
 
 
 def load_index(model: str) -> DenseIndex | None:
@@ -270,20 +220,21 @@ def load_index(model: str) -> DenseIndex | None:
     if manifest is None:
         return None
     idx_df = data_io.load_parquet_selective(
-        storage_location=STORE_LOCATION, filename=_index_filename(model),
-        columns=["item_id", "row"])
+        storage_location=STORE_LOCATION, filename=_index_filename(model), columns=["item_id", "row"]
+    )
     if idx_df is None:
         return None
     ids = pa.array(idx_df["item_id"].astype(str).tolist(), type=pa.string())
     rows = idx_df["row"].to_numpy(dtype=np.int32)
     return DenseIndex(
-        model=model, dim=int(manifest["dim"]), n_rows=int(manifest["n_rows"]),
-        ids=ids, rows=rows, parts=list(manifest.get("parts", [])),
-        store_fp=str(manifest.get("store_fingerprint", "")))
-
-
-
-
+        model=model,
+        dim=int(manifest["dim"]),
+        n_rows=int(manifest["n_rows"]),
+        ids=ids,
+        rows=rows,
+        parts=list(manifest.get("parts", [])),
+        store_fp=str(manifest.get("store_fingerprint", "")),
+    )
 
 
 def _shard_state() -> list[dict]:
@@ -292,20 +243,21 @@ def _shard_state() -> list[dict]:
     for shard in sorted(embeddings._list_shards()):
         st = data_io.stat(storage_location=STORE_LOCATION, filename=shard)
         if st is not None:
-            out.append({"name": shard, "size": int(st.get("size", 0)),
-                        "mtime": float(st.get("mtime", 0.0))})
+            out.append(
+                {
+                    "name": shard,
+                    "size": int(st.get("size", 0)),
+                    "mtime": float(st.get("mtime", 0.0)),
+                }
+            )
     return out
-
-
-
-
 
 
 def _load_shard_for_model(shard: str, model: str):
     """One shard's (item_ids, float16 matrix) for ``model`` (possibly empty)."""
     df = data_io.load_parquet_selective(
-        storage_location=STORE_LOCATION, filename=shard,
-        columns=["item_id", "embedding", "model"])
+        storage_location=STORE_LOCATION, filename=shard, columns=["item_id", "embedding", "model"]
+    )
     if df is None or len(df) == 0:
         return [], None
     df = df[embeddings._model_mask(df, model)]
@@ -314,10 +266,6 @@ def _load_shard_for_model(shard: str, model: str):
     ids = df["item_id"].astype(str).tolist()
     mat = embeddings.decode_embeddings_arrow(df["embedding"], dtype=np.float16)
     return ids, mat
-
-
-
-
 
 
 def ensure_dense_store(model: str, reporter=None) -> dict:
@@ -339,6 +287,7 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
     Returns:
         The up-to-date manifest dict.
     """
+
     def _log(msg: str) -> None:
         if reporter is not None:
             reporter.log(msg)
@@ -358,20 +307,25 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
         c["name"] in current_by_name
         and current_by_name[c["name"]]["size"] == c["size"]
         and current_by_name[c["name"]]["mtime"] == c["mtime"]
-        for c in compacted)
+        for c in compacted
+    )
 
     if manifest is None or not intact:
         if manifest is not None:
             logger.warning(
                 f"[DENSE] {model}: a compacted shard changed or vanished — the "
                 f"shard store is append-only, so this should not happen. "
-                f"Rebuilding the dense store from scratch.")
+                f"Rebuilding the dense store from scratch."
+            )
         for part in (manifest or {}).get("parts", []):
-            data_io.remove(storage_location=STORE_LOCATION,
-                           filename=part["filename"])
+            data_io.remove(storage_location=STORE_LOCATION, filename=part["filename"])
         manifest = {
-            "model": model, "dim": None, "n_rows": 0, "parts": [],
-            "compacted_shards": [], "mean_sum": None,
+            "model": model,
+            "dim": None,
+            "n_rows": 0,
+            "parts": [],
+            "compacted_shards": [],
+            "mean_sum": None,
         }
         compacted = []
 
@@ -380,12 +334,14 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
 
     n_rows = int(manifest["n_rows"])
     dim = manifest["dim"]
-    mean_sum = (np.asarray(manifest["mean_sum"], dtype=np.float64)
-                if manifest.get("mean_sum") else None)
+    mean_sum = (
+        np.asarray(manifest["mean_sum"], dtype=np.float64) if manifest.get("mean_sum") else None
+    )
     parts = list(manifest["parts"])
     id_frames = []
-    next_part = (max((int(p["filename"].rsplit("part", 1)[1].split(".")[0])
-                      for p in parts), default=-1) + 1)
+    next_part = (
+        max((int(p["filename"].rsplit("part", 1)[1].split(".")[0]) for p in parts), default=-1) + 1
+    )
 
     for state in new_shards:
         shard = state["name"]
@@ -398,17 +354,19 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
             elif mat.shape[1] != dim:
                 raise ValueError(
                     f"[DENSE] {model}: shard '{shard}' has dim {mat.shape[1]}, "
-                    f"store has {dim} — refusing to mix widths.")
+                    f"store has {dim} — refusing to mix widths."
+                )
             part_name = _part_filename(model, next_part)
-            data_io.save_bytes(data=mat.tobytes(),
-                               storage_location=STORE_LOCATION,
-                               filename=part_name)
-            parts.append({"filename": part_name, "start_row": n_rows,
-                          "rows": len(ids)})
+            data_io.save_bytes(
+                data=mat.tobytes(), storage_location=STORE_LOCATION, filename=part_name
+            )
+            parts.append({"filename": part_name, "start_row": n_rows, "rows": len(ids)})
             entry["start_row"] = n_rows
-            id_frames.append(pd.DataFrame({
-                "item_id": ids,
-                "row": np.arange(n_rows, n_rows + len(ids), dtype=np.int32)}))
+            id_frames.append(
+                pd.DataFrame(
+                    {"item_id": ids, "row": np.arange(n_rows, n_rows + len(ids), dtype=np.int32)}
+                )
+            )
             s = mat.sum(axis=0, dtype=np.float64)
             mean_sum = s if mean_sum is None else mean_sum + s
             n_rows += len(ids)
@@ -419,14 +377,20 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
 
     # Index: existing rows + new, last-occurrence-wins, sorted by item_id
     # (parity with load_directional_store's {iid: i} dict — last wins).
-    if id_frames or manifest.get("n_rows", 0) != n_rows or not data_io.exists(
-            storage_location=STORE_LOCATION, filename=_index_filename(model)):
+    if (
+        id_frames
+        or manifest.get("n_rows", 0) != n_rows
+        or not data_io.exists(storage_location=STORE_LOCATION, filename=_index_filename(model))
+    ):
         old_idx = None
         if manifest.get("n_rows", 0) and data_io.exists(
-                storage_location=STORE_LOCATION, filename=_index_filename(model)):
+            storage_location=STORE_LOCATION, filename=_index_filename(model)
+        ):
             old_idx = data_io.load_parquet_selective(
                 storage_location=STORE_LOCATION,
-                filename=_index_filename(model), columns=["item_id", "row"])
+                filename=_index_filename(model),
+                columns=["item_id", "row"],
+            )
         frames = ([old_idx] if old_idx is not None else []) + id_frames
         if frames:
             idx = pd.concat(frames, ignore_index=True)
@@ -435,48 +399,48 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
             idx = idx[~idx["item_id"].duplicated(keep="last")]
             idx = idx.sort_values("item_id", kind="stable")
             idx = idx.astype({"item_id": "string[pyarrow]", "row": "int32[pyarrow]"})
-            data_io.save_parquet(df=idx.reset_index(drop=True),
-                                 storage_location=STORE_LOCATION,
-                                 filename=_index_filename(model))
+            data_io.save_parquet(
+                df=idx.reset_index(drop=True),
+                storage_location=STORE_LOCATION,
+                filename=_index_filename(model),
+            )
 
-    manifest.update({
-        "model": model,
-        "dim": int(dim) if dim is not None else None,
-        "n_rows": n_rows,
-        "parts": parts,
-        "compacted_shards": compacted,
-        "mean_sum": [float(v) for v in mean_sum] if mean_sum is not None else None,
-        "store_fingerprint": fp,
-        "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
-    })
-    data_io.save_json(data=manifest, storage_location=STORE_LOCATION,
-                      filename=_manifest_filename(model))
+    manifest.update(
+        {
+            "model": model,
+            "dim": int(dim) if dim is not None else None,
+            "n_rows": n_rows,
+            "parts": parts,
+            "compacted_shards": compacted,
+            "mean_sum": [float(v) for v in mean_sum] if mean_sum is not None else None,
+            "store_fingerprint": fp,
+            "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        }
+    )
+    data_io.save_json(
+        data=manifest, storage_location=STORE_LOCATION, filename=_manifest_filename(model)
+    )
 
     if mean_sum is not None and n_rows:
         save_corpus_mean(model, mean_sum / n_rows, n_rows, store_fp=fp)
-    _log(f"[DENSE] {model}: dense store up to date — {n_rows:,} rows, "
-         f"{len(parts)} part(s), dim={dim}")
+    _log(
+        f"[DENSE] {model}: dense store up to date — {n_rows:,} rows, "
+        f"{len(parts)} part(s), dim={dim}"
+    )
     return manifest
-
-
-
-
 
 
 def _dense_cache_dir() -> str:
     """Root of the per-machine dense-part cache (see :func:`_cached_part_path`)."""
     return os.environ.get("FYP_DENSE_CACHE_DIR") or os.path.join(
-        tempfile.gettempdir(), "fyp_dense_cache")
-
-
+        tempfile.gettempdir(), "fyp_dense_cache"
+    )
 
 
 def _fetch_part_bytes(filename: str) -> bytes | bytearray:
     """Download one dense part from GCS (parallel ranged GETs for big blobs)."""
     _, _, _, blob_name = data_io._resolve_paths(STORE_LOCATION, filename)
     return data_io._download_blob_bytes(data_io._get_bucket(), blob_name)
-
-
 
 
 # Below this share of a part's rows, a ranged read is cheaper than caching the
@@ -533,14 +497,18 @@ def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
     t0 = time.perf_counter()
     buf = _fetch_part_bytes(part["filename"])
     if len(buf) != expected:
-        raise OSError(f"[DENSE] {part['filename']}: downloaded {len(buf)} bytes, "
-                      f"expected {expected} ({part['rows']} rows x dim {dim})")
+        raise OSError(
+            f"[DENSE] {part['filename']}: downloaded {len(buf)} bytes, "
+            f"expected {expected} ({part['rows']} rows x dim {dim})"
+        )
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "wb") as fh:
         fh.write(buf)
     os.replace(tmp, path)
-    logger.info(f"[DENSE] cached {part['filename']} locally "
-                f"({len(buf) / 1e6:.0f} MB in {time.perf_counter() - t0:.1f}s)")
+    logger.info(
+        f"[DENSE] cached {part['filename']} locally "
+        f"({len(buf) / 1e6:.0f} MB in {time.perf_counter() - t0:.1f}s)"
+    )
     # Evict other fingerprints' parts for this model: the store moved on, and
     # the cache lives in memory-backed /tmp on Cloud Run.
     model_root = os.path.join(_dense_cache_dir(), safe)
@@ -550,12 +518,14 @@ def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
     return path
 
 
-
-
-def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
-                 dtype=np.float32,
-                 coalesce_bytes: int = DEFAULT_COALESCE_BYTES,
-                 local_cache: bool = False) -> np.ndarray:
+def read_vectors(
+    model: str,
+    rows: np.ndarray,
+    index: DenseIndex,
+    dtype=np.float32,
+    coalesce_bytes: int = DEFAULT_COALESCE_BYTES,
+    local_cache: bool = False,
+) -> np.ndarray:
     """Fetch specific global rows from the dense store.
 
     Local mode memory-maps each part (RSS = touched pages); GCS mode issues
@@ -602,40 +572,41 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
         local = rows[order[pos:stop]] - starts[part_i]
         dest = order[pos:stop]
 
-        primary, _, mode, _ = data_io._resolve_paths(
-            STORE_LOCATION, part["filename"])
-        if mode == 'gcs' and local_cache:
+        primary, _, mode, _ = data_io._resolve_paths(STORE_LOCATION, part["filename"])
+        if mode == "gcs" and local_cache:
             # A warm part is free; a cold one is only worth downloading whole
             # when this call wants a real share of it (CACHE_MIN_PART_DENSITY).
             warm = _cached_part_if_present(model, part, index.store_fp, dim)
             wanted_share = len(local) / max(1, int(part["rows"]))
             if warm is not None or wanted_share >= CACHE_MIN_PART_DENSITY:
                 primary = warm or _cached_part_path(model, part, index.store_fp, dim)
-                mode = 'local'
+                mode = "local"
             else:
                 sparse_skipped += 1
-        if mode == 'gcs':
-            _read_part_ranged(part["filename"], local, dest, out, row_bytes,
-                              dim, coalesce_bytes)
+        if mode == "gcs":
+            _read_part_ranged(part["filename"], local, dest, out, row_bytes, dim, coalesce_bytes)
         else:
-            mm = np.memmap(primary, dtype=np.float16, mode="r",
-                           shape=(part["rows"], dim))
+            mm = np.memmap(primary, dtype=np.float16, mode="r", shape=(part["rows"], dim))
             out[dest] = mm[local]
             del mm
         pos = stop
     if sparse_skipped:
-        logger.info(f"[DENSE] {model}: {sparse_skipped} part(s) read by range instead of "
-                    f"cached whole (each wanted <{CACHE_MIN_PART_DENSITY:.0%} of its rows).")
+        logger.info(
+            f"[DENSE] {model}: {sparse_skipped} part(s) read by range instead of "
+            f"cached whole (each wanted <{CACHE_MIN_PART_DENSITY:.0%} of its rows)."
+        )
     return out
 
 
-
-
-
-
-def _read_part_ranged(filename: str, local_rows: np.ndarray,
-                      dest: np.ndarray, out: np.ndarray, row_bytes: int,
-                      dim: int, coalesce_bytes: int) -> None:
+def _read_part_ranged(
+    filename: str,
+    local_rows: np.ndarray,
+    dest: np.ndarray,
+    out: np.ndarray,
+    row_bytes: int,
+    dim: int,
+    coalesce_bytes: int,
+) -> None:
     """Fill ``out[dest]`` from one part via coalesced GCS ranged reads."""
     # Coalesce sorted local rows into runs whose byte gap <= coalesce_bytes.
     runs: list[tuple[int, int]] = []  # (first_row, last_row) inclusive
@@ -649,10 +620,10 @@ def _read_part_ranged(filename: str, local_rows: np.ndarray,
             run_start = prev = r
     runs.append((run_start, prev))
 
-    ranges = [(first * row_bytes, (last - first + 1) * row_bytes)
-              for first, last in runs]
-    blobs = data_io.read_byte_ranges(storage_location=STORE_LOCATION,
-                                     filename=filename, ranges=ranges)
+    ranges = [(first * row_bytes, (last - first + 1) * row_bytes) for first, last in runs]
+    blobs = data_io.read_byte_ranges(
+        storage_location=STORE_LOCATION, filename=filename, ranges=ranges
+    )
 
     run_i = 0
     first, last = runs[0]
@@ -666,12 +637,9 @@ def _read_part_ranged(filename: str, local_rows: np.ndarray,
         out[d] = block[local - first]
 
 
-
-
-
-
-def get_corpus_mean(model: str, expected_fp: str | None = None,
-                    reporter=None) -> tuple[np.ndarray, int, str]:
+def get_corpus_mean(
+    model: str, expected_fp: str | None = None, reporter=None
+) -> tuple[np.ndarray, int, str]:
     """The validated global corpus mean for ``model``.
 
     Args:
@@ -688,13 +656,13 @@ def get_corpus_mean(model: str, expected_fp: str | None = None,
     if expected_fp is not None and fp != expected_fp:
         raise CorpusMeanDrift(
             f"embedding store changed (fingerprint {expected_fp[:12]} -> "
-            f"{fp[:12]}) — the pinned corpus mean no longer matches")
+            f"{fp[:12]}) — the pinned corpus mean no longer matches"
+        )
     mean = load_corpus_mean(model, expected_fp=fp)
     if mean is None:
         manifest = ensure_dense_store(model, reporter=reporter)
         if not manifest.get("n_rows") or not manifest.get("mean_sum"):
             raise ValueError(f"[DENSE] {model}: no vectors in store")
-        mean = (np.asarray(manifest["mean_sum"], dtype=np.float64)
-                / manifest["n_rows"])
+        mean = np.asarray(manifest["mean_sum"], dtype=np.float64) / manifest["n_rows"]
     count = load_manifest(model).get("n_rows", 0)
     return mean, int(count), fp

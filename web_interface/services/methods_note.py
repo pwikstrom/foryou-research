@@ -51,10 +51,6 @@ def note_filename(study_name: str) -> str:
     return f"{study_name}_methods.json"
 
 
-
-
-
-
 def _version_distribution(df: pd.DataFrame | None, column: str) -> dict:
     """Count rows per version id in ``df[column]``.
 
@@ -72,10 +68,6 @@ def _version_distribution(df: pd.DataFrame | None, column: str) -> dict:
     return counts
 
 
-
-
-
-
 def _date_window(study_config: dict, df_study: pd.DataFrame | None) -> dict:
     """Configured vs actual date window of the study rows.
 
@@ -90,17 +82,17 @@ def _date_window(study_config: dict, df_study: pd.DataFrame | None) -> dict:
         "actual_min": None,
         "actual_max": None,
     }
-    ts_col = "local_timestamp" if (df_study is not None and "local_timestamp" in df_study.columns) else "utc_timestamp"
+    ts_col = (
+        "local_timestamp"
+        if (df_study is not None and "local_timestamp" in df_study.columns)
+        else "utc_timestamp"
+    )
     if df_study is not None and ts_col in df_study.columns and len(df_study) > 0:
         ts = pd.to_datetime(df_study[ts_col], errors="coerce").dropna()
         if len(ts) > 0:
             window["actual_min"] = ts.min().isoformat()
             window["actual_max"] = ts.max().isoformat()
     return window
-
-
-
-
 
 
 def _annotation_block(study_config: dict, df_study: pd.DataFrame | None) -> dict:
@@ -158,10 +150,6 @@ def _annotation_block(study_config: dict, df_study: pd.DataFrame | None) -> dict
     return block
 
 
-
-
-
-
 def _semantic_map_block(df_study: pd.DataFrame | None) -> dict | None:
     """Embedding-map provenance when niche columns are joined into the study."""
     if df_study is None or "niche" not in df_study.columns:
@@ -181,10 +169,6 @@ def _semantic_map_block(df_study: pd.DataFrame | None) -> dict | None:
     except Exception as exc:
         logger.warning(f"[MethodsNote] Could not read video_map_meta.json: {exc}")
         return None
-
-
-
-
 
 
 def build_methods_note(
@@ -244,7 +228,7 @@ def build_methods_note(
             "Sampling uses a fixed random seed, so rebuilding the study from "
             "the same inputs selects the same rows."
         )
-        report = (df_study.attrs.get("sampling_report") if df_study is not None else None)
+        report = df_study.attrs.get("sampling_report") if df_study is not None else None
         if isinstance(report, dict):
             selection["sampling_report"] = {
                 "collections_excluded_by_thresholds": report.get("n_excluded_collections"),
@@ -264,8 +248,12 @@ def build_methods_note(
     elif df_study is not None:
         counts = {
             "activities": int(len(df_study)),
-            "unique_videos": int(df_study["item_id"].nunique()) if "item_id" in df_study.columns else None,
-            "collections": int(df_study["collection_id"].nunique()) if "collection_id" in df_study.columns else None,
+            "unique_videos": int(df_study["item_id"].nunique())
+            if "item_id" in df_study.columns
+            else None,
+            "collections": int(df_study["collection_id"].nunique())
+            if "collection_id" in df_study.columns
+            else None,
         }
     counts["counts_note"] = (
         "Counts cover watched/observed videos inside each collection's event window."
@@ -290,7 +278,9 @@ def build_methods_note(
         "annotation": _annotation_block(study_config, df_study),
         "contracts": {
             "scrape_versions_in_rows": _version_distribution(df_study, "scrape_contract_version"),
-            "activity_versions_in_rows": _version_distribution(df_study, "activity_contract_version"),
+            "activity_versions_in_rows": _version_distribution(
+                df_study, "activity_contract_version"
+            ),
         },
         "semantic_map": _semantic_map_block(df_study),
         "freshness": {
@@ -302,10 +292,6 @@ def build_methods_note(
         },
     }
     return note
-
-
-
-
 
 
 def write_methods_note(
@@ -344,16 +330,13 @@ def write_methods_note(
         return None
 
 
-
-
-
-
 def read_methods_note(study_name: str) -> dict | None:
     """Load a study's methods note, or ``None`` if missing/malformed."""
     # Composed (Everyone & Me) studies have no note of their own and read the
     # base (default) study's — the closest honest description of the bulk of
     # their rows. Read-side only: nothing ever writes under a composed name.
     from .study_data import resolve_artifact_study
+
     study_name = resolve_artifact_study(study_name)
     try:
         if not data_io.exists(storage_location=NOTE_LOCATION, filename=note_filename(study_name)):
@@ -367,10 +350,6 @@ def read_methods_note(study_name: str) -> dict | None:
         return None
 
 
-
-
-
-
 def note_staleness(study_name: str, note: dict) -> dict:
     """Freshness signal: is the note behind the study's recoded parquet?
 
@@ -379,6 +358,7 @@ def note_staleness(study_name: str, note: dict) -> dict:
     compare against the base study's parquet — the note they serve.
     """
     from .study_data import resolve_artifact_study
+
     study_name = resolve_artifact_study(study_name)
     try:
         recoded_mtime = data_io.getmtime(
@@ -388,8 +368,6 @@ def note_staleness(study_name: str, note: dict) -> dict:
         recoded_mtime = None
     note_mtime = (note.get("freshness") or {}).get("source_parquet_mtime")
     stale = bool(
-        recoded_mtime is not None
-        and note_mtime is not None
-        and recoded_mtime > note_mtime + 1
+        recoded_mtime is not None and note_mtime is not None and recoded_mtime > note_mtime + 1
     )
     return {"stale": stale, "recoded_updated_at": recoded_mtime}

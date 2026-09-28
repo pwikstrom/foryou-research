@@ -61,13 +61,15 @@ def record(
         else:
             entries = []
 
-        entries.append({
-            "timestamp": _now_iso(),
-            "category": category,
-            "action": action,
-            "target": target or "",
-            "details": details or {},
-        })
+        entries.append(
+            {
+                "timestamp": _now_iso(),
+                "category": category,
+                "action": action,
+                "target": target or "",
+                "details": details or {},
+            }
+        )
 
         if len(entries) > MAX_ENTRIES:
             entries = entries[-MAX_ENTRIES:]

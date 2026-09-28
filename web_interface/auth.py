@@ -26,13 +26,15 @@ ROLE_STUDENT = "student"
 # records. The roster loader and the default-admin check must ignore these —
 # otherwise a store that still holds e.g. var_presentation.json looks non-empty
 # and no default admin is created even after every real user file was deleted.
-RESERVED_USER_STORE_FILES = frozenset({
-    "roles.json",
-    "admin_settings.json",
-    "irrelevant_words.json",
-    "var_presentation.json",
-    "users.json",  # legacy pre-migration roster
-})
+RESERVED_USER_STORE_FILES = frozenset(
+    {
+        "roles.json",
+        "admin_settings.json",
+        "irrelevant_words.json",
+        "var_presentation.json",
+        "users.json",  # legacy pre-migration roster
+    }
+)
 
 
 def _is_candidate_user_file(filename: str) -> bool:
@@ -49,9 +51,8 @@ def _is_candidate_user_file(filename: str) -> bool:
         return False
     return filename not in RESERVED_USER_STORE_FILES
 
+
 class AnonymousUser(AnonymousUserMixin):
-
-
     def is_admin(self):
         return False
 
@@ -60,6 +61,7 @@ class AnonymousUser(AnonymousUserMixin):
 
 
 # --- Role Manager ---
+
 
 class RoleManager:
     """Manages roles and their permission sets, persisted in roles.json.
@@ -82,9 +84,13 @@ class RoleManager:
     def load_roles(self):
         """Load roles from roles.json, migrating the legacy list format if needed."""
         if data_io.exists(storage_location=self.storage_location, filename=self.filename):
-            loaded = data_io.load_json(storage_location=self.storage_location, filename=self.filename)
+            loaded = data_io.load_json(
+                storage_location=self.storage_location, filename=self.filename
+            )
             if isinstance(loaded, list):
-                logger.info("Migrating legacy roles.json (list format) to dict-with-permissions format.")
+                logger.info(
+                    "Migrating legacy roles.json (list format) to dict-with-permissions format."
+                )
                 self.roles = self._migrate_legacy(loaded)
                 self.save_roles()
             elif isinstance(loaded, dict):
@@ -120,6 +126,7 @@ class RoleManager:
             PERMISSION_KEYS_GRANT_ALL,
             PERMISSION_MIGRATION_SKIP_ROLES,
         )
+
         changed = False
         for name, entry in self.roles.items():
             if name in PERMISSION_MIGRATION_SKIP_ROLES:
@@ -155,6 +162,7 @@ class RoleManager:
         installations don't see behavioural drift after upgrade.
         """
         from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+
         migrated: dict[str, dict] = {}
         for name in legacy_list:
             if not isinstance(name, str):
@@ -175,6 +183,7 @@ class RoleManager:
             DEFAULT_NON_ADMIN_PERMISSIONS,
             STUDENT_PERMISSIONS,
         )
+
         changed = False
         if ROLE_ADMIN not in self.roles:
             self.roles[ROLE_ADMIN] = {"permissions": ["*"]}
@@ -191,7 +200,9 @@ class RoleManager:
     def save_roles(self):
         """Persist the current roles dict to roles.json."""
         try:
-            data_io.save_json(data=self.roles, storage_location=self.storage_location, filename=self.filename)
+            data_io.save_json(
+                data=self.roles, storage_location=self.storage_location, filename=self.filename
+            )
         except Exception as e:
             logger.error(f"Failed to save roles: {e}")
 
@@ -227,6 +238,7 @@ class RoleManager:
 
     def add_role(self, role_name):
         from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+
         if role_name in self.roles:
             return False, "Role already exists"
         self.roles[role_name] = {"permissions": list(DEFAULT_NON_ADMIN_PERMISSIONS)}
@@ -242,7 +254,10 @@ class RoleManager:
 
         for u in user_manager_instance.get_all_users().values():
             if u.role == role_name:
-                return False, f"Cannot delete role '{role_name}' because it is assigned to user '{u.username}'"
+                return (
+                    False,
+                    f"Cannot delete role '{role_name}' because it is assigned to user '{u.username}'",
+                )
 
         del self.roles[role_name]
         self.save_roles()
@@ -258,13 +273,14 @@ role_manager = RoleManager(storage_location="users")
 
 # --- Password Hashing Helpers ---
 
+
 def hash_password(password):
     """Hash a password for storing."""
-    salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
-    pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), 
-                                salt, 100000)
+    salt = hashlib.sha256(os.urandom(60)).hexdigest().encode("ascii")
+    pwdhash = hashlib.pbkdf2_hmac("sha512", password.encode("utf-8"), salt, 100000)
     pwdhash = binascii.hexlify(pwdhash)
-    return (salt + pwdhash).decode('ascii')
+    return (salt + pwdhash).decode("ascii")
+
 
 def verify_password(stored_password, provided_password):
     """Verify a stored password against one provided by user.
@@ -276,11 +292,10 @@ def verify_password(stored_password, provided_password):
         return False
     salt = stored_password[:64]
     stored_password = stored_password[64:]
-    pwdhash = hashlib.pbkdf2_hmac('sha512', 
-                                  provided_password.encode('utf-8'), 
-                                  salt.encode('ascii'), 
-                                  100000)
-    pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+    pwdhash = hashlib.pbkdf2_hmac(
+        "sha512", provided_password.encode("utf-8"), salt.encode("ascii"), 100000
+    )
+    pwdhash = binascii.hexlify(pwdhash).decode("ascii")
     return pwdhash == stored_password
 
 
@@ -334,8 +349,13 @@ PROFILE_FIELDS = (
     "tiktok_handle",
     "consent_to_contact",
 )
-_PROFILE_STR_MAX = {"full_name": 100, "postcode": 16, "country": 100,
-                    "occupation": 100, "tiktok_handle": 100}
+_PROFILE_STR_MAX = {
+    "full_name": 100,
+    "postcode": 16,
+    "country": 100,
+    "occupation": 100,
+    "tiktok_handle": 100,
+}
 # Age is kept as text: donation forms collect it either as a number ("34")
 # or as a bracket ("21 - 25"), and both must survive as given.
 _AGE_RE = re.compile(r"^\d{1,3}(\s*-\s*\d{1,3})?$")
@@ -425,8 +445,30 @@ def empty_profile() -> dict:
 
 # --- User Class ---
 
+
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None, last_active=None, email_verified_via=None, email_verified_at=None, email_verification_sent_at=None):
+    def __init__(
+        self,
+        username,
+        role,
+        password_hash,
+        approved=True,
+        last_login=None,
+        settings=None,
+        machine_annotation_votes=None,
+        display_username=None,
+        created_at=None,
+        approval_notification=None,
+        profile=None,
+        account_kind=None,
+        placeholder=False,
+        origin=None,
+        terms_accepted_at=None,
+        last_active=None,
+        email_verified_via=None,
+        email_verified_at=None,
+        email_verification_sent_at=None,
+    ):
         self.id = username
         self.username = username
         self.role = role
@@ -438,7 +480,9 @@ class User(UserMixin):
         # ACTIVITY_PERSIST_INTERVAL (see ``UserManager.touch_activity``).
         self.last_active = last_active
         self.settings = settings if settings is not None else {}
-        self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
+        self.machine_annotation_votes = (
+            machine_annotation_votes if machine_annotation_votes is not None else {}
+        )
         self.display_username = display_username or ""
         self.created_at = created_at
         # Set once, when a pending-approval signup emails an admin: a
@@ -497,6 +541,7 @@ class User(UserMixin):
         """
         # Imported here to avoid a circular import at module load.
         from web_interface.permissions import user_has_permission
+
         return user_has_permission(self, perm_key)
 
     def to_dict(self):
@@ -521,6 +566,7 @@ class User(UserMixin):
             "email_verified_at": self.email_verified_at,
             "email_verification_sent_at": self.email_verification_sent_at,
         }
+
 
 def _user_from_record(user_data: dict) -> "User":
     """Build a :class:`User` from a stored JSON record (missing keys → defaults).
@@ -558,6 +604,7 @@ def _user_from_record(user_data: dict) -> "User":
 
 
 # --- User Manager ---
+
 
 class UserManager:
     def __init__(self, storage_location="users", bootstrap=True):
@@ -616,7 +663,9 @@ class UserManager:
         console of the first boot — it is never written to the user store.
         """
         try:
-            files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
+            files = data_io.listdir(
+                storage_location=self.storage_location, return_absolute_path=False
+            )
         except Exception as e:
             # Be conservative: never fabricate an admin when the listing failed.
             logger.error(f"Default-admin check could not list users: {e}")
@@ -638,8 +687,13 @@ class UserManager:
         if not has_user:
             logger.info("No users found. Creating default admin.")
             password = secrets.token_urlsafe(12)
-            self.add_user("admin@admin.net", password, ROLE_ADMIN, approved=True,
-                          email_verified_via=EMAIL_VERIFIED_ADMIN)
+            self.add_user(
+                "admin@admin.net",
+                password,
+                ROLE_ADMIN,
+                approved=True,
+                email_verified_via=EMAIL_VERIFIED_ADMIN,
+            )
             print(
                 "\n"
                 "[AUTH] ============================================================\n"
@@ -682,76 +736,97 @@ class UserManager:
         """
         self._ensure_loaded()
         return self.users
-    
+
     def migrate_legacy_data(self):
         """Migrates legacy users.json and _tags.json to individual {username}.json files."""
         legacy_file = "users.json"
-        
+
         # Check if legacy file exists using data_io
         if data_io.exists(storage_location=self.storage_location, filename=legacy_file):
             logger.info("Found legacy users.json, starting migration...")
-            
+
             try:
-                legacy_users = data_io.load_json(storage_location=self.storage_location, filename=legacy_file)
+                legacy_users = data_io.load_json(
+                    storage_location=self.storage_location, filename=legacy_file
+                )
                 if not legacy_users:
                     return
 
                 for username, user_data in legacy_users.items():
                     target_filename = f"{username}.json"
-                    
+
                     # 1. Check if already migrated
-                    if data_io.exists(storage_location=self.storage_location, filename=target_filename):
-                        logger.info(f"Skipping migration for {username}, {target_filename} already exists.")
+                    if data_io.exists(
+                        storage_location=self.storage_location, filename=target_filename
+                    ):
+                        logger.info(
+                            f"Skipping migration for {username}, {target_filename} already exists."
+                        )
                         continue
-                        
+
                     # 2. Build new user object structure
                     new_user_data = {
-                        "username": user_data.get('username', username),
-                        "display_username": user_data.get('display_username', ''),
-                        "role": user_data.get('role', 'viewer'), # Default to viewer if missing
-                        "password_hash": user_data.get('password_hash'),
-                        "approved": user_data.get('approved', True),
-                        "last_login": user_data.get('last_login'),
-                        "created_at": user_data.get('created_at'),
-                        "settings": user_data.get('settings', {})
+                        "username": user_data.get("username", username),
+                        "display_username": user_data.get("display_username", ""),
+                        "role": user_data.get("role", "viewer"),  # Default to viewer if missing
+                        "password_hash": user_data.get("password_hash"),
+                        "approved": user_data.get("approved", True),
+                        "last_login": user_data.get("last_login"),
+                        "created_at": user_data.get("created_at"),
+                        "settings": user_data.get("settings", {}),
                     }
-                    
+
                     # Ensure defaults for settings (annotation sharing is opt-in)
-                    default_settings = {
-                        "share_annotations": False,
-                        "video_autostart": False
-                    }
+                    default_settings = {"share_annotations": False, "video_autostart": False}
                     # Update defaults with existing settings (existing override defaults)
                     merged_settings = default_settings.copy()
-                    merged_settings.update(new_user_data['settings'])
-                    new_user_data['settings'] = merged_settings
-                    
+                    merged_settings.update(new_user_data["settings"])
+                    new_user_data["settings"] = merged_settings
+
                     # 3. Check for and merge legacy tags
                     tags_filename = f"{username}_tags.json"
                     tags_data = {}
-                    if data_io.exists(storage_location=self.storage_location, filename=tags_filename):
-                         logger.info(f"Merging legacy tags for {username}...")
-                         tags_data = data_io.load_json(storage_location=self.storage_location, filename=tags_filename)
-                         if tags_data:
-                             new_user_data['annotations'] = tags_data
-                             
+                    if data_io.exists(
+                        storage_location=self.storage_location, filename=tags_filename
+                    ):
+                        logger.info(f"Merging legacy tags for {username}...")
+                        tags_data = data_io.load_json(
+                            storage_location=self.storage_location, filename=tags_filename
+                        )
+                        if tags_data:
+                            new_user_data["annotations"] = tags_data
+
                     # 4. Save new individual file
-                    data_io.save_json(data=new_user_data, storage_location=self.storage_location, filename=target_filename)
+                    data_io.save_json(
+                        data=new_user_data,
+                        storage_location=self.storage_location,
+                        filename=target_filename,
+                    )
                     logger.info(f"Migrated {username} to {target_filename}")
-                    
+
                     # 5. Handle legacy tags file "rename" (Load -> SaveAs -> Remove)
-                    if tags_data: # Only if we successfully loaded it
+                    if tags_data:  # Only if we successfully loaded it
                         try:
                             migrated_tags_filename = f"{username}_tags.json.migrated"
-                            data_io.save_json(data=tags_data, storage_location=self.storage_location, filename=migrated_tags_filename)
-                            data_io.remove(storage_location=self.storage_location, filename=tags_filename)
+                            data_io.save_json(
+                                data=tags_data,
+                                storage_location=self.storage_location,
+                                filename=migrated_tags_filename,
+                            )
+                            data_io.remove(
+                                storage_location=self.storage_location, filename=tags_filename
+                            )
                         except Exception as e:
                             logger.error(f"Failed to rename legacy tags file for {username}: {e}")
 
                 # 6. Handle legacy users.json "rename"
                 try:
                     migrated_users_filename = "users.json.migrated"
-                    data_io.save_json(data=legacy_users, storage_location=self.storage_location, filename=migrated_users_filename)
+                    data_io.save_json(
+                        data=legacy_users,
+                        storage_location=self.storage_location,
+                        filename=migrated_users_filename,
+                    )
                     data_io.remove(storage_location=self.storage_location, filename=legacy_file)
                     logger.info("Legacy users.json migrated and renamed.")
                 except Exception as e:
@@ -778,12 +853,16 @@ class UserManager:
         max_workers = 0
         try:
             # 1. List all .json files in storage location
-            files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
+            files = data_io.listdir(
+                storage_location=self.storage_location, return_absolute_path=False
+            )
             json_files = [f for f in files if _is_candidate_user_file(f)]
 
             def _load_one(fname):
                 try:
-                    return fname, data_io.load_json(storage_location=self.storage_location, filename=fname)
+                    return fname, data_io.load_json(
+                        storage_location=self.storage_location, filename=fname
+                    )
                 except Exception as e:
                     logger.error(f"Failed to load user file {fname}: {e}")
                     return fname, None
@@ -795,15 +874,17 @@ class UserManager:
                     results = list(pool.map(_load_one, json_files))
 
             for fname, user_data in results:
-                if user_data and 'username' in user_data:
-                    username = user_data['username']
+                if user_data and "username" in user_data:
+                    username = user_data["username"]
                     loaded[username] = _user_from_record(user_data)
 
             self.users = loaded
             elapsed = time.perf_counter() - _t_start
             # Use print() so the timing line reliably surfaces in Cloud Logging
             # (default root logger level is WARNING, which drops logger.info).
-            print(f"[AUTH] Loaded {len(self.users)} users from {self.storage_location} in {elapsed:.2f}s (workers={max_workers})")
+            print(
+                f"[AUTH] Loaded {len(self.users)} users from {self.storage_location} in {elapsed:.2f}s (workers={max_workers})"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to list user directory: {e}")
@@ -812,25 +893,31 @@ class UserManager:
     def save_user(self, username):
         """Saves a specific user to their individual JSON file."""
         user = self.users.get(username)
-        if not user: return
-        
+        if not user:
+            return
+
         filename = f"{username}.json"
-        
+
         # Load existing file to preserve 'annotations' if present (crucial for preserving tags during auth updates)
         existing_data = {}
         if data_io.exists(storage_location=self.storage_location, filename=filename):
-            existing_data = data_io.load_json(storage_location=self.storage_location, filename=filename) or {}
-            
+            existing_data = (
+                data_io.load_json(storage_location=self.storage_location, filename=filename) or {}
+            )
+
         # Update with current user object state
         user_dict = user.to_dict()
         existing_data.update(user_dict)
-        
+
         try:
-            data_io.save_json(data=existing_data, storage_location=self.storage_location, filename=filename)
+            data_io.save_json(
+                data=existing_data, storage_location=self.storage_location, filename=filename
+            )
             logger.info(f"Saved user {username}.")
             # Function-level import: data_service imports parts of the web layer,
             # so a module-level import here would create a cycle.
             from .data_service import invalidate_user_json_cache
+
             invalidate_user_json_cache(username)
         except Exception as e:
             logger.error(f"Failed to save user {username}: {e}")
@@ -850,9 +937,7 @@ class UserManager:
         if isinstance(user_id, str) and user_id:
             filename = f"{user_id}.json"
             try:
-                if not data_io.exists(
-                    storage_location=self.storage_location, filename=filename
-                ):
+                if not data_io.exists(storage_location=self.storage_location, filename=filename):
                     return None
                 user_data = data_io.load_json(
                     storage_location=self.storage_location, filename=filename
@@ -891,9 +976,20 @@ class UserManager:
                 return user
         return None
 
-    def add_user(self, username, password, role, approved=False, display_username=None,
-                 account_kind=None, profile=None, origin=None, placeholder=False,
-                 terms_accepted_at=None, email_verified_via=None):
+    def add_user(
+        self,
+        username,
+        password,
+        role,
+        approved=False,
+        display_username=None,
+        account_kind=None,
+        profile=None,
+        origin=None,
+        placeholder=False,
+        terms_accepted_at=None,
+        email_verified_via=None,
+    ):
         """Create a user. ``password=None`` creates an account that cannot log
         in until an admin sets a password (participant accounts).
 
@@ -915,23 +1011,31 @@ class UserManager:
             profile, dropped = sanitize_profile(profile)
             if dropped:
                 logger.warning(f"Dropped invalid profile data while creating {username}: {dropped}")
-        new_user = User(username, role, password_hash, approved=approved, display_username=display_username,
-                        created_at=created_at, profile=profile, account_kind=account_kind,
-                        placeholder=placeholder, origin=origin, terms_accepted_at=terms_accepted_at,
-                        email_verified_via=email_verified_via,
-                        email_verified_at=created_at if email_verified_via else None)
+        new_user = User(
+            username,
+            role,
+            password_hash,
+            approved=approved,
+            display_username=display_username,
+            created_at=created_at,
+            profile=profile,
+            account_kind=account_kind,
+            placeholder=placeholder,
+            origin=origin,
+            terms_accepted_at=terms_accepted_at,
+            email_verified_via=email_verified_via,
+            email_verified_at=created_at if email_verified_via else None,
+        )
         # Default Settings for New Users (annotation sharing is opt-in)
-        new_user.settings = {
-            "share_annotations": False,
-            "video_autostart": False
-        }
+        new_user.settings = {"share_annotations": False, "video_autostart": False}
 
         self.users[username] = new_user
         self.save_user(username)
         return True, "User created"
 
-    def claim_participant_account(self, username, password, display_username=None, approved=True,
-                                  terms_accepted_at=None):
+    def claim_participant_account(
+        self, username, password, display_username=None, approved=True, terms_accepted_at=None
+    ):
         """Give a passwordless participant account a password (and display name).
 
         Only accounts that cannot log in yet are claimable; a placeholder
@@ -1049,12 +1153,13 @@ class UserManager:
         # import to respect the auth<->data_service import cycle.
         try:
             from .data_service import invalidate_user_json_cache
+
             invalidate_user_json_cache(username)
         except Exception as e:
             logger.error(f"Failed to invalidate user cache for {username}: {e}")
 
         return True, "User deleted"
-    
+
     def update_user_role(self, username, new_role):
         # The last-admin demotion guard counts every admin — load the full roster.
         self._ensure_loaded()
@@ -1066,12 +1171,12 @@ class UserManager:
         # Prevent demoting the last admin
         admins = [u for u in self.users.values() if u.role == ROLE_ADMIN and u.approved]
         if self.users[username].role == ROLE_ADMIN and len(admins) <= 1 and new_role != ROLE_ADMIN:
-             return False, "Cannot demote the last admin user"
+            return False, "Cannot demote the last admin user"
 
         self.users[username].role = new_role
         self.save_user(username)
         return True, "Role updated"
-        
+
     def approve_user(self, username):
         user = self.get_user(username)
         if user is None:
@@ -1151,7 +1256,8 @@ class UserManager:
         if user is None:
             return False, "User not found"
         user.email_verification_sent_at = (
-            sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
+            sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
+        )
         self.save_user(username)
         return True, "Verification send recorded"
 
@@ -1187,6 +1293,7 @@ class UserManager:
             The usernames that were deleted.
         """
         from .collection_accounts import collections_for_user
+
         now = now or datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(days=max_age_days)
         removed = []
@@ -1300,28 +1407,30 @@ class UserManager:
             return False, "User not found"
 
         votes = user.machine_annotation_votes
-        
+
         # Initialize list for this collection if missing
         if collection_id not in votes:
-             votes[collection_id] = []
-             
+            votes[collection_id] = []
+
         # Add the period if they haven't voted for it already
         if period not in votes[collection_id]:
-             votes[collection_id].append(period)
-             self.save_user(username)
-             return True, "Vote registered"
-             
+            votes[collection_id].append(period)
+            self.save_user(username)
+            return True, "Vote registered"
+
         return True, "Already voted"
 
     def verify_user(self, username, password):
         user = self.get_user(username)
         if user and user.can_login() and verify_password(user.password_hash, password):
             if not user.email_verified() or not user.approved:
-                return None # Or handle differently in calling code
+                return None  # Or handle differently in calling code
             return user
         return None
 
+
 # --- Decorators ---
+
 
 def role_required(roles):
     def decorator(f):
@@ -1329,21 +1438,21 @@ def role_required(roles):
         def decorated_function(*args, **kwargs):
             if not current_user.is_authenticated:
                 return current_app.login_manager.unauthorized()
-            
+
             # Allow admin to access everything
             if current_user.is_admin():
                 return f(*args, **kwargs)
 
             # Check if user's role is in the allowed list
             if current_user.role not in roles:
-                 abort(403) # Forbidden
-                 
+                abort(403)  # Forbidden
+
             return f(*args, **kwargs)
+
         return decorated_function
+
     return decorator
+
 
 def admin_required(f):
     return role_required([ROLE_ADMIN])(f)
-
-
-

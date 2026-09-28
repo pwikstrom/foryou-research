@@ -16,10 +16,6 @@ def test_qwen_api_backend_registers():
     assert b.dim() == 1024
 
 
-
-
-
-
 def test_qwen_api_availability_requires_key(monkeypatch):
     monkeypatch.delenv(eq.API_KEY_ENV, raising=False)
     result = embedding_backends.get_backend("qwen_api").availability()
@@ -30,20 +26,15 @@ def test_qwen_api_availability_requires_key(monkeypatch):
     assert embedding_backends.get_backend("qwen_api").availability().ok is True
 
 
-
-
-
-
 def test_qwen_api_config_overrides(monkeypatch):
-    monkeypatch.setitem(get_config().setdefault("embedding", {}), "qwen_api",
-                        {"model_id": "text-embedding-v5", "dim": 512})
+    monkeypatch.setitem(
+        get_config().setdefault("embedding", {}),
+        "qwen_api",
+        {"model_id": "text-embedding-v5", "dim": 512},
+    )
     b = embedding_backends.get_backend("qwen_api")
     assert b.model_id() == "text-embedding-v5"
     assert b.dim() == 512
-
-
-
-
 
 
 def test_qwen_api_embed_texts_batches_and_zero_fills(monkeypatch):
@@ -57,22 +48,19 @@ def test_qwen_api_embed_texts_batches_and_zero_fills(monkeypatch):
         return [[1.0] * int(cf["dim"])] * len(chunk)
 
     monkeypatch.setenv(eq.API_KEY_ENV, "sk-test")
-    monkeypatch.setitem(get_config().setdefault("embedding", {}), "qwen_api",
-                        {"dim": 4, "batch_size": 2})
+    monkeypatch.setitem(
+        get_config().setdefault("embedding", {}), "qwen_api", {"dim": 4, "batch_size": 2}
+    )
     monkeypatch.setattr(eq, "_embed_batch", fake_embed_batch)
 
     b = embedding_backends.get_backend("qwen_api")
     matrix = b.embed_texts(["a", "b", "fail", "d", "e"])
     assert matrix.shape == (5, 4)
     assert matrix.dtype == np.float32
-    assert matrix[0].sum() == 4.0 and matrix[1].sum() == 4.0   # first batch ok
-    assert matrix[2].sum() == 0.0 and matrix[3].sum() == 0.0   # failed batch zeroed
-    assert matrix[4].sum() == 4.0                              # last batch ok
+    assert matrix[0].sum() == 4.0 and matrix[1].sum() == 4.0  # first batch ok
+    assert matrix[2].sum() == 0.0 and matrix[3].sum() == 0.0  # failed batch zeroed
+    assert matrix[4].sum() == 4.0  # last batch ok
     assert [len(c) for c in sorted(calls, key=len, reverse=True)] == [2, 2, 1]
-
-
-
-
 
 
 def test_gemini_embedding_config_defaults_and_overrides(monkeypatch):
@@ -82,15 +70,14 @@ def test_gemini_embedding_config_defaults_and_overrides(monkeypatch):
     assert cf["location"] == "us-central1"
     assert cf["task_type"] == "CLUSTERING"
 
-    monkeypatch.setitem(get_config().setdefault("embedding", {}), "gemini",
-                        {"model_id": "gemini-embedding-002", "dim": 3072})
+    monkeypatch.setitem(
+        get_config().setdefault("embedding", {}),
+        "gemini",
+        {"model_id": "gemini-embedding-002", "dim": 3072},
+    )
     b = embedding_backends.get_backend("gemini")
     assert b.model_id() == "gemini-embedding-002"
     assert b.dim() == 3072
-
-
-
-
 
 
 def test_gemini_empty_task_type_is_omitted(monkeypatch):
@@ -102,17 +89,23 @@ def test_gemini_empty_task_type_is_omitted(monkeypatch):
     class _FakeModels:
         def embed_content(self, model=None, contents=None, config=None):
             captured.update({"model": model, "config": config})
+
             class _E:
                 values = [0.0] * int(config.output_dimensionality)
+
             class _R:
                 embeddings = [_E()] * len(contents)
+
             return _R()
 
     class _FakeClient:
         models = _FakeModels()
 
-    monkeypatch.setitem(get_config().setdefault("embedding", {}), "gemini",
-                        {"model_id": "gemini-embedding-2", "task_type": "", "dim": 8})
+    monkeypatch.setitem(
+        get_config().setdefault("embedding", {}),
+        "gemini",
+        {"model_id": "gemini-embedding-2", "task_type": "", "dim": 8},
+    )
     assert eg._embed_batch(_FakeClient(), ["a", "b"]) is not None
     assert captured["model"] == "gemini-embedding-2"
     assert captured["config"].task_type is None
@@ -122,18 +115,15 @@ def test_gemini_empty_task_type_is_omitted(monkeypatch):
     assert captured["config"].task_type == "CLUSTERING"  # default unchanged
 
 
-
-
-
-
 def test_legacy_shard_attribution_is_config_independent(monkeypatch):
     """Rows without a model column always belong to the original literal."""
     import pandas as pd
 
     from fyp.analysis.embeddings import _model_mask
 
-    monkeypatch.setitem(get_config().setdefault("embedding", {}), "gemini",
-                        {"model_id": "gemini-embedding-002"})
+    monkeypatch.setitem(
+        get_config().setdefault("embedding", {}), "gemini", {"model_id": "gemini-embedding-002"}
+    )
     df = pd.DataFrame({"item_id": ["1", "2"]})
     assert _model_mask(df, "gemini-embedding-001").all()
     assert not _model_mask(df, "gemini-embedding-002").any()

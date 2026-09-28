@@ -20,8 +20,6 @@ from fyp.annotation import irrelevant_words as iw
 from web_interface.auth import User
 
 
-
-
 class _StubDataIO:
     """In-memory JSON store; never touches real storage."""
 
@@ -38,8 +36,6 @@ class _StubDataIO:
         self.payload = data
 
 
-
-
 def _make_app():
     from web_interface.fyp_data_hub import create_app
 
@@ -47,8 +43,6 @@ def _make_app():
     app.config["TESTING"] = True
     app.config["WTF_CSRF_ENABLED"] = False
     return app
-
-
 
 
 def run():
@@ -127,8 +121,6 @@ def run():
         iw._cf = original_cf
 
     print("All irrelevant-words API tests passed.")
-
-
 
 
 def test_irrelevant_words_api():

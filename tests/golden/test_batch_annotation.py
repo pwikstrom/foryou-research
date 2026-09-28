@@ -23,8 +23,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))        # tests/golden
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/golden
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 
 from _harness import isolated_storage, pinned_var_schema
 from test_structured_refinement_path import _structured_response
@@ -32,7 +32,12 @@ from test_structured_refinement_path import _structured_response
 import fyp.annotation.machine_annotation as ma
 import fyp.annotation.machine_annotation_batch as batch
 
-_GEN = {"temperature": 1.0, "max_output_tokens": 65536, "thinking_budget": -1, "media_resolution": None}
+_GEN = {
+    "temperature": 1.0,
+    "max_output_tokens": 65536,
+    "thinking_budget": -1,
+    "media_resolution": None,
+}
 _SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}}
 
 
@@ -40,16 +45,28 @@ def _success_record(item_id: str, text: str) -> dict:
     return {
         "request": {
             "contents": [
-                {"role": "user", "parts": [
-                    {"text": "Analyze this video"},
-                    {"fileData": {"fileUri": f"gs://b/media/{item_id}.mp4", "mimeType": "video/mp4"}},
-                ]}
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "Analyze this video"},
+                        {
+                            "fileData": {
+                                "fileUri": f"gs://b/media/{item_id}.mp4",
+                                "mimeType": "video/mp4",
+                            }
+                        },
+                    ],
+                }
             ]
         },
         "response": {
             "candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}],
-            "usageMetadata": {"promptTokenCount": 1200, "candidatesTokenCount": 800,
-                              "thoughtsTokenCount": 300, "totalTokenCount": 2300},
+            "usageMetadata": {
+                "promptTokenCount": 1200,
+                "candidatesTokenCount": 800,
+                "thoughtsTokenCount": 300,
+                "totalTokenCount": 2300,
+            },
         },
     }
 
@@ -58,9 +75,16 @@ def _success_record(item_id: str, text: str) -> dict:
 # request builder
 # ---------------------------------------------------------------------------
 
+
 def test_build_request_dict_structure() -> None:
-    req = batch.build_request_dict("12345", bucket="mybucket", media_prefix="media",
-                                   system_instruction="PROMPT", schema_json=_SCHEMA, gen_params=_GEN)
+    req = batch.build_request_dict(
+        "12345",
+        bucket="mybucket",
+        media_prefix="media",
+        system_instruction="PROMPT",
+        schema_json=_SCHEMA,
+        gen_params=_GEN,
+    )
     r = req["request"]
     parts = r["contents"][0]["parts"]
     assert parts[1]["fileData"]["fileUri"] == "gs://mybucket/media/12345.mp4"
@@ -70,17 +94,29 @@ def test_build_request_dict_structure() -> None:
     assert gc["responseMimeType"] == "application/json"
     assert gc["responseSchema"] == _SCHEMA
     assert gc["thinkingConfig"]["thinkingBudget"] == -1
-    assert "mediaResolution" not in gc       # None -> omitted
+    assert "mediaResolution" not in gc  # None -> omitted
 
 
 def test_build_request_media_resolution() -> None:
     gen = dict(_GEN, media_resolution="LOW")
-    gc = batch.build_request_dict("1", bucket="b", media_prefix="media",
-                                  system_instruction="p", schema_json=_SCHEMA, gen_params=gen)["request"]["generationConfig"]
+    gc = batch.build_request_dict(
+        "1",
+        bucket="b",
+        media_prefix="media",
+        system_instruction="p",
+        schema_json=_SCHEMA,
+        gen_params=gen,
+    )["request"]["generationConfig"]
     assert gc["mediaResolution"] == "MEDIA_RESOLUTION_LOW"
     gen2 = dict(_GEN, media_resolution="MEDIA_RESOLUTION_HIGH")
-    gc2 = batch.build_request_dict("1", bucket="b", media_prefix="media",
-                                   system_instruction="p", schema_json=_SCHEMA, gen_params=gen2)["request"]["generationConfig"]
+    gc2 = batch.build_request_dict(
+        "1",
+        bucket="b",
+        media_prefix="media",
+        system_instruction="p",
+        schema_json=_SCHEMA,
+        gen_params=gen2,
+    )["request"]["generationConfig"]
     assert gc2["mediaResolution"] == "MEDIA_RESOLUTION_HIGH"
 
 
@@ -93,10 +129,15 @@ def test_item_id_from_uri() -> None:
 # output -> raw-shape mapping
 # ---------------------------------------------------------------------------
 
+
 def test_ingest_success_record_shape() -> None:
     rec = _success_record("111", '{"type_of_story": "Human-Interest"}')
-    out = batch.ingest_output_record(rec, model="gemini-3-flash-preview",
-                                     prompt_fn="new_prompt_002.txt", annotation_version="av_x")
+    out = batch.ingest_output_record(
+        rec,
+        model="gemini-3-flash-preview",
+        prompt_fn="new_prompt_002.txt",
+        annotation_version="av_x",
+    )
     assert out["item_id"] == "111"
     assert out["structured"] is True
     assert out["annotation_version"] == "av_x"
@@ -109,16 +150,30 @@ def test_ingest_success_record_shape() -> None:
 def test_ingest_raw_shape_matches_call_machine_contract() -> None:
     # The raw dict MUST carry exactly the keys the synchronous call_machine
     # emits, so the marker-driven refinement consumes it unchanged.
-    expected = {"item_id", "inference_ts", "inference_duration", "model", "prompt_fn",
-                "annotation_version", "structured", "usage", "error", "finish_reason", "response"}
-    out = batch.ingest_output_record(_success_record("1", "{}"), model="m",
-                                     prompt_fn="p", annotation_version="av_x")
+    expected = {
+        "item_id",
+        "inference_ts",
+        "inference_duration",
+        "model",
+        "prompt_fn",
+        "annotation_version",
+        "structured",
+        "usage",
+        "error",
+        "finish_reason",
+        "response",
+    }
+    out = batch.ingest_output_record(
+        _success_record("1", "{}"), model="m", prompt_fn="p", annotation_version="av_x"
+    )
     assert set(out.keys()) == expected
 
 
 def test_ingest_error_record_is_dnf() -> None:
-    rec = {"request": {"contents": [{"parts": [{"fileData": {"fileUri": "gs://b/media/7.mp4"}}]}]},
-           "status": {"code": 3, "message": "bad request"}}
+    rec = {
+        "request": {"contents": [{"parts": [{"fileData": {"fileUri": "gs://b/media/7.mp4"}}]}]},
+        "status": {"code": 3, "message": "bad request"},
+    }
     out = batch.ingest_output_record(rec, model="m", prompt_fn="p", annotation_version="av_x")
     assert out["item_id"] == "7"
     assert out["finish_reason"].startswith("DNF")
@@ -127,10 +182,12 @@ def test_ingest_error_record_is_dnf() -> None:
 
 def test_ingest_records_synthesizes_dnf_for_missing() -> None:
     records = [_success_record("a", "{}")]
-    raw = batch.ingest_records_to_raw(records, ["a", "b"], model="m", prompt_fn="p", annotation_version="av_x")
+    raw = batch.ingest_records_to_raw(
+        records, ["a", "b"], model="m", prompt_fn="p", annotation_version="av_x"
+    )
     by_item = {v["item_id"]: v for v in raw.values()}
     assert by_item["a"]["finish_reason"] == "STOP"
-    assert by_item["b"]["finish_reason"].startswith("DNF")   # missing from output
+    assert by_item["b"]["finish_reason"].startswith("DNF")  # missing from output
     assert by_item["b"]["response"] == ""
 
 
@@ -139,12 +196,19 @@ def test_batch_ingested_raw_refines_through_structured_path() -> None:
     # a synchronous one (structured marker -> flatten_structured), yielding an
     # annotated row that carries its annotation_version.
     rec = _success_record("1000000000000000001", json.dumps(_structured_response("Human-Interest")))
-    raw = batch.ingest_records_to_raw([rec], ["1000000000000000001"],
-                                      model="gemini-3-flash-preview", prompt_fn="new_prompt_002.txt",
-                                      annotation_version="av_batch_test")
+    raw = batch.ingest_records_to_raw(
+        [rec],
+        ["1000000000000000001"],
+        model="gemini-3-flash-preview",
+        prompt_fn="new_prompt_002.txt",
+        annotation_version="av_batch_test",
+    )
     with pinned_var_schema(), isolated_storage():
-        df = ma.refine_one_raw_annotation_batch(raw_outputs_from_machine=raw,
-                                                raw_json_filename="machine_annotations_batch_x.json", verbose=False)
+        df = ma.refine_one_raw_annotation_batch(
+            raw_outputs_from_machine=raw,
+            raw_json_filename="machine_annotations_batch_x.json",
+            verbose=False,
+        )
     assert df is not None and len(df) == 1
     assert bool(df["annotated_ok"].fillna(False).all())
     assert df["annotation_version"].iloc[0] == "av_batch_test"

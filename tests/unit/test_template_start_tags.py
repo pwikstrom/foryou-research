@@ -144,7 +144,7 @@ def test_detector_catches_the_a8e10e5d_shape():
     """
     broken = (
         "<script src=\"{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=3\""
-        "</script>\n<div id=\"admin\"></div>"
+        '</script>\n<div id="admin"></div>'
     )
     assert unterminated_start_tags(broken) == [(1, "script")]
 
@@ -159,7 +159,7 @@ def test_detector_reports_the_line_of_a_broken_tag_mid_file():
     [
         '<div class="a > b">text</div>',
         "<input value='a > b'>",
-        '<script>for (let i = 0; i<n; i++) { a(i); }</script>',
+        "<script>for (let i = 0; i<n; i++) { a(i); }</script>",
         '<script src="/static/js/x.js?v=3"></script>',
         "<style>.a{content:'<'}</style>",
         "<option {% if a > b %}selected{% endif %}>x</option>",

@@ -39,7 +39,7 @@ from ..mail_utils import (
 from ..permissions import permission_required
 from ..security import user_manager
 
-auth_bp = Blueprint('auth_bp', __name__)
+auth_bp = Blueprint("auth_bp", __name__)
 logger = logging.getLogger(__name__)
 
 from ..slack_service import get_recent_messages
@@ -51,33 +51,36 @@ def _safe_next(target: str | None) -> str | None:
     An absolute URL (or a scheme-relative ``//host`` one) in ``next`` would let
     a crafted login link bounce a fresh session to an attacker's site.
     """
-    if target and target.startswith('/') and not target.startswith('//'):
+    if target and target.startswith("/") and not target.startswith("//"):
         return target
     return None
 
 
-@auth_bp.route('/login', methods=['GET', 'POST'])
+@auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for("index"))
 
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+
         # Check if user exists first to distinguish between "Wrong password" and "Not approved"
         user_obj = user_manager.get_user(username)
-        
+
         if user_obj:
             # Verify password first (Mitigates timing attacks by always checking password)
             if auth.verify_password(user_obj.password_hash, password):
                 if not user_obj.email_verified():
                     # The resend form on the login page keys off this category.
-                    flash('Please verify your email address first: open the link '
-                          'we emailed you when you signed up.', 'unverified')
-                    session['unverified_username'] = user_obj.username
+                    flash(
+                        "Please verify your email address first: open the link "
+                        "we emailed you when you signed up.",
+                        "unverified",
+                    )
+                    session["unverified_username"] = user_obj.username
                 elif not user_obj.approved:
-                    flash('Your account is pending approval from an administrator.')
+                    flash("Your account is pending approval from an administrator.")
                 else:
                     login_user(user_obj)
                     user_manager.update_last_login(user_obj.username)
@@ -87,57 +90,63 @@ def login():
                     # Idempotent and cheap; must run AFTER update_last_login
                     # (the dormancy gate reads it) and never fails the login.
                     from ..services.participant_studies import ensure_on_login
+
                     ensure_on_login(user_obj.username)
-                    session['login_time'] = datetime.now(timezone.utc).isoformat()
-                    next_page = _safe_next(request.args.get('next'))
-                    return redirect(next_page or url_for('index'))
+                    session["login_time"] = datetime.now(timezone.utc).isoformat()
+                    next_page = _safe_next(request.args.get("next"))
+                    return redirect(next_page or url_for("index"))
             else:
-                flash('Invalid username or password')
+                flash("Invalid username or password")
         else:
             # Timing attack mitigation: Perform dummy hash check
             # Use a dummy hash (random but consistent format)
-            dummy_hash = "77d9c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6" + "a" * 128
+            dummy_hash = (
+                "77d9c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6" + "a" * 128
+            )
             auth.verify_password(dummy_hash, "dummy_password")
-            flash('Invalid username or password')
-    
+            flash("Invalid username or password")
+
     slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
     slack_messages = get_recent_messages() if slack_configured else []
-    return render_template('login.html', slack_messages=slack_messages, slack_configured=slack_configured)
+    return render_template(
+        "login.html", slack_messages=slack_messages, slack_configured=slack_configured
+    )
 
-@auth_bp.route('/signup', methods=['GET', 'POST'])
+
+@auth_bp.route("/signup", methods=["GET", "POST"])
 def signup():
     if current_user.is_authenticated:
-         return redirect(url_for('index'))
-         
+        return redirect(url_for("index"))
+
     # Kept through the whole signup → login round trip so a funnel entry
     # (e.g. the participation wizard's "?next=/participate/go-upload") still
     # lands where it intended after the account exists.
-    next_target = _safe_next(request.form.get('next') or request.args.get('next'))
+    next_target = _safe_next(request.form.get("next") or request.args.get("next"))
 
-    if request.method == 'POST':
-        username = request.form.get('username')
-        display_username = request.form.get('display_username')
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
+    if request.method == "POST":
+        username = request.form.get("username")
+        display_username = request.form.get("display_username")
+        password = request.form.get("password")
+        confirm_password = request.form.get("confirm_password")
 
-        if not request.form.get('accept_terms'):
+        if not request.form.get("accept_terms"):
             flash("Please accept the terms of use to create an account")
-            return render_template('signup.html', next_target=next_target)
+            return render_template("signup.html", next_target=next_target)
 
         if password != confirm_password:
             flash("Passwords do not match")
-            return render_template('signup.html', next_target=next_target)
+            return render_template("signup.html", next_target=next_target)
 
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
             flash(f"Invalid email: {e!s}")
-            return render_template('signup.html', next_target=next_target)
+            return render_template("signup.html", next_target=next_target)
 
         cleaned_display, display_err = auth.validate_display_username(display_username)
         if display_err:
             flash(display_err)
-            return render_template('signup.html', next_target=next_target)
+            return render_template("signup.html", next_target=next_target)
 
         # Admin-controlled flag (UI-toggleable, persisted in admin_settings.json).
         require_approval = get_new_user_approval_required()
@@ -158,21 +167,32 @@ def signup():
             # the password typed here is ignored — it just gets a new link.
             email_verification.send_verification_link(user_manager, existing, next_target)
             flash(VERIFY_FLASH)
-            return redirect(url_for('auth_bp.login', next=next_target) if next_target
-                            else url_for('auth_bp.login'))
+            return redirect(
+                url_for("auth_bp.login", next=next_target)
+                if next_target
+                else url_for("auth_bp.login")
+            )
         if existing is not None and not existing.can_login() and not existing.placeholder:
             success, msg = user_manager.claim_participant_account(
-                existing.username, password, cleaned_display, approved=is_approved,
-                terms_accepted_at=terms_accepted_at)
+                existing.username,
+                password,
+                cleaned_display,
+                approved=is_approved,
+                terms_accepted_at=terms_accepted_at,
+            )
             username = existing.username
         else:
             success, msg = user_manager.add_user(
-                username, password, get_default_new_user_role(), approved=is_approved,
+                username,
+                password,
+                get_default_new_user_role(),
+                approved=is_approved,
                 display_username=cleaned_display,
                 origin={"source": "signup", "at": datetime.now(timezone.utc).isoformat()},
-                terms_accepted_at=terms_accepted_at)
+                terms_accepted_at=terms_accepted_at,
+            )
         if success:
-            if next_target and next_target.startswith('/participate'):
+            if next_target and next_target.startswith("/participate"):
                 # Funnel-origin signup: queue the guided tour for the first
                 # visit to the app shell (index.html checks this setting).
                 user_manager.update_user_settings(username, {"hub_tour_pending": True})
@@ -189,24 +209,30 @@ def signup():
                 if skip == auth.EMAIL_VERIFIED_MAIL_UNCONFIGURED:
                     logger.warning(
                         f"Signup {username} admitted WITHOUT email verification: "
-                        f"outgoing mail is not configured (MAIL_PASSWORD / mail sender).")
+                        f"outgoing mail is not configured (MAIL_PASSWORD / mail sender)."
+                    )
                 user_manager.mark_email_verified(username, via=skip)
                 if is_approved:
                     flash("Account created! You can now login.")
                 else:
-                    flash("Account created! Please wait for an administrator to approve your account.")
+                    flash(
+                        "Account created! Please wait for an administrator to approve your account."
+                    )
                     # Approval gating is on: email the oldest admin so they know a
                     # request is waiting, and stamp the pending user once it sends.
                     _notify_admin_of_pending_signup(username, cleaned_display)
-            return redirect(url_for('auth_bp.login', next=next_target) if next_target
-                            else url_for('auth_bp.login'))
+            return redirect(
+                url_for("auth_bp.login", next=next_target)
+                if next_target
+                else url_for("auth_bp.login")
+            )
         else:
             flash(msg)
 
-    return render_template('signup.html', next_target=next_target)
+    return render_template("signup.html", next_target=next_target)
 
 
-@auth_bp.route('/api/signup/email-check')
+@auth_bp.route("/api/signup/email-check")
 def api_signup_email_check():
     """Tell the signup form whether an email can still register.
 
@@ -216,7 +242,7 @@ def api_signup_email_check():
     signing up will claim it, keeping its linked collections), ``taken``
     (an account that can already log in).
     """
-    email = (request.args.get('email') or '').strip()
+    email = (request.args.get("email") or "").strip()
     if not email:
         return jsonify({"status": "available"})
     existing = user_manager.find_user_by_email(email)
@@ -229,7 +255,7 @@ def api_signup_email_check():
     return jsonify({"status": "taken"})
 
 
-@auth_bp.route('/verify-email/<token>')
+@auth_bp.route("/verify-email/<token>")
 def verify_email(token):
     """Open a signup verification link: prove the address, then gate onward.
 
@@ -240,7 +266,7 @@ def verify_email(token):
     parsed = email_verification.parse_token(token, user_manager.get_user)
     if parsed is None:
         flash("That verification link is invalid or has expired. Log in to request a new one.")
-        return redirect(url_for('auth_bp.login'))
+        return redirect(url_for("auth_bp.login"))
     user, next_target = parsed
     next_target = _safe_next(next_target)
     if not user.email_verified():
@@ -251,27 +277,30 @@ def verify_email(token):
         flash("Email verified! You can now log in.")
     else:
         flash("Email verified! Please wait for an administrator to approve your account.")
-    return redirect(url_for('auth_bp.login', next=next_target) if next_target
-                    else url_for('auth_bp.login'))
+    return redirect(
+        url_for("auth_bp.login", next=next_target) if next_target else url_for("auth_bp.login")
+    )
 
 
-@auth_bp.route('/verify-email/resend', methods=['POST'])
+@auth_bp.route("/verify-email/resend", methods=["POST"])
 def resend_verification():
     """Send a fresh verification link to an unverified account.
 
     Always answers with the same neutral message, whatever the address, so
     the form cannot be used to learn which emails hold accounts.
     """
-    username = (request.form.get('username') or session.get('unverified_username') or '').strip()
+    username = (request.form.get("username") or session.get("unverified_username") or "").strip()
     user = user_manager.find_user_by_email(username) if username else None
     if user is not None and user.can_login() and not user.email_verified():
         email_verification.send_verification_link(user_manager, user)
     flash("If that address has an unverified account, a new verification link is on its way.")
-    return redirect(url_for('auth_bp.login'))
+    return redirect(url_for("auth_bp.login"))
 
 
-VERIFY_FLASH = ("Account created! Check your inbox for a verification link. "
-                "You need to open it before you can log in.")
+VERIFY_FLASH = (
+    "Account created! Check your inbox for a verification link. "
+    "You need to open it before you can log in."
+)
 
 
 def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) -> None:
@@ -295,24 +324,27 @@ def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) 
         new_user_email=new_username,
         new_user_display=new_display,
         on_success=lambda: user_manager.record_approval_notification(
-            new_username, sent_to=admin_email),
+            new_username, sent_to=admin_email
+        ),
     )
 
-@auth_bp.route('/logout')
+
+@auth_bp.route("/logout")
 @login_required
 def logout():
     logout_user()
     # Land on the home page: for a now-anonymous visitor, index() renders the
     # public landing page, which has the Log in item in its top menu.
-    return redirect(url_for('index'))
+    return redirect(url_for("index"))
 
-@auth_bp.route('/api/admin/users', methods=['GET', 'POST', 'PUT', 'DELETE'])
-@permission_required('tab.admin.new_users', 'tab.admin.active_users')
+
+@auth_bp.route("/api/admin/users", methods=["GET", "POST", "PUT", "DELETE"])
+@permission_required("tab.admin.new_users", "tab.admin.active_users")
 def api_admin_users():
-    if request.method == 'GET':
+    if request.method == "GET":
         # Return list of users (excluding password hashes)
         users_list = []
-        
+
         # We iterate through active users and attempt to load their data file directly
         # This avoids potential issues with listdir filenames vs user.username casing
 
@@ -324,55 +356,57 @@ def api_admin_users():
 
         for u in user_manager.get_all_users().values():
             ud = u.to_dict()
-            del ud['password_hash']
-            ud['can_login'] = u.can_login()
-            ud['email_verified'] = u.email_verified()
-            ud['collections'] = sorted(owned.get(u.username, []))
-            ud['collections_count'] = len(ud['collections'])
+            del ud["password_hash"]
+            ud["can_login"] = u.can_login()
+            ud["email_verified"] = u.email_verified()
+            ud["collections"] = sorted(owned.get(u.username, []))
+            ud["collections_count"] = len(ud["collections"])
 
             # Init stats
-            ud['stats'] = {
-                'notes': 0,
-                'closed_tags': 0,
-                'open_tags': 0,
-                'unique_videos': 0,
-                'used_tags': [],
-                'user_notes': []
+            ud["stats"] = {
+                "notes": 0,
+                "closed_tags": 0,
+                "open_tags": 0,
+                "unique_videos": 0,
+                "used_tags": [],
+                "user_notes": [],
             }
-            
+
             # Refactored for single file structure
             user_filename = f"{u.username}.json"
-            
+
             # Try to load file directly (data_io.load_json returns None if missing/fail)
             try:
-                #print(f"[DEBUG] Attempting to load {user_filename} for user {u.username}")
+                # print(f"[DEBUG] Attempting to load {user_filename} for user {u.username}")
                 user_data_file = data_io.load_json(storage_location="users", filename=user_filename)
-                
+
                 # Try lowercase if failed
                 if not user_data_file:
-                     #print(f"[DEBUG] Failed to load {user_filename}, trying lowercase...")
-                     user_filename_lower = f"{u.username.lower()}.json"
-                     user_data_file = data_io.load_json(storage_location="users", filename=user_filename_lower)
+                    # print(f"[DEBUG] Failed to load {user_filename}, trying lowercase...")
+                    user_filename_lower = f"{u.username.lower()}.json"
+                    user_data_file = data_io.load_json(
+                        storage_location="users", filename=user_filename_lower
+                    )
 
                 if user_data_file:
-                    #print(f"[DEBUG] Successfully loaded data for {u.username}")
-                    user_annotations = user_data_file.get('annotations', {})
-                    
+                    # print(f"[DEBUG] Successfully loaded data for {u.username}")
+                    user_annotations = user_data_file.get("annotations", {})
+
                     notes_count = 0
                     closed_count = 0
                     open_count = 0
                     unique_videos = set()
                     used_tags = set()
-                    user_notes = [] # List of {item_id: text}
-                    
+                    user_notes = []  # List of {item_id: text}
+
                     for item_id, item_vars in user_annotations.items():
                         has_annotation = False
                         for key, value in item_vars.items():
-                            if key.endswith('__NOTES'):
+                            if key.endswith("__NOTES"):
                                 notes_count += 1
                                 has_annotation = True
-                                user_notes.append({'item': item_id, 'text': value})
-                            elif key.endswith('__CLOSED_TAGGING'):
+                                user_notes.append({"item": item_id, "text": value})
+                            elif key.endswith("__CLOSED_TAGGING"):
                                 closed_count += 1
                                 has_annotation = True
                             else:
@@ -381,29 +415,29 @@ def api_admin_users():
                                     open_count += len(value)
                                     used_tags.update(value)
                                     has_annotation = True
-                        
+
                         if has_annotation:
                             unique_videos.add(item_id)
-                    
-                    ud['stats'] = {
-                        'notes': notes_count,
-                        'closed_tags': closed_count,
-                        'open_tags': open_count,
-                        'unique_videos': len(unique_videos),
-                        'used_tags': sorted(list(used_tags)),
-                        'user_notes': user_notes
+
+                    ud["stats"] = {
+                        "notes": notes_count,
+                        "closed_tags": closed_count,
+                        "open_tags": open_count,
+                        "unique_videos": len(unique_videos),
+                        "used_tags": sorted(list(used_tags)),
+                        "user_notes": user_notes,
                     }
             except Exception as e:
                 print(f"Error loading stats for {u.username}: {e}")
 
             users_list.append(ud)
         return jsonify(users_list)
-        
-    elif request.method == 'POST':
+
+    elif request.method == "POST":
         data = request.json
-        username = data.get('username')
-        display_username = data.get('display_username')
-        password = data.get('password')
+        username = data.get("username")
+        display_username = data.get("display_username")
+        password = data.get("password")
         # Role is no longer admin-selectable per user; the configured default
         # role applies to everyone (signups and admin-created users alike).
         role = get_default_new_user_role()
@@ -421,10 +455,18 @@ def api_admin_users():
             return jsonify({"error": display_err}), 400
 
         success, msg = user_manager.add_user(
-            username, password, role, approved=True, display_username=cleaned_display,
-            origin={"source": "admin", "at": datetime.now(timezone.utc).isoformat(),
-                    "by": current_user.username},
-            email_verified_via=auth.EMAIL_VERIFIED_ADMIN)
+            username,
+            password,
+            role,
+            approved=True,
+            display_username=cleaned_display,
+            origin={
+                "source": "admin",
+                "at": datetime.now(timezone.utc).isoformat(),
+                "by": current_user.username,
+            },
+            email_verified_via=auth.EMAIL_VERIFIED_ADMIN,
+        )
         if success:
             activity_log.record(
                 actor=current_user.username,
@@ -437,129 +479,142 @@ def api_admin_users():
         else:
             return jsonify({"error": msg}), 400
 
-    elif request.method == 'PUT':
+    elif request.method == "PUT":
         data = request.json
-        action = data.get('action')
-        username = data.get('username')
+        action = data.get("action")
+        username = data.get("username")
 
         if not username:
-             return jsonify({"error": "Missing username"}), 400
+            return jsonify({"error": "Missing username"}), 400
 
-        if action == 'approve':
-             success, msg = user_manager.approve_user(username)
-             if success:
-                 send_welcome_email_async(username)
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.approve",
-                     target=username,
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+        if action == "approve":
+            success, msg = user_manager.approve_user(username)
+            if success:
+                send_welcome_email_async(username)
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.approve",
+                    target=username,
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
-        elif action == 'reset_password':
-             new_password = data.get('new_password')
-             if not new_password: return jsonify({"error": "Missing new password"}), 400
+        elif action == "reset_password":
+            new_password = data.get("new_password")
+            if not new_password:
+                return jsonify({"error": "Missing new password"}), 400
 
-             success, msg = user_manager.update_password(username, new_password)
-             if success:
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.reset_password",
-                     target=username,
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+            success, msg = user_manager.update_password(username, new_password)
+            if success:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.reset_password",
+                    target=username,
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
-        elif action == 'set_display_username':
-             prev_user = user_manager.get_user(username)
-             old_name = prev_user.display_username if prev_user else None
-             success, msg = user_manager.update_display_username(username, data.get('display_username'))
-             if success:
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.set_display_username",
-                     target=username,
-                     details={"from": old_name, "to": data.get('display_username')},
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+        elif action == "set_display_username":
+            prev_user = user_manager.get_user(username)
+            old_name = prev_user.display_username if prev_user else None
+            success, msg = user_manager.update_display_username(
+                username, data.get("display_username")
+            )
+            if success:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.set_display_username",
+                    target=username,
+                    details={"from": old_name, "to": data.get("display_username")},
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
-        elif action == 'change_role':
-             new_role = data.get('role')
-             # Capture the previous role before mutation so the log can show
-             # both old and new values.
-             prev_user = user_manager.get_user(username)
-             old_role = prev_user.role if prev_user else None
-             success, msg = user_manager.update_user_role(username, new_role)
-             if success:
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.change_role",
-                     target=username,
-                     details={"from": old_role, "to": new_role},
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+        elif action == "change_role":
+            new_role = data.get("role")
+            # Capture the previous role before mutation so the log can show
+            # both old and new values.
+            prev_user = user_manager.get_user(username)
+            old_role = prev_user.role if prev_user else None
+            success, msg = user_manager.update_user_role(username, new_role)
+            if success:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.change_role",
+                    target=username,
+                    details={"from": old_role, "to": new_role},
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
-        elif action == 'mark_verified':
-             success, msg = user_manager.mark_email_verified(username, via=auth.EMAIL_VERIFIED_ADMIN)
-             if success:
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.mark_email_verified",
-                     target=username,
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+        elif action == "mark_verified":
+            success, msg = user_manager.mark_email_verified(username, via=auth.EMAIL_VERIFIED_ADMIN)
+            if success:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.mark_email_verified",
+                    target=username,
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
-        elif action == 'resend_verification':
-             target = user_manager.get_user(username)
-             if target is None:
-                 return jsonify({"error": "User not found"}), 404
-             if target.email_verified():
-                 return jsonify({"error": "This account is already verified"}), 400
-             if not target.can_login():
-                 return jsonify({"error": "This account has no password to verify"}), 400
-             if not mail_configured():
-                 return jsonify({"error": "Outgoing mail is not configured on this instance"}), 400
-             email_verification.send_verification_link(user_manager, target, force=True)
-             activity_log.record(
-                 actor=current_user.username,
-                 category=activity_log.CATEGORY_USER_MANAGEMENT,
-                 action="user.resend_verification",
-                 target=username,
-             )
-             return jsonify({"status": "success", "message": "Verification link sent"})
+        elif action == "resend_verification":
+            target = user_manager.get_user(username)
+            if target is None:
+                return jsonify({"error": "User not found"}), 404
+            if target.email_verified():
+                return jsonify({"error": "This account is already verified"}), 400
+            if not target.can_login():
+                return jsonify({"error": "This account has no password to verify"}), 400
+            if not mail_configured():
+                return jsonify({"error": "Outgoing mail is not configured on this instance"}), 400
+            email_verification.send_verification_link(user_manager, target, force=True)
+            activity_log.record(
+                actor=current_user.username,
+                category=activity_log.CATEGORY_USER_MANAGEMENT,
+                action="user.resend_verification",
+                target=username,
+            )
+            return jsonify({"status": "success", "message": "Verification link sent"})
 
-        elif action == 'set_profile':
-             success, msg = user_manager.update_profile(username, data.get('profile'))
-             if success:
-                 activity_log.record(
-                     actor=current_user.username,
-                     category=activity_log.CATEGORY_USER_MANAGEMENT,
-                     action="user.set_profile",
-                     target=username,
-                     details={"fields": sorted((data.get('profile') or {}).keys())},
-                 )
-                 return jsonify({"status": "success", "message": msg})
-             else: return jsonify({"error": msg}), 400
+        elif action == "set_profile":
+            success, msg = user_manager.update_profile(username, data.get("profile"))
+            if success:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_USER_MANAGEMENT,
+                    action="user.set_profile",
+                    target=username,
+                    details={"fields": sorted((data.get("profile") or {}).keys())},
+                )
+                return jsonify({"status": "success", "message": msg})
+            else:
+                return jsonify({"error": msg}), 400
 
         return jsonify({"error": "Invalid action"}), 400
 
-    elif request.method == 'DELETE':
-        username = request.args.get('username')
-        cascade = request.args.get('cascade_collections', '0').strip().lower() in ('1', 'true', 'yes')
+    elif request.method == "DELETE":
+        username = request.args.get("username")
+        cascade = request.args.get("cascade_collections", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
         if not username:
-             return jsonify({"error": "Missing username"}), 400
+            return jsonify({"error": "Missing username"}), 400
         if user_manager.get_user(username) is None:
-             return jsonify({"error": "User not found"}), 400
+            return jsonify({"error": "User not found"}), 400
 
         # The account's collections are unlinked FIRST so no link ever points
         # at a username that no longer exists. With cascade the collections
@@ -568,12 +623,13 @@ def api_admin_users():
         unlinked = unlink_user(username)
         success, msg = user_manager.delete_user(username)
         if not success:
-             # Re-link: the delete was refused (e.g. last admin), so the
-             # account still exists and should keep its collections.
-             from ..collection_accounts import set_collection_owner
-             for cid in unlinked:
-                 set_collection_owner(cid, username)
-             return jsonify({"error": msg}), 400
+            # Re-link: the delete was refused (e.g. last admin), so the
+            # account still exists and should keep its collections.
+            from ..collection_accounts import set_collection_owner
+
+            for cid in unlinked:
+                set_collection_owner(cid, username)
+            return jsonify({"error": msg}), 400
 
         activity_log.record(
             actor=current_user.username,
@@ -587,6 +643,7 @@ def api_admin_users():
         # nothing, so the sync deletes both defs and the Just Me artifacts).
         try:
             from ..services.participant_studies import ensure_participant_studies
+
             ensure_participant_studies(username)
         except Exception as exc:
             print(f"[delete_user] participant-study cleanup failed (non-fatal): {exc}")
@@ -595,6 +652,7 @@ def api_admin_users():
         if cascade and unlinked:
             from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
             from ..process_manager import start_process
+
             ok, pmsg = start_process(
                 "collection_delete",
                 COLLECTION_DELETE_SCRIPT,
@@ -611,13 +669,15 @@ def api_admin_users():
                     details={"reason": f"cascade from deleting user {username}"},
                 )
             else:
-                result["message"] = (f"{msg}. Collections were unlinked but the delete task could not "
-                                     f"start: {pmsg}. Delete them from Edit Collections.")
+                result["message"] = (
+                    f"{msg}. Collections were unlinked but the delete task could not "
+                    f"start: {pmsg}. Delete them from Edit Collections."
+                )
         return jsonify(result)
 
 
-@auth_bp.route('/api/admin/users/orphan_participants', methods=['GET', 'POST'])
-@permission_required('tab.admin.active_users')
+@auth_bp.route("/api/admin/users/orphan_participants", methods=["GET", "POST"])
+@permission_required("tab.admin.active_users")
 def api_admin_orphan_participants():
     """Placeholder participant accounts (p-N@…) that own no collection.
 
@@ -626,7 +686,7 @@ def api_admin_orphan_participants():
     it is dead weight — but removal stays an explicit admin action.
     """
     orphans = orphan_placeholder_accounts()
-    if request.method == 'GET':
+    if request.method == "GET":
         return jsonify({"orphans": orphans})
     removed, failed = [], []
     for username in orphans:
@@ -642,16 +702,16 @@ def api_admin_orphan_participants():
     return jsonify({"status": "success", "removed": removed, "failed": failed})
 
 
-@auth_bp.route('/api/admin/users/<path:username>/log', methods=['GET'])
-@permission_required('tab.admin.active_users')
+@auth_bp.route("/api/admin/users/<path:username>/log", methods=["GET"])
+@permission_required("tab.admin.active_users")
 def api_admin_user_log(username):
     """Return the activity log for the given user (newest first)."""
     entries = activity_log.read(username)
     return jsonify({"entries": entries})
 
 
-@auth_bp.route('/api/admin/users/<path:username>/notes', methods=['GET', 'POST'])
-@permission_required('tab.admin.active_users')
+@auth_bp.route("/api/admin/users/<path:username>/notes", methods=["GET", "POST"])
+@permission_required("tab.admin.active_users")
 def api_admin_user_notes(username):
     """The admin's log for one account: GET lists notes (newest first), POST adds one.
 
@@ -661,11 +721,11 @@ def api_admin_user_notes(username):
     """
     if user_manager.get_user(username) is None:
         return jsonify({"error": "User not found"}), 404
-    if request.method == 'GET':
+    if request.method == "GET":
         return jsonify({"notes": admin_notes.read(username)})
 
     data = request.get_json(silent=True) or {}
-    note, err = admin_notes.add(username, author=current_user.username, text=data.get('text', ''))
+    note, err = admin_notes.add(username, author=current_user.username, text=data.get("text", ""))
     if err:
         status = 500 if err.startswith("Failed") else 400
         return jsonify({"error": err}), status
@@ -678,8 +738,8 @@ def api_admin_user_notes(username):
     return jsonify({"status": "success", "note": note})
 
 
-@auth_bp.route('/api/admin/users/<path:username>/notes/<note_id>', methods=['DELETE'])
-@permission_required('tab.admin.active_users')
+@auth_bp.route("/api/admin/users/<path:username>/notes/<note_id>", methods=["DELETE"])
+@permission_required("tab.admin.active_users")
 def api_admin_user_note_delete(username, note_id):
     """Remove one note from an account's admin's log."""
     removed, err = admin_notes.delete(username, note_id)
@@ -695,62 +755,66 @@ def api_admin_user_note_delete(username, note_id):
     )
     return jsonify({"status": "success"})
 
-@auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
+
+@auth_bp.route("/api/admin/roles", methods=["GET", "POST", "DELETE"])
 # GET is needed by any admin sub-page that lists or picks roles: New Users
 # (default-role label), Active Users (per-user role dropdown), General
 # (default-role setting dropdown), and Roles itself (the matrix UI).
 # Write methods (POST/DELETE) are still restricted to tab.admin.roles below.
-@permission_required('tab.admin.roles', 'tab.admin.active_users', 'tab.admin.new_users', 'tab.admin.general')
+@permission_required(
+    "tab.admin.roles", "tab.admin.active_users", "tab.admin.new_users", "tab.admin.general"
+)
 def api_admin_roles():
     from ..permissions import user_has_permission
 
-    if request.method == 'GET':
+    if request.method == "GET":
         return jsonify(auth.role_manager.get_roles_with_permissions())
 
     # POST / DELETE manage the role catalog itself — only the Roles sub-page.
-    if not user_has_permission(current_user, 'tab.admin.roles'):
+    if not user_has_permission(current_user, "tab.admin.roles"):
         return jsonify({"error": "Forbidden"}), 403
 
-    if request.method == 'POST':
+    if request.method == "POST":
         data = request.json
-        role_name = data.get('role_name')
+        role_name = data.get("role_name")
         if not role_name:
-             return jsonify({"error": "Missing role name"}), 400
+            return jsonify({"error": "Missing role name"}), 400
 
         role_name = role_name.strip().lower()
 
         success, msg = auth.role_manager.add_role(role_name)
         if success:
-             return jsonify({"status": "success", "message": msg})
+            return jsonify({"status": "success", "message": msg})
         else:
-             return jsonify({"error": msg}), 400
+            return jsonify({"error": msg}), 400
 
-    elif request.method == 'DELETE':
-        role_name = request.args.get('role_name')
+    elif request.method == "DELETE":
+        role_name = request.args.get("role_name")
         if not role_name:
-             return jsonify({"error": "Missing role name"}), 400
+            return jsonify({"error": "Missing role name"}), 400
 
         success, msg = auth.role_manager.delete_role(role_name, user_manager)
         if success:
-             return jsonify({"status": "success", "message": msg})
+            return jsonify({"status": "success", "message": msg})
         else:
-             return jsonify({"error": msg}), 400
+            return jsonify({"error": msg}), 400
 
 
-@auth_bp.route('/api/admin/permissions/catalog', methods=['GET'])
-@permission_required('tab.admin.roles')
+@auth_bp.route("/api/admin/permissions/catalog", methods=["GET"])
+@permission_required("tab.admin.roles")
 def api_admin_permissions_catalog():
     from ..permissions import PERMISSION_CATALOG
+
     return jsonify(PERMISSION_CATALOG)
 
 
-@auth_bp.route('/api/admin/roles/<role_name>/permissions', methods=['PUT'])
-@permission_required('tab.admin.roles')
+@auth_bp.route("/api/admin/roles/<role_name>/permissions", methods=["PUT"])
+@permission_required("tab.admin.roles")
 def api_admin_role_permissions(role_name):
     from ..permissions import ALL_PERMISSION_KEYS
 
     data = request.json or {}
-    perms = data.get('permissions')
+    perms = data.get("permissions")
     if not isinstance(perms, list):
         return jsonify({"error": "Body must contain a 'permissions' list"}), 400
 
@@ -763,33 +827,39 @@ def api_admin_role_permissions(role_name):
         return jsonify({"status": "success", "message": msg})
     return jsonify({"error": msg}), 400
 
-@auth_bp.route('/api/admin/settings', methods=['GET', 'PUT'])
+
+@auth_bp.route("/api/admin/settings", methods=["GET", "PUT"])
 # GET is also useful to the New Users sub-page (it needs to display the
 # configured default role for new signups) and the Backends sub-page (the
 # active backend selections live in the settings store). PUT is restricted
 # per key via the method-specific check below.
-@permission_required('tab.admin.general', 'tab.admin.new_users', 'tab.admin.backends')
+@permission_required("tab.admin.general", "tab.admin.new_users", "tab.admin.backends")
 def api_admin_settings():
-    if request.method == 'GET':
+    if request.method == "GET":
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
         # Session floors fall back to the [sessions] config seed, not to
         # DEFAULTS — report what the server will actually apply, or the admin
         # page shows a number the Sessions tab is not using.
         merged.update(get_session_floors())
         from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
-        payload = {"settings": merged,
-                   "backend_ids": list(BACKEND_IDS),
-                   "implemented_backends": list(implemented_backend_ids()),
-                   # Lets Site Settings say when the verification switch is
-                   # on but cannot take effect (no MAIL_PASSWORD / sender).
-                   "mail_configured": mail_configured()}
+
+        payload = {
+            "settings": merged,
+            "backend_ids": list(BACKEND_IDS),
+            "implemented_backends": list(implemented_backend_ids()),
+            # Lets Site Settings say when the verification switch is
+            # on but cannot take effect (no MAIL_PASSWORD / sender).
+            "mail_configured": mail_configured(),
+        }
         # Choices for the default-study picker. Only Site Settings holders get
         # them — the other two sub-pages that may read this endpoint have no
         # business learning every study name.
         from ..permissions import user_has_permission
-        if user_has_permission(current_user, 'tab.admin.general'):
+
+        if user_has_permission(current_user, "tab.admin.general"):
             payload["study_names"] = admin_study_names()
             from ..admin_settings import demo_collection_choices
+
             payload["demo_collection_choices"] = demo_collection_choices()
         return jsonify(payload)
 
@@ -808,7 +878,7 @@ def api_admin_settings():
 
     _BACKEND_SETTING_KEYS = {"annotation_backend", "embedding_backend"}
     for k in data:
-        required = 'tab.admin.backends' if k in _BACKEND_SETTING_KEYS else 'tab.admin.general'
+        required = "tab.admin.backends" if k in _BACKEND_SETTING_KEYS else "tab.admin.general"
         if not user_has_permission(current_user, required):
             return jsonify({"error": "Forbidden"}), 403
 
@@ -817,7 +887,9 @@ def api_admin_settings():
     for k, v in data.items():
         expected = ADMIN_SETTING_TYPES.get(k, bool)
         if not isinstance(v, expected):
-            names = "/".join(t.__name__ for t in (expected if isinstance(expected, tuple) else (expected,)))
+            names = "/".join(
+                t.__name__ for t in (expected if isinstance(expected, tuple) else (expected,))
+            )
             return jsonify({"error": f"Setting '{k}' must be a {names}"}), 400
         # Extra check: the default-role setting must reference an existing role.
         if k == "default_new_user_role" and not auth.role_manager.role_exists(v):
@@ -828,9 +900,9 @@ def api_admin_settings():
 
     current = load_admin_settings()
     prev_annotation_backend = current.get(
-        "annotation_backend", ADMIN_SETTINGS_DEFAULTS.get("annotation_backend"))
-    prev_default_study = current.get(
-        "default_study", ADMIN_SETTINGS_DEFAULTS.get("default_study"))
+        "annotation_backend", ADMIN_SETTINGS_DEFAULTS.get("annotation_backend")
+    )
+    prev_default_study = current.get("default_study", ADMIN_SETTINGS_DEFAULTS.get("default_study"))
     current.update(data)
     save_admin_settings(current)
 
@@ -850,11 +922,12 @@ def api_admin_settings():
     # annotation run, and report it back so the Backends page can tell the
     # admin what just changed. Never let registry plumbing fail the save.
     switch_info = None
-    if ("annotation_backend" in data
-            and data["annotation_backend"] != prev_annotation_backend):
-        switch_info = {"from": prev_annotation_backend,
-                       "to": data["annotation_backend"],
-                       "annotation_version": None}
+    if "annotation_backend" in data and data["annotation_backend"] != prev_annotation_backend:
+        switch_info = {
+            "from": prev_annotation_backend,
+            "to": data["annotation_backend"],
+            "annotation_version": None,
+        }
         try:
             from fyp.annotation import annotation_versioning
 
@@ -864,9 +937,11 @@ def api_admin_settings():
                 actor=getattr(current_user, "username", "") or "",
                 category="admin",
                 action="annotation_backend.switch",
-                details={"from": prev_annotation_backend,
-                         "to": data["annotation_backend"],
-                         "annotation_version": minted},
+                details={
+                    "from": prev_annotation_backend,
+                    "to": data["annotation_backend"],
+                    "annotation_version": minted,
+                },
             )
         except Exception:
             pass
@@ -878,8 +953,8 @@ def api_admin_settings():
     return jsonify(payload)
 
 
-@auth_bp.route('/api/admin/irrelevant_words', methods=['GET', 'PUT'])
-@permission_required('tab.admin.stoplist')
+@auth_bp.route("/api/admin/irrelevant_words", methods=["GET", "PUT"])
+@permission_required("tab.admin.stoplist")
 def api_irrelevant_words():
     """The admin-editable hashtag stoplist (see ``fyp.irrelevant_words``).
 
@@ -891,34 +966,38 @@ def api_irrelevant_words():
     """
     from fyp.annotation import irrelevant_words as iw
 
-    if request.method == 'GET':
+    if request.method == "GET":
         words = iw.load_words()
         payload = iw.load_payload() or {}
-        return jsonify({
-            "words": words,
-            "count": len(words),
-            "etag": iw.compute_words_etag(),
-            "updated_at": payload.get("updated_at"),
-            "updated_by": payload.get("updated_by"),
-        })
+        return jsonify(
+            {
+                "words": words,
+                "count": len(words),
+                "etag": iw.compute_words_etag(),
+                "updated_at": payload.get("updated_at"),
+                "updated_by": payload.get("updated_by"),
+            }
+        )
 
     data = request.json or {}
-    if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+    if not isinstance(data, dict) or not isinstance(data.get("words"), list):
         return jsonify({"error": "Body must contain a 'words' list"}), 400
 
     try:
         result = iw.save_words(
-            data['words'],
-            expected_etag=data.get('etag'),
+            data["words"],
+            expected_etag=data.get("etag"),
             updated_by=current_user.username,
         )
     except iw.IrrelevantWordsConflict as e:
-        return jsonify({
-            "error": "conflict",
-            "message": str(e),
-            "etag": iw.compute_words_etag(),
-            "words": iw.load_words(),
-        }), 409
+        return jsonify(
+            {
+                "error": "conflict",
+                "message": str(e),
+                "etag": iw.compute_words_etag(),
+                "words": iw.load_words(),
+            }
+        ), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -928,16 +1007,18 @@ def api_irrelevant_words():
         action="irrelevant_words.save",
         details={"count": len(result["words"])},
     )
-    return jsonify({
-        "status": "success",
-        "words": result["words"],
-        "count": len(result["words"]),
-        "etag": result["etag"],
-    })
+    return jsonify(
+        {
+            "status": "success",
+            "words": result["words"],
+            "count": len(result["words"]),
+            "etag": result["etag"],
+        }
+    )
 
 
-@auth_bp.route('/api/admin/irrelevant_words/apply', methods=['POST'])
-@permission_required('tab.admin.stoplist')
+@auth_bp.route("/api/admin/irrelevant_words/apply", methods=["POST"])
+@permission_required("tab.admin.stoplist")
 def api_irrelevant_words_apply():
     """Start the background job that re-applies the stoplist to existing data.
 
@@ -959,13 +1040,16 @@ def api_irrelevant_words_apply():
     if _is_worker_running("consolidate_enrichment"):
         blocking.append("consolidate_enrichment")
     if blocking:
-        return jsonify({
-            "status": "error",
-            "message": f"Cannot run while {', '.join(blocking)} running.",
-        }), 409
+        return jsonify(
+            {
+                "status": "error",
+                "message": f"Cannot run while {', '.join(blocking)} running.",
+            }
+        ), 409
 
-    success, msg = start_process("retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT,
-                                 started_by=current_user.username)
+    success, msg = start_process(
+        "retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT, started_by=current_user.username
+    )
     if success:
         activity_log.record(
             actor=current_user.username,
@@ -979,40 +1063,42 @@ def api_irrelevant_words_apply():
 # The closed set of user-settings keys the POST endpoint accepts. The store
 # itself is schemaless, so this whitelist is the only guard against arbitrary
 # unbounded keys landing in a user record.
-USER_SETTINGS_KEYS = frozenset({
-    "variable_prefs",
-    "share_annotations",
-    "video_autostart",
-    "getting_started_dismissed",
-    "hub_tour_pending",
-    "hub_tour_done",
-    "hub_tour_real_data_pending",
-    "funnel_stage",
-    "big_dots",
-    "timelines_include_empty_dates",
-    "timelines_include_pre_activity",
-})
+USER_SETTINGS_KEYS = frozenset(
+    {
+        "variable_prefs",
+        "share_annotations",
+        "video_autostart",
+        "getting_started_dismissed",
+        "hub_tour_pending",
+        "hub_tour_done",
+        "hub_tour_real_data_pending",
+        "funnel_stage",
+        "big_dots",
+        "timelines_include_empty_dates",
+        "timelines_include_pre_activity",
+    }
+)
 
 
-@auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
+@auth_bp.route("/api/user/settings", methods=["GET", "POST"])
 @login_required
 def api_user_settings():
-    if request.method == 'GET':
+    if request.method == "GET":
         s = current_user.settings or {}
-        if 'share_annotations' not in s:
+        if "share_annotations" not in s:
             # Annotation sharing is opt-in: an unset value reads as off.
-            s['share_annotations'] = False
+            s["share_annotations"] = False
         return jsonify(s)
-    
-    elif request.method == 'POST':
+
+    elif request.method == "POST":
         settings = request.json
         if not isinstance(settings, dict):
             return jsonify({"error": "Settings must be a JSON object"}), 400
         unknown = sorted(set(settings) - USER_SETTINGS_KEYS)
         if unknown:
             return jsonify({"error": f"Unknown settings keys: {', '.join(unknown)}"}), 400
-        if 'variable_prefs' in settings:
-            err = _validate_variable_prefs(settings['variable_prefs'])
+        if "variable_prefs" in settings:
+            err = _validate_variable_prefs(settings["variable_prefs"])
             if err:
                 return jsonify({"error": err}), 400
         success, msg = user_manager.update_user_settings(current_user.username, settings)
@@ -1022,11 +1108,7 @@ def api_user_settings():
             return jsonify({"error": msg}), 400
 
 
-
-
-
-
-@auth_bp.route('/api/user/variable-catalog', methods=['GET'])
+@auth_bp.route("/api/user/variable-catalog", methods=["GET"])
 @login_required
 def api_user_variable_catalog():
     """Study-independent variable catalog for the My Stuff preference panels.
@@ -1052,8 +1134,8 @@ def api_user_variable_catalog():
     return jsonify(make_serializable(catalog))
 
 
-@auth_bp.route('/api/user/profile', methods=['GET', 'POST'])
-@permission_required('tab.my_stuff.profile')
+@auth_bp.route("/api/user/profile", methods=["GET", "POST"])
+@permission_required("tab.my_stuff.profile")
 def api_user_profile():
     """Read or update the current user's own profile.
 
@@ -1061,23 +1143,26 @@ def api_user_profile():
     ``display_username`` and/or a ``profile`` object (see ``PROFILE_FIELDS``);
     either may be omitted to leave it unchanged.
     """
-    if request.method == 'GET':
-        return jsonify({
-            "email": current_user.username,
-            "display_username": current_user.display_username,
-            "profile": current_user.profile,
-            "profile_fields": list(auth.PROFILE_FIELDS),
-            "collections": collections_for_user(current_user.username),
-        })
+    if request.method == "GET":
+        return jsonify(
+            {
+                "email": current_user.username,
+                "display_username": current_user.display_username,
+                "profile": current_user.profile,
+                "profile_fields": list(auth.PROFILE_FIELDS),
+                "collections": collections_for_user(current_user.username),
+            }
+        )
 
     data = request.json or {}
-    if 'display_username' in data:
+    if "display_username" in data:
         success, msg = user_manager.update_display_username(
-            current_user.username, data.get('display_username'))
+            current_user.username, data.get("display_username")
+        )
         if not success:
             return jsonify({"error": msg}), 400
-    if 'profile' in data:
-        success, msg = user_manager.update_profile(current_user.username, data.get('profile'))
+    if "profile" in data:
+        success, msg = user_manager.update_profile(current_user.username, data.get("profile"))
         if not success:
             return jsonify({"error": msg}), 400
         activity_log.record(
@@ -1085,7 +1170,7 @@ def api_user_profile():
             category=activity_log.CATEGORY_USER_MANAGEMENT,
             action="user.update_profile",
             target=current_user.username,
-            details={"fields": sorted((data.get('profile') or {}).keys())},
+            details={"fields": sorted((data.get("profile") or {}).keys())},
         )
     return jsonify({"status": "success", "message": "Profile updated"})
 
@@ -1118,8 +1203,9 @@ def _validate_variable_prefs(prefs) -> str | None:
                 return f"surface {surface!r}.{key} must contain only strings"
     return None
 
-@auth_bp.route('/api/admin/annotations', methods=['GET'])
-@permission_required('tab.admin.annotations')
+
+@auth_bp.route("/api/admin/annotations", methods=["GET"])
+@permission_required("tab.admin.annotations")
 def api_admin_annotations():
     # item_id -> { stats: {...}, details: { variable: { open: {tag: [users]}, notes: [{user, text}], closed: {val: [users]} } } }
     master_index = {}
@@ -1128,82 +1214,91 @@ def api_admin_annotations():
     for u in user_manager.get_all_users().values():
         username = u.username
         user_filename = f"{username}.json"
-        
+
         try:
             user_data_file = data_io.load_json(storage_location="users", filename=user_filename)
-            if not user_data_file: continue
-            
-            user_annotations = user_data_file.get('annotations', {})
-            
+            if not user_data_file:
+                continue
+
+            user_annotations = user_data_file.get("annotations", {})
+
             for item_id, item_vars in user_annotations.items():
                 if item_id not in master_index:
                     master_index[item_id] = {
-                        'item_id': item_id,
-                        'stats': {'notes': 0, 'open_tags': 0, 'closed_tags': 0, 'unique_users': set()},
-                        'details': {}
+                        "item_id": item_id,
+                        "stats": {
+                            "notes": 0,
+                            "open_tags": 0,
+                            "closed_tags": 0,
+                            "unique_users": set(),
+                        },
+                        "details": {},
                     }
-                
+
                 entry = master_index[item_id]
-                entry['stats']['unique_users'].add(username)
-                
+                entry["stats"]["unique_users"].add(username)
+
                 for key, value in item_vars.items():
                     # Check types
                     var_name = key
-                    type_ = 'open'
-                    
-                    if key.endswith('__NOTES'):
-                        var_name = key[:-7] # remove __NOTES
-                        type_ = 'note'
-                    elif key.endswith('__CLOSED_TAGGING'):
-                        var_name = key[:-16] # remove __CLOSED_TAGGING
-                        type_ = 'closed'
-                        
-                    if var_name not in entry['details']:
+                    type_ = "open"
+
+                    if key.endswith("__NOTES"):
+                        var_name = key[:-7]  # remove __NOTES
+                        type_ = "note"
+                    elif key.endswith("__CLOSED_TAGGING"):
+                        var_name = key[:-16]  # remove __CLOSED_TAGGING
+                        type_ = "closed"
+
+                    if var_name not in entry["details"]:
                         # Resolve Friendly Name
                         friendly_name = var_name
-                        if 'var_schema' in fyp_cf:
-                            df = fyp_cf['var_schema']
+                        if "var_schema" in fyp_cf:
+                            df = fyp_cf["var_schema"]
                             if isinstance(df, pd.DataFrame):
-                                match = df[df['variable_name'] == var_name]
+                                match = df[df["variable_name"] == var_name]
                                 if not match.empty:
                                     try:
-                                        sec = match['section'].iloc[0]
-                                        disp = match['display_name'].iloc[0]
-                                        
-                                        if pd.isna(sec): sec = "Unknown"
-                                        if pd.isna(disp): disp = var_name
-                                        
+                                        sec = match["section"].iloc[0]
+                                        disp = match["display_name"].iloc[0]
+
+                                        if pd.isna(sec):
+                                            sec = "Unknown"
+                                        if pd.isna(disp):
+                                            disp = var_name
+
                                         friendly_name = f"{sec} - {disp}"
                                     except Exception:
                                         pass
 
-                            
-                        entry['details'][var_name] = {
-                            'label': friendly_name,
-                            'open': {}, 
-                            'notes': [], 
-                            'closed': {}
+                        entry["details"][var_name] = {
+                            "label": friendly_name,
+                            "open": {},
+                            "notes": [],
+                            "closed": {},
                         }
-                        
-                    det = entry['details'][var_name]
-                    
-                    if type_ == 'note':
-                        det['notes'].append({'user': username, 'text': value})
-                        entry['stats']['notes'] += 1
-                        
-                    elif type_ == 'closed':
+
+                    det = entry["details"][var_name]
+
+                    if type_ == "note":
+                        det["notes"].append({"user": username, "text": value})
+                        entry["stats"]["notes"] += 1
+
+                    elif type_ == "closed":
                         val_str = str(value)
-                        if val_str not in det['closed']: det['closed'][val_str] = []
-                        det['closed'][val_str].append(username)
-                        entry['stats']['closed_tags'] += 1
-                        
+                        if val_str not in det["closed"]:
+                            det["closed"][val_str] = []
+                        det["closed"][val_str].append(username)
+                        entry["stats"]["closed_tags"] += 1
+
                     else:
                         # Open tags list
                         if isinstance(value, list):
                             for tag in value:
-                                if tag not in det['open']: det['open'][tag] = []
-                                det['open'][tag].append(username)
-                                entry['stats']['open_tags'] += 1
+                                if tag not in det["open"]:
+                                    det["open"][tag] = []
+                                det["open"][tag].append(username)
+                                entry["stats"]["open_tags"] += 1
 
         except Exception as e:
             print(f"Error processing {username}: {e}")
@@ -1211,11 +1306,14 @@ def api_admin_annotations():
     # Convert to list and fix unique_users count
     results = []
     for item in master_index.values():
-        if isinstance(item['stats']['unique_users'], set):
-            item['stats']['unique_users'] = len(item['stats']['unique_users'])
+        if isinstance(item["stats"]["unique_users"], set):
+            item["stats"]["unique_users"] = len(item["stats"]["unique_users"])
         results.append(item)
 
     # Sort by total activity (desc)
-    results.sort(key=lambda x: x['stats']['notes'] + x['stats']['open_tags'] + x['stats']['closed_tags'], reverse=True)
-    
+    results.sort(
+        key=lambda x: x["stats"]["notes"] + x["stats"]["open_tags"] + x["stats"]["closed_tags"],
+        reverse=True,
+    )
+
     return jsonify(results)

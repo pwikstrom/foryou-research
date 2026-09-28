@@ -32,15 +32,28 @@ from fyp.scrape import instagram_dl
 from fyp.scrape.instagram_dl import InstagramScraper
 from fyp.scrape.platform_scraper import SESSION_EXPIRED
 
-AUDIENCE_RULING = ("ERROR: [Instagram] DUi1MEGieRX: This content isn't available to "
-                   "everyone: It can't be seen by certain audiences.")
-EMPTY_MEDIA = ("ERROR: [Instagram] DdXvQ_7HFSh: Instagram sent an empty media response. "
-               "Check if this post is accessible in your browser without being logged-in.")
-COOKIES = {'cookiefile': '/tmp/instagram_cookies.txt'}
-_POST = {'id': '1', 'description': 'caption', 'timestamp': 1750000000,
-         'uploader_id': '99', 'channel': 'someuser', 'uploader': 'Some User',
-         'view_count': 10, 'like_count': 2, 'comment_count': 1, 'duration': 12.0,
-         'formats': [{'format_id': 'dash', 'url': 'https://x'}]}
+AUDIENCE_RULING = (
+    "ERROR: [Instagram] DUi1MEGieRX: This content isn't available to "
+    "everyone: It can't be seen by certain audiences."
+)
+EMPTY_MEDIA = (
+    "ERROR: [Instagram] DdXvQ_7HFSh: Instagram sent an empty media response. "
+    "Check if this post is accessible in your browser without being logged-in."
+)
+COOKIES = {"cookiefile": "/tmp/instagram_cookies.txt"}
+_POST = {
+    "id": "1",
+    "description": "caption",
+    "timestamp": 1750000000,
+    "uploader_id": "99",
+    "channel": "someuser",
+    "uploader": "Some User",
+    "view_count": 10,
+    "like_count": 2,
+    "comment_count": 1,
+    "duration": 12.0,
+    "formats": [{"format_id": "dash", "url": "https://x"}],
+}
 
 
 class _FakeYDL:
@@ -64,7 +77,7 @@ class _FakeYDL:
         return False
 
     def extract_info(self, url, download=False):
-        authed = 'cookiefile' in self.opts
+        authed = "cookiefile" in self.opts
         _FakeYDL.calls.append("cookies" if authed else "anonymous")
         outcome = _FakeYDL.authed if authed else _FakeYDL.anon
         if isinstance(outcome, str):
@@ -89,6 +102,7 @@ def ig(monkeypatch):
 
     def script(anon, authed=None):
         _FakeYDL.anon, _FakeYDL.authed = anon, authed
+
     return script
 
 
@@ -102,9 +116,10 @@ def test_the_audience_ruling_is_a_login_wall():
 def test_a_login_gated_post_is_retried_once_with_the_cookies(ig, anonymous_failure):
     ig(anon=anonymous_failure, authed=_POST)
     info, fail = instagram_dl._extract_metadata("u", "x")
-    assert fail is None and info['_fyp_authenticated'] is True
-    assert _FakeYDL.calls == ["anonymous", "cookies"], \
+    assert fail is None and info["_fyp_authenticated"] is True
+    assert _FakeYDL.calls == ["anonymous", "cookies"], (
         "one anonymous attempt — repeating it cannot get past the wall"
+    )
 
 
 def test_a_public_post_never_touches_the_cookies(ig):
@@ -133,8 +148,9 @@ def test_with_the_cookies_an_empty_media_response_is_throttling(ig):
     ig(anon=EMPTY_MEDIA, authed=EMPTY_MEDIA)
     _, fail = instagram_dl._extract_metadata("u", "x")
     assert fail.attrs["error_type"] == "rate_limited"
-    assert _FakeYDL.calls == ["anonymous"] + ["cookies"] * instagram_dl._META_MAX_RETRIES, \
+    assert _FakeYDL.calls == ["anonymous"] + ["cookies"] * instagram_dl._META_MAX_RETRIES, (
         "authenticated, it retries with backoff like any rate limit"
+    )
 
 
 def test_hidden_even_from_the_session_ends_after_one_authenticated_attempt(ig):
@@ -145,12 +161,14 @@ def test_hidden_even_from_the_session_ends_after_one_authenticated_attempt(ig):
 
 
 @pytest.mark.parametrize("anon,expect_authenticated", [(AUDIENCE_RULING, True), (_POST, False)])
-def test_the_media_leg_follows_the_metadata_legs_auth_mode(ig, monkeypatch, anon,
-                                                           expect_authenticated):
+def test_the_media_leg_follows_the_metadata_legs_auth_mode(
+    ig, monkeypatch, anon, expect_authenticated
+):
     ig(anon=anon, authed=_POST)
     seen = {}
-    monkeypatch.setattr(instagram_dl, "_download_media",
-                        lambda *a, **k: seen.update(k) or (True, None, "", 12.0))
+    monkeypatch.setattr(
+        instagram_dl, "_download_media", lambda *a, **k: seen.update(k) or (True, None, "", 12.0)
+    )
     row = InstagramScraper().fetch("x", save_media=True, save_path="/tmp")
     assert row.loc[0, "video_downloaded"] == True  # noqa: E712
     assert seen["authenticated"] is expect_authenticated
@@ -177,13 +195,14 @@ def test_download_media_attaches_the_cookies_only_when_authenticated(monkeypatch
         assert all(("cookiefile" in o) is authenticated for o in opts_seen), opts_seen
 
 
-
 # --------------------------------------------------------------------------- #
 # 2026-09-23: pacing, one logged-in call per post, a logged-out session
 # --------------------------------------------------------------------------- #
 
-LOGGED_OUT = ("ERROR: [Instagram] DZxhX1CAB1m: Failed to parse JSON (caused by "
-              "JSONDecodeError(\"Expecting value in '': line 1 column 1 (char 0)\"))")
+LOGGED_OUT = (
+    "ERROR: [Instagram] DZxhX1CAB1m: Failed to parse JSON (caused by "
+    "JSONDecodeError(\"Expecting value in '': line 1 column 1 (char 0)\"))"
+)
 
 
 def test_logged_in_requests_are_spaced_across_threads(monkeypatch):
@@ -294,6 +313,7 @@ def media(monkeypatch, tmp_path):
 
     def run(**kw):
         return instagram_dl._download_media("u", "x", str(tmp_path / "out"), **kw)
+
     (tmp_path / "out").mkdir()
     return run, paced
 
@@ -326,6 +346,7 @@ def test_no_re_extraction_once_the_session_is_logged_out(media):
 # The orchestrator's side of a logged-out session
 # --------------------------------------------------------------------------- #
 
+
 def test_the_batch_flags_a_logged_out_session_and_raises_its_alert():
     from unittest.mock import patch
 
@@ -339,21 +360,25 @@ def test_the_batch_flags_a_logged_out_session_and_raises_its_alert():
     def fake_dl(video_id=None, **kwargs):
         return instagram_dl._empty_fail(SESSION_EXPIRED, "logged out")
 
-    with patch.object(scrape, "download_single_video", side_effect=fake_dl), \
-         patch.object(scrape, "_transient_storm_threshold", return_value=5), \
-         patch.object(scrape.scrape_versioning, "ensure_active_version_registered",
-                      lambda: None), \
-         patch.object(scrape, "check_existing_media", return_value={}), \
-         patch.object(scrape.data_io, "save_json", lambda **kw: None), \
-         patch.object(scrape.scraper_alerts, "raise_alert",
-                      side_effect=lambda **kw: alerts.append(kw)), \
-         patch.object(scrape.scraper_alerts, "clear_alert", side_effect=Exception):
+    with (
+        patch.object(scrape, "download_single_video", side_effect=fake_dl),
+        patch.object(scrape, "_transient_storm_threshold", return_value=5),
+        patch.object(scrape.scrape_versioning, "ensure_active_version_registered", lambda: None),
+        patch.object(scrape, "check_existing_media", return_value={}),
+        patch.object(scrape.data_io, "save_json", lambda **kw: None),
+        patch.object(
+            scrape.scraper_alerts, "raise_alert", side_effect=lambda **kw: alerts.append(kw)
+        ),
+        patch.object(scrape.scraper_alerts, "clear_alert", side_effect=Exception),
+    ):
         results, perm, trans = scrape.download_video_threads(
-            interesting_videos=ids, max_workers=1, dry_run=False, platform="instagram")
+            interesting_videos=ids, max_workers=1, dry_run=False, platform="instagram"
+        )
 
     assert isinstance(results, pd.DataFrame) and results.attrs["session_expired"] is True
-    assert results.attrs["transient_storm_tripped"] is False, \
+    assert results.attrs["transient_storm_tripped"] is False, (
         "a known cause must not masquerade as a transient storm"
+    )
     assert perm == [] and set(trans) == set(ids)
     assert [a["kind"] for a in alerts] == ["session_expired"]
 
@@ -371,22 +396,35 @@ def test_the_run_stops_after_a_logged_out_batch_and_charges_nothing():
     def fake_threads(interesting_videos=None, **kwargs):
         calls["n"] += 1
         frame = pd.DataFrame()
-        for k in ("circuit_breaker_tripped", "permanent_storm_tripped",
-                  "transient_storm_tripped", "memory_stop"):
+        for k in (
+            "circuit_breaker_tripped",
+            "permanent_storm_tripped",
+            "transient_storm_tripped",
+            "memory_stop",
+        ):
             frame.attrs[k] = False
         frame.attrs["session_expired"] = True
         frame.attrs["media_retry_ids"] = ["v0"]
         return frame, [], list(interesting_videos)
 
-    with patch.object(scrape, "download_video_threads", side_effect=fake_threads), \
-         patch.object(scrape.scrape_queues, "prune_scrape_queue",
-                      side_effect=lambda p, i: (len(i), 0)), \
-         patch.object(scrape.scrape_queues, "charge_zero_progress",
-                      side_effect=AssertionError("no zero-progress strike")), \
-         patch.object(scrape.scrape_queues, "charge_media_retry",
-                      side_effect=lambda p, retry, resolved: (
-                          (_ for _ in ()).throw(AssertionError("no media strike"))
-                          if retry else [])):
+    with (
+        patch.object(scrape, "download_video_threads", side_effect=fake_threads),
+        patch.object(
+            scrape.scrape_queues, "prune_scrape_queue", side_effect=lambda p, i: (len(i), 0)
+        ),
+        patch.object(
+            scrape.scrape_queues,
+            "charge_zero_progress",
+            side_effect=AssertionError("no zero-progress strike"),
+        ),
+        patch.object(
+            scrape.scrape_queues,
+            "charge_media_retry",
+            side_effect=lambda p, retry, resolved: (
+                (_ for _ in ()).throw(AssertionError("no media strike")) if retry else []
+            ),
+        ),
+    ):
         scrape.scraper_loop_from_list(video_list=ids, batch_size=2, platform="instagram")
 
     assert calls["n"] == 1, "the run stops after the batch that saw the logout"

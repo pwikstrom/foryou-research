@@ -54,7 +54,7 @@ from ._access import study_access_error
 from ..permissions import permission_required
 from ..task_status import is_cloud_run
 
-sessions_bp = Blueprint('sessions_bp', __name__)
+sessions_bp = Blueprint("sessions_bp", __name__)
 
 # Default for the ad-hoc ``min_emb_plays`` quality filter (query-time only —
 # the artifact itself is unfiltered). From the embedding-entropy study's donor
@@ -83,11 +83,26 @@ DEFAULT_TREND_MIN_VIDEOS = 7
 
 # Columns the overview endpoint returns per session row.
 _OVERVIEW_COLS = [
-    "collection_id", "session_id", "start_ts", "end_ts", "duration_min",
-    "n_plays", "n_distinct", "total_watch_s", "median_dwell_s",
-    "n_embedded", "coverage_scraped", "coverage_annotated", "coverage_embedded",
-    "emb_play_coverage", "min_window_cosdist", "min_window_entropy_norm",
-    "n_episodes", "episode_play_frac", "dominant_niche", "n_niches",
+    "collection_id",
+    "session_id",
+    "start_ts",
+    "end_ts",
+    "duration_min",
+    "n_plays",
+    "n_distinct",
+    "total_watch_s",
+    "median_dwell_s",
+    "n_embedded",
+    "coverage_scraped",
+    "coverage_annotated",
+    "coverage_embedded",
+    "emb_play_coverage",
+    "min_window_cosdist",
+    "min_window_entropy_norm",
+    "n_episodes",
+    "episode_play_frac",
+    "dominant_niche",
+    "n_niches",
 ]
 
 # Columns the overview's ad-hoc range filters (the collapsible filter panel)
@@ -104,9 +119,18 @@ _RANGE_FILTER_COLS = {
 
 # Sort keys the overview accepts (anything else falls back to the focus rank).
 _SORT_KEYS = {
-    "min_window_cosdist", "min_window_entropy_norm", "duration_min", "n_plays",
-    "n_distinct", "n_episodes", "episode_play_frac", "coverage_embedded",
-    "start_ts", "total_watch_s", "n_directed_episodes", "collection_id",
+    "min_window_cosdist",
+    "min_window_entropy_norm",
+    "duration_min",
+    "n_plays",
+    "n_distinct",
+    "n_episodes",
+    "episode_play_frac",
+    "coverage_embedded",
+    "start_ts",
+    "total_watch_s",
+    "n_directed_episodes",
+    "collection_id",
 }
 
 # Prefix of the per-variable session-extreme columns baked into the index
@@ -202,10 +226,7 @@ _ranges_lock = threading.Lock()
 _STORY_CAP = 400
 
 
-
-
-def _fingerprint(filename: str,
-                 location: str = session_explorer.ARTIFACT_LOCATION) -> str | None:
+def _fingerprint(filename: str, location: str = session_explorer.ARTIFACT_LOCATION) -> str | None:
     """Return a size:mtime fingerprint for a cache artifact, or None if absent.
 
     Stat results are held for ``_STAT_TTL_S`` so a burst of requests (each
@@ -221,8 +242,6 @@ def _fingerprint(filename: str,
     key = None if fp is None else f"{fp.get('size')}:{fp.get('mtime')}"
     _STAT_CACHE[cache_key] = (now, key)
     return key
-
-
 
 
 def _load_index() -> pd.DataFrame | None:
@@ -262,8 +281,6 @@ def _load_index() -> pd.DataFrame | None:
     return _INDEX_CACHE["df"]
 
 
-
-
 def _search_blob(index: pd.DataFrame) -> pd.Series | None:
     """The index's ``search_text`` Series (row-aligned), or None when absent.
 
@@ -277,15 +294,11 @@ def _search_blob(index: pd.DataFrame) -> pd.Series | None:
     return None
 
 
-
-
 def _start_dt(df: pd.DataFrame) -> pd.Series:
     """Parsed ``start_ts`` — the pre-parsed column when present, else live."""
     if "_start_dt" in df.columns:
         return df["_start_dt"]
     return pd.to_datetime(df["start_ts"], errors="coerce")
-
-
 
 
 def _directed_counts() -> pd.Series | None:
@@ -304,14 +317,18 @@ def _directed_counts() -> pd.Series | None:
     if key is None:
         return None
     cut = _drift_p()
-    if (_DIRECTED_CACHE["counts"] is not None
-            and _DIRECTED_CACHE["fingerprint"] == key
-            and _DIRECTED_CACHE["cut"] == cut):
+    if (
+        _DIRECTED_CACHE["counts"] is not None
+        and _DIRECTED_CACHE["fingerprint"] == key
+        and _DIRECTED_CACHE["cut"] == cut
+    ):
         return _DIRECTED_CACHE["counts"]
     with _directed_lock:
-        if (_DIRECTED_CACHE["counts"] is not None
-                and _DIRECTED_CACHE["fingerprint"] == key
-                and _DIRECTED_CACHE["cut"] == cut):
+        if (
+            _DIRECTED_CACHE["counts"] is not None
+            and _DIRECTED_CACHE["fingerprint"] == key
+            and _DIRECTED_CACHE["cut"] == cut
+        ):
             return _DIRECTED_CACHE["counts"]
         df = data_io.load_parquet_selective(
             storage_location=session_explorer.ARTIFACT_LOCATION,
@@ -329,8 +346,6 @@ def _directed_counts() -> pd.Series | None:
     return counts
 
 
-
-
 def _load_meta() -> dict | None:
     """Load (and fingerprint-cache) the artifact provenance meta, or None."""
     key = _fingerprint(session_explorer.META_FILE)
@@ -345,13 +360,13 @@ def _load_meta() -> dict | None:
             storage_location=session_explorer.ARTIFACT_LOCATION,
             filename=session_explorer.META_FILE,
         )
-        _META_CACHE.update({
-            "fingerprint": key,
-            "meta": meta if isinstance(meta, dict) else None,
-        })
+        _META_CACHE.update(
+            {
+                "fingerprint": key,
+                "meta": meta if isinstance(meta, dict) else None,
+            }
+        )
     return _META_CACHE["meta"]
-
-
 
 
 def _flags_cache_key(model: str | None) -> tuple:
@@ -363,16 +378,15 @@ def _flags_cache_key(model: str | None) -> tuple:
     """
     idx_fp = None
     if model:
-        idx_fp = _fingerprint(embedding_store._index_filename(model),
-                              location=embedding_store.STORE_LOCATION)
+        idx_fp = _fingerprint(
+            embedding_store._index_filename(model), location=embedding_store.STORE_LOCATION
+        )
     return (
         model,
         _fingerprint(embeddings.SCRAPES_FILE, location=embeddings.STORE_LOCATION),
         _fingerprint(embeddings.ANNOTATIONS_FILE, location=embeddings.STORE_LOCATION),
         idx_fp,
     )
-
-
 
 
 def _flag_sets() -> dict:
@@ -399,20 +413,19 @@ def _flag_sets() -> dict:
     with _flags_lock:
         if _FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["key"] == key:
             return _FLAGS_CACHE["flags"]
-        flags = (session_explorer.enrichment_id_sets(model, include_embedded=False)
-                 if model else {"scraped": set(), "downloaded": set(),
-                                "annotated": set(), "embedded": set()})
+        flags = (
+            session_explorer.enrichment_id_sets(model, include_embedded=False)
+            if model
+            else {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()}
+        )
         emb_index = None
         if model:
             try:
                 emb_index = embedding_store.load_index(model)
             except Exception:
                 emb_index = None
-        _FLAGS_CACHE.update({"key": key, "model": model, "flags": flags,
-                             "emb_index": emb_index})
+        _FLAGS_CACHE.update({"key": key, "model": model, "flags": flags, "emb_index": emb_index})
     return _FLAGS_CACHE["flags"]
-
-
 
 
 def _embedded_ids(item_ids: set[str], flags: dict) -> set[str]:
@@ -437,8 +450,6 @@ def _embedded_ids(item_ids: set[str], flags: dict) -> set[str]:
     return {i for i, f in zip(ids, found) if f}
 
 
-
-
 def _corpus_mean(model: str) -> np.ndarray | None:
     """The model's cached corpus mean (TTL-cached JSON read), or None."""
     now = time.monotonic()
@@ -455,10 +466,7 @@ def _corpus_mean(model: str) -> np.ndarray | None:
     return _MEAN_CACHE["mean"]
 
 
-
-
-def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
-                              n_ctx: int) -> None:
+def _attach_context_distances(seqs: list[dict], play_rows: list[dict], n_ctx: int) -> None:
     """Attach each sequence's context-play distances, in place.
 
     For every binge/low-entropy sequence, the up-to-``n_ctx`` plays just
@@ -503,13 +511,14 @@ def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
         last = pos_last.get((members[-1]["item_id"], members[-1]["ts"]))
         ctx: list[dict] = []
         if first is not None and first > 0:
-            ctx.extend(play_rows[max(0, first - n_ctx):first])
+            ctx.extend(play_rows[max(0, first - n_ctx) : first])
         if first is not None and last is not None and last > first:
             member_keys = {(m["item_id"], m["ts"]) for m in members}
-            ctx.extend(p for p in play_rows[first:last + 1]
-                       if (p["item_id"], p["ts"]) not in member_keys)
+            ctx.extend(
+                p for p in play_rows[first : last + 1] if (p["item_id"], p["ts"]) not in member_keys
+            )
         if last is not None and last + 1 < len(play_rows):
-            ctx.extend(play_rows[last + 1:last + 1 + n_ctx])
+            ctx.extend(play_rows[last + 1 : last + 1 + n_ctx])
         if not ctx:
             continue
         contexts.append((seq, ctx))
@@ -520,14 +529,14 @@ def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
 
     try:
         id2row, block = session_explorer.load_directional_block(
-            model, sorted(need_ids), mean, index=index)
+            model, sorted(need_ids), mean, index=index
+        )
     except Exception:
         return
     if not id2row:
         return
     for seq, ctx in contexts:
-        rows = [id2row[m["item_id"]] for m in seq["members"]
-                if m["item_id"] in id2row]
+        rows = [id2row[m["item_id"]] for m in seq["members"] if m["item_id"] in id2row]
         if not rows:
             continue
         centroid = block[rows].mean(axis=0)
@@ -536,12 +545,9 @@ def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
             row = id2row.get(p["item_id"])
             if row is None:
                 continue
-            dists[f"{p['item_id']}@{p['ts']}"] = round(
-                1.0 - float(block[row] @ centroid), 4)
+            dists[f"{p['item_id']}@{p['ts']}"] = round(1.0 - float(block[row] @ centroid), 4)
         if dists:
             seq["context_distances"] = dists
-
-
 
 
 def _features() -> pd.DataFrame:
@@ -575,13 +581,20 @@ def _features() -> pd.DataFrame:
             df = session_explorer.load_video_features(extra_map_cols=extra_cols)
             _FEAT_CACHE["trend_cols"] = extra_cols or []
         except Exception:
-            df = pd.DataFrame(columns=["niche_name", "category", "story",
-                                       "political_score", "sensitivity_score",
-                                       "advertising", "author", "duration"])
+            df = pd.DataFrame(
+                columns=[
+                    "niche_name",
+                    "category",
+                    "story",
+                    "political_score",
+                    "sensitivity_score",
+                    "advertising",
+                    "author",
+                    "duration",
+                ]
+            )
         _FEAT_CACHE.update({"key": key, "df": df})
     return _FEAT_CACHE["df"]
-
-
 
 
 def _story_map(item_ids: set[str]) -> dict[str, str]:
@@ -613,8 +626,6 @@ def _story_map(item_ids: set[str]) -> dict[str, str]:
     return out
 
 
-
-
 def _scrape_text_map(item_ids: set[str]) -> dict[str, dict]:
     """Per-item scraped caption text for one session's items.
 
@@ -629,9 +640,12 @@ def _scrape_text_map(item_ids: set[str]) -> dict[str, dict]:
     if not item_ids:
         return {}
     try:
-        available = data_io.get_parquet_columns(
-            storage_location=embeddings.STORE_LOCATION,
-            filename=embeddings.SCRAPES_FILE) or []
+        available = (
+            data_io.get_parquet_columns(
+                storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE
+            )
+            or []
+        )
     except Exception:
         return {}
     cols = [c for c in ("desc", "desc_hashtags") if c in available]
@@ -657,8 +671,6 @@ def _scrape_text_map(item_ids: set[str]) -> dict[str, dict]:
     return out
 
 
-
-
 def _play_text_maps(plays: pd.DataFrame) -> tuple[dict[str, str], dict[str, dict]]:
     """Story/scrape-text maps from a plays frame with baked-in text columns.
 
@@ -669,12 +681,11 @@ def _play_text_maps(plays: pd.DataFrame) -> tuple[dict[str, str], dict[str, dict
     """
     stories: dict[str, str] = {}
     scrape_text: dict[str, dict] = {}
-    hashtags_col = (plays["hashtags"] if "hashtags" in plays.columns
-                    else [None] * len(plays))
+    hashtags_col = plays["hashtags"] if "hashtags" in plays.columns else [None] * len(plays)
     desc_col = plays["desc"] if "desc" in plays.columns else [None] * len(plays)
     for iid, story, desc, hashtags in zip(
-            plays["item_id"].astype("string"), plays["story"],
-            desc_col, hashtags_col):
+        plays["item_id"].astype("string"), plays["story"], desc_col, hashtags_col
+    ):
         iid = str(iid)
         story = _text_value(story)
         if story and iid not in stories:
@@ -684,8 +695,6 @@ def _play_text_maps(plays: pd.DataFrame) -> tuple[dict[str, str], dict[str, dict
         if (desc or hashtags) and iid not in scrape_text:
             scrape_text[iid] = {"desc": desc, "hashtags": hashtags}
     return stories, scrape_text
-
-
 
 
 def _text_value(value) -> str | None:
@@ -708,8 +717,6 @@ def _text_value(value) -> str | None:
     return text or None
 
 
-
-
 # Map columns that are identifiers or map coordinates, not measurements — they
 # would "trend" meaninglessly (x/y are a 2D projection, niche is a cluster id).
 _TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
@@ -718,8 +725,6 @@ _TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
 # null depends only on n, so each length's null is built once per process.
 _TREND_MAX_EXACT = 8
 _TREND_SAMPLES = 20_000
-
-
 
 
 @lru_cache(maxsize=32)
@@ -740,9 +745,7 @@ def _spearman_null(n: int) -> np.ndarray:
         rng = np.random.default_rng(0)
         orders = np.array([rng.permutation(n) for _ in range(_TREND_SAMPLES)], dtype=float)
     oc = orders - orders.mean(axis=1, keepdims=True)
-    return np.sort(np.abs((oc @ xc) / (xc ** 2).sum()))
-
-
+    return np.sort(np.abs((oc @ xc) / (xc**2).sum()))
 
 
 def _spearman_exact(y: np.ndarray) -> tuple[float, float]:
@@ -751,7 +754,7 @@ def _spearman_exact(y: np.ndarray) -> tuple[float, float]:
     ranks = pd.Series(y).rank().to_numpy()
     x = np.arange(n, dtype=float)
     xc, rc = x - x.mean(), ranks - ranks.mean()
-    denom = np.sqrt((rc ** 2).sum() * (xc ** 2).sum())
+    denom = np.sqrt((rc**2).sum() * (xc**2).sum())
     if denom <= 0:
         return float("nan"), 1.0
     rho = float((rc @ xc) / denom)
@@ -767,8 +770,6 @@ def _spearman_exact(y: np.ndarray) -> tuple[float, float]:
     return rho, (1 + hits) / (1 + len(null))
 
 
-
-
 def _benjamini_hochberg(pvalues: list[float]) -> list[float]:
     """BH-adjusted q-values, in the input order."""
     m = len(pvalues)
@@ -779,8 +780,6 @@ def _benjamini_hochberg(pvalues: list[float]) -> list[float]:
         running = min(running, pvalues[i] * m / (m - rank + 1))
         q[i] = running
     return q
-
-
 
 
 def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
@@ -810,17 +809,17 @@ def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
     # feature frame also carries scrape-side numerics (e.g. duration) that the
     # old map-only read never scanned.
     allowed = set(_FEAT_CACHE.get("trend_cols") or [])
-    numeric = [c for c in sub.columns
-               if c in allowed and c not in _TREND_EXCLUDE
-               and pd.api.types.is_numeric_dtype(sub[c])]
+    numeric = [
+        c
+        for c in sub.columns
+        if c in allowed and c not in _TREND_EXCLUDE and pd.api.types.is_numeric_dtype(sub[c])
+    ]
     if not numeric:
         return pd.DataFrame()
     out = sub[numeric].copy()
     for col in numeric:
         out[col] = pd.to_numeric(out[col], errors="coerce")
     return out[~out.index.duplicated()]
-
-
 
 
 def _min_max_ranges(series: dict[str, np.ndarray]) -> list[dict]:
@@ -841,18 +840,18 @@ def _min_max_ranges(series: dict[str, np.ndarray]) -> list[dict]:
         ok = np.isfinite(values)
         if not ok.any():
             continue
-        out.append({
-            "variable": name,
-            # dwell_s is per-play, not a var_schema variable, so it has no
-            # display name to look up.
-            "label": "Dwell (s)" if name == "dwell_s" else _variable_label(name),
-            "min": round(float(values[ok].min()), 3),
-            "max": round(float(values[ok].max()), 3),
-            "n": int(ok.sum()),
-        })
+        out.append(
+            {
+                "variable": name,
+                # dwell_s is per-play, not a var_schema variable, so it has no
+                # display name to look up.
+                "label": "Dwell (s)" if name == "dwell_s" else _variable_label(name),
+                "min": round(float(values[ok].min()), 3),
+                "max": round(float(values[ok].max()), 3),
+                "n": int(ok.sum()),
+            }
+        )
     return sorted(out, key=lambda r: r["label"].lower())
-
-
 
 
 def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
@@ -888,7 +887,8 @@ def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
     # appears in the per-video map, yet it is the variable most likely to
     # trend within a binge (the satiation effect).
     series["dwell_s"] = np.array(
-        [np.nan if m.get("dwell_s") is None else float(m["dwell_s"]) for m in members])
+        [np.nan if m.get("dwell_s") is None else float(m["dwell_s"]) for m in members]
+    )
 
     tested = []
     for name, values in series.items():
@@ -899,11 +899,17 @@ def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
             continue
         rho, p = _spearman_exact(values[ok])
         if np.isfinite(rho):
-            tested.append({"variable": name, "rho": round(rho, 3),
-                           "p": round(p, 5), "n": int(ok.sum())})
+            tested.append(
+                {"variable": name, "rho": round(rho, 3), "p": round(p, 5), "n": int(ok.sum())}
+            )
 
-    out = {"scanned": len(tested), "n_members": len(members), "min_n": min_n,
-           "trend": None, "ranges": _min_max_ranges(series)}
+    out = {
+        "scanned": len(tested),
+        "n_members": len(members),
+        "min_n": min_n,
+        "trend": None,
+        "ranges": _min_max_ranges(series),
+    }
     if not tested:
         return out
     for entry, q in zip(tested, _benjamini_hochberg([t["p"] for t in tested])):
@@ -914,8 +920,6 @@ def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
         best["label"] = _variable_label(best["variable"])
         out["trend"] = best
     return out
-
-
 
 
 @lru_cache(maxsize=1024)
@@ -930,8 +934,6 @@ def _variable_label(name: str) -> str:
     except Exception:
         pass
     return name.replace("_", " ")
-
-
 
 
 def _creator_count(item_ids: list[str], feat: pd.DataFrame) -> dict:
@@ -954,10 +956,7 @@ def _creator_count(item_ids: list[str], feat: pd.DataFrame) -> dict:
                 pass
             known += 1
             authors.add(str(value))
-    return {"n_creators": len(authors), "n_attributed": known,
-            "n_items": len(item_ids)}
-
-
+    return {"n_creators": len(authors), "n_attributed": known, "n_items": len(item_ids)}
 
 
 def _study_collection_ids(study: str) -> set[str]:
@@ -973,14 +972,13 @@ def _study_collection_ids(study: str) -> set[str]:
     Falls back to the raw selection when the study has never been built (no
     frame to intersect against), which is the only honest answer there.
     """
-    selected = {str(d.get("collection_id")) for d in get_study_collections(study)
-                if d.get("collection_id")}
+    selected = {
+        str(d.get("collection_id")) for d in get_study_collections(study) if d.get("collection_id")
+    }
     in_frame = get_study_frame_collections(study)
     if in_frame is None:
         return selected
     return selected & in_frame
-
-
 
 
 def _in_study_window(df: pd.DataFrame, study: str) -> pd.Series:
@@ -1009,8 +1007,6 @@ def _in_study_window(df: pd.DataFrame, study: str) -> pd.Series:
     return (ts >= start) & (ts < end_bound)
 
 
-
-
 def _in_study_cells(df: pd.DataFrame, study: str) -> pd.Series:
     """Mask of the index rows whose (collection, start day) the study admitted.
 
@@ -1030,11 +1026,9 @@ def _in_study_cells(df: pd.DataFrame, study: str) -> pd.Series:
     cids = df["collection_id"].astype(str)
     keys = pd.MultiIndex.from_arrays([cids, days])
     admitted = pd.MultiIndex.from_tuples(
-        [(cid, pd.Timestamp(day)) for cid, ds in cells.items() for day in ds]
-        or [("", pd.NaT)])
+        [(cid, pd.Timestamp(day)) for cid, ds in cells.items() for day in ds] or [("", pd.NaT)]
+    )
     return pd.Series(keys.isin(admitted), index=df.index)
-
-
 
 
 def _cells_signature(study: str):
@@ -1045,8 +1039,6 @@ def _cells_signature(study: str):
     return hash(frozenset((cid, day) for cid, ds in cells.items() for day in ds))
 
 
-
-
 def _admin_all_scope() -> bool:
     """True when an ADMIN asked for the unscoped, whole-artifact view.
 
@@ -1054,14 +1046,12 @@ def _admin_all_scope() -> bool:
     the only view a viewer account gets, so the flag never becomes a way
     around study access.
     """
-    if (request.args.get('scope') or '').strip() != 'all':
+    if (request.args.get("scope") or "").strip() != "all":
         return False
     try:
         return bool(current_user.is_admin())
     except Exception:
         return False
-
-
 
 
 def _admin_playback() -> bool:
@@ -1072,14 +1062,10 @@ def _admin_playback() -> bool:
         return False
 
 
-
-
 def _sessions_config() -> dict:
     """The live ``[sessions]`` config block (always a dict)."""
     cfg = fyp_cf.get("sessions", {})
     return cfg if isinstance(cfg, dict) else {}
-
-
 
 
 def _context_plays() -> int:
@@ -1090,16 +1076,12 @@ def _context_plays() -> int:
         return DEFAULT_CONTEXT_PLAYS
 
 
-
-
 def _drift_p() -> float:
     """``[sessions] drift_p`` — the ``direction_p`` cut for calling a binge directed."""
     try:
         return max(min(float(_sessions_config().get("drift_p", DEFAULT_DRIFT_P)), 1.0), 0.0)
     except (TypeError, ValueError):
         return DEFAULT_DRIFT_P
-
-
 
 
 def _trend_min_videos() -> int:
@@ -1113,8 +1095,6 @@ def _trend_min_videos() -> int:
         return max(int(_sessions_config().get("trend_min_videos", DEFAULT_TREND_MIN_VIDEOS)), 5)
     except (TypeError, ValueError):
         return DEFAULT_TREND_MIN_VIDEOS
-
-
 
 
 def _session_floors() -> dict:
@@ -1137,8 +1117,6 @@ def _session_floors() -> dict:
     }
 
 
-
-
 def _display_params(meta: dict | None) -> dict:
     """The limits the tab must describe to the researcher.
 
@@ -1158,8 +1136,6 @@ def _display_params(meta: dict | None) -> dict:
     return params
 
 
-
-
 def _clean(value):
     """JSON-safe scalar: NA/NaN → None, numpy scalars → Python."""
     if value is None:
@@ -1174,8 +1150,6 @@ def _clean(value):
     return value
 
 
-
-
 def _filter_ranges(df: pd.DataFrame) -> dict:
     """Slider bounds for the filter panel, over the floor-passing frame.
 
@@ -1186,14 +1160,14 @@ def _filter_ranges(df: pd.DataFrame) -> dict:
     """
     out: dict = {}
     ts = _start_dt(df) if "start_ts" in df.columns else pd.Series(dtype="datetime64[ns]")
-    out["start_date"] = ([str(ts.min().date()), str(ts.max().date())]
-                         if ts.notna().any() else None)
-    for col in ("duration_min", "n_plays", "coverage_embedded",
-                "min_window_cosdist", "n_episodes"):
-        vals = (pd.to_numeric(df[col], errors="coerce")
-                if col in df.columns else pd.Series(dtype="float64"))
-        out[col] = ([float(vals.min()), float(vals.max())]
-                    if vals.notna().any() else None)
+    out["start_date"] = [str(ts.min().date()), str(ts.max().date())] if ts.notna().any() else None
+    for col in ("duration_min", "n_plays", "coverage_embedded", "min_window_cosdist", "n_episodes"):
+        vals = (
+            pd.to_numeric(df[col], errors="coerce")
+            if col in df.columns
+            else pd.Series(dtype="float64")
+        )
+        out[col] = [float(vals.min()), float(vals.max())] if vals.notna().any() else None
     # Per-variable session-max bounds for the variable-picker filter. None
     # (not {}) when the artifact predates the vmax_ columns, so the client can
     # tell "no variables usable" from "filter unavailable — rebuild".
@@ -1203,21 +1177,18 @@ def _filter_ranges(df: pd.DataFrame) -> dict:
         for col in vmax_cols:
             vals = pd.to_numeric(df[col], errors="coerce")
             if vals.notna().any():
-                var_max[col[len(_VARMAX_PREFIX):]] = [float(vals.min()), float(vals.max())]
+                var_max[col[len(_VARMAX_PREFIX) :]] = [float(vals.min()), float(vals.max())]
         out["var_max"] = var_max
         out["var_labels"] = {
-            name: ("Dwell (s)" if name == "dwell_s" else _variable_label(name))
-            for name in var_max}
+            name: ("Dwell (s)" if name == "dwell_s" else _variable_label(name)) for name in var_max
+        }
     else:
         out["var_max"] = None
         out["var_labels"] = None
     return out
 
 
-
-
-def _cached_filter_ranges(index: pd.DataFrame, pop: np.ndarray, study: str,
-                          sig: tuple) -> dict:
+def _cached_filter_ranges(index: pd.DataFrame, pop: np.ndarray, study: str, sig: tuple) -> dict:
     """:func:`_filter_ranges`, cached per (artifact, study scope, floors).
 
     The bounds are computed BEFORE the user's own range/search filters, so
@@ -1245,20 +1216,16 @@ def _cached_filter_ranges(index: pd.DataFrame, pop: np.ndarray, study: str,
     return hit
 
 
-
-
 def _opt_query_float(name: str) -> float | None:
     """An optional numeric query param: absent/blank → None, junk → ValueError."""
     raw = request.args.get(name)
-    if raw is None or raw.strip() == '':
+    if raw is None or raw.strip() == "":
         return None
     return float(raw)
 
 
-
-
-@sessions_bp.route('/api/sessions/overview', methods=['GET'])
-@permission_required('tab.sessions')
+@sessions_bp.route("/api/sessions/overview", methods=["GET"])
+@permission_required("tab.sessions")
 def api_sessions_overview():
     """Filterable, sortable, paginated session table scoped to one study.
 
@@ -1302,7 +1269,7 @@ def api_sessions_overview():
       (stories, niches, categories, creators, captions + hashtags), split on
       whitespace, all terms must match (case-insensitive substring AND).
     """
-    study = (request.args.get('study') or '').strip()
+    study = (request.args.get("study") or "").strip()
     if not study:
         return jsonify({"error": "study is required"}), 400
     denied = study_access_error(study)
@@ -1311,49 +1278,52 @@ def api_sessions_overview():
 
     index = _load_index()
     if index is None:
-        return jsonify({
-            "error": "The sessions index has not been built yet. Run the "
-                     "'sessions_refresh' task to generate it."
-        }), 404
+        return jsonify(
+            {
+                "error": "The sessions index has not been built yet. Run the "
+                "'sessions_refresh' task to generate it."
+            }
+        ), 404
 
     floors = _session_floors()
     try:
-        min_coverage = float(request.args.get('min_coverage', floors["min_coverage"]))
-        min_emb = int(request.args.get('min_emb_plays', DEFAULT_MIN_EMB_PLAYS))
-        min_plays = int(request.args.get('min_plays', floors["min_plays"]))
-        min_minutes = float(request.args.get('min_session_minutes',
-                                             floors["min_session_minutes"]))
-        limit = min(int(request.args.get('limit', OVERVIEW_LIMIT_DEFAULT)), OVERVIEW_LIMIT_MAX)
-        page = max(int(request.args.get('page', 0)), 0)
-        range_filters = {stem: (_opt_query_float(f"{stem}_min"),
-                                _opt_query_float(f"{stem}_max"))
-                         for stem in _RANGE_FILTER_COLS}
-        varmax_col = (request.args.get('f_varmax_col') or '').strip()
-        varmax_lo = _opt_query_float('f_varmax_min')
-        varmax_hi = _opt_query_float('f_varmax_max')
-        varmax_scope = (request.args.get('f_varmax_scope') or 'session').strip()
+        min_coverage = float(request.args.get("min_coverage", floors["min_coverage"]))
+        min_emb = int(request.args.get("min_emb_plays", DEFAULT_MIN_EMB_PLAYS))
+        min_plays = int(request.args.get("min_plays", floors["min_plays"]))
+        min_minutes = float(request.args.get("min_session_minutes", floors["min_session_minutes"]))
+        limit = min(int(request.args.get("limit", OVERVIEW_LIMIT_DEFAULT)), OVERVIEW_LIMIT_MAX)
+        page = max(int(request.args.get("page", 0)), 0)
+        range_filters = {
+            stem: (_opt_query_float(f"{stem}_min"), _opt_query_float(f"{stem}_max"))
+            for stem in _RANGE_FILTER_COLS
+        }
+        varmax_col = (request.args.get("f_varmax_col") or "").strip()
+        varmax_lo = _opt_query_float("f_varmax_min")
+        varmax_hi = _opt_query_float("f_varmax_max")
+        varmax_scope = (request.args.get("f_varmax_scope") or "session").strip()
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numeric filter"}), 400
-    search_q = (request.args.get('q') or '').strip()
+    search_q = (request.args.get("q") or "").strip()
     f_start_min = f_start_max = None
     try:
-        raw = (request.args.get('f_start_min') or '').strip()
+        raw = (request.args.get("f_start_min") or "").strip()
         if raw:
             f_start_min = pd.Timestamp(raw)
-        raw = (request.args.get('f_start_max') or '').strip()
+        raw = (request.args.get("f_start_max") or "").strip()
         if raw:
             # Inclusive day: anything before the following midnight matches.
             f_start_max = pd.Timestamp(raw) + pd.Timedelta(days=1)
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid date filter"}), 400
-    sort = request.args.get('sort') or "min_window_cosdist"
+    sort = request.args.get("sort") or "min_window_cosdist"
     if sort not in _SORT_KEYS:
         sort = "min_window_cosdist"
-    ascending = (request.args.get('order') or 'asc').lower() != 'desc'
+    ascending = (request.args.get("order") or "asc").lower() != "desc"
 
     cids = _study_collection_ids(study)
     window = get_study_date_window(study)
     all_scope = _admin_all_scope()
+
     # All scoping/filter stages are boolean masks over the FULL index; the
     # frame is materialized exactly once, after the last mask. The old
     # stage-by-stage slicing copied the full-width frame ~5 times per request.
@@ -1364,9 +1334,11 @@ def api_sessions_overview():
     # runs BEFORE total_in_study so every downstream number — the floor counts,
     # the slider bounds, the status line — describes the study, not the
     # artifact.
-    in_study = (_np_mask(index["collection_id"].isin(cids))
-                & _np_mask(_in_study_window(index, study))
-                & _np_mask(_in_study_cells(index, study)))
+    in_study = (
+        _np_mask(index["collection_id"].isin(cids))
+        & _np_mask(_in_study_window(index, study))
+        & _np_mask(_in_study_cells(index, study))
+    )
     # An admin's "all sessions" view lists the whole artifact; the study mask
     # is kept so each row can still say whether the study contains it.
     population = np.ones(len(index), dtype=bool) if all_scope else in_study
@@ -1374,20 +1346,33 @@ def api_sessions_overview():
     # The three admin-controlled list floors are applied as one block, so the
     # client can report a single "N not listed" count it can reconcile with the
     # rows on screen; min_emb_plays stays a separate ad-hoc quality filter.
-    floors_ok = (population
-                 & _np_mask(index["n_plays"].fillna(0) >= min_plays)
-                 & _np_mask(index["duration_min"].fillna(0) >= min_minutes)
-                 & _np_mask(index["coverage_embedded"].fillna(0) >= min_coverage))
+    floors_ok = (
+        population
+        & _np_mask(index["n_plays"].fillna(0) >= min_plays)
+        & _np_mask(index["duration_min"].fillna(0) >= min_minutes)
+        & _np_mask(index["coverage_embedded"].fillna(0) >= min_coverage)
+    )
     total_above_floors = int(floors_ok.sum())
     pop = floors_ok & _np_mask(index["n_embedded"].fillna(0) >= min_emb)
 
     # Slider bounds come from the population the sliders act on — after the
     # floors, before the user's own range filters.
     ranges = _cached_filter_ranges(
-        index, pop, study,
-        (min_plays, min_minutes, min_coverage, min_emb,
-         len(cids), hash(frozenset(cids)), window,
-         _cells_signature(study), all_scope))
+        index,
+        pop,
+        study,
+        (
+            min_plays,
+            min_minutes,
+            min_coverage,
+            min_emb,
+            len(cids),
+            hash(frozenset(cids)),
+            window,
+            _cells_signature(study),
+            all_scope,
+        ),
+    )
 
     mask = pop.copy()
     if f_start_min is not None or f_start_max is not None:
@@ -1413,7 +1398,7 @@ def api_sessions_overview():
     # the column is absent (old artifact, or a variable the map no longer has).
     if varmax_col and (varmax_lo is not None or varmax_hi is not None):
         binge_scoped = False
-        if varmax_scope == 'binges':
+        if varmax_scope == "binges":
             # "Binges only": keep sessions where at least ONE binge's max of
             # the variable falls in the range. Sessions without a binge (or
             # whose binges have no value for the variable) drop — the range
@@ -1426,10 +1411,8 @@ def api_sessions_overview():
                     ok &= vals >= varmax_lo
                 if varmax_hi is not None:
                     ok &= vals <= varmax_hi
-                passing = pd.MultiIndex.from_frame(
-                    emax.loc[ok, ["collection_id", "session_id"]])
-                keys = pd.MultiIndex.from_arrays(
-                    [index["collection_id"], index["session_id"]])
+                passing = pd.MultiIndex.from_frame(emax.loc[ok, ["collection_id", "session_id"]])
+                keys = pd.MultiIndex.from_arrays([index["collection_id"], index["session_id"]])
                 mask &= keys.isin(passing)
                 binge_scoped = True
         if not binge_scoped:
@@ -1464,12 +1447,12 @@ def api_sessions_overview():
     if sort not in df.columns:
         # e.g. sorting by directed binges against an artifact that has none.
         sort = "min_window_cosdist"
-    df = df.sort_values(sort, ascending=ascending, na_position='last')
+    df = df.sort_values(sort, ascending=ascending, na_position="last")
     # Pagination: clamp the requested page so a filter change that shrinks the
     # result set never returns an empty page while matches exist.
     if limit > 0:
         page = min(page, max((total_matching - 1) // limit, 0))
-        df = df.iloc[page * limit:(page + 1) * limit]
+        df = df.iloc[page * limit : (page + 1) * limit]
     else:
         page = 0
 
@@ -1482,37 +1465,41 @@ def api_sessions_overview():
         # None (not 0) when the artifact predates direction_p: the client must
         # be able to tell "no directed binges" from "never measured".
         rec["n_directed_episodes"] = (
-            _clean(row.get("n_directed_episodes")) if directed is not None else None)
+            _clean(row.get("n_directed_episodes")) if directed is not None else None
+        )
         sessions.append(rec)
 
     meta = _load_meta()
-    return jsonify({
-        "sessions": sessions,
-        "scope": "all" if all_scope else "study",
-        "total_in_study": total_in_study,
-        # Under scope=all the population is the artifact; this stays the
-        # study's own count so the status line can name both.
-        "study_total": int(in_study.sum()),
-        "total_above_floors": total_above_floors,
-        "total_matching": total_matching,
-        "returned": len(sessions),
-        "page": page,
-        "page_size": limit,
-        "ranges": ranges,
-        "search_available": search_available,
-        "meta": meta,
-        "params": _display_params(meta),
-        "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes,
-                   "min_coverage": min_coverage},
-        "defaults": {
-            "min_emb_plays": DEFAULT_MIN_EMB_PLAYS,
-            "min_plays": floors["min_plays"],
-            "min_session_minutes": floors["min_session_minutes"],
-            "min_coverage": floors["min_coverage"],
-        },
-    })
-
-
+    return jsonify(
+        {
+            "sessions": sessions,
+            "scope": "all" if all_scope else "study",
+            "total_in_study": total_in_study,
+            # Under scope=all the population is the artifact; this stays the
+            # study's own count so the status line can name both.
+            "study_total": int(in_study.sum()),
+            "total_above_floors": total_above_floors,
+            "total_matching": total_matching,
+            "returned": len(sessions),
+            "page": page,
+            "page_size": limit,
+            "ranges": ranges,
+            "search_available": search_available,
+            "meta": meta,
+            "params": _display_params(meta),
+            "floors": {
+                "min_plays": min_plays,
+                "min_session_minutes": min_minutes,
+                "min_coverage": min_coverage,
+            },
+            "defaults": {
+                "min_emb_plays": DEFAULT_MIN_EMB_PLAYS,
+                "min_plays": floors["min_plays"],
+                "min_session_minutes": floors["min_session_minutes"],
+                "min_coverage": floors["min_coverage"],
+            },
+        }
+    )
 
 
 def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
@@ -1560,8 +1547,7 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
                     # Evict oldest insertions beyond the cap (plain dict keeps
                     # insertion order; hit-recency doesn't matter much at 8).
                     while len(_COLLECTION_PLAYS_CACHE) >= _COLLECTION_PLAYS_MAX:
-                        _COLLECTION_PLAYS_CACHE.pop(
-                            next(iter(_COLLECTION_PLAYS_CACHE)))
+                        _COLLECTION_PLAYS_CACHE.pop(next(iter(_COLLECTION_PLAYS_CACHE)))
                     _COLLECTION_PLAYS_CACHE[collection_id] = (plays_fp, df)
             else:
                 df = None
@@ -1569,14 +1555,17 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
         df = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION,
             filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-            columns=["item_id", "local_timestamp", "play_duration",
-                     "session_id", "source_platform"],
-            filters=[("collection_id", "==", collection_id),
-                     ("activity_type", "==", "play")],
+            columns=[
+                "item_id",
+                "local_timestamp",
+                "play_duration",
+                "session_id",
+                "source_platform",
+            ],
+            filters=[("collection_id", "==", collection_id), ("activity_type", "==", "play")],
         )
         if df is None or df.empty:
-            return pd.DataFrame(columns=["item_id", "_ts", "play_duration",
-                                         "source_platform"])
+            return pd.DataFrame(columns=["item_id", "_ts", "play_duration", "source_platform"])
         df = df.copy()
         df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
     df = df.dropna(subset=["_ts"])
@@ -1588,8 +1577,6 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
         df = df[df["session_id"].astype("string") == sid]
     df["item_id"] = df["item_id"].astype("string")
     return df.sort_values("_ts")
-
-
 
 
 def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.DataFrame | None:
@@ -1609,7 +1596,8 @@ def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.Data
         if cache["df"] is not None and cache["fingerprint"] == key:
             return cache["df"]
         df = data_io.load_parquet_selective(
-            storage_location=session_explorer.ARTIFACT_LOCATION, filename=filename)
+            storage_location=session_explorer.ARTIFACT_LOCATION, filename=filename
+        )
         if df is None:
             return None
         df = df.copy()
@@ -1619,18 +1607,15 @@ def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.Data
     return cache["df"]
 
 
-
-
 def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's episode rows (members reassembled per episode)."""
-    frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE,
-                            _episodes_lock)
+    frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
     if frame is None:
         return []
-    df = frame[(frame["collection_id"] == collection_id)
-               & (frame["session_id"] == session_id)]
+    df = frame[(frame["collection_id"] == collection_id) & (frame["session_id"] == session_id)]
     if df.empty:
         return []
+
     def _as_list(value):
         # List cells come back as numpy arrays / Arrow lists; a bare `or []`
         # trips the ambiguous-truth-value error.
@@ -1651,36 +1636,55 @@ def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
         dwell = _as_list(row["member_dwell_s"])
         roll = _as_list(row["member_rolling_cosdist"])
         for i, iid in enumerate(ids):
-            members.append({
-                "item_id": str(iid),
-                "ts": ts[i] if i < len(ts) else None,
-                "dwell_s": _clean(dwell[i]) if i < len(dwell) else None,
-                "rolling_cosdist": _clean(roll[i]) if i < len(roll) else None,
-            })
-        ep = {col: _clean(row.get(col)) for col in (
-            "episode_idx", "start_ts", "end_ts", "duration_min", "n_plays",
-            "n_distinct", "repeat_rate", "n_interleaved", "n_skipped",
-            "focus", "diameter",
-            "step_mean", "straightness", "direction_p", "spectral_entropy_bits",
-            "effective_rank", "dominant_niche", "dominant_niche_share",
-            "n_niches", "n_authors", "dominant_author_share", "advertising",
-            "advertising_share", "mean_political", "mean_sensitivity",
-        )}
+            members.append(
+                {
+                    "item_id": str(iid),
+                    "ts": ts[i] if i < len(ts) else None,
+                    "dwell_s": _clean(dwell[i]) if i < len(dwell) else None,
+                    "rolling_cosdist": _clean(roll[i]) if i < len(roll) else None,
+                }
+            )
+        ep = {
+            col: _clean(row.get(col))
+            for col in (
+                "episode_idx",
+                "start_ts",
+                "end_ts",
+                "duration_min",
+                "n_plays",
+                "n_distinct",
+                "repeat_rate",
+                "n_interleaved",
+                "n_skipped",
+                "focus",
+                "diameter",
+                "step_mean",
+                "straightness",
+                "direction_p",
+                "spectral_entropy_bits",
+                "effective_rank",
+                "dominant_niche",
+                "dominant_niche_share",
+                "n_niches",
+                "n_authors",
+                "dominant_author_share",
+                "advertising",
+                "advertising_share",
+                "mean_political",
+                "mean_sensitivity",
+            )
+        }
         ep["members"] = members
         episodes.append(ep)
     return episodes
 
 
-
-
 def _session_windows(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's low-entropy-window rows (members reassembled)."""
-    frame = _artifact_frame(session_explorer.WINDOWS_FILE, _WINDOWS_CACHE,
-                            _windows_lock)
+    frame = _artifact_frame(session_explorer.WINDOWS_FILE, _WINDOWS_CACHE, _windows_lock)
     if frame is None:
         return []
-    df = frame[(frame["collection_id"] == collection_id)
-               & (frame["session_id"] == session_id)]
+    df = frame[(frame["collection_id"] == collection_id) & (frame["session_id"] == session_id)]
     if df.empty:
         return []
 
@@ -1699,20 +1703,30 @@ def _session_windows(collection_id: str, session_id: str) -> list[dict]:
         ids = _as_list(row["member_item_ids"])
         ts = _as_list(row["member_ts"])
         dwell = _as_list(row["member_dwell_s"])
-        members = [{
-            "item_id": str(iid),
-            "ts": ts[i] if i < len(ts) else None,
-            "dwell_s": _clean(dwell[i]) if i < len(dwell) else None,
-        } for i, iid in enumerate(ids)]
-        w = {col: _clean(row.get(col)) for col in (
-            "window_idx", "start_ts", "end_ts", "duration_min", "n_distinct",
-            "mean_cosdist", "entropy_norm", "dominant_niche",
-        )}
+        members = [
+            {
+                "item_id": str(iid),
+                "ts": ts[i] if i < len(ts) else None,
+                "dwell_s": _clean(dwell[i]) if i < len(dwell) else None,
+            }
+            for i, iid in enumerate(ids)
+        ]
+        w = {
+            col: _clean(row.get(col))
+            for col in (
+                "window_idx",
+                "start_ts",
+                "end_ts",
+                "duration_min",
+                "n_distinct",
+                "mean_cosdist",
+                "entropy_norm",
+                "dominant_niche",
+            )
+        }
         w["members"] = members
         windows.append(w)
     return windows
-
-
 
 
 def _episode_vmax() -> pd.DataFrame | None:
@@ -1737,16 +1751,17 @@ def _episode_vmax() -> pd.DataFrame | None:
     with _epvmax_lock:
         if _EPVMAX_CACHE["df"] is not None and _EPVMAX_CACHE["key"] == key:
             return _EPVMAX_CACHE["df"]
-        frame = _artifact_frame(session_explorer.EPISODES_FILE,
-                                _EPISODES_CACHE, _episodes_lock)
+        frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
         if frame is None:
             return None
-        exploded = pd.DataFrame({
-            "collection_id": frame["collection_id"],
-            "session_id": frame["session_id"],
-            "item_id": frame["member_item_ids"],
-            "dwell_s": frame["member_dwell_s"],
-        })
+        exploded = pd.DataFrame(
+            {
+                "collection_id": frame["collection_id"],
+                "session_id": frame["session_id"],
+                "item_id": frame["member_item_ids"],
+                "dwell_s": frame["member_dwell_s"],
+            }
+        )
         exploded["_eid"] = np.arange(len(exploded))
         exploded = exploded.explode(["item_id", "dwell_s"], ignore_index=True)
         exploded["item_id"] = exploded["item_id"].astype("string")
@@ -1756,16 +1771,13 @@ def _episode_vmax() -> pd.DataFrame | None:
             exploded = exploded.join(feat, on="item_id")
         value_cols = ["dwell_s"] + [c for c in feat.columns]
         agg = exploded.groupby("_eid")[value_cols].max()
-        out = (frame[["collection_id", "session_id"]].reset_index(drop=True)
-               .join(agg))
+        out = frame[["collection_id", "session_id"]].reset_index(drop=True).join(agg)
         _EPVMAX_CACHE.update({"key": key, "df": out})
     return _EPVMAX_CACHE["df"]
 
 
-
-
-@sessions_bp.route('/api/sessions/detail', methods=['GET'])
-@permission_required('tab.sessions')
+@sessions_bp.route("/api/sessions/detail", methods=["GET"])
+@permission_required("tab.sessions")
 def api_sessions_detail():
     """One session's full play sequence + focus episodes + per-item context.
 
@@ -1785,9 +1797,9 @@ def api_sessions_detail():
     """
     from .api_viewer_routes import _study_item_ids
 
-    study = (request.args.get('study') or '').strip()
-    collection_id = (request.args.get('collection_id') or '').strip()
-    session_id = (request.args.get('session_id') or '').strip()
+    study = (request.args.get("study") or "").strip()
+    collection_id = (request.args.get("collection_id") or "").strip()
+    session_id = (request.args.get("session_id") or "").strip()
     if not study or not collection_id or not session_id:
         return jsonify({"error": "study, collection_id and session_id are required"}), 400
     denied = study_access_error(study)
@@ -1800,8 +1812,14 @@ def api_sessions_detail():
 
     # The verdicts differ per audience (admin playback, admin scope), so the
     # cache never hands one audience's payload to another.
-    cache_key = (study, collection_id, session_id, all_scope, admin_play,
-                 _detail_cache_version(study))
+    cache_key = (
+        study,
+        collection_id,
+        session_id,
+        all_scope,
+        admin_play,
+        _detail_cache_version(study),
+    )
     with _detail_response_lock:
         cached_payload = _DETAIL_RESPONSE_CACHE.get(cache_key)
     if cached_payload is not None:
@@ -1810,17 +1828,16 @@ def api_sessions_detail():
     index = _load_index()
     if index is None:
         return jsonify({"error": "The sessions index has not been built yet."}), 404
-    match = index[(index["collection_id"] == collection_id)
-                  & (index["session_id"] == session_id)]
+    match = index[(index["collection_id"] == collection_id) & (index["session_id"] == session_id)]
     # The other scoping axes: a session the collection recorded outside the
     # study's date window, or on a day the sample dropped, is not this
     # study's session. An admin's all-scope view still reports the verdict.
     session_in_study = False
     if not match.empty:
-        scoped = (_in_study_window(match, study).to_numpy()
-                  & _in_study_cells(match, study).to_numpy())
-        session_in_study = (bool(scoped[0])
-                            and collection_id in _study_collection_ids(study))
+        scoped = (
+            _in_study_window(match, study).to_numpy() & _in_study_cells(match, study).to_numpy()
+        )
+        session_in_study = bool(scoped[0]) and collection_id in _study_collection_ids(study)
         if not all_scope:
             match = match[scoped]
     if match.empty:
@@ -1848,8 +1865,12 @@ def api_sessions_detail():
     # A play belongs to an episode when its timestamp falls inside the
     # episode's span and its item is one of the episode's members.
     ep_spans = [
-        (ep["episode_idx"], pd.Timestamp(ep["start_ts"]), pd.Timestamp(ep["end_ts"]),
-         {m["item_id"] for m in ep["members"]})
+        (
+            ep["episode_idx"],
+            pd.Timestamp(ep["start_ts"]),
+            pd.Timestamp(ep["end_ts"]),
+            {m["item_id"] for m in ep["members"]},
+        )
         for ep in episodes
     ]
 
@@ -1870,28 +1891,29 @@ def api_sessions_detail():
         desc = text.get("desc")
         if isinstance(desc, str) and len(desc) > _STORY_CAP:
             desc = desc[:_STORY_CAP] + "…"
-        play_rows.append({
-            "seq": seq,
-            "item_id": iid,
-            "ts": ts.isoformat(),
-            "dwell_s": _clean(row.get("play_duration")),
-            "duration_s": None if f is None else _clean(f.get("duration")),
-            "platform": _clean(row.get("source_platform")),
-            "annotated": iid in flags["annotated"],
-            "embedded": iid in embedded_ids,
-            "in_study": iid in study_ids,
-            "streamable": ((admin_play or iid in study_ids)
-                           and (iid in flags["downloaded"])),
-            "niche_name": None if f is None else _clean(f.get("niche_name")),
-            "category": None if f is None else _clean(f.get("category")),
-            "story": story,
-            "desc": desc,
-            "hashtags": text.get("hashtags"),
-            "author": None if f is None else _clean(f.get("author")),
-            "political_score": None if f is None else _clean(f.get("political_score")),
-            "sensitivity_score": None if f is None else _clean(f.get("sensitivity_score")),
-            "episode_idx": episode_idx,
-        })
+        play_rows.append(
+            {
+                "seq": seq,
+                "item_id": iid,
+                "ts": ts.isoformat(),
+                "dwell_s": _clean(row.get("play_duration")),
+                "duration_s": None if f is None else _clean(f.get("duration")),
+                "platform": _clean(row.get("source_platform")),
+                "annotated": iid in flags["annotated"],
+                "embedded": iid in embedded_ids,
+                "in_study": iid in study_ids,
+                "streamable": ((admin_play or iid in study_ids) and (iid in flags["downloaded"])),
+                "niche_name": None if f is None else _clean(f.get("niche_name")),
+                "category": None if f is None else _clean(f.get("category")),
+                "story": story,
+                "desc": desc,
+                "hashtags": text.get("hashtags"),
+                "author": None if f is None else _clean(f.get("author")),
+                "political_score": None if f is None else _clean(f.get("political_score")),
+                "sensitivity_score": None if f is None else _clean(f.get("sensitivity_score")),
+                "episode_idx": episode_idx,
+            }
+        )
 
     # Distances of the just-outside context plays to each binge/sequence's
     # member centroid — the "why wasn't this one included" signal. Best-effort:
@@ -1917,9 +1939,11 @@ def api_sessions_detail():
     # show — live-computed from the current video_map, so it can differ
     # slightly from the index's baked ``vmax_``/``vmin_`` columns after a map
     # rebuild (both are honest; they describe different build moments).
-    session_series: dict[str, np.ndarray] = {
-        col: trend_feat[col].to_numpy(dtype=float) for col in trend_feat.columns
-    } if not trend_feat.empty else {}
+    session_series: dict[str, np.ndarray] = (
+        {col: trend_feat[col].to_numpy(dtype=float) for col in trend_feat.columns}
+        if not trend_feat.empty
+        else {}
+    )
     dwell_vals = pd.to_numeric(plays["play_duration"], errors="coerce")
     session_series["dwell_s"] = dwell_vals.to_numpy(dtype=float)
     session_ranges = _min_max_ranges(session_series)
@@ -1933,8 +1957,7 @@ def api_sessions_detail():
         for col in trend_feat.columns:
             vals = aligned[col].to_numpy(dtype=float)
             if np.isfinite(vals).any():
-                play_variables[col] = [
-                    round(float(v), 4) if np.isfinite(v) else None for v in vals]
+                play_variables[col] = [round(float(v), 4) if np.isfinite(v) else None for v in vals]
 
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
@@ -1956,10 +1979,8 @@ def api_sessions_detail():
     return jsonify(payload)
 
 
-
-
-@sessions_bp.route('/api/sessions/status', methods=['GET'])
-@permission_required('tab.sessions')
+@sessions_bp.route("/api/sessions/status", methods=["GET"])
+@permission_required("tab.sessions")
 def api_sessions_status():
     """Lightweight freshness signal for the Sessions tab.
 
@@ -1983,12 +2004,14 @@ def api_sessions_status():
     built_model = (meta or {}).get("embedding_model")
     model_mismatch = bool(built_model) and bool(active_model) and built_model != active_model
 
-    return jsonify({
-        "artifact_exists": bool(exists),
-        "built_at": (meta or {}).get("built_at"),
-        "meta": meta,
-        "active_embedding_model": active_model,
-        "model_mismatch": model_mismatch,
-        "refresh_running": _is_worker_running("sessions_refresh"),
-        "embeddings_updating": _is_worker_running("embeddings_refresh"),
-    })
+    return jsonify(
+        {
+            "artifact_exists": bool(exists),
+            "built_at": (meta or {}).get("built_at"),
+            "meta": meta,
+            "active_embedding_model": active_model,
+            "model_mismatch": model_mismatch,
+            "refresh_running": _is_worker_running("sessions_refresh"),
+            "embeddings_updating": _is_worker_running("embeddings_refresh"),
+        }
+    )

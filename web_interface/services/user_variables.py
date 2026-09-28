@@ -2,7 +2,6 @@
 
 Pure moves from web_interface/data_service.py (Phase 7c)."""
 
-
 import pandas as pd
 
 import fyp.core.data_io as data_io
@@ -14,8 +13,9 @@ from .study_data import SECTION_ORDER, _CAT_SCALES
 # --- Explorer State ---
 
 
-def get_accessible_studies(username: str, role: str, is_admin: bool,
-                           include_stats: bool = False) -> list:
+def get_accessible_studies(
+    username: str, role: str, is_admin: bool, include_stats: bool = False
+) -> list:
     """Return study names (or dicts with stats) that the user has access to.
 
     Args:
@@ -36,7 +36,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
 
     from ..admin_settings import get_default_study
 
-    if 'study_defs' not in fyp_cf:
+    if "study_defs" not in fyp_cf:
         init_study_defs()
 
     accessible_studies = []
@@ -81,33 +81,37 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         try:
             from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
             from fyp.analysis.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
+
             meta_df = data_io.load_parquet_selective(
                 storage_location="recoded",
                 filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
                 columns=["('personas', 'active_days')", "active_days"],
-                set_index='collection_id',
+                set_index="collection_id",
             )
             if meta_df is not None and not meta_df.empty:
                 active_days_col = None
-                if ('personas', 'active_days') in meta_df.columns:
-                    active_days_col = ('personas', 'active_days')
-                elif 'active_days' in meta_df.columns:
-                    active_days_col = 'active_days'
+                if ("personas", "active_days") in meta_df.columns:
+                    active_days_col = ("personas", "active_days")
+                elif "active_days" in meta_df.columns:
+                    active_days_col = "active_days"
                 if active_days_col is not None:
                     df_reset = meta_df.reset_index()
-                    ad_series = pd.to_numeric(df_reset[active_days_col], errors='coerce')
+                    ad_series = pd.to_numeric(df_reset[active_days_col], errors="coerce")
                     capable_mask = ad_series >= MIN_ACTIVE_DAYS_FOR_TIMELINE
                     timeline_capable_cids = set(
-                        df_reset.loc[capable_mask, 'collection_id']
-                        .dropna().astype(str).str.strip().tolist()
+                        df_reset.loc[capable_mask, "collection_id"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .tolist()
                     )
         except Exception:
             timeline_capable_cids = set()
 
-    study_defs = fyp_cf.get('study_defs') or {}
+    study_defs = fyp_cf.get("study_defs") or {}
 
     def _study_stats(config) -> dict:
-        stats = config.get('stats', {})
+        stats = config.get("stats", {})
         # Defensive: a bad client save could persist stats as a string
         # (e.g. "[object Object]"). Treat anything non-dict as empty
         # so the listing endpoint keeps working for other studies.
@@ -121,7 +125,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         elif default_study and study_name == default_study:
             has_access = True
         else:
-            user_access = study_config.get('USER_ACCESS')
+            user_access = study_config.get("USER_ACCESS")
 
             # 2. Access requires an explicit grant: 'all', the user's role,
             #    or their username. Missing/empty/malformed => deny — a
@@ -130,9 +134,8 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             #    migrate_user_access_defaults() wrote explicit grants into
             #    every study that relied on that.)
             if isinstance(user_access, list) and (
-                    'all' in user_access
-                    or role in user_access
-                    or username in user_access):
+                "all" in user_access or role in user_access or username in user_access
+            ):
                 has_access = True
             else:
                 has_access = False
@@ -151,34 +154,43 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         if composed:
             base_name = default_study
             base_config = study_defs.get(base_name) if base_name else None
-            if (not isinstance(base_config, dict)
-                    or is_composed_study(base_config)
-                    or base_name == study_name):
+            if (
+                not isinstance(base_config, dict)
+                or is_composed_study(base_config)
+                or base_name == study_name
+            ):
                 continue
             if not _has_cache_file(f"{base_name}_recoded.parquet"):
                 continue
-            owner_id = study_config.get('OWNER')
+            owner_id = study_config.get("OWNER")
             overlay_name = participant_me_name(owner_id) if owner_id else None
             if not overlay_name or not _has_cache_file(f"{overlay_name}_recoded.parquet"):
                 continue
             base_stats = _study_stats(base_config)
             overlay_stats = _study_stats(study_defs.get(overlay_name) or {})
             stats = dict(base_stats)
-            for key in ("total_activities", "unique_videos", "scraped_videos",
-                        "annotated_videos", "unique_collections", "active_days"):
+            for key in (
+                "total_activities",
+                "unique_videos",
+                "scraped_videos",
+                "annotated_videos",
+                "unique_collections",
+                "active_days",
+            ):
                 stats[key] = int(base_stats.get(key) or 0) + int(overlay_stats.get(key) or 0)
             artifact_name = base_name
-            effective_selected = list(base_config.get('SELECTED_COLLECTIONS') or []) + \
-                list(study_config.get('SELECTED_COLLECTIONS') or [])
+            effective_selected = list(base_config.get("SELECTED_COLLECTIONS") or []) + list(
+                study_config.get("SELECTED_COLLECTIONS") or []
+            )
         else:
             # Data Integrity Checks
             if not _has_cache_file(f"{study_name}_recoded.parquet"):
                 continue
             stats = _study_stats(study_config)
             artifact_name = study_name
-            effective_selected = study_config.get('SELECTED_COLLECTIONS', []) or []
+            effective_selected = study_config.get("SELECTED_COLLECTIONS", []) or []
 
-        if stats.get('unique_videos', 0) <= 0:
+        if stats.get("unique_videos", 0) <= 0:
             continue
 
         # The pair's fixed display names ("Just Me" / "Everyone & Me") are
@@ -186,14 +198,14 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         # (admins, managers) needs the owner spelled out to tell N identical
         # labels apart.
         system = is_system_study(study_config)
-        display_name = study_config.get('DISPLAY_NAME') or study_name
-        owner = study_config.get('OWNER')
+        display_name = study_config.get("DISPLAY_NAME") or study_name
+        owner = study_config.get("OWNER")
         if system and owner and owner != username:
             display_name = f"{display_name} — {owner}"
 
         if include_stats:
             stats = dict(stats)
-            stats['has_pca'] = _has_cache_file(f"{artifact_name}_PCA.parquet")
+            stats["has_pca"] = _has_cache_file(f"{artifact_name}_PCA.parquet")
             # A study "has timelines" only when at least one of its
             # collections is long enough to analyse (active_days >=
             # threshold) AND has an actual cached timeline parquet.
@@ -202,7 +214,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             # collections are all too short; without the file check,
             # collections that qualify on paper but whose timelines
             # have never been generated would appear available.
-            stats['has_timelines'] = any(
+            stats["has_timelines"] = any(
                 (cid_clean := str(cid).strip()) in timeline_capable_cids
                 and _has_cache_file(f"timeline_{cid_clean}_day.parquet")
                 for cid in effective_selected
@@ -210,13 +222,15 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             # The sessions artifact is global (all collections) — the
             # tab enables everywhere once it exists and shows a
             # per-study empty state when no sessions match.
-            stats['has_sessions'] = _has_cache_file("sessions_index.parquet")
-            accessible_studies.append({
-                "name": study_name,
-                "display_name": display_name,
-                "system": system,
-                "stats": stats,
-            })
+            stats["has_sessions"] = _has_cache_file("sessions_index.parquet")
+            accessible_studies.append(
+                {
+                    "name": study_name,
+                    "display_name": display_name,
+                    "system": system,
+                    "stats": stats,
+                }
+            )
         else:
             accessible_studies.append(study_name)
 
@@ -227,14 +241,12 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         name = entry["name"] if isinstance(entry, dict) else entry
         config = study_defs.get(name) or {}
         if is_system_study(config):
-            group = 0 if config.get('OWNER') == username else 2
+            group = 0 if config.get("OWNER") == username else 2
         else:
             group = 1
         return (group, name)
 
     return sorted(accessible_studies, key=_sort_key)
-
-
 
 
 def compose_effective_variables(global_list, prefs, all_order, available=None):
@@ -272,10 +284,6 @@ def compose_effective_variables(global_list, prefs, all_order, available=None):
     return extras + ordered
 
 
-
-
-
-
 def load_schema_metadata(metadata):
     """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from the synthesized var_schema."""
     try:
@@ -287,104 +295,114 @@ def load_schema_metadata(metadata):
             # ``scale``), (3) alphabetical by display name. The four ``web_*_prio``
             # columns are read as on/off membership only — any non-blank value
             # includes the variable; the numeric value no longer affects order.
-            if 'section' in schema_df.columns:
-                _sections = schema_df['section'].astype('string').fillna('')
+            if "section" in schema_df.columns:
+                _sections = schema_df["section"].astype("string").fillna("")
             else:
-                _sections = pd.Series('', index=schema_df.index)
-            if 'scale' in schema_df.columns:
-                _scales = schema_df['scale'].astype('string').fillna('').str.strip().str.lower()
+                _sections = pd.Series("", index=schema_df.index)
+            if "scale" in schema_df.columns:
+                _scales = schema_df["scale"].astype("string").fillna("").str.strip().str.lower()
             else:
-                _scales = pd.Series('', index=schema_df.index)
-            if 'display_name' in schema_df.columns:
-                _names = schema_df['display_name'].astype('string')
+                _scales = pd.Series("", index=schema_df.index)
+            if "display_name" in schema_df.columns:
+                _names = schema_df["display_name"].astype("string")
             else:
                 _names = pd.Series(pd.NA, index=schema_df.index)
-            _names = _names.fillna(schema_df['variable_name'].astype('string')).fillna('').str.strip().str.lower()
+            _names = (
+                _names.fillna(schema_df["variable_name"].astype("string"))
+                .fillna("")
+                .str.strip()
+                .str.lower()
+            )
 
-            schema_df['_sec_rank'] = _sections.map(
-                lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else len(SECTION_ORDER))
-            schema_df['_section'] = _sections
-            schema_df['_cat_num'] = _scales.map(lambda s: 0 if s in _CAT_SCALES else 1)
-            schema_df['_sort_name'] = _names
-            order_cols = ['_sec_rank', '_section', '_cat_num', '_sort_name']
+            schema_df["_sec_rank"] = _sections.map(
+                lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else len(SECTION_ORDER)
+            )
+            schema_df["_section"] = _sections
+            schema_df["_cat_num"] = _scales.map(lambda s: 0 if s in _CAT_SCALES else 1)
+            schema_df["_sort_name"] = _names
+            order_cols = ["_sec_rank", "_section", "_cat_num", "_sort_name"]
 
             def _ordered(prio_col):
                 """Return ON variables for ``prio_col`` in canonical sort order."""
                 if prio_col not in schema_df.columns:
                     return []
-                is_on = pd.to_numeric(schema_df[prio_col], errors='coerce').notna()
-                return schema_df[is_on].sort_values(order_cols)['variable_name'].tolist()
+                is_on = pd.to_numeric(schema_df[prio_col], errors="coerce").notna()
+                return schema_df[is_on].sort_values(order_cols)["variable_name"].tolist()
 
-            metadata['section_order'] = list(SECTION_ORDER)
-            metadata['display_priority'] = _ordered('web_display_prio')
-            metadata['viz_priority'] = _ordered('web_viz_prio')
-            metadata['timeline_priority'] = _ordered('web_timeline_prio')
-            metadata['filter_priority'] = _ordered('web_filter_prio')
+            metadata["section_order"] = list(SECTION_ORDER)
+            metadata["display_priority"] = _ordered("web_display_prio")
+            metadata["viz_priority"] = _ordered("web_viz_prio")
+            metadata["timeline_priority"] = _ordered("web_timeline_prio")
+            metadata["filter_priority"] = _ordered("web_filter_prio")
             # Full candidate list in the same canonical order, regardless of the
             # on/off flags. Per-user variable preferences compose against this
             # (effective = (global ∪ include) − exclude) client-side.
-            metadata['all_variables_order'] = (
-                schema_df.sort_values(order_cols)['variable_name'].tolist())
+            metadata["all_variables_order"] = schema_df.sort_values(order_cols)[
+                "variable_name"
+            ].tolist()
 
-            if 'section' not in schema_df.columns:
-                schema_df['section'] = 'General'
-            if 'description' not in schema_df.columns:
-                schema_df['description'] = ''
-            
-            schema_df['section'] = schema_df['section'].fillna('General')
-            schema_df['description'] = schema_df['description'].fillna('')
-            
+            if "section" not in schema_df.columns:
+                schema_df["section"] = "General"
+            if "description" not in schema_df.columns:
+                schema_df["description"] = ""
+
+            schema_df["section"] = schema_df["section"].fillna("General")
+            schema_df["description"] = schema_df["description"].fillna("")
+
             schema_map = {}
             for _, row in schema_df.iterrows():
-                var_name = row['variable_name']
+                var_name = row["variable_name"]
                 schema_map[var_name] = {
-                    "section": str(row['section']),
-                    "description": str(row['description'])
+                    "section": str(row["section"]),
+                    "description": str(row["description"]),
                 }
-                
+
                 # Parse Accepted Labels for Closed Tags
-                if 'accepted_labels' in row:
-                    accepted = str(row['accepted_labels'])
-                    if accepted and accepted.lower() != 'nan' and accepted.startswith('[') and accepted.endswith(']'):
+                if "accepted_labels" in row:
+                    accepted = str(row["accepted_labels"])
+                    if (
+                        accepted
+                        and accepted.lower() != "nan"
+                        and accepted.startswith("[")
+                        and accepted.endswith("]")
+                    ):
                         content = accepted[1:-1]
                         if content.strip():
-                            labels = [x.strip() for x in content.split(',')]
-                            schema_map[var_name]['accepted_labels'] = labels
-                
+                            labels = [x.strip() for x in content.split(",")]
+                            schema_map[var_name]["accepted_labels"] = labels
+
                 # Add Display Name
-                if 'display_name' in row:
-                    dname = str(row['display_name'])
-                    if dname and dname.lower() != 'nan' and dname.strip():
-                        schema_map[var_name]['display_name'] = dname.strip()
+                if "display_name" in row:
+                    dname = str(row["display_name"])
+                    if dname and dname.lower() != "nan" and dname.strip():
+                        schema_map[var_name]["display_name"] = dname.strip()
 
                 # On/off membership flag the viewer's metadata panel reads to
                 # decide whether to render a variable (the value itself is no
                 # longer used for ordering, so any non-blank entry counts as on).
-                if 'web_display_prio' in row:
-                    prio = pd.to_numeric(row['web_display_prio'], errors='coerce')
+                if "web_display_prio" in row:
+                    prio = pd.to_numeric(row["web_display_prio"], errors="coerce")
                     if pd.notna(prio):
-                         schema_map[var_name]['web_display_prio'] = float(prio)
+                        schema_map[var_name]["web_display_prio"] = float(prio)
 
                 # Scale drives the timeline multi-label share denominator
                 # (collection => multi-label) now that web_viz_multi_label is
                 # derived rather than stored.
-                if 'scale' in row:
-                    sval = row['scale']
+                if "scale" in row:
+                    sval = row["scale"]
                     if pd.notna(sval):
-                        schema_map[var_name]['scale'] = str(sval).strip().lower()
+                        schema_map[var_name]["scale"] = str(sval).strip().lower()
 
-            metadata['schema_map'] = schema_map
-                
+            metadata["schema_map"] = schema_map
+
         else:
-            # Only reset if keys missing? Or always reset? 
+            # Only reset if keys missing? Or always reset?
             # If CSV missing, we might want to keep existing if available?
             # But here we assume CSV is source of truth.
-            metadata['display_priority'] = []
-            metadata['filter_priority'] = []
-            metadata['schema_map'] = {}
+            metadata["display_priority"] = []
+            metadata["filter_priority"] = []
+            metadata["schema_map"] = {}
     except Exception as e:
         print(f"Error loading priority list: {e}")
         # Don't overwrite with empty if error?
     return metadata
-
-

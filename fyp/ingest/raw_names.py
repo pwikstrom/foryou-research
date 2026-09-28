@@ -42,8 +42,13 @@ logger = get_logger(__name__)
 # Keys of a manifest entry written by the upload routes and read by the
 # ingester, the ledger, the UI, and withdraw/restore. Keyed by STORED name.
 MANIFEST_PROVENANCE_KEYS: tuple[str, ...] = (
-    "original_filename", "display_collection_id", "user_id", "tz",
-    "client_reviewed", "uploaded_by", "uploaded_at",
+    "original_filename",
+    "display_collection_id",
+    "user_id",
+    "tz",
+    "client_reviewed",
+    "uploaded_by",
+    "uploaded_at",
 )
 
 _MAX_DISPLAY_LEN = 80
@@ -51,32 +56,27 @@ _ALLOC_ATTEMPTS = 20
 _DISPLAY_SUFFIX_ATTEMPTS = 500
 
 
-
-
 def _slug(value: str | None, fallback: str) -> str:
     v = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
     return v or fallback
-
-
 
 
 def _utc_stamp(now: datetime | None = None) -> str:
     return (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
 
 
-
-
-def stored_filename(platform: str | None, source: str | None, extension: str,
-                    now: datetime | None = None) -> str:
+def stored_filename(
+    platform: str | None, source: str | None, extension: str, now: datetime | None = None
+) -> str:
     """One candidate stored name. ``extension`` includes the dot and is
     lower-cased; an empty extension is kept empty (AIO objects have none)."""
     ext = (extension or "").lower()
     if ext and not ext.startswith("."):
         ext = "." + ext
-    return (f"{_slug(platform, 'platform')}_{_slug(source, 'upload')}_"
-            f"{_utc_stamp(now)}_{secrets.token_hex(4)}{ext}")
-
-
+    return (
+        f"{_slug(platform, 'platform')}_{_slug(source, 'upload')}_"
+        f"{_utc_stamp(now)}_{secrets.token_hex(4)}{ext}"
+    )
 
 
 def normalize_display_id(value) -> str:
@@ -84,8 +84,6 @@ def normalize_display_id(value) -> str:
     length-capped. An empty result means "no label" — the collection then
     shows its own id."""
     return re.sub(r"\s+", " ", str(value or "")).strip()[:_MAX_DISPLAY_LEN]
-
-
 
 
 def display_key(value) -> str:
@@ -97,8 +95,6 @@ def display_key(value) -> str:
     return normalize_display_id(value).casefold()
 
 
-
-
 def display_label(original_filename: str | None, platform: str | None = None) -> str:
     """The default ``display_collection_id`` for an upload: the original
     filename's stem, whitespace-collapsed and length-capped, or a platform
@@ -108,8 +104,6 @@ def display_label(original_filename: str | None, platform: str | None = None) ->
     if not stem:
         stem = f"{str(platform or 'donation').capitalize()} donation"
     return stem
-
-
 
 
 def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
@@ -142,15 +136,21 @@ def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
     for fn in (f"{COLLECTIONS_LABEL}_tags.json", "withdrawals.json"):
         try:
             if data_io.exists(storage_location="recoded", filename=fn):
-                doc = data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
+                doc = (
+                    data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
+                )
                 ids.update(str(k) for k in doc.keys())
         except Exception as exc:
             logger.warning(f"[raw_names] could not read {fn}: {exc}")
 
     try:
         if data_io.exists(storage_location="recoded", filename="ingestion_ledger.json"):
-            ledger = data_io.load_json(storage_location="recoded",
-                                       filename="ingestion_ledger.json", verbose=False) or {}
+            ledger = (
+                data_io.load_json(
+                    storage_location="recoded", filename="ingestion_ledger.json", verbose=False
+                )
+                or {}
+            )
             for entry in (ledger.get("files") or {}).values():
                 cid = (entry or {}).get("collection_id")
                 if cid:
@@ -163,8 +163,12 @@ def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
     for raw_path in raw_paths:
         try:
             if data_io.exists(storage_location=raw_path, filename="ingestion_manifest.json"):
-                manifest = data_io.load_json(storage_location=raw_path,
-                                             filename="ingestion_manifest.json", verbose=False) or {}
+                manifest = (
+                    data_io.load_json(
+                        storage_location=raw_path, filename="ingestion_manifest.json", verbose=False
+                    )
+                    or {}
+                )
                 for entry in manifest.values():
                     cid = (entry or {}).get("collection_id")
                     if cid:
@@ -174,23 +178,24 @@ def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
     return ids
 
 
-
-
 def registered_raw_paths() -> list[str]:
     """Raw storage locations of the registered ingestion classes."""
     try:
         from fyp.ingest import get_main_collection
-        return [c.raw_path for c in get_main_collection(verbose=False).collections
-                if getattr(c, "raw_path", None)]
+
+        return [
+            c.raw_path
+            for c in get_main_collection(verbose=False).collections
+            if getattr(c, "raw_path", None)
+        ]
     except Exception as exc:
         logger.warning(f"[raw_names] could not list registered raw paths: {exc}")
         return []
 
 
-
-
-def known_display_keys(known_ids: set[str] | None = None,
-                       raw_paths: list[str] | None = None) -> set[str]:
+def known_display_keys(
+    known_ids: set[str] | None = None, raw_paths: list[str] | None = None
+) -> set[str]:
     """Every display key already spoken for.
 
     Three things answer to a name: a collection's explicit
@@ -225,8 +230,12 @@ def known_display_keys(known_ids: set[str] | None = None,
     for raw_path in raw_paths:
         try:
             if data_io.exists(storage_location=raw_path, filename="ingestion_manifest.json"):
-                manifest = data_io.load_json(storage_location=raw_path,
-                                             filename="ingestion_manifest.json", verbose=False) or {}
+                manifest = (
+                    data_io.load_json(
+                        storage_location=raw_path, filename="ingestion_manifest.json", verbose=False
+                    )
+                    or {}
+                )
                 for entry in manifest.values():
                     label = (entry or {}).get("display_collection_id")
                     if label:
@@ -236,8 +245,6 @@ def known_display_keys(known_ids: set[str] | None = None,
 
     keys.discard("")
     return keys
-
-
 
 
 def unique_display_label(base: str, taken: set[str]) -> str:
@@ -265,14 +272,10 @@ def unique_display_label(base: str, taken: set[str]) -> str:
     return candidate
 
 
-
-
 def _suffixed(label: str, suffix: str) -> str:
     """``label`` with ``suffix`` appended, trimming the label — not the
     suffix — to stay inside the length cap."""
-    return normalize_display_id(label[:_MAX_DISPLAY_LEN - len(suffix)]) + suffix
-
-
+    return normalize_display_id(label[: _MAX_DISPLAY_LEN - len(suffix)]) + suffix
 
 
 def entry_display_id(collection_id, entry) -> str:
@@ -280,8 +283,6 @@ def entry_display_id(collection_id, entry) -> str:
     none (what every listing falls back to)."""
     label = entry.get("display_collection_id") if isinstance(entry, dict) else None
     return normalize_display_id(label) or str(collection_id)
-
-
 
 
 def display_id_owner(display_id, tags: dict, *, exclude=None) -> str | None:
@@ -307,8 +308,6 @@ def display_id_owner(display_id, tags: dict, *, exclude=None) -> str | None:
     return None
 
 
-
-
 def duplicate_display_ids(tags: dict) -> dict[str, list[str]]:
     """``{label: [collection ids]}`` for every name more than one collection
     answers to. Empty while the invariant holds — writes have enforced it
@@ -326,8 +325,6 @@ def duplicate_display_ids(tags: dict) -> dict[str, list[str]]:
     return {labels[k]: sorted(v) for k, v in sorted(by_key.items()) if len(v) > 1}
 
 
-
-
 def raw_name_is_free(raw_path: str, filename: str) -> bool:
     """A stored name is free when nothing sits at it in the raw location or
     the archive (a withdrawn donation keeps its name there)."""
@@ -341,12 +338,14 @@ def raw_name_is_free(raw_path: str, filename: str) -> bool:
     return True
 
 
-
-
-def allocate_upload_identity(platform: str | None, source: str | None,
-                             original_filename: str, raw_path: str,
-                             known_ids: set[str] | None = None,
-                             known_displays: set[str] | None = None) -> tuple[str, str, str]:
+def allocate_upload_identity(
+    platform: str | None,
+    source: str | None,
+    original_filename: str,
+    raw_path: str,
+    known_ids: set[str] | None = None,
+    known_displays: set[str] | None = None,
+) -> tuple[str, str, str]:
     """Allocate the identity of one uploaded file.
 
     Returns ``(stored_filename, collection_id, display_collection_id)``:
@@ -383,19 +382,26 @@ def allocate_upload_identity(platform: str | None, source: str | None,
         if cid in known_ids or not raw_name_is_free(raw_path, name):
             continue
         known_ids.add(cid)
-        return name, cid, unique_display_label(
-            display_label(original_filename, platform), known_displays)
+        return (
+            name,
+            cid,
+            unique_display_label(display_label(original_filename, platform), known_displays),
+        )
     raise RuntimeError("could not allocate a free name for the upload")
 
 
-
-
-def manifest_entry(collection_id: str, original_filename: str, *,
-                   display_collection_id: str | None = None,
-                   user_id: str | None = None, tags: list[str] | None = None,
-                   tz: str | None = None, client_reviewed: bool = False,
-                   uploaded_by: str | None = None,
-                   uploaded_at: str | None = None) -> dict:
+def manifest_entry(
+    collection_id: str,
+    original_filename: str,
+    *,
+    display_collection_id: str | None = None,
+    user_id: str | None = None,
+    tags: list[str] | None = None,
+    tz: str | None = None,
+    client_reviewed: bool = False,
+    uploaded_by: str | None = None,
+    uploaded_at: str | None = None,
+) -> dict:
     """The ingestion-manifest entry for one stored file (keyed by the caller
     under the STORED name). Only truthy optional fields are written so older
     readers keep seeing the shape they expect."""
@@ -415,8 +421,6 @@ def manifest_entry(collection_id: str, original_filename: str, *,
     if client_reviewed:
         entry["client_reviewed"] = True
     return entry
-
-
 
 
 def provenance_from_manifest(entry: dict | None) -> dict:

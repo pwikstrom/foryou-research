@@ -47,16 +47,19 @@ def client(monkeypatch):
 
 def _arm(monkeypatch, cached):
     monkeypatch.setattr(routes, "is_study_frame_cached", lambda s: cached)
-    monkeypatch.setattr(routes, "get_explorer_metadata_cached",
-                        lambda s: {"total_stats": {"niche": {"cats": 3}},
-                                   "total_rows": 1234})
+    monkeypatch.setattr(
+        routes,
+        "get_explorer_metadata_cached",
+        lambda s: {"total_stats": {"niche": {"cats": 3}}, "total_rows": 1234},
+    )
 
 
 def test_cold_empty_filter_serves_snapshot(client, monkeypatch):
     _arm(monkeypatch, cached=False)
 
-    res = client.post("/api/explore/filter",
-                      json={"study": "s1", "filters": {}, "trigger_slice": 1})
+    res = client.post(
+        "/api/explore/filter", json={"study": "s1", "filters": {}, "trigger_slice": 1}
+    )
     payload = res.get_json()
 
     assert payload["warming"] is True
@@ -68,14 +71,16 @@ def test_wait_for_frame_bypasses_the_fast_path(client, monkeypatch):
     """The client's follow-up request must reach the blocking load path."""
     _arm(monkeypatch, cached=False)
     sentinel = {}
+
     def _fake_get_explorer_data(study, **kw):
         sentinel["hit"] = True
         return None, None
+
     monkeypatch.setattr(routes, "get_explorer_data", _fake_get_explorer_data)
 
-    res = client.post("/api/explore/filter",
-                      json={"study": "s1", "filters": {},
-                            "wait_for_frame": True})
+    res = client.post(
+        "/api/explore/filter", json={"study": "s1", "filters": {}, "wait_for_frame": True}
+    )
     assert sentinel.get("hit") is True
     assert res.get_json().get("warming") is None
 
@@ -87,14 +92,16 @@ def test_active_filters_never_take_the_fast_path(client, monkeypatch):
     # The normal path would need real study data; stub the frame fetch to
     # prove control flow reached it (and stop there).
     sentinel = {}
+
     def _fake_get_explorer_data(study, **kw):
         sentinel["hit"] = True
         return None, None
+
     monkeypatch.setattr(routes, "get_explorer_data", _fake_get_explorer_data)
 
-    res = client.post("/api/explore/filter",
-                      json={"study": "s1",
-                            "filters": {"niche": {"value": ["cats"]}}})
+    res = client.post(
+        "/api/explore/filter", json={"study": "s1", "filters": {"niche": {"value": ["cats"]}}}
+    )
     assert sentinel.get("hit") is True
     assert res.get_json().get("warming") is None
 
@@ -102,9 +109,11 @@ def test_active_filters_never_take_the_fast_path(client, monkeypatch):
 def test_warm_frame_never_takes_the_fast_path(client, monkeypatch):
     _arm(monkeypatch, cached=True)
     sentinel = {}
+
     def _fake_get_explorer_data(study, **kw):
         sentinel["hit"] = True
         return None, None
+
     monkeypatch.setattr(routes, "get_explorer_data", _fake_get_explorer_data)
 
     res = client.post("/api/explore/filter", json={"study": "s1", "filters": {}})
@@ -121,21 +130,28 @@ def test_composed_study_recomputes_the_unfiltered_stats(client, monkeypatch):
 
     monkeypatch.setattr(routes, "is_study_frame_cached", lambda s: True)
     monkeypatch.setattr(
-        routes, "get_explorer_metadata_cached",
-        lambda s: {"total_stats": {"niche": {"cats": 999}},
-                   routes.TOTAL_STATS_PROVISIONAL_KEY: True})
+        routes,
+        "get_explorer_metadata_cached",
+        lambda s: {
+            "total_stats": {"niche": {"cats": 999}},
+            routes.TOTAL_STATS_PROVISIONAL_KEY: True,
+        },
+    )
 
     df = pd.DataFrame({"niche": ["cats", "dogs"]})
-    monkeypatch.setattr(routes, "get_explorer_data",
-                        lambda study, **kw: (df, {"niche": "category"}))
-    monkeypatch.setattr(routes, "enrich_with_user_tags",
-                        lambda d, t, u, **kw: (d, t))
-    monkeypatch.setattr(routes.explorer, "get_current_stats",
-                        lambda *a, **kw: {"stats": {"niche": {"cats": 1, "dogs": 1}},
-                                          "count": 2})
+    monkeypatch.setattr(
+        routes, "get_explorer_data", lambda study, **kw: (df, {"niche": "category"})
+    )
+    monkeypatch.setattr(routes, "enrich_with_user_tags", lambda d, t, u, **kw: (d, t))
+    monkeypatch.setattr(
+        routes.explorer,
+        "get_current_stats",
+        lambda *a, **kw: {"stats": {"niche": {"cats": 1, "dogs": 1}}, "count": 2},
+    )
 
-    res = client.post("/api/explore/filter",
-                      json={"study": "__me_plus__p@example.org", "filters": {}})
+    res = client.post(
+        "/api/explore/filter", json={"study": "__me_plus__p@example.org", "filters": {}}
+    )
     payload = res.get_json()
     assert payload["stats"] == {"niche": {"cats": 1, "dogs": 1}}
     assert payload["count"] == 2

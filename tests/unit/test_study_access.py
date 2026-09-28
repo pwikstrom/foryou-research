@@ -31,16 +31,22 @@ def study_defs(monkeypatch):
     monkeypatch.setattr(user_variables.data_io, "exists", lambda **kw: True)
     # The listing now answers existence from one cache listdir; failing it
     # forces the per-study exists() fallback the line above satisfies.
-    monkeypatch.setattr(user_variables.data_io, "listdir",
-                        lambda **kw: (_ for _ in ()).throw(RuntimeError("no cache")))
+    monkeypatch.setattr(
+        user_variables.data_io,
+        "listdir",
+        lambda **kw: (_ for _ in ()).throw(RuntimeError("no cache")),
+    )
     return defs
 
 
-@pytest.mark.parametrize("role,expected", [
-    ("team", {"shared_all", "shared_role", "shared_user"}),
-    ("viewer", {"shared_all", "shared_user"}),
-    ("student", {"shared_all", "shared_user"}),
-])
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        ("team", {"shared_all", "shared_role", "shared_user"}),
+        ("viewer", {"shared_all", "shared_user"}),
+        ("student", {"shared_all", "shared_user"}),
+    ],
+)
 def test_analysis_side_requires_explicit_grant(study_defs, role, expected):
     from web_interface.services.user_variables import get_accessible_studies
 
@@ -71,8 +77,9 @@ def test_my_studies_matches_username_and_denies_unshared(study_defs, monkeypatch
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
     # Not a study manager: no permissions at all beyond the listing gate.
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.my_stuff.my_studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
+    )
     # The route reloads defs from disk — keep the fixture's dict in place.
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 
@@ -99,6 +106,7 @@ def test_migration_backfills_only_unshared_studies(monkeypatch):
     }
     saved = {}
     from fyp.core.fyp_config import fyp_cf
+
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     monkeypatch.setattr(studies, "save_study_defs", lambda: saved.update(done=True))
 
@@ -131,8 +139,9 @@ def test_save_study_rejects_empty_collections(monkeypatch):
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
-                        lambda role: ["tab.data_management.studies"])
+    monkeypatch.setattr(
+        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+    )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
     monkeypatch.setitem(fyp_cf, "study_defs", {})
 

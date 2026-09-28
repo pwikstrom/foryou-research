@@ -41,8 +41,7 @@ def _estimate_seconds(batch_size: int) -> float:
     except ValueError:
         backend_id = "gemini"
     if backend_id != "gemini":
-        return (batch_size * _LOCAL_SECONDS_PER_VIDEO * _SAFETY_MARGIN
-                + _LOCAL_MODEL_LOAD_SECONDS)
+        return batch_size * _LOCAL_SECONDS_PER_VIDEO * _SAFETY_MARGIN + _LOCAL_MODEL_LOAD_SECONDS
     return batch_size * _SECONDS_PER_VIDEO / _WORKERS * _SAFETY_MARGIN
 
 
@@ -51,20 +50,30 @@ def _dispatch_deadline_for(batch_size: int) -> int:
     return 3600 if batch_size > 1000 else 1800
 
 
-def _journal_annotate_finished(*, reason: str, ok: int, fail: int, queue_remaining: int,
-                               batches: int, started_by: str | None) -> None:
+def _journal_annotate_finished(
+    *, reason: str, ok: int, fail: int, queue_remaining: int, batches: int, started_by: str | None
+) -> None:
     """One history line per finished annotator run. Never raises."""
     try:
         from web_interface.services import enrichment_journal as journal
 
-        message = (f"Annotation finished — {ok:,} annotated, {fail:,} failed "
-                   f"across {batches:,} batch(es)")
+        message = (
+            f"Annotation finished — {ok:,} annotated, {fail:,} failed across {batches:,} batch(es)"
+        )
         message += f"; {queue_remaining:,} still queued" if queue_remaining else "; queue empty"
         if reason:
             message += f" ({reason})"
-        journal.record("annotate.finished", message, actor=started_by or None,
-                       worker="queue_annotator", ok=ok, fail=fail, batches=batches,
-                       queue_remaining=queue_remaining, reason=reason or None)
+        journal.record(
+            "annotate.finished",
+            message,
+            actor=started_by or None,
+            worker="queue_annotator",
+            ok=ok,
+            fail=fail,
+            batches=batches,
+            queue_remaining=queue_remaining,
+            reason=reason or None,
+        )
     except Exception:
         pass
 
@@ -90,6 +99,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     # Pick up the admin-selected backend for this run (each chain link is a
     # fresh process/request, so read-at-start is sufficient).
     from fyp.annotation.backends import active_backend_name
+
     _backend = active_backend_name()
     reporter.log(f"Annotation backend: {_backend}")
 
@@ -187,7 +197,9 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         updated_queue = [v for v in fresh_queue if v not in items_to_remove]
         pruned_this_batch = len(fresh_queue) - len(updated_queue)
         if pruned_this_batch > 0:
-            data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
+            data_io.save_json(
+                data=updated_queue, storage_location="cache", filename=target_cache_file
+            )
         queue_remaining = len(updated_queue)
     else:
         queue_remaining = max(0, total_queue - len(batch))
@@ -202,9 +214,13 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     def _finish(reason: str) -> None:
         """The run's one history line, whichever exit the chain takes."""
         _journal_annotate_finished(
-            reason=reason, ok=cumulative_ok + len(ok_ids),
-            fail=cumulative_fail + len(fail_ids), queue_remaining=queue_remaining,
-            batches=chunk_index + 1, started_by=task_args.get("started_by"))
+            reason=reason,
+            ok=cumulative_ok + len(ok_ids),
+            fail=cumulative_fail + len(fail_ids),
+            queue_remaining=queue_remaining,
+            batches=chunk_index + 1,
+            started_by=task_args.get("started_by"),
+        )
         return None
 
     # ---- Check whether to chain ----
@@ -248,8 +264,6 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     }
 
 
-
-
 if __name__ == "__main__":
     import argparse
     import atexit
@@ -266,7 +280,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run queue annotator")
     parser.add_argument("--batch-size", type=int, default=5, help="Batch size")
-    parser.add_argument("--max-batches", type=int, default=None, help="Max batches (default: unlimited)")
+    parser.add_argument(
+        "--max-batches", type=int, default=None, help="Max batches (default: unlimited)"
+    )
 
     args = parser.parse_args()
 
@@ -290,5 +306,6 @@ if __name__ == "__main__":
         reporter.fail(str(e))
         print(f"Queue annotation process failed: {e}")
         import traceback
+
         traceback.print_exc()
         os._exit(1)

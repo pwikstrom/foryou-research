@@ -16,12 +16,8 @@ import pytest
 from web_interface.task_status import LocalStatusReporter, LocalThreadStatusReporter
 
 
-
-
 def _marker_lines(captured_out: str, marker: str) -> list[str]:
     return [line for line in captured_out.splitlines() if marker in line]
-
-
 
 
 def test_local_reporter_progress_line_format(capsys: pytest.CaptureFixture) -> None:
@@ -37,8 +33,6 @@ def test_local_reporter_progress_line_format(capsys: pytest.CaptureFixture) -> N
     assert line.startswith("::PROGRESS::")
     _, json_str = line.split("::PROGRESS::", 1)
     assert json.loads(json_str.strip()) == {"percent": 42, "message": "Halfway there"}
-
-
 
 
 def test_local_reporter_progress_with_stage_fields(capsys: pytest.CaptureFixture) -> None:
@@ -58,8 +52,6 @@ def test_local_reporter_progress_with_stage_fields(capsys: pytest.CaptureFixture
     }
 
 
-
-
 def test_local_reporter_data_line_format(capsys: pytest.CaptureFixture) -> None:
     reporter = LocalStatusReporter("contract_test")
     reporter.emit_data({"annotate_queue_len": 7})
@@ -69,8 +61,6 @@ def test_local_reporter_data_line_format(capsys: pytest.CaptureFixture) -> None:
     assert lines == ['::DATA::{"annotate_queue_len": 7}']
     _, json_str = lines[0].split("::DATA::", 1)
     assert json.loads(json_str.strip()) == {"annotate_queue_len": 7}
-
-
 
 
 def test_local_thread_reporter_emits_same_wire_format(capsys: pytest.CaptureFixture) -> None:
@@ -85,8 +75,6 @@ def test_local_thread_reporter_emits_same_wire_format(capsys: pytest.CaptureFixt
     assert data_lines == ['::DATA::{"rows": 3}']
 
 
-
-
 def test_plain_log_lines_stay_bare(capsys: pytest.CaptureFixture) -> None:
     reporter = LocalStatusReporter("contract_test")
     reporter.start()
@@ -95,8 +83,6 @@ def test_plain_log_lines_stay_bare(capsys: pytest.CaptureFixture) -> None:
 
     assert "[contract_test] Starting..." in out
     assert "plain log line" in out
-
-
 
 
 if __name__ == "__main__":

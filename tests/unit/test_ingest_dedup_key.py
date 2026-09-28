@@ -17,15 +17,19 @@ from web_interface.run_ingest_refresh import _withheld_note
 
 
 def _rows(raw_file: str, cid: str, tz: int, added: str, n: int = 20) -> pd.DataFrame:
-    return pd.DataFrame({
-        "raw_file": raw_file,
-        "collection_id": cid,
-        "item_id": [f"item{i}" for i in range(n)],
-        "activity_type": "play",
-        "utc_timestamp": pd.to_datetime([1_700_000_000 + 60 * i for i in range(n)], unit="s", utc=True),
-        "tz_offset": tz,
-        "ts_added_to_dataset": pd.Timestamp(added, tz="UTC"),
-    })
+    return pd.DataFrame(
+        {
+            "raw_file": raw_file,
+            "collection_id": cid,
+            "item_id": [f"item{i}" for i in range(n)],
+            "activity_type": "play",
+            "utc_timestamp": pd.to_datetime(
+                [1_700_000_000 + 60 * i for i in range(n)], unit="s", utc=True
+            ),
+            "tz_offset": tz,
+            "ts_added_to_dataset": pd.Timestamp(added, tz="UTC"),
+        }
+    )
 
 
 def test_redonation_with_corrected_zone_deduplicates_and_newest_offset_wins():
@@ -46,10 +50,14 @@ def test_redonation_with_corrected_zone_deduplicates_and_newest_offset_wins():
 def test_withheld_note_carries_parser_notes():
     assert _withheld_note({}) is None
     assert _withheld_note({"withheld_sections": ["Comments"]}) == "Uploader withheld: Comments"
-    note = _withheld_note({
-        "withheld_sections": ["Comments"],
-        "parse_notes": ["Time zone: 12 row(s) carry an ambiguous abbreviation (IST); read as its most common Takeout meaning."],
-    })
+    note = _withheld_note(
+        {
+            "withheld_sections": ["Comments"],
+            "parse_notes": [
+                "Time zone: 12 row(s) carry an ambiguous abbreviation (IST); read as its most common Takeout meaning."
+            ],
+        }
+    )
     assert note.startswith("Uploader withheld: Comments | Time zone: 12 row(s)")
     assert _withheld_note({"parse_notes": ["only a note"]}) == "only a note"
 
@@ -59,8 +67,16 @@ def test_a_pair_on_fewer_than_three_shared_seconds_never_merges():
     20 % overlap by the ratio alone; the shared-seconds floor keeps them apart."""
     big = _rows("export.json", "c_big", tz=10, added="2026-01-01", n=200)
     small = big.iloc[:1].copy()
-    small = pd.concat([small, _rows("capture.ndjson", "c_small", tz=10, added="2026-02-01", n=4)
-                       .assign(utc_timestamp=pd.to_datetime([1_800_000_000 + i for i in range(4)], unit="s", utc=True))])
+    small = pd.concat(
+        [
+            small,
+            _rows("capture.ndjson", "c_small", tz=10, added="2026-02-01", n=4).assign(
+                utc_timestamp=pd.to_datetime(
+                    [1_800_000_000 + i for i in range(4)], unit="s", utc=True
+                )
+            ),
+        ]
+    )
     small["raw_file"] = "capture.ndjson"
     small["collection_id"] = "c_small"
     collection = ForYouCollection(verbose=False)
@@ -75,8 +91,16 @@ def test_a_pair_on_fewer_than_three_shared_seconds_never_merges():
     small3 = big.iloc[:3].copy()
     small3["raw_file"] = "capture3.ndjson"
     small3["collection_id"] = "c_small3"
-    small3 = pd.concat([small3, _rows("capture3.ndjson", "c_small3", tz=10, added="2026-02-01", n=2)
-                        .assign(utc_timestamp=pd.to_datetime([1_800_000_000 + i for i in range(2)], unit="s", utc=True))])
+    small3 = pd.concat(
+        [
+            small3,
+            _rows("capture3.ndjson", "c_small3", tz=10, added="2026-02-01", n=2).assign(
+                utc_timestamp=pd.to_datetime(
+                    [1_800_000_000 + i for i in range(2)], unit="s", utc=True
+                )
+            ),
+        ]
+    )
     collection = ForYouCollection(verbose=False)
     collection.data = pd.concat([big, small3], ignore_index=True)
     collection.state = "processed"
@@ -85,20 +109,29 @@ def test_a_pair_on_fewer_than_three_shared_seconds_never_merges():
 
 
 def _share(raw_file: str, method: str, added: str) -> dict:
-    return {"raw_file": raw_file, "collection_id": "c", "item_id": "v1", "activity_type": "share",
-            "utc_timestamp": pd.Timestamp(1_700_000_000, unit="s", tz="UTC"), "tz_offset": 10,
-            "extra_data": method, "ts_added_to_dataset": pd.Timestamp(added, tz="UTC")}
+    return {
+        "raw_file": raw_file,
+        "collection_id": "c",
+        "item_id": "v1",
+        "activity_type": "share",
+        "utc_timestamp": pd.Timestamp(1_700_000_000, unit="s", tz="UTC"),
+        "tz_offset": 10,
+        "extra_data": method,
+        "ts_added_to_dataset": pd.Timestamp(added, tz="UTC"),
+    }
 
 
 def test_share_method_is_part_of_the_key_but_the_record_count_is_not():
     """Two shares of one video in one second by different methods are two
     shares; a re-donation of the same send (count or no count) is one."""
     rows = _rows("old.json", "c", tz=10, added="2026-01-01")
-    extra = pd.DataFrame([
-        _share("old.json", "chat_head", "2026-01-01"),
-        _share("old.json", "copy", "2026-01-01"),
-        _share("new.json", "chat_head ×2", "2026-06-01"),
-    ])
+    extra = pd.DataFrame(
+        [
+            _share("old.json", "chat_head", "2026-01-01"),
+            _share("old.json", "copy", "2026-01-01"),
+            _share("new.json", "chat_head ×2", "2026-06-01"),
+        ]
+    )
     collection = ForYouCollection(verbose=False)
     collection.data = pd.concat([rows, extra], ignore_index=True)
     collection.state = "processed"

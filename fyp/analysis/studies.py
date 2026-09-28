@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-Script Name: 
-Description: 
+Script Name:
+Description:
 Author: Patrik
-Date: 
+Date:
 """
-
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
-
-
 
 
 def _cf():
@@ -87,8 +84,6 @@ STUDY_ARTIFACT_SUFFIXES = [
 ]
 
 
-
-
 def init_study_defs():
 
     if data_io.exists(storage_location="recoded", filename="studies.json"):
@@ -99,7 +94,6 @@ def init_study_defs():
 
     _cf()["study_defs"] = study_defs
     logger.info(f"Loaded {len(study_defs)} study definitions. OK.")
-
 
 
 # Keys that request/worker paths set on a definition in memory but that must
@@ -123,8 +117,7 @@ def _without_derived_keys(study_defs: dict) -> dict:
     cleaned = {}
     for name, config in (study_defs or {}).items():
         if isinstance(config, dict):
-            cleaned[name] = {k: v for k, v in config.items()
-                             if k not in DERIVED_STUDY_KEYS}
+            cleaned[name] = {k: v for k, v in config.items() if k not in DERIVED_STUDY_KEYS}
         else:
             cleaned[name] = config
     return cleaned
@@ -135,10 +128,11 @@ def save_study_defs():
     if "study_defs" not in _cf():
         init_study_defs()
 
-    data_io.save_json(data = _without_derived_keys(_cf()["study_defs"]),
-                      storage_location="recoded", filename="studies.json")
-
-
+    data_io.save_json(
+        data=_without_derived_keys(_cf()["study_defs"]),
+        storage_location="recoded",
+        filename="studies.json",
+    )
 
 
 def migrate_user_access_defaults(grant_roles: list[str]) -> int:
@@ -182,8 +176,3 @@ def migrate_user_access_defaults(grant_roles: list[str]) -> int:
     if migrated:
         save_study_defs()
     return migrated
-
-
-
-
-

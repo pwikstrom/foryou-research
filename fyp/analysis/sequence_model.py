@@ -29,9 +29,6 @@ DWELL_FEATURES = ("dwell_mean", "dwell_median", "dwell_p90", "completion_mean")
 BASELINE_FEATURES = ("stickiness", "hour_sin", "hour_cos", "dow", "window_idx_f")
 
 
-
-
-
 def build_model_table(
     windows: pd.DataFrame, target_mean_col: str, horizon: int = 1
 ) -> pd.DataFrame:
@@ -68,9 +65,6 @@ def build_model_table(
     for feat in DWELL_FEATURES:
         merged[feat] = merged[feat].astype("float64")
     return merged
-
-
-
 
 
 def evaluate_incremental_skill(

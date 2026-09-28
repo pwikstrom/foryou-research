@@ -16,18 +16,14 @@ import fyp.core.data_io as data_io
 from web_interface import run_embeddings_refresh as rer
 
 
-
-
 def _fake_update_json(store: dict):
-    def fake(storage_location: str = "", filename: str = "", mutate=None,
-             default=None, **kwargs):
+    def fake(storage_location: str = "", filename: str = "", mutate=None, default=None, **kwargs):
         doc = store.get(filename, default)
         doc = mutate(doc)
         store[filename] = doc
         return doc
+
     return fake
-
-
 
 
 def test_link0_claims_a_free_lease(monkeypatch):
@@ -36,16 +32,12 @@ def test_link0_claims_a_free_lease(monkeypatch):
     assert rer._claim_link("runA", 0) is True
 
 
-
-
 def test_concurrent_run_loses_while_lease_is_fresh(monkeypatch):
     """A pipeline dispatch / redelivered initial task must not start a twin run."""
     store: dict = {}
     monkeypatch.setattr(data_io, "update_json", _fake_update_json(store))
     assert rer._claim_link("runA", 0) is True
     assert rer._claim_link("runB", 0) is False
-
-
 
 
 def test_stale_lease_stops_blocking(monkeypatch):
@@ -57,19 +49,16 @@ def test_stale_lease_stops_blocking(monkeypatch):
     assert rer._claim_link("runB", 0) is True
 
 
-
-
 def test_redelivered_link_loses_its_chunk_claim(monkeypatch):
     """The duplicate-shard failure mode: same link executed twice."""
     store: dict = {}
     monkeypatch.setattr(data_io, "update_json", _fake_update_json(store))
     assert rer._claim_link("runA", 0) is True
     assert rer._claim_link("runA", 1) is True
-    assert rer._claim_link("runA", 1) is False, \
+    assert rer._claim_link("runA", 1) is False, (
         "the platform-retried execution must not embed the slice again"
+    )
     assert rer._claim_link("runA", 2) is True
-
-
 
 
 def test_link_of_a_superseded_run_loses(monkeypatch):
@@ -82,8 +71,6 @@ def test_link_of_a_superseded_run_loses(monkeypatch):
     assert rer._claim_link("runA", 5) is False
 
 
-
-
 def test_release_frees_the_lease_for_the_next_run(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(data_io, "update_json", _fake_update_json(store))
@@ -92,16 +79,12 @@ def test_release_frees_the_lease_for_the_next_run(monkeypatch):
     assert rer._claim_link("runB", 0) is True
 
 
-
-
 def test_release_never_clobbers_another_runs_lease(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(data_io, "update_json", _fake_update_json(store))
     assert rer._claim_link("runA", 0) is True
     rer._release_lease("runZ")
     assert rer._claim_link("runB", 0) is False
-
-
 
 
 class _Reporter:
@@ -124,8 +107,6 @@ class _Reporter:
         return False
 
 
-
-
 def test_worker_skips_when_another_run_holds_the_lease(monkeypatch):
     """The worker exits cleanly (no embed, no shard) when it loses the claim."""
     store: dict = {}
@@ -136,6 +117,7 @@ def test_worker_skips_when_another_run_holds_the_lease(monkeypatch):
         raise AssertionError("embed_pending must not run on a lost claim")
 
     import fyp.analysis.embeddings as embeddings_mod
+
     monkeypatch.setattr(embeddings_mod, "embed_pending", _boom)
     reporter = _Reporter()
     result = rer.run_embeddings_refresh(reporter=reporter, task_args={})

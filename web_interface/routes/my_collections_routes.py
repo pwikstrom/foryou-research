@@ -14,7 +14,7 @@ from flask_login import current_user
 from ..permissions import permission_required
 from ._access import current_user_ctx, owned_collection_access_error
 
-my_collections_bp = Blueprint('my_collections_bp', __name__)
+my_collections_bp = Blueprint("my_collections_bp", __name__)
 
 
 def _pending_owner_error(raw_path: str, filename: str):
@@ -28,21 +28,25 @@ def _pending_owner_error(raw_path: str, filename: str):
         return (jsonify({"error": "Unknown donation platform"}), 400), None
     manifest = {}
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
-        manifest = data_io.load_json(
-            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False)
+            or {}
+        )
     entry = manifest.get(filename)
     if not isinstance(entry, dict):
         return (jsonify({"error": "No pending upload with that name"}), 404), None
     username, _role, is_admin = current_user_ctx()
     can_access = getattr(current_user, "can_access", None)
-    privileged = is_admin or (callable(can_access) and can_access("tab.data_management.edit_collections"))
+    privileged = is_admin or (
+        callable(can_access) and can_access("tab.data_management.edit_collections")
+    )
     if not privileged and entry.get("user_id") != username:
         return (jsonify({"error": "This upload is not linked to your account"}), 403), None
     return None, entry
 
 
-@my_collections_bp.route('/api/my/collections')
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections")
+@permission_required("tab.my_stuff.my_collections")
 def api_my_collections():
     """List the current user's own collections with light picker metadata.
 
@@ -50,25 +54,29 @@ def api_my_collections():
     right after an ingest run so pending cards flip to ready immediately.
     """
     from ..services import my_collections_service as svc
-    if request.args.get('fresh'):
+
+    if request.args.get("fresh"):
         svc.invalidate_cache()
         from ..collection_accounts import collections_for_user
+
         collections_for_user(current_user.username, fresh=True)
         from ..services.study_data import get_collection_tags
+
         get_collection_tags(force_reload=True)
     return jsonify({"collections": svc.list_owned_collections(current_user.username)})
 
 
-@my_collections_bp.route('/api/my/collections/upload/sources')
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/upload/sources")
+@permission_required("tab.my_stuff.my_collections")
 def api_my_upload_sources():
     """The donation platforms a participant can upload to (registry-driven)."""
     from ..services.my_collections_service import donation_upload_sources
+
     return jsonify({"sources": donation_upload_sources()})
 
 
-@my_collections_bp.route('/api/my/collections/upload', methods=['POST'])
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/upload", methods=["POST"])
+@permission_required("tab.my_stuff.my_collections")
 def api_my_upload():
     """Self-serve donation upload: simplified clone of the admin ingestion
     upload. No tags, no account choice (always the logged-in user),
@@ -95,11 +103,11 @@ def api_my_upload():
         invalidate_cache,
     )
 
-    files = request.files.getlist('files')
-    if not files or all(f.filename == '' for f in files):
+    files = request.files.getlist("files")
+    if not files or all(f.filename == "" for f in files):
         return jsonify({"error": "No files selected"}), 400
 
-    raw_path_key = request.form.get('raw_path', '')
+    raw_path_key = request.form.get("raw_path", "")
     source = next((s for s in donation_upload_sources() if s["raw_path"] == raw_path_key), None)
     if source is None:
         return jsonify({"error": "Unknown donation platform"}), 400
@@ -109,39 +117,45 @@ def api_my_upload():
         if not file.filename:
             continue
         if accepted and not any(file.filename.lower().endswith(s) for s in accepted):
-            msg = (f"'{file.filename}' is not a supported file type for a "
-                   f"{source['source_platform']} donation — expected {' or '.join(accepted)}.")
+            msg = (
+                f"'{file.filename}' is not a supported file type for a "
+                f"{source['source_platform']} donation — expected {' or '.join(accepted)}."
+            )
             if file.filename.lower().endswith(".zip") and ".json" in accepted:
                 msg += " Unzip the export and upload the extracted .json file."
             return jsonify({"error": msg}), 400
 
     # Browser-detected timezone: silently dropped if unparseable (it was never
     # typed by the user, so an error message would only confuse).
-    donor_tz = request.form.get('tz', '').strip()
+    donor_tz = request.form.get("tz", "").strip()
     if donor_tz and parse_donor_timezone(donor_tz) is None:
-        donor_tz = ''
+        donor_tz = ""
 
     # Set by the browser review step: the file was pruned client-side (rows
     # deleted, unused sections stripped). Recorded in the manifest so the
     # structure sentinel evaluates it against the "reviewed" baseline variant.
-    client_reviewed = request.form.get('client_review') == '1'
+    client_reviewed = request.form.get("client_review") == "1"
 
     username = current_user.username
 
     manifest = {}
     if data_io.exists(storage_location=raw_path_key, filename=MANIFEST_FILENAME):
-        manifest = data_io.load_json(
-            storage_location=raw_path_key, filename=MANIFEST_FILENAME, verbose=False) or {}
+        manifest = (
+            data_io.load_json(
+                storage_location=raw_path_key, filename=MANIFEST_FILENAME, verbose=False
+            )
+            or {}
+        )
     known_ids = known_collection_ids()
     known_displays = known_display_keys(known_ids)
 
-    temp_dir = fyp_cf['paths']['temp']
+    temp_dir = fyp_cf["paths"]["temp"]
     os.makedirs(temp_dir, exist_ok=True)
 
     try:
         uploaded = []
         for file in files:
-            if file.filename == '':
+            if file.filename == "":
                 continue
             # Every TikTok export is called "user_data_tiktok.json": the name
             # says nothing about whose data it is, so it is never reused as a
@@ -149,9 +163,13 @@ def api_my_upload():
             # location is append-only at the storage layer as well.
             original_name = os.path.basename(file.filename)
             filename, cid, display_id = allocate_upload_identity(
-                source["source_platform"], source["data_source"],
-                original_name, raw_path_key, known_ids=known_ids,
-                known_displays=known_displays)
+                source["source_platform"],
+                source["data_source"],
+                original_name,
+                raw_path_key,
+                known_ids=known_ids,
+                known_displays=known_displays,
+            )
 
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)
@@ -162,31 +180,47 @@ def api_my_upload():
                 verbose=False,
             )
             if not data_io.exists(storage_location=raw_path_key, filename=filename):
-                return jsonify({
-                    "error": f"Upload of '{original_name}' did not persist. Please try again.",
-                }), 500
+                return jsonify(
+                    {
+                        "error": f"Upload of '{original_name}' did not persist. Please try again.",
+                    }
+                ), 500
 
             manifest[filename] = manifest_entry(
-                cid, original_name, display_collection_id=display_id,
-                user_id=username, tz=donor_tz or None,
-                client_reviewed=client_reviewed, uploaded_by=username)
+                cid,
+                original_name,
+                display_collection_id=display_id,
+                user_id=username,
+                tz=donor_tz or None,
+                client_reviewed=client_reviewed,
+                uploaded_by=username,
+            )
             set_collection_owner(cid, username, display_collection_id=display_id)
-            uploaded.append({"collection_id": cid, "raw_path": raw_path_key,
-                             "filename": filename, "original_filename": original_name,
-                             "display_id": display_id})
+            uploaded.append(
+                {
+                    "collection_id": cid,
+                    "raw_path": raw_path_key,
+                    "filename": filename,
+                    "original_filename": original_name,
+                    "display_id": display_id,
+                }
+            )
 
-        data_io.save_json(data=manifest, storage_location=raw_path_key,
-                          filename=MANIFEST_FILENAME, verbose=False)
+        data_io.save_json(
+            data=manifest, storage_location=raw_path_key, filename=MANIFEST_FILENAME, verbose=False
+        )
 
         activity_log.record(
             actor=username,
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="my_collections.upload",
             target=raw_path_key,
-            details={"files": [u["filename"] for u in uploaded],
-                     "original_files": [u["original_filename"] for u in uploaded],
-                     "collection_ids": [u["collection_id"] for u in uploaded],
-                     "tz": donor_tz or None},
+            details={
+                "files": [u["filename"] for u in uploaded],
+                "original_files": [u["original_filename"] for u in uploaded],
+                "collection_ids": [u["collection_id"] for u in uploaded],
+                "tz": donor_tz or None,
+            },
         )
         invalidate_cache()
         return jsonify({"status": "success", "collections": uploaded})
@@ -195,8 +229,8 @@ def api_my_upload():
         return jsonify({"error": "The upload failed. Please try again."}), 500
 
 
-@my_collections_bp.route('/api/my/collections/pending/personality')
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/pending/personality")
+@permission_required("tab.my_stuff.my_collections")
 def api_my_pending_personality():
     """Instant personality preview of an uploaded-but-unprocessed donation.
 
@@ -209,8 +243,9 @@ def api_my_pending_personality():
         build_pending_personality,
         discard_pending_upload,
     )
-    raw_path = request.args.get('raw_path', '')
-    filename = request.args.get('filename', '')
+
+    raw_path = request.args.get("raw_path", "")
+    filename = request.args.get("filename", "")
     err, _entry = _pending_owner_error(raw_path, filename)
     if err:
         return err
@@ -221,16 +256,17 @@ def api_my_pending_personality():
         return jsonify({"error": str(exc), "rejected": True}), 422
 
 
-@my_collections_bp.route('/api/my/collections/pending/delete', methods=['POST'])
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/pending/delete", methods=["POST"])
+@permission_required("tab.my_stuff.my_collections")
 def api_my_pending_delete():
     """Withdraw a pending upload before processing: removes the raw file, its
     manifest entry and the account link. Owner-gated like the preview."""
     from .. import activity_log
     from ..services.my_collections_service import discard_pending_upload
+
     data = request.json or {}
-    raw_path = str(data.get('raw_path') or '')
-    filename = str(data.get('filename') or '')
+    raw_path = str(data.get("raw_path") or "")
+    filename = str(data.get("filename") or "")
     err, _entry = _pending_owner_error(raw_path, filename)
     if err:
         return err
@@ -245,8 +281,8 @@ def api_my_pending_delete():
     return jsonify({"status": "success"})
 
 
-@my_collections_bp.route('/api/my/collections/<collection_id>/withdraw', methods=['POST'])
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/<collection_id>/withdraw", methods=["POST"])
+@permission_required("tab.my_stuff.my_collections")
 def api_my_withdraw(collection_id):
     """Participant data withdrawal: delete a PROCESSED collection from the
     dataset via the standard delete worker, keeping the raw donation file in
@@ -277,43 +313,56 @@ def api_my_withdraw(collection_id):
         return err
 
     data = request.json or {}
-    if str(data.get('confirm_id') or '').strip() != str(collection_id):
+    if str(data.get("confirm_id") or "").strip() != str(collection_id):
         return jsonify({"error": "The confirmation text does not match the collection id."}), 400
 
     meta = _load_metadata_personas([str(collection_id)])
     if meta is None or str(collection_id) not in meta.index:
-        return jsonify({"error": "This collection is not in the dataset (nothing to withdraw)."}), 400
+        return jsonify(
+            {"error": "This collection is not in the dataset (nothing to withdraw)."}
+        ), 400
 
     # Raw files + platform, recorded BEFORE the delete worker archives them.
     files: list[str] = []
     platform = None
     try:
         df = data_io.load_parquet_selective(
-            storage_location="recoded", filename=RECODED_FILENAME,
+            storage_location="recoded",
+            filename=RECODED_FILENAME,
             columns=["collection_id", "raw_file", "source_platform"],
-            filters=[("collection_id", "==", str(collection_id))])
+            filters=[("collection_id", "==", str(collection_id))],
+        )
         if df is not None and not df.empty:
             files = sorted(str(f) for f in df["raw_file"].dropna().unique())
             platform = str(df["source_platform"].mode().iloc[0])
     except Exception as e:
         print(f"[my_collections] withdraw raw-file lookup failed: {e}")
-    raw_path = next((s["raw_path"] for s in donation_upload_sources()
-                     if s["source_platform"] == platform), None)
+    raw_path = next(
+        (s["raw_path"] for s in donation_upload_sources() if s["source_platform"] == platform), None
+    )
 
     tags_entry = (get_collection_tags() or {}).get(str(collection_id)) or {}
     entry = record_withdrawal(
-        str(collection_id), current_user.username, files, raw_path,
-        tags_entry.get("display_collection_id"), platform,
-        manifest_entries=ledger_manifest_entries(str(collection_id), files))
+        str(collection_id),
+        current_user.username,
+        files,
+        raw_path,
+        tags_entry.get("display_collection_id"),
+        platform,
+        manifest_entries=ledger_manifest_entries(str(collection_id), files),
+    )
 
     success, msg = start_process(
-        "collection_delete", COLLECTION_DELETE_SCRIPT,
+        "collection_delete",
+        COLLECTION_DELETE_SCRIPT,
         task_args={"collection_ids": [str(collection_id)]},
-        started_by=current_user.username)
+        started_by=current_user.username,
+    )
     if not success:
         drop_withdrawal(str(collection_id))
-        return jsonify({"error": "The Hub is busy processing right now. "
-                                 "Please try again in a few minutes."}), 409
+        return jsonify(
+            {"error": "The Hub is busy processing right now. Please try again in a few minutes."}
+        ), 409
 
     activity_log.record(
         actor=current_user.username,
@@ -324,14 +373,15 @@ def api_my_withdraw(collection_id):
     )
     admin = user_manager.get_oldest_admin()
     if admin is not None and is_email(admin.username):
-        send_withdrawal_email_async(admin.username, current_user.username,
-                                    str(collection_id), entry["restorable_until"])
+        send_withdrawal_email_async(
+            admin.username, current_user.username, str(collection_id), entry["restorable_until"]
+        )
     invalidate_cache()
     return jsonify({"status": "started", "restorable_until": entry["restorable_until"]})
 
 
-@my_collections_bp.route('/api/my/collections/<collection_id>/restore', methods=['POST'])
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/<collection_id>/restore", methods=["POST"])
+@permission_required("tab.my_stuff.my_collections")
 def api_my_restore(collection_id):
     """Bring a withdrawn donation back within its restore window: the archived
     raw file returns to the upload location as a pending donation."""
@@ -341,6 +391,7 @@ def api_my_restore(collection_id):
         load_withdrawals,
         restore_withdrawal,
     )
+
     entry = load_withdrawals(purge=False).get(str(collection_id))
     if not isinstance(entry, dict):
         return jsonify({"error": "No withdrawal record found for this collection."}), 404
@@ -360,8 +411,8 @@ def api_my_restore(collection_id):
     return jsonify({"status": "success"})
 
 
-@my_collections_bp.route('/api/my/collections/process', methods=['POST'])
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/process", methods=["POST"])
+@permission_required("tab.my_stuff.my_collections")
 def api_my_process():
     """Run the ingest worker over all pending uploads (corpus-wide, same
     process the Data Management page starts). 409 = already running."""
@@ -369,8 +420,9 @@ def api_my_process():
     from .. import activity_log
     from ..process_manager import start_process
 
-    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT,
-                                 started_by=current_user.username)
+    success, msg = start_process(
+        "ingest_refresh", INGEST_REFRESH_SCRIPT, started_by=current_user.username
+    )
     if success:
         activity_log.record(
             actor=current_user.username,
@@ -381,8 +433,8 @@ def api_my_process():
     return jsonify({"status": "error", "message": msg}), 409
 
 
-@my_collections_bp.route('/api/my/collections/combined/personality')
-@permission_required('tab.my_stuff.my_collections')
+@my_collections_bp.route("/api/my/collections/combined/personality")
+@permission_required("tab.my_stuff.my_collections")
 def api_my_combined_personality():
     """The cross-platform personality bundle over ALL the user's collections.
 
@@ -392,6 +444,7 @@ def api_my_combined_personality():
     """
     from ..collection_accounts import collections_for_user
     from ..services.my_collections_service import build_personality
+
     owned = [str(c) for c in collections_for_user(current_user.username)]
     if not owned:
         return jsonify({"error": "No collections are linked to your account"}), 404
@@ -399,9 +452,9 @@ def api_my_combined_personality():
     # Optional subset (the Persona checkboxes): ?collections=a,b. Every
     # requested id must be owned; unknown ids are a 403, an empty request a
     # 400. Absent param keeps the historical behavior (all owned).
-    raw = (request.args.get('collections') or '').strip()
+    raw = (request.args.get("collections") or "").strip()
     if raw:
-        requested = sorted({c.strip() for c in raw.split(',') if c.strip()})
+        requested = sorted({c.strip() for c in raw.split(",") if c.strip()})
         if not requested:
             return jsonify({"error": "No collections selected"}), 400
         unowned = [c for c in requested if c not in set(owned)]
@@ -417,8 +470,8 @@ def api_my_combined_personality():
     return jsonify(bundle)
 
 
-@my_collections_bp.route('/api/my/collections/<collection_id>/personality')
-@permission_required('tab.my_stuff.my_collections', 'tab.data_management.edit_collections')
+@my_collections_bp.route("/api/my/collections/<collection_id>/personality")
+@permission_required("tab.my_stuff.my_collections", "tab.data_management.edit_collections")
 def api_my_collection_personality(collection_id):
     """The personality bundle for one of the user's own collections.
 
@@ -430,6 +483,7 @@ def api_my_collection_personality(collection_id):
     if err:
         return err
     from ..services.my_collections_service import build_personality
+
     bundle = build_personality([collection_id])
     if bundle is None:
         return jsonify({"error": "No donated activity data found for this collection"}), 404

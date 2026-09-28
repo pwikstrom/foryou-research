@@ -50,6 +50,7 @@ def store(monkeypatch):
             return len(items)
 
     import fyp.scrape.scrape_queues as scrape_queues
+
     monkeypatch.setattr(scrape_queues, "registered_platforms", FakeQueues.registered_platforms)
     monkeypatch.setattr(scrape_queues, "append_to_scrape_queue", FakeQueues.append_to_scrape_queue)
 
@@ -57,20 +58,22 @@ def store(monkeypatch):
 
 
 def _recoded_frame(cid, n_items, platform="tiktok"):
-    return pd.DataFrame({
-        "collection_id": [cid] * n_items,
-        "source_platform": [platform] * n_items,
-        "item_id": [f"{cid}-item-{i}" for i in range(n_items)],
-        "activity_type": ["play"] * n_items,
-        "utc_timestamp": pd.date_range("2026-01-01", periods=n_items, freq="h"),
-    })
+    return pd.DataFrame(
+        {
+            "collection_id": [cid] * n_items,
+            "source_platform": [platform] * n_items,
+            "item_id": [f"{cid}-item-{i}" for i in range(n_items)],
+            "activity_type": ["play"] * n_items,
+            "utc_timestamp": pd.date_range("2026-01-01", periods=n_items, freq="h"),
+        }
+    )
 
 
 @pytest.fixture
 def owned(monkeypatch):
     import web_interface.collection_accounts as ca
-    monkeypatch.setattr(ca, "load_owner_map",
-                        lambda fresh=False: {"c1": "donor@example.org"})
+
+    monkeypatch.setattr(ca, "load_owner_map", lambda fresh=False: {"c1": "donor@example.org"})
 
 
 @pytest.fixture
@@ -81,12 +84,15 @@ def enabled(monkeypatch):
 def test_master_switch_ships_off_and_disables_enqueue(store, owned, monkeypatch):
     assert pe.AUTO_ENQUEUE_ENABLED is False
     called = []
-    monkeypatch.setattr(pe.data_io, "load_parquet_selective",
-                        lambda **kw: called.append(kw) or _recoded_frame("c1", 5))
+    monkeypatch.setattr(
+        pe.data_io,
+        "load_parquet_selective",
+        lambda **kw: called.append(kw) or _recoded_frame("c1", 5),
+    )
 
     assert pe.enqueue_first_batches(["c1"], log=lambda *_: None) == {}
-    assert not called                      # never even scanned the parquet
-    assert store["queues"] == {}           # nothing queued anywhere
+    assert not called  # never even scanned the parquet
+    assert store["queues"] == {}  # nothing queued anywhere
     assert pe.LEDGER_FILENAME not in store["files"]
 
 
@@ -112,11 +118,15 @@ def test_enqueue_caps_prefers_recent_and_is_scrape_only(store, owned, enabled, m
 
 
 def test_enqueue_skips_unowned_and_already_ledgered(store, owned, enabled, monkeypatch):
-    store["files"][pe.LEDGER_FILENAME] = {"c1": {"owner": "donor@example.org",
-                                                 "item_ids": ["x"], "notified": False}}
+    store["files"][pe.LEDGER_FILENAME] = {
+        "c1": {"owner": "donor@example.org", "item_ids": ["x"], "notified": False}
+    }
     called = []
-    monkeypatch.setattr(pe.data_io, "load_parquet_selective",
-                        lambda **kw: called.append(kw) or _recoded_frame("c1", 5))
+    monkeypatch.setattr(
+        pe.data_io,
+        "load_parquet_selective",
+        lambda **kw: called.append(kw) or _recoded_frame("c1", 5),
+    )
 
     # c1 is ledgered, c2 is unowned -> no candidates, no parquet scan at all.
     assert pe.enqueue_first_batches(["c1", "c2"], log=lambda *_: None) == {}
@@ -124,25 +134,34 @@ def test_enqueue_skips_unowned_and_already_ledgered(store, owned, enabled, monke
     assert store["queues"] == {}
 
 
-def _completion_env(store, monkeypatch, *, consent, scraped_count, annotated_count,
-                    annotate_queued=None):
+def _completion_env(
+    store, monkeypatch, *, consent, scraped_count, annotated_count, annotate_queued=None
+):
     store["files"][pe.LEDGER_FILENAME] = {
-        "c1": {"owner": "donor@example.org",
-               "item_ids": [f"i{n}" for n in range(10)],
-               "annotate_queued": list(annotate_queued or []),
-               "notified": False},
+        "c1": {
+            "owner": "donor@example.org",
+            "item_ids": [f"i{n}" for n in range(10)],
+            "annotate_queued": list(annotate_queued or []),
+            "notified": False,
+        },
     }
     ids = [f"i{n}" for n in range(10)]
     flags = {
         "scraped": pd.Series([True] * scraped_count + [False] * (10 - scraped_count), index=ids),
-        "annotated": pd.Series([True] * annotated_count + [False] * (10 - annotated_count), index=ids),
+        "annotated": pd.Series(
+            [True] * annotated_count + [False] * (10 - annotated_count), index=ids
+        ),
     }
     monkeypatch.setattr(pe, "_status_lookup", lambda items: flags)
 
     sent = []
     from web_interface import mail_utils
-    monkeypatch.setattr(mail_utils, "send_first_batch_ready_email_async",
-                        lambda to, cid, n: sent.append((to, cid, n)))
+
+    monkeypatch.setattr(
+        mail_utils,
+        "send_first_batch_ready_email_async",
+        lambda to, cid, n: sent.append((to, cid, n)),
+    )
 
     settings = {}
 
@@ -150,18 +169,23 @@ def _completion_env(store, monkeypatch, *, consent, scraped_count, annotated_cou
         profile = {"consent_to_contact": consent}
 
     from web_interface.security import user_manager
-    monkeypatch.setattr(user_manager, "get_user",
-                        lambda username: FakeUser() if username == "donor@example.org" else None)
-    monkeypatch.setattr(user_manager, "update_user_settings",
-                        lambda username, s: settings.update(s) or (True, "ok"))
+
+    monkeypatch.setattr(
+        user_manager,
+        "get_user",
+        lambda username: FakeUser() if username == "donor@example.org" else None,
+    )
+    monkeypatch.setattr(
+        user_manager, "update_user_settings", lambda username, s: settings.update(s) or (True, "ok")
+    )
     return sent, settings
 
 
 def test_handoff_queues_scraped_unannotated_items_once(store, monkeypatch):
     # 6 scraped, 2 of them already annotated, 1 already handed off earlier.
-    sent, _ = _completion_env(store, monkeypatch, consent=True,
-                              scraped_count=6, annotated_count=2,
-                              annotate_queued=["i2"])
+    sent, _ = _completion_env(
+        store, monkeypatch, consent=True, scraped_count=6, annotated_count=2, annotate_queued=["i2"]
+    )
 
     assert pe.check_first_batch_completions() == []  # below completion bar
     # Handed off: scraped (i0..i5) minus annotated (i0, i1) minus already (i2).
@@ -176,9 +200,14 @@ def test_handoff_queues_scraped_unannotated_items_once(store, monkeypatch):
 
 
 def test_completion_emails_consenting_owner_once(store, monkeypatch):
-    sent, settings = _completion_env(store, monkeypatch, consent=True,
-                                     scraped_count=10, annotated_count=8,
-                                     annotate_queued=[f"i{n}" for n in range(10)])
+    sent, settings = _completion_env(
+        store,
+        monkeypatch,
+        consent=True,
+        scraped_count=10,
+        annotated_count=8,
+        annotate_queued=[f"i{n}" for n in range(10)],
+    )
 
     assert pe.check_first_batch_completions() == ["c1"]
     assert sent == [("donor@example.org", "c1", 8)]
@@ -192,18 +221,28 @@ def test_completion_emails_consenting_owner_once(store, monkeypatch):
 
 
 def test_completion_below_threshold_waits(store, monkeypatch):
-    sent, _ = _completion_env(store, monkeypatch, consent=True,
-                              scraped_count=10, annotated_count=4,
-                              annotate_queued=[f"i{n}" for n in range(10)])
+    sent, _ = _completion_env(
+        store,
+        monkeypatch,
+        consent=True,
+        scraped_count=10,
+        annotated_count=4,
+        annotate_queued=[f"i{n}" for n in range(10)],
+    )
     assert pe.check_first_batch_completions() == []
     assert sent == []
     assert store["files"][pe.LEDGER_FILENAME]["c1"]["notified"] is False
 
 
 def test_completion_without_consent_closes_but_never_emails(store, monkeypatch):
-    sent, settings = _completion_env(store, monkeypatch, consent=False,
-                                     scraped_count=10, annotated_count=10,
-                                     annotate_queued=[f"i{n}" for n in range(10)])
+    sent, settings = _completion_env(
+        store,
+        monkeypatch,
+        consent=False,
+        scraped_count=10,
+        annotated_count=10,
+        annotate_queued=[f"i{n}" for n in range(10)],
+    )
     assert pe.check_first_batch_completions() == ["c1"]
     assert sent == []
     # The tour re-offer still arms — it happens in the app, not the inbox.

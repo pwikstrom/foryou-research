@@ -16,10 +16,6 @@ EMBEDDING_BACKEND_KEY = "embedding_backend"
 __all__ = ["EMBEDDING_BACKEND_KEY", "SETTINGS_FILENAME", "get_embedding_backend"]
 
 
-
-
-
-
 def get_embedding_backend() -> str:
     """The admin-selected embedding backend id (default ``"gemini"``).
 

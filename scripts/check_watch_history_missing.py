@@ -130,15 +130,18 @@ def main() -> None:
     )
     parser.add_argument("--storage-location", default="ddp_raw")
     parser.add_argument(
-        "--min-rows", type=int, default=11,
+        "--min-rows",
+        type=int,
+        default=11,
         help="files with fewer watch-history rows than this are flagged LOW "
-             "(the ingester silently discards a file with 10 or fewer)",
+        "(the ingester silently discards a file with 10 or fewer)",
     )
     parser.add_argument("--limit", type=int, default=None, help="only check the first N files")
     args = parser.parse_args()
 
     files = sorted(
-        f for f in data_io.listdir(storage_location=args.storage_location)
+        f
+        for f in data_io.listdir(storage_location=args.storage_location)
         if f.endswith(".json") and f != MANIFEST_FILENAME
     )
     if args.limit:
@@ -169,7 +172,9 @@ def main() -> None:
             print(f"  ...{i}/{len(files)}")
 
     def _note(res: dict) -> str:
-        why = "section present but empty/null" if res["state"] == "missing_null" else "section absent"
+        why = (
+            "section present but empty/null" if res["state"] == "missing_null" else "section absent"
+        )
         extra = f", but {res['posted']:,} POSTED videos" if res["posted"] else ""
         return f"{why}{extra}"
 
@@ -190,7 +195,9 @@ def main() -> None:
                 print(f"  {fname}\n      {u}")
 
     if unreadable:
-        print(f"\nUNREADABLE - not a JSON object, e.g. a zip uploaded as .json ({len(unreadable)}):")
+        print(
+            f"\nUNREADABLE - not a JSON object, e.g. a zip uploaded as .json ({len(unreadable)}):"
+        )
         for fname in unreadable:
             print(f"  {fname}")
 

@@ -37,7 +37,11 @@ def _run_capture(with_impact: bool):
     # 15/40/65/85/95 sequence regardless of what markers exist on disk.
     od._status_inputs_unchanged = lambda **k: False
     # Annotations / scrape return (new_data, df, new_ids).
-    od.consolidate_and_save_refined_annotations = lambda **k: (bool(changed), pd.DataFrame(), set(changed))
+    od.consolidate_and_save_refined_annotations = lambda **k: (
+        bool(changed),
+        pd.DataFrame(),
+        set(changed),
+    )
     od.consolidate_and_save_scrape_data = lambda **k: (False, pd.DataFrame(), set())
     od.update_enrichment_status = lambda **k: None
     # collections frame: non-empty with the changed item so the impact branch runs.

@@ -45,9 +45,8 @@ MEDIA_EXTS = (".mp4",)
 # media prefix and the partitions are walked in parallel. Item ids are numeric
 # and heavily clustered on one leading digit, so digits are split two deep;
 # everything else (the per-platform subdirectories) gets one shard per letter.
-SHARD_TAILS = (
-    [a + b for a in string.digits for b in string.digits]
-    + list(string.ascii_lowercase + "_-")
+SHARD_TAILS = [a + b for a in string.digits for b in string.digits] + list(
+    string.ascii_lowercase + "_-"
 )
 
 # Frames flatter or darker than this are almost always a black lead-in frame or
@@ -95,7 +94,9 @@ def _reservoir_add(reservoir: list, item, seen: int, size: int, rng: random.Rand
         reservoir[j] = item
 
 
-def _list_gcs_shard(client, bucket_name: str, prefix: str, size: int, seed: int) -> tuple[list[str], int]:
+def _list_gcs_shard(
+    client, bucket_name: str, prefix: str, size: int, seed: int
+) -> tuple[list[str], int]:
     """Reservoir-sample one listing shard; return (sample, objects seen)."""
     rng = random.Random(f"{seed}:{prefix}")
     reservoir: list[str] = []
@@ -109,7 +110,9 @@ def _list_gcs_shard(client, bucket_name: str, prefix: str, size: int, seed: int)
     return reservoir, seen
 
 
-def sample_gcs(bucket_name: str, media_prefix: str, pool_size: int, seed: int, workers: int) -> list[str]:
+def sample_gcs(
+    bucket_name: str, media_prefix: str, pool_size: int, seed: int, workers: int
+) -> list[str]:
     """Draw ``pool_size`` random media object names from the bucket.
 
     The bucket holds over a million objects, so the listing is sharded on the
@@ -137,7 +140,9 @@ def sample_gcs(bucket_name: str, media_prefix: str, pool_size: int, seed: int, w
             done += 1
             if seen:
                 shards.append((reservoir, seen))
-                log(f"  shard {futures[fut]!r}: {seen:,} objects  ({done}/{len(futures)} shards walked)")
+                log(
+                    f"  shard {futures[fut]!r}: {seen:,} objects  ({done}/{len(futures)} shards walked)"
+                )
 
     total = sum(seen for _, seen in shards)
     if not total:
@@ -151,7 +156,7 @@ def sample_gcs(bucket_name: str, media_prefix: str, pool_size: int, seed: int, w
     attempts = 0
     while len(picked) < pool_size and attempts < pool_size * 40:
         attempts += 1
-        (reservoir, _), = rng.choices(shards, weights=weights, k=1)
+        ((reservoir, _),) = rng.choices(shards, weights=weights, k=1)
         if reservoir:
             picked.add(reservoir[rng.randrange(len(reservoir))])
     return sorted(picked)
@@ -187,9 +192,20 @@ def _ffmpeg_frame(path: str, seconds: float) -> bytes | None:
     try:
         proc = subprocess.run(
             [
-                "ffmpeg", "-nostdin", "-v", "error",
-                "-ss", f"{seconds:.2f}", "-i", path,
-                "-frames:v", "1", "-q:v", "3", "-y", out,
+                "ffmpeg",
+                "-nostdin",
+                "-v",
+                "error",
+                "-ss",
+                f"{seconds:.2f}",
+                "-i",
+                path,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                "-y",
+                out,
             ],
             capture_output=True,
         )
@@ -215,7 +231,7 @@ def _frame_is_lively(jpeg: bytes) -> bool:
         return False
     mean = sum(pixels) / len(pixels)
     variance = sum((p - mean) ** 2 for p in pixels) / len(pixels)
-    return variance ** 0.5 >= MIN_FRAME_STDDEV and mean >= MIN_FRAME_MEAN
+    return variance**0.5 >= MIN_FRAME_STDDEV and mean >= MIN_FRAME_MEAN
 
 
 def _shrink(jpeg: bytes) -> bytes | None:
@@ -328,7 +344,9 @@ def trim_letterbox(img: Image.Image) -> Image.Image:
     while right > left and band_is_dark([(right, y) for y in range(0, h, 4)]):
         right -= 1
 
-    if (bottom - top + 1) < h * MIN_TRIMMED_FRACTION or (right - left + 1) < w * MIN_TRIMMED_FRACTION:
+    if (bottom - top + 1) < h * MIN_TRIMMED_FRACTION or (
+        right - left + 1
+    ) < w * MIN_TRIMMED_FRACTION:
         return img
     return img.crop((left, top, right + 1, bottom + 1))
 
@@ -353,8 +371,9 @@ def make_cell(jpeg_path: Path, width: int, height: int) -> Image.Image | None:
     return img.resize((width, height), Image.LANCZOS)
 
 
-def compose(frames: list[Path], cols: int, rows: int, cell_w: int, cell_h: int,
-            gap: int, background: str) -> Image.Image:
+def compose(
+    frames: list[Path], cols: int, rows: int, cell_w: int, cell_h: int, gap: int, background: str
+) -> Image.Image:
     """Tile cached frames into the mosaic, left-to-right, top-to-bottom."""
     width = cols * cell_w + (cols - 1) * gap
     height = rows * cell_h + (rows - 1) * gap
@@ -370,7 +389,9 @@ def compose(frames: list[Path], cols: int, rows: int, cell_w: int, cell_h: int,
         if placed >= cols * rows:
             break
     if placed < cols * rows:
-        raise SystemExit(f"Only {placed} usable frames for a {cols}x{rows} grid ({cols * rows} cells)")
+        raise SystemExit(
+            f"Only {placed} usable frames for a {cols}x{rows} grid ({cols * rows} cells)"
+        )
     return canvas
 
 
@@ -422,8 +443,15 @@ def get_pool(args, pool_size: int, source, is_gcs: bool, prefix: str, pool_path:
     return pool
 
 
-def harvest(pool: list[str], source, is_gcs: bool, cache_dir: Path, needed: int,
-            frame_times: list[float], workers: int) -> list[Path]:
+def harvest(
+    pool: list[str],
+    source,
+    is_gcs: bool,
+    cache_dir: Path,
+    needed: int,
+    frame_times: list[float],
+    workers: int,
+) -> list[Path]:
     """Fill the frame cache until ``needed`` usable frames exist; return them."""
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -436,8 +464,10 @@ def harvest(pool: list[str], source, is_gcs: bool, cache_dir: Path, needed: int,
         return have[:needed]
 
     todo = [n for n in pool if not cache_path(n).exists()]
-    log(f"Have {len(have):,} cached frames; extracting up to {needed - len(have):,} more "
-        f"from {len(todo):,} candidates ({workers} workers)")
+    log(
+        f"Have {len(have):,} cached frames; extracting up to {needed - len(have):,} more "
+        f"from {len(todo):,} candidates ({workers} workers)"
+    )
 
     failures = 0
     with ThreadPoolExecutor(max_workers=workers) as pool_exec:
@@ -477,35 +507,65 @@ def main() -> None:
     )
     parser.add_argument("--cols", type=int, default=48, help="cells across (default: 48)")
     parser.add_argument("--rows", type=int, default=12, help="cells down (default: 12)")
-    parser.add_argument("--cell-width", type=int, default=42,
-                        help="cell width in px; height follows --aspect (default: 42). Cells are "
-                             "deliberately small: the grid is meant to read as mass and variety, "
-                             "not to make the people in any one video identifiable.")
-    parser.add_argument("--aspect", default="9:16",
-                        help="cell aspect ratio W:H, portrait for short video (default: 9:16)")
+    parser.add_argument(
+        "--cell-width",
+        type=int,
+        default=42,
+        help="cell width in px; height follows --aspect (default: 42). Cells are "
+        "deliberately small: the grid is meant to read as mass and variety, "
+        "not to make the people in any one video identifiable.",
+    )
+    parser.add_argument(
+        "--aspect",
+        default="9:16",
+        help="cell aspect ratio W:H, portrait for short video (default: 9:16)",
+    )
     parser.add_argument("--gap", type=int, default=0, help="px between cells (default: 0)")
-    parser.add_argument("--background", default="#0b0b12", help="colour behind the cells (default: #0b0b12)")
-    parser.add_argument("--frame-times", default="0.8,2.5,5.0",
-                        help="seconds to try, in order, until a frame looks lively "
-                             "(default: 0.8,2.5,5.0)")
-    parser.add_argument("--pool", type=int, default=0,
-                        help="videos to sample before extraction (default: 3x the cell count)")
+    parser.add_argument(
+        "--background", default="#0b0b12", help="colour behind the cells (default: #0b0b12)"
+    )
+    parser.add_argument(
+        "--frame-times",
+        default="0.8,2.5,5.0",
+        help="seconds to try, in order, until a frame looks lively (default: 0.8,2.5,5.0)",
+    )
+    parser.add_argument(
+        "--pool",
+        type=int,
+        default=0,
+        help="videos to sample before extraction (default: 3x the cell count)",
+    )
     parser.add_argument("--seed", type=int, default=20260821, help="sampling seed")
     parser.add_argument("--workers", type=int, default=12, help="parallel downloads (default: 12)")
     parser.add_argument("--quality", type=int, default=75, help="WebP quality (default: 75)")
-    parser.add_argument("--refresh-pool", action="store_true",
-                        help="draw a fresh random sample instead of reusing the cached one")
-    parser.add_argument("--clear-cache", action="store_true",
-                        help="delete cached frames first (forces a full re-download)")
-    parser.add_argument("--cache-dir", default=str(PROJECT_ROOT / "tmp" / "hero_frames"),
-                        help="where extracted frames are cached")
-    parser.add_argument("--bucket", default=None,
-                        help="GCS bucket to read media from (default: the configured one)")
-    parser.add_argument("--media-prefix", default=None,
-                        help="media prefix within the bucket (default: the configured one)")
-    parser.add_argument("--out", default=str(
-        PROJECT_ROOT / "web_interface" / "static" / "landing" / "video_grid_hero.webp"),
-        help="output image path")
+    parser.add_argument(
+        "--refresh-pool",
+        action="store_true",
+        help="draw a fresh random sample instead of reusing the cached one",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="delete cached frames first (forces a full re-download)",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=str(PROJECT_ROOT / "tmp" / "hero_frames"),
+        help="where extracted frames are cached",
+    )
+    parser.add_argument(
+        "--bucket", default=None, help="GCS bucket to read media from (default: the configured one)"
+    )
+    parser.add_argument(
+        "--media-prefix",
+        default=None,
+        help="media prefix within the bucket (default: the configured one)",
+    )
+    parser.add_argument(
+        "--out",
+        default=str(PROJECT_ROOT / "web_interface" / "static" / "landing" / "video_grid_hero.webp"),
+        help="output image path",
+    )
     args = parser.parse_args()
 
     if not shutil.which("ffmpeg"):
@@ -535,8 +595,10 @@ def main() -> None:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     image.save(out, "WEBP", quality=args.quality, method=6)
-    log(f"Wrote {out} — {image.width}x{image.height}px, {cells} videos, "
-        f"{out.stat().st_size / 1024:.0f} KB")
+    log(
+        f"Wrote {out} — {image.width}x{image.height}px, {cells} videos, "
+        f"{out.stat().st_size / 1024:.0f} KB"
+    )
 
 
 if __name__ == "__main__":

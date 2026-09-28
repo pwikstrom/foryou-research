@@ -79,9 +79,7 @@ def test_refinement_is_deterministic() -> None:
         a = run_current_refinement(raw, quiet=True)
         b = run_current_refinement(raw, quiet=True)
     diffs = compare_refined(a, b)
-    assert not diffs, (
-        "Refinement is non-deterministic across runs:\n  - " + "\n  - ".join(diffs)
-    )
+    assert not diffs, "Refinement is non-deterministic across runs:\n  - " + "\n  - ".join(diffs)
 
 
 def _main() -> int:

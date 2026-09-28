@@ -27,7 +27,6 @@ Run:
     PYTHONPATH=. python tests/unit/test_user_manager_lazy.py
 """
 
-
 import sys
 import traceback
 from pathlib import Path
@@ -42,8 +41,6 @@ sys.path.insert(0, str(project_root))
 # for the O(1) bootstrap checks, so we patch those calls inside each test to
 # avoid hitting real storage.
 from web_interface import auth  # noqa: E402
-
-
 
 
 def _fake_users_on_disk() -> dict[str, dict]:
@@ -76,8 +73,6 @@ def _fake_users_on_disk() -> dict[str, dict]:
     }
 
 
-
-
 def test_bootstrap_true_does_not_preload_roster() -> None:
     """Web mode runs the O(1) bootstrap checks but does NOT fan out the roster."""
     disk = _fake_users_on_disk()
@@ -93,10 +88,12 @@ def test_bootstrap_true_does_not_preload_roster() -> None:
         load_calls.append(filename)
         return disk.get(filename)
 
-    with patch.object(auth.data_io, "listdir", side_effect=fake_listdir), \
-         patch.object(auth.data_io, "load_json", side_effect=fake_load_json), \
-         patch.object(auth.data_io, "exists", side_effect=fake_exists), \
-         patch.object(auth.data_io, "save_json") as mock_save:
+    with (
+        patch.object(auth.data_io, "listdir", side_effect=fake_listdir),
+        patch.object(auth.data_io, "load_json", side_effect=fake_load_json),
+        patch.object(auth.data_io, "exists", side_effect=fake_exists),
+        patch.object(auth.data_io, "save_json") as mock_save,
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=True)
 
     assert um.users == {}, "bootstrap must not preload the full roster"
@@ -106,18 +103,18 @@ def test_bootstrap_true_does_not_preload_roster() -> None:
     assert mock_save.call_count == 0, "existing users => no default admin created"
 
 
-
-
 def test_bootstrap_false_does_not_hit_storage_at_init() -> None:
     """Lazy mode must NOT touch listdir / load_json / exists at construction.
 
     This is the whole point: task-runner cold start is O(1) in the number of
     users instead of O(N) GCS round-trips.
     """
-    with patch.object(auth.data_io, "listdir") as mock_list, \
-         patch.object(auth.data_io, "load_json") as mock_load, \
-         patch.object(auth.data_io, "exists") as mock_exists, \
-         patch.object(auth.data_io, "save_json") as mock_save:
+    with (
+        patch.object(auth.data_io, "listdir") as mock_list,
+        patch.object(auth.data_io, "load_json") as mock_load,
+        patch.object(auth.data_io, "exists") as mock_exists,
+        patch.object(auth.data_io, "save_json") as mock_save,
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=False)
 
     assert mock_list.call_count == 0, (
@@ -133,8 +130,6 @@ def test_bootstrap_false_does_not_hit_storage_at_init() -> None:
     assert um.bootstrap is False
 
 
-
-
 def test_lazy_get_user_reads_from_disk_and_caches() -> None:
     """`get_user` loads a single file on demand and caches it."""
     disk = _fake_users_on_disk()
@@ -147,8 +142,10 @@ def test_lazy_get_user_reads_from_disk_and_caches() -> None:
         load_calls.append(filename)
         return disk.get(filename)
 
-    with patch.object(auth.data_io, "exists", side_effect=fake_exists), \
-         patch.object(auth.data_io, "load_json", side_effect=fake_load_json):
+    with (
+        patch.object(auth.data_io, "exists", side_effect=fake_exists),
+        patch.object(auth.data_io, "load_json", side_effect=fake_load_json),
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=False)
 
         alice = um.get_user("alice")
@@ -169,23 +166,22 @@ def test_lazy_get_user_reads_from_disk_and_caches() -> None:
         assert load_calls == ["alice.json", "bob.json"]
 
 
-
-
 def test_lazy_get_user_missing_returns_none() -> None:
     """Lookups for users that don't exist on disk return None cleanly."""
+
     def fake_exists(storage_location, filename):
         return False
 
-    with patch.object(auth.data_io, "exists", side_effect=fake_exists), \
-         patch.object(auth.data_io, "load_json") as mock_load:
+    with (
+        patch.object(auth.data_io, "exists", side_effect=fake_exists),
+        patch.object(auth.data_io, "load_json") as mock_load,
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=False)
         result = um.get_user("nobody")
 
     assert result is None
     # We shouldn't even call load_json if exists returned False.
     assert mock_load.call_count == 0
-
-
 
 
 def test_get_all_users_fans_out_and_caches() -> None:
@@ -203,9 +199,11 @@ def test_get_all_users_fans_out_and_caches() -> None:
     def fake_exists(storage_location, filename):
         return filename in disk
 
-    with patch.object(auth.data_io, "listdir", side_effect=fake_listdir), \
-         patch.object(auth.data_io, "load_json", side_effect=fake_load_json), \
-         patch.object(auth.data_io, "exists", side_effect=fake_exists):
+    with (
+        patch.object(auth.data_io, "listdir", side_effect=fake_listdir),
+        patch.object(auth.data_io, "load_json", side_effect=fake_load_json),
+        patch.object(auth.data_io, "exists", side_effect=fake_exists),
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=False)
 
         roster = um.get_all_users()
@@ -221,8 +219,6 @@ def test_get_all_users_fans_out_and_caches() -> None:
         assert len(listdir_calls) == first_count, (
             "get_all_users must not reload the roster on the second call"
         )
-
-
 
 
 def test_get_user_lazy_loads_in_bootstrap_mode() -> None:
@@ -244,9 +240,11 @@ def test_get_user_lazy_loads_in_bootstrap_mode() -> None:
         load_calls.append(filename)
         return disk.get(filename)
 
-    with patch.object(auth.data_io, "listdir", side_effect=fake_listdir), \
-         patch.object(auth.data_io, "load_json", side_effect=fake_load_json), \
-         patch.object(auth.data_io, "exists", side_effect=fake_exists):
+    with (
+        patch.object(auth.data_io, "listdir", side_effect=fake_listdir),
+        patch.object(auth.data_io, "load_json", side_effect=fake_load_json),
+        patch.object(auth.data_io, "exists", side_effect=fake_exists),
+    ):
         um = auth.UserManager(storage_location="users", bootstrap=True)
         # The default-admin check may content-probe one file at construction;
         # isolate the get_user behaviour under test from that.
@@ -259,8 +257,6 @@ def test_get_user_lazy_loads_in_bootstrap_mode() -> None:
         assert load_calls == ["alice.json"]
 
 
-
-
 TESTS = [
     test_bootstrap_true_does_not_preload_roster,
     test_bootstrap_false_does_not_hit_storage_at_init,
@@ -269,8 +265,6 @@ TESTS = [
     test_get_all_users_fans_out_and_caches,
     test_get_user_lazy_loads_in_bootstrap_mode,
 ]
-
-
 
 
 def main() -> int:
@@ -286,8 +280,6 @@ def main() -> int:
     total = len(TESTS)
     print(f"\n{total - fails}/{total} passed")
     return 0 if fails == 0 else 1
-
-
 
 
 if __name__ == "__main__":

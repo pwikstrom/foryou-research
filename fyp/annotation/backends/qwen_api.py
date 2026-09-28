@@ -45,10 +45,6 @@ API_KEY_ENV = "DASHSCOPE_API_KEY"
 _RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
 
-
-
-
-
 def _api_cf() -> dict:
     """The ``[machine.qwen_api]`` config block with pilot-tuned defaults."""
     stored = get_config()["machine"].get("qwen_api", {}) or {}
@@ -65,10 +61,6 @@ def _api_cf() -> dict:
     return {**defaults, **stored}
 
 
-
-
-
-
 def _schema_suffix(schema: dict) -> str:
     """The schema-adherence prompt addendum for one response schema."""
     return (
@@ -78,19 +70,11 @@ def _schema_suffix(schema: dict) -> str:
     )
 
 
-
-
-
-
 def _strip_fences(text: str) -> str:
     """Remove markdown code fences the omni models sometimes wrap around JSON."""
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     return re.sub(r"\s*```$", "", text)
-
-
-
-
 
 
 class QwenApiBackend(AnnotationBackend):
@@ -101,16 +85,13 @@ class QwenApiBackend(AnnotationBackend):
     supports_batch_mode = False
     cloud_run_capable = True
 
-
     def __init__(self, overrides: dict | None = None, selection: str | None = None):
         super().__init__(overrides=overrides, selection=selection)
         self.max_workers = int(self._effective_cf()["max_workers"])
 
-
     def _effective_cf(self) -> dict:
         """The ``[machine.qwen_api]`` config with variant overrides applied."""
         return {**_api_cf(), **self.overrides}
-
 
     def availability(self, deep: bool = False) -> BackendAvailability:
         """API-key (and optionally live-endpoint) readiness.
@@ -124,21 +105,30 @@ class QwenApiBackend(AnnotationBackend):
         """
         checks: list[dict] = []
         key = os.environ.get(API_KEY_ENV, "")
-        checks.append({
-            "name": "api key", "ok": bool(key),
-            "detail": f"{API_KEY_ENV} is set" if key else f"{API_KEY_ENV} is not set",
-            "fix": "" if key else (
-                f"Create a Model Studio API key (international region) and set "
-                f"the {API_KEY_ENV} environment variable. "
-                "See docs/installation.md#enabling-hosted-qwen-annotation."),
-        })
+        checks.append(
+            {
+                "name": "api key",
+                "ok": bool(key),
+                "detail": f"{API_KEY_ENV} is set" if key else f"{API_KEY_ENV} is not set",
+                "fix": ""
+                if key
+                else (
+                    f"Create a Model Studio API key (international region) and set "
+                    f"the {API_KEY_ENV} environment variable. "
+                    "See docs/installation.md#enabling-hosted-qwen-annotation."
+                ),
+            }
+        )
         if not key:
             return BackendAvailability(
                 ok=False,
-                reason=(f"Hosted Qwen annotation is not configured: the "
-                        f"{API_KEY_ENV} environment variable is not set. "
-                        "See docs/installation.md#enabling-hosted-qwen-annotation."),
-                checks=checks)
+                reason=(
+                    f"Hosted Qwen annotation is not configured: the "
+                    f"{API_KEY_ENV} environment variable is not set. "
+                    "See docs/installation.md#enabling-hosted-qwen-annotation."
+                ),
+                checks=checks,
+            )
 
         if deep:
             ping = self._ping(key)
@@ -148,29 +138,39 @@ class QwenApiBackend(AnnotationBackend):
 
         return BackendAvailability(ok=True, reason="", checks=checks)
 
-
     def _ping(self, key: str) -> dict:
         """List models on the configured endpoint; return a check row."""
         api_cf = self._effective_cf()
         model_id = api_cf["model_id"]
         try:
-            r = requests.get(f"{api_cf['base_url']}/models",
-                             headers={"Authorization": f"Bearer {key}"}, timeout=30)
+            r = requests.get(
+                f"{api_cf['base_url']}/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=30,
+            )
         except requests.RequestException as exc:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"endpoint unreachable: {exc}",
-                    "fix": "Check network access to DashScope."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"endpoint unreachable: {exc}",
+                "fix": "Check network access to DashScope.",
+            }
         if r.status_code != 200:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"models list failed: HTTP {r.status_code}: {r.text[:200]}",
-                    "fix": "Check the API key and its region (international vs Beijing)."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"models list failed: HTTP {r.status_code}: {r.text[:200]}",
+                "fix": "Check the API key and its region (international vs Beijing).",
+            }
         ids = {m.get("id") for m in (r.json().get("data") or [])}
         if model_id not in ids:
-            return {"name": "api ping", "ok": False,
-                    "detail": f"model {model_id!r} not offered on this endpoint",
-                    "fix": "Check [machine.qwen_api].model_id against the Model Studio catalog."}
+            return {
+                "name": "api ping",
+                "ok": False,
+                "detail": f"model {model_id!r} not offered on this endpoint",
+                "fix": "Check [machine.qwen_api].model_id against the Model Studio catalog.",
+            }
         return {"name": "api ping", "ok": True, "detail": f"{model_id} available", "fix": ""}
-
 
     def prompt_suffix(self) -> str:
         """The schema-adherence addendum for the active contract's schema.
@@ -183,11 +183,9 @@ class QwenApiBackend(AnnotationBackend):
 
         return _schema_suffix(get_annotation_json_schema())
 
-
     def effective_model_id(self) -> str:
         """The configured hosted model id."""
         return self._effective_cf()["model_id"]
-
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
@@ -200,7 +198,6 @@ class QwenApiBackend(AnnotationBackend):
             "max_output_tokens": api_cf["max_tokens"],
         }
 
-
     def version_extra_params(self) -> dict:
         """Transport/format parameters (output-affecting → identity)."""
         return {
@@ -209,11 +206,14 @@ class QwenApiBackend(AnnotationBackend):
             "response_format": "json_object",
         }
 
-
-    def annotate_one(self, item_id: str, platform: str | None = None,
-                     gen_overrides: dict | None = None,
-                     prompt_text: str | None = None,
-                     response_schema=None) -> dict:
+    def annotate_one(
+        self,
+        item_id: str,
+        platform: str | None = None,
+        gen_overrides: dict | None = None,
+        prompt_text: str | None = None,
+        response_schema=None,
+    ) -> dict:
         """Annotate one item via the hosted API; returns the raw-row dict.
 
         Args:
@@ -234,8 +234,10 @@ class QwenApiBackend(AnnotationBackend):
         from fyp.annotation import annotation_versioning
         from fyp.annotation.annotation_schema import get_annotation_json_schema
 
-        api_cf = {**self._effective_cf(),
-                  **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
+        api_cf = {
+            **self._effective_cf(),
+            **{k: v for k, v in (gen_overrides or {}).items() if v is not None},
+        }
         now = _dt.datetime.now()
         row: dict = {
             "item_id": item_id,
@@ -277,15 +279,17 @@ class QwenApiBackend(AnnotationBackend):
                 return row
             size_mb = os.path.getsize(local_video) / 1e6
             if size_mb > api_cf["max_video_mb"]:
-                row["error"] = (f"video is {size_mb:.0f} MB, over the "
-                                f"{api_cf['max_video_mb']} MB request limit")
+                row["error"] = (
+                    f"video is {size_mb:.0f} MB, over the {api_cf['max_video_mb']} MB request limit"
+                )
                 row["finish_reason"] = "DNF - media too large"
                 return row
 
             video_b64 = base64.b64encode(open(local_video, "rb").read()).decode()
             start = _dt.datetime.now()
             text, usage, finish = self._call_with_retry(
-                key, api_cf, full_prompt, f"data:video/mp4;base64,{video_b64}")
+                key, api_cf, full_prompt, f"data:video/mp4;base64,{video_b64}"
+            )
             row["inference_duration"] = (_dt.datetime.now() - start).total_seconds()
 
             row["response"] = _strip_fences(text)
@@ -311,9 +315,9 @@ class QwenApiBackend(AnnotationBackend):
                 cleanup_video()
         return row
 
-
-    def _call_with_retry(self, key: str, api_cf: dict, prompt: str,
-                         video_url: str) -> tuple[str, dict, str]:
+    def _call_with_retry(
+        self, key: str, api_cf: dict, prompt: str, video_url: str
+    ) -> tuple[str, dict, str]:
         """One annotation call with backoff on retryable failures.
 
         Returns:
@@ -326,13 +330,15 @@ class QwenApiBackend(AnnotationBackend):
         """
         payload = {
             "model": api_cf["model_id"],
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "video_url", "video_url": {"url": video_url}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
             "modalities": ["text"],
             "temperature": api_cf["temperature"],
             "max_tokens": api_cf["max_tokens"],
@@ -346,15 +352,18 @@ class QwenApiBackend(AnnotationBackend):
             if attempt:
                 # 429s are the account-level RPM/TPM window — wait it out.
                 delay = min(60.0, 5.0 * (2 ** (attempt - 1)))
-                logger.info(f"qwen_api retry {attempt}/{attempts - 1} in {delay:.0f}s "
-                            f"({last_error[:120]})")
+                logger.info(
+                    f"qwen_api retry {attempt}/{attempts - 1} in {delay:.0f}s ({last_error[:120]})"
+                )
                 time.sleep(delay)
             try:
                 r = requests.post(
                     f"{api_cf['base_url']}/chat/completions",
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json=payload, timeout=api_cf["request_timeout"], stream=True)
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=api_cf["request_timeout"],
+                    stream=True,
+                )
             except requests.RequestException as exc:
                 last_error = f"request failed: {exc}"
                 continue
@@ -368,7 +377,6 @@ class QwenApiBackend(AnnotationBackend):
                 return text, usage, finish
             last_error = "empty streamed response"
         raise RuntimeError(f"all {attempts} attempts failed; last: {last_error}")
-
 
     @staticmethod
     def _read_stream(r) -> tuple[str, dict, str]:

@@ -29,21 +29,33 @@ def space():
 @pytest.fixture(scope="module")
 def feat(space):
     _, _, ids = space
-    return pd.DataFrame({
-        "item_id": pd.Series(ids, dtype="string"),
-        "niche_name": [f"niche_{iid[1]}" for iid in ids],
-        "category": "x", "story": "story",
-        "political_score": 0.1, "sensitivity_score": 0.0,
-        "advertising": "none", "author": "author_a",
-    }).set_index("item_id")
+    return pd.DataFrame(
+        {
+            "item_id": pd.Series(ids, dtype="string"),
+            "niche_name": [f"niche_{iid[1]}" for iid in ids],
+            "category": "x",
+            "story": "story",
+            "political_score": 0.1,
+            "sensitivity_score": 0.0,
+            "advertising": "none",
+            "author": "author_a",
+        }
+    ).set_index("item_id")
 
 
 def _plays(items, session="col1__0", start="2026-01-01 12:00:00", gap_s=40):
     ts0 = pd.Timestamp(start)
-    rows = [{"collection_id": "col1", "item_id": iid,
-             "_ts": ts0 + pd.Timedelta(seconds=gap_s * i), "play_duration": 20.0,
-             "session_id": session, "source_platform": "tiktok"}
-            for i, iid in enumerate(items)]
+    rows = [
+        {
+            "collection_id": "col1",
+            "item_id": iid,
+            "_ts": ts0 + pd.Timedelta(seconds=gap_s * i),
+            "play_duration": 20.0,
+            "session_id": session,
+            "source_platform": "tiktok",
+        }
+        for i, iid in enumerate(items)
+    ]
     df = pd.DataFrame(rows)
     df["item_id"] = df["item_id"].astype("string")
     df["session_id"] = df["session_id"].astype("string")
@@ -53,10 +65,6 @@ def _plays(items, session="col1__0", start="2026-01-01 12:00:00", gap_s=40):
 def _id_sets(ids):
     s = set(ids)
     return {"scraped": s, "annotated": s, "embedded": s, "downloaded": s}
-
-
-
-
 
 
 def test_episode_splits_at_cluster_jump(space, feat):
@@ -75,10 +83,6 @@ def test_episode_splits_at_cluster_jump(space, feat):
     assert all(r < 0.05 for r in roll[1:])
 
 
-
-
-
-
 def test_rewatches_extend_span_but_are_not_members(space, feat):
     id2idx, U, ids = space
     # 4 distinct videos, each played twice in a row.
@@ -92,10 +96,6 @@ def test_rewatches_extend_span_but_are_not_members(space, feat):
     assert erows[0]["repeat_rate"] == pytest.approx(2.0)
 
 
-
-
-
-
 def test_min_videos_gate_drops_short_runs(space, feat):
     id2idx, U, ids = space
     seq = [f"c0_{i}" for i in range(3)]  # below MIN_VIDEOS=4
@@ -104,26 +104,19 @@ def test_min_videos_gate_drops_short_runs(space, feat):
     assert srows[0]["n_episodes"] == 0
 
 
-
-
-
-
 def test_session_boundary_hard_breaks_episodes(space, feat):
     id2idx, U, ids = space
     # 8 same-cluster videos, but split across two sessions of 4 — two episodes,
     # never one merged run.
     p1 = _plays([f"c0_{i}" for i in range(4)], session="col1__0", gap_s=70)
-    p2 = _plays([f"c0_{i}" for i in range(4, 8)], session="col1__1",
-                start="2026-01-01 14:00:00", gap_s=70)
+    p2 = _plays(
+        [f"c0_{i}" for i in range(4, 8)], session="col1__1", start="2026-01-01 14:00:00", gap_s=70
+    )
     plays = pd.concat([p1, p2], ignore_index=True)
     srows, erows, wrows = se.build_collection("col1", plays, id2idx, U, feat, _id_sets(ids))
     assert len(srows) == 2
     assert len(erows) == 2
     assert {e["session_id"] for e in erows} == {"col1__0", "col1__1"}
-
-
-
-
 
 
 def test_null_session_ids_become_singletons(space, feat):
@@ -135,10 +128,6 @@ def test_null_session_ids_become_singletons(space, feat):
     assert len(srows) == 5
     assert all(s["session_id"].startswith("na_") for s in srows)
     assert erows == []
-
-
-
-
 
 
 def test_session_coverage_fractions(space, feat):
@@ -154,15 +143,12 @@ def test_session_coverage_fractions(space, feat):
     assert s["emb_play_coverage"] == pytest.approx(4 / 6, abs=1e-3)
 
 
-
-
-
-
 def test_min_window_focus_requires_enough_embedded(space, feat):
     id2idx, U, ids = space
     # Fewer distinct embedded videos than WINDOW_N=6 → no focus metric.
     srows, _, _w = se.build_collection(
-        "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids))
+        "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids)
+    )
     assert srows[0]["min_window_cosdist"] is None
     assert srows[0]["min_window_entropy_norm"] is None
 
@@ -173,15 +159,14 @@ def test_min_window_focus_requires_enough_embedded(space, feat):
     assert srows[0]["min_window_cosdist"] < 0.05
 
 
-
-
-
-
 def test_low_entropy_windows_nonoverlapping_and_ranked(space, feat):
     id2idx, U, ids = space
     # 18 embedded videos: three tight 6-video cluster runs → up to 3 windows.
-    seq = ([f"c0_{i}" for i in range(6)] + [f"c1_{i}" for i in range(6)]
-           + [f"c2_{i}" for i in range(6)])
+    seq = (
+        [f"c0_{i}" for i in range(6)]
+        + [f"c1_{i}" for i in range(6)]
+        + [f"c2_{i}" for i in range(6)]
+    )
     srows, _, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
     assert 1 <= len(wrows) <= se.MAX_WINDOWS
     # Ranked ascending by distance; window 0's score is the session's min.
@@ -200,13 +185,10 @@ def test_low_entropy_windows_nonoverlapping_and_ranked(space, feat):
         assert w["dominant_niche"] is not None
     # Session shorter than the window → no windows at all.
     srows, _, wrows = se.build_collection(
-        "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids))
+        "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids)
+    )
     assert wrows == []
     assert srows[0]["min_window_cosdist"] is None
-
-
-
-
 
 
 def test_arrow_frames_roundtrip(space, feat):
@@ -226,8 +208,6 @@ def test_arrow_frames_roundtrip(space, feat):
     assert len(list(wdf["member_item_ids"].iloc[0])) == se.WINDOW_N
 
 
-
-
 def test_session_record_emits_variable_extremes(space, feat):
     """vmin_/vmax_ columns per trend variable (+ dwell), None on all-null."""
     id2idx, U, ids = space
@@ -238,8 +218,8 @@ def test_session_record_emits_variable_extremes(space, feat):
     plays = _plays(seq)
     plays["play_duration"] = [5.0, 10.0, 40.0, 20.0, 15.0, 25.0]
     srows, _, _w = se.build_collection(
-        "col1", plays, id2idx, U, f, _id_sets(ids),
-        trend_cols=["sensitivity_score", "log_plays"])
+        "col1", plays, id2idx, U, f, _id_sets(ids), trend_cols=["sensitivity_score", "log_plays"]
+    )
     s = srows[0]
     expected = [float(i % 7) for i, iid in enumerate(f.index) if iid in set(seq)]
     assert s["vmin_sensitivity_score"] == pytest.approx(min(expected))
@@ -247,8 +227,6 @@ def test_session_record_emits_variable_extremes(space, feat):
     assert s["vmin_log_plays"] is None and s["vmax_log_plays"] is None
     assert s["vmin_dwell_s"] == pytest.approx(5.0)
     assert s["vmax_dwell_s"] == pytest.approx(40.0)
-
-
 
 
 def test_search_text_collects_and_caps_the_display_fields(space, feat):
@@ -260,7 +238,8 @@ def test_search_text_collects_and_caps_the_display_fields(space, feat):
     seq = [f"c0_{i}" for i in range(4)]
     stories = {"c0_0": "A story about SOURDOUGH bread"}
     srows, _, _w = se.build_collection(
-        "col1", _plays(seq), id2idx, U, f, _id_sets(ids), stories=stories)
+        "col1", _plays(seq), id2idx, U, f, _id_sets(ids), stories=stories
+    )
     blob = srows[0]["search_text"]
     assert blob == blob.lower()
     assert "niche_0" in blob and "author_a" in blob
@@ -273,28 +252,30 @@ def test_search_text_collects_and_caps_the_display_fields(space, feat):
     assert len(blob) <= 8000
 
 
-
-
 def test_sessions_schema_extends_the_base_with_extremes_and_roundtrips(space, feat):
     id2idx, U, ids = space
     trend_cols = ["sensitivity_score"]
     schema = se.sessions_schema(trend_cols)
-    for col in ("search_text", "vmin_sensitivity_score", "vmax_sensitivity_score",
-                "vmin_dwell_s", "vmax_dwell_s"):
+    for col in (
+        "search_text",
+        "vmin_sensitivity_score",
+        "vmax_sensitivity_score",
+        "vmin_dwell_s",
+        "vmax_dwell_s",
+    ):
         assert col in schema
     assert set(se._SESSIONS_SCHEMA) <= set(schema)
 
     seq = [f"c0_{i}" for i in range(6)]
     srows, _, _w = se.build_collection(
-        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids), trend_cols=trend_cols)
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids), trend_cols=trend_cols
+    )
     sdf = se._arrow_frame(srows, schema)
     assert all(str(t).endswith("[pyarrow]") for t in sdf.dtypes)
     assert sdf["vmax_sensitivity_score"].iloc[0] == pytest.approx(0.0)
     assert isinstance(sdf["search_text"].iloc[0], str)
     tbl = se._arrow_table(srows, schema)
     assert tbl.num_rows == 1
-
-
 
 
 def test_load_video_features_dedupes_a_duplicated_video_map(monkeypatch):
@@ -306,13 +287,17 @@ def test_load_video_features_dedupes_a_duplicated_video_map(monkeypatch):
     labels" — killing each sessions_refresh batch. keep="last" matches the
     embedding store's duplicate winner.
     """
-    dup_map = pd.DataFrame({
-        "item_id": ["a", "b", "a"],
-        "niche_name": ["first", "n_b", "last"],
-        "category": "x", "story": "s",
-        "political_score": 0.0, "sensitivity_score": 0.0,
-        "advertising": "none",
-    })
+    dup_map = pd.DataFrame(
+        {
+            "item_id": ["a", "b", "a"],
+            "niche_name": ["first", "n_b", "last"],
+            "category": "x",
+            "story": "s",
+            "political_score": 0.0,
+            "sensitivity_score": 0.0,
+            "advertising": "none",
+        }
+    )
 
     def _load(storage_location, filename, columns=None, **kw):
         return dup_map[columns].copy() if columns else dup_map.copy()
@@ -324,7 +309,6 @@ def test_load_video_features_dedupes_a_duplicated_video_map(monkeypatch):
     assert feat.index.is_unique
     assert feat.loc["a", "niche_name"] == "last"
 
-    out = se.attach_play_texts(_plays(["a", "b", "a"]), feat,
-                               stories={"a": "story a"})
+    out = se.attach_play_texts(_plays(["a", "b", "a"]), feat, stories={"a": "story a"})
     assert len(out) == 3
     assert out.loc[out["item_id"] == "a", "story"].iloc[0] == "story a"

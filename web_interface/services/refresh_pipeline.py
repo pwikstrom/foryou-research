@@ -153,8 +153,10 @@ def _needs_recode(ctx: RunContext) -> Need:
             # Consolidated but the impact is unreadable — refresh rather than guess.
             return _run({}, "the consolidation reported no impact detail")
         if studies:
-            return _run({"studies": ",".join(studies)},
-                        f"{len(studies)} study(ies) affected by the consolidation")
+            return _run(
+                {"studies": ",".join(studies)},
+                f"{len(studies)} study(ies) affected by the consolidation",
+            )
         return _skip("no study was affected")
     # No consolidation in this run — a rebuild started from the Semantic Map
     # card, say. There is no impact to scope by, so the map's own verdict is
@@ -187,8 +189,10 @@ def _needs_timelines(ctx: RunContext) -> Need:
         if collections is None:
             return _run({}, "the consolidation reported no impact detail")
         if collections:
-            return _run({"collections": ",".join(collections)},
-                        f"{len(collections)} collection(s) affected by the consolidation")
+            return _run(
+                {"collections": ",".join(collections)},
+                f"{len(collections)} collection(s) affected by the consolidation",
+            )
         return _skip("no collection was affected")
     # A map-origin run has no consolidation impact to scope by.
     if ctx.map_moved():
@@ -235,33 +239,79 @@ def _embeddings_dispatchable() -> bool:
 
 
 STEPS: list[Step] = [
-    Step("consolidate_enrichment", "Consolidating enrichment data",
-         "Consolidate enrichment data", (), TIER_ORIGIN_ONLY,
-         lambda ctx: _skip("consolidation is never a downstream step")),
-    Step("embeddings_refresh", "Refreshing semantic embeddings",
-         "Semantic embeddings", ("consolidate_enrichment",), TIER_SPINE,
-         _needs_embeddings, self_chaining=True, stop_boundary="batch"),
-    Step("video_map_refresh", "Rebuilding semantic map",
-         "Semantic map", ("embeddings_refresh",), TIER_SPINE,
-         _needs_video_map),
-    Step("recode_refresh_studies", "Refreshing study definitions",
-         "Study definitions", ("consolidate_enrichment", "video_map_refresh"),
-         TIER_SPINE, _needs_recode, stop_boundary="study"),
-    Step("meta_refresh_groups", "Refreshing explore metadata",
-         "Explore metadata", ("recode_refresh_studies",), TIER_LEAF,
-         _needs_study_consumer, stop_boundary="study"),
-    Step("pca_refresh", "Refreshing correlations",
-         "Correlations", ("recode_refresh_studies",), TIER_LEAF,
-         _needs_study_consumer, stop_boundary="study"),
-    Step("timelines_refresh", "Refreshing timelines",
-         "Timelines", ("consolidate_enrichment", "video_map_refresh"),
-         TIER_LEAF, _needs_timelines, self_chaining=True,
-         stop_boundary="collection"),
-    Step("sessions_refresh", "Rebuilding session index",
-         "Sessions",
-         ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"),
-         TIER_LEAF, _needs_sessions, self_chaining=True,
-         stop_boundary="batch"),
+    Step(
+        "consolidate_enrichment",
+        "Consolidating enrichment data",
+        "Consolidate enrichment data",
+        (),
+        TIER_ORIGIN_ONLY,
+        lambda ctx: _skip("consolidation is never a downstream step"),
+    ),
+    Step(
+        "embeddings_refresh",
+        "Refreshing semantic embeddings",
+        "Semantic embeddings",
+        ("consolidate_enrichment",),
+        TIER_SPINE,
+        _needs_embeddings,
+        self_chaining=True,
+        stop_boundary="batch",
+    ),
+    Step(
+        "video_map_refresh",
+        "Rebuilding semantic map",
+        "Semantic map",
+        ("embeddings_refresh",),
+        TIER_SPINE,
+        _needs_video_map,
+    ),
+    Step(
+        "recode_refresh_studies",
+        "Refreshing study definitions",
+        "Study definitions",
+        ("consolidate_enrichment", "video_map_refresh"),
+        TIER_SPINE,
+        _needs_recode,
+        stop_boundary="study",
+    ),
+    Step(
+        "meta_refresh_groups",
+        "Refreshing explore metadata",
+        "Explore metadata",
+        ("recode_refresh_studies",),
+        TIER_LEAF,
+        _needs_study_consumer,
+        stop_boundary="study",
+    ),
+    Step(
+        "pca_refresh",
+        "Refreshing correlations",
+        "Correlations",
+        ("recode_refresh_studies",),
+        TIER_LEAF,
+        _needs_study_consumer,
+        stop_boundary="study",
+    ),
+    Step(
+        "timelines_refresh",
+        "Refreshing timelines",
+        "Timelines",
+        ("consolidate_enrichment", "video_map_refresh"),
+        TIER_LEAF,
+        _needs_timelines,
+        self_chaining=True,
+        stop_boundary="collection",
+    ),
+    Step(
+        "sessions_refresh",
+        "Rebuilding session index",
+        "Sessions",
+        ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"),
+        TIER_LEAF,
+        _needs_sessions,
+        self_chaining=True,
+        stop_boundary="batch",
+    ),
 ]
 
 BY_NAME: dict[str, Step] = {s.name: s for s in STEPS}
@@ -532,11 +582,13 @@ def _mirror_in_flight(active: bool) -> None:
 
 def set_in_flight(active: bool) -> None:
     """Flip the run's in-flight flag (and its legacy alias)."""
+
     def _apply(record: dict) -> None:
         if active:
             record["in_flight"] = True
         else:
             record["in_flight"] = False
+
     if mutate_run(_apply) is None:
         # No run record (a legacy chain, or a run that was cleared): keep the
         # alias honest anyway so the supervisor's gate does not stick.
@@ -544,6 +596,7 @@ def set_in_flight(active: bool) -> None:
             load_process_stats,
             save_process_stats,
         )
+
         load_process_stats()
         _mirror_in_flight(active)
         save_process_stats()
@@ -568,10 +621,17 @@ def clear_run() -> None:
 # ---------------------------------------------------------------------------
 
 
-def plan_run(origin: str, *, kind: str = "card", started_by: str = "",
-             mode: str = "refresh", origin_task_args: dict | None = None,
-             impact: dict | None = None, provisional: bool = False,
-             origin_ran: bool = True) -> dict:
+def plan_run(
+    origin: str,
+    *,
+    kind: str = "card",
+    started_by: str = "",
+    mode: str = "refresh",
+    origin_task_args: dict | None = None,
+    impact: dict | None = None,
+    provisional: bool = False,
+    origin_ran: bool = True,
+) -> dict:
     """Plan a refresh run that starts from ``origin``.
 
     Every step that transitively depends on the origin is ``planned``; steps
@@ -678,11 +738,15 @@ def build_context(record: dict) -> RunContext:
     if consolidate:
         # The worker's own union of this consolidation with any deferred debt
         # is the authoritative scope; consolidation_impact is the fallback.
-        impact = consolidate.get("pipeline_impact") or consolidate.get(
-            "consolidation_impact") or impact
-    return RunContext(record=record, results=results,
-                      impact=impact if isinstance(impact, dict) else None,
-                      inherited=set(record.get("inherited") or ()))
+        impact = (
+            consolidate.get("pipeline_impact") or consolidate.get("consolidation_impact") or impact
+        )
+    return RunContext(
+        record=record,
+        results=results,
+        impact=impact if isinstance(impact, dict) else None,
+        inherited=set(record.get("inherited") or ()),
+    )
 
 
 #: What an empty task_args means for each step — i.e. what "no filter" widens to.
@@ -706,8 +770,10 @@ def scope_note(step: str, task_args: dict | None) -> str:
     the chart state the scope it really ran with.
     """
     ta = task_args or {}
-    for key, one, many in (("studies", "study", "studies"),
-                           ("collections", "collection", "collections")):
+    for key, one, many in (
+        ("studies", "study", "studies"),
+        ("collections", "collection", "collections"),
+    ):
         raw = ta.get(key)
         if raw:
             n = len([x for x in str(raw).split(",") if x.strip()])
@@ -750,12 +816,16 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
             continue
         verdict = BY_NAME[name].needs(ctx)
         if verdict.run:
-            return {"action": "spine", "step": name,
-                    "task_args": verdict.task_args, "leaves": [],
-                    "prunes": prunes, "reasons": {name: verdict.reason}}
+            return {
+                "action": "spine",
+                "step": name,
+                "task_args": verdict.task_args,
+                "leaves": [],
+                "prunes": prunes,
+                "reasons": {name: verdict.reason},
+            }
         prunes[name] = verdict.reason
-        steps[name] = {**(steps.get(name) or {}), "state": "pruned",
-                       "reason": verdict.reason}
+        steps[name] = {**(steps.get(name) or {}), "state": "pruned", "reason": verdict.reason}
 
     leaves: list[tuple[str, dict]] = []
     for name in LEAVES:
@@ -767,27 +837,41 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
             reasons[name] = verdict.reason
         else:
             prunes[name] = verdict.reason
-            steps[name] = {**(steps.get(name) or {}), "state": "pruned",
-                           "reason": verdict.reason}
+            steps[name] = {**(steps.get(name) or {}), "state": "pruned", "reason": verdict.reason}
 
     if leaves:
-        return {"action": "fork", "step": None, "task_args": {},
-                "leaves": leaves, "prunes": prunes, "reasons": reasons}
-    return {"action": "finish", "step": None, "task_args": {},
-            "leaves": [], "prunes": prunes, "reasons": reasons}
+        return {
+            "action": "fork",
+            "step": None,
+            "task_args": {},
+            "leaves": leaves,
+            "prunes": prunes,
+            "reasons": reasons,
+        }
+    return {
+        "action": "finish",
+        "step": None,
+        "task_args": {},
+        "leaves": [],
+        "prunes": prunes,
+        "reasons": reasons,
+    }
 
 
 def next_stage_index(steps: dict) -> int:
     """The stage number the next dispatch occupies (origin is 1)."""
     live = {"origin", "dispatched"}
-    return len([n for n in STEP_ORDER
-                if (steps.get(n) or {}).get("state") in live]) + 1
+    return len([n for n in STEP_ORDER if (steps.get(n) or {}).get("state") in live]) + 1
 
 
-def record_dispatch(run_id: str, dispatched: dict[str, dict], *,
-                    prunes: dict[str, str] | None = None,
-                    fork: dict | None = None,
-                    fork_at: str | None = None) -> dict | None:
+def record_dispatch(
+    run_id: str,
+    dispatched: dict[str, dict],
+    *,
+    prunes: dict[str, str] | None = None,
+    fork: dict | None = None,
+    fork_at: str | None = None,
+) -> dict | None:
     """Record one advance of the run: what was pruned, what was dispatched.
 
     One write per advance, made by the single task that is moving the run
@@ -801,6 +885,7 @@ def record_dispatch(run_id: str, dispatched: dict[str, dict], *,
         fork: ``{"leaves": [...], "fork_ts": "..."}`` when this advance forked.
         fork_at: The step the fan-out came from (drives the chart's fork line).
     """
+
     def _apply(record: dict) -> bool | None:
         if record.get("run_id") != run_id:
             return False
@@ -812,9 +897,13 @@ def record_dispatch(run_id: str, dispatched: dict[str, dict], *,
         stage_index = next_stage_index(steps)
         for step, extra in dispatched.items():
             prev = steps.get(step) or {}
-            steps[step] = {**prev, "state": "dispatched",
-                           "dispatched_ts": _now(), "stage_index": stage_index,
-                           **(extra or {})}
+            steps[step] = {
+                **prev,
+                "state": "dispatched",
+                "dispatched_ts": _now(),
+                "stage_index": stage_index,
+                **(extra or {}),
+            }
         if fork is not None:
             record["fork"] = fork
         if fork_at is not None:
@@ -835,15 +924,16 @@ def summarize(record: dict) -> str:
     stated rather than implied by an empty chart.
     """
     steps = record.get("steps") or {}
-    ran = [n for n in DOWNSTREAM_ORDER
-           if (steps.get(n) or {}).get("state") == "dispatched"]
+    ran = [n for n in DOWNSTREAM_ORDER if (steps.get(n) or {}).get("state") == "dispatched"]
     origin_label = record.get("origin_label") or SHORT_LABELS.get(
-        record.get("origin", ""), record.get("origin", ""))
+        record.get("origin", ""), record.get("origin", "")
+    )
 
     if record.get("partial"):
         failed = record.get("failed_at") or ""
         failed_labels = ", ".join(
-            SHORT_LABELS.get(f.strip(), f.strip()) for f in str(failed).split(",") if f.strip())
+            SHORT_LABELS.get(f.strip(), f.strip()) for f in str(failed).split(",") if f.strip()
+        )
         if failed_labels:
             return f"Refresh run stopped at {failed_labels}."
         return "Refresh run did not finish."
@@ -861,8 +951,7 @@ def summarize(record: dict) -> str:
         listed = labels[0]
     else:
         listed = ", ".join(labels[:-1]) + f" and {labels[-1]}"
-    pruned = [n for n in DOWNSTREAM_ORDER
-              if (steps.get(n) or {}).get("state") == "pruned"]
+    pruned = [n for n in DOWNSTREAM_ORDER if (steps.get(n) or {}).get("state") == "pruned"]
     tail = f" {len(pruned)} step(s) were not needed." if pruned else ""
     return f"Refreshed {listed}.{tail}"
 
@@ -966,13 +1055,17 @@ def run_refreshed_anything(record: dict | None) -> bool:
     still does.
     """
     steps = (record or {}).get("steps") or {}
-    return any((steps.get(n) or {}).get("state") == "dispatched"
-               for n in DOWNSTREAM_ORDER)
+    return any((steps.get(n) or {}).get("state") == "dispatched" for n in DOWNSTREAM_ORDER)
 
 
-def finish_run(*, partial: bool = False, failed_at: str | None = None,
-               reason: str | None = None, prunes: dict[str, str] | None = None,
-               run_id: str | None = None) -> dict | None:
+def finish_run(
+    *,
+    partial: bool = False,
+    failed_at: str | None = None,
+    reason: str | None = None,
+    prunes: dict[str, str] | None = None,
+    run_id: str | None = None,
+) -> dict | None:
     """Close the run: clear in-flight, stamp the summary, drop the fork record.
 
     Idempotent — the fan-out barrier can reach it more than once when leaves
@@ -1025,24 +1118,31 @@ def _journal_finished_run(record: dict) -> None:
         impact = record.get("impact") or {}
         summary = str(record.get("summary") or "").rstrip(".")
         if record.get("failed_at"):
-            message = (f"Analysis refresh stopped at "
-                       f"{SHORT_LABELS.get(record['failed_at'], record['failed_at'])}"
-                       + (f" — {summary}" if summary else ""))
+            message = (
+                f"Analysis refresh stopped at "
+                f"{SHORT_LABELS.get(record['failed_at'], record['failed_at'])}"
+                + (f" — {summary}" if summary else "")
+            )
         elif record.get("partial"):
             message = f"Analysis refresh finished partially — {summary}"
         else:
             message = f"Analyses refreshed — {summary}" if summary else "Analyses refreshed"
         origin = record.get("origin_label") or SHORT_LABELS.get(
-            record.get("origin", ""), record.get("origin"))
-        journal.record("refresh.finished", message,
-                       actor=record.get("started_by") or None,
-                       collection_ids=impact.get("affected_collection_ids") or None,
-                       run_id=record.get("run_id"), origin=origin,
-                       partial=bool(record.get("partial")),
-                       failed_at=record.get("failed_at"),
-                       studies=len(impact.get("affected_study_names") or []),
-                       started_ts=record.get("started_ts"))
+            record.get("origin", ""), record.get("origin")
+        )
+        journal.record(
+            "refresh.finished",
+            message,
+            actor=record.get("started_by") or None,
+            collection_ids=impact.get("affected_collection_ids") or None,
+            run_id=record.get("run_id"),
+            origin=origin,
+            partial=bool(record.get("partial")),
+            failed_at=record.get("failed_at"),
+            studies=len(impact.get("affected_study_names") or []),
+            started_ts=record.get("started_ts"),
+        )
     except Exception as exc:
         from fyp.core.logging_setup import get_logger
-        get_logger(__name__).warning(
-            f"refresh_pipeline: could not journal the finished run: {exc}")
+
+        get_logger(__name__).warning(f"refresh_pipeline: could not journal the finished run: {exc}")

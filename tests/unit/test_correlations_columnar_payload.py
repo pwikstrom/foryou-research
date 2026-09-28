@@ -18,14 +18,16 @@ def _frame():
     rows = []
     for collection in ("c1", "c2"):
         for day in range(1, 6):
-            rows.append({
-                "collection_id": collection,
-                "local_weekday": "Mon" if day % 2 else "Tue",
-                "x_metric": float(day),
-                "y_metric": float(day) * 2.0,
-                "x_metric_raw": float(day) * 100.0,
-                svc.VIDEOS_WATCHED_COL: 10 + day,
-            })
+            rows.append(
+                {
+                    "collection_id": collection,
+                    "local_weekday": "Mon" if day % 2 else "Tue",
+                    "x_metric": float(day),
+                    "y_metric": float(day) * 2.0,
+                    "x_metric_raw": float(day) * 100.0,
+                    svc.VIDEOS_WATCHED_COL: 10 + day,
+                }
+            )
     df = pd.DataFrame(rows)
     # One NaN factor value: must become null in factors (skipped client-side)
     # and an empty hover cell.
@@ -34,8 +36,7 @@ def _frame():
 
 
 def _payload():
-    return svc.build_scatter_payload(
-        _frame(), "x_metric", "y_metric", "collection_id")
+    return svc.build_scatter_payload(_frame(), "x_metric", "y_metric", "collection_id")
 
 
 def test_points_are_columnar_and_aligned():
@@ -65,9 +66,11 @@ def test_factors_carry_raw_strings_and_null_for_nan():
     assert p["factors"]["local_weekday"][0] is None
     # …and empty in its hover column so no "nan" line is rendered.
     weekday_idx = next(
-        i for i, lbl in enumerate(p["hover"]["labels"])
+        i
+        for i, lbl in enumerate(p["hover"]["labels"])
         if p["factors"].get("local_weekday") is not None
-        and p["hover"]["columns"][i][1] in ("Mon", "Tue"))
+        and p["hover"]["columns"][i][1] in ("Mon", "Tue")
+    )
     assert p["hover"]["columns"][weekday_idx][0] == ""
 
 

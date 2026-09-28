@@ -5,12 +5,13 @@ We don't run the full PCA — we just exercise calculate_scaled_pca_scores up to
 the point of loading and let it run end-to-end against a real cached study to
 prove no critical column was dropped from the projection.
 """
+
 import sys
 
 import pytest
 from os.path import abspath, dirname, join
 
-sys.path.insert(0, abspath(join(dirname(__file__), '..')))
+sys.path.insert(0, abspath(join(dirname(__file__), "..")))
 
 from fyp.core import fyp_config
 
@@ -23,26 +24,25 @@ from fyp.annotation.recode_variables import (
     get_grouping_factors_from_var_schema,
 )
 
-STUDY = 'chenglong'  # smallest cached study (~26 MB)
+STUDY = "chenglong"  # smallest cached study (~26 MB)
 
 
 def main():
     print(f"\n[1] Verifying selective-load column set for study '{STUDY}'")
     factors, features = get_factors_and_features_from_var_schema(verbose=False)
     grouping = get_grouping_factors_from_var_schema(verbose=False)
-    cols_for_pca = sorted(set(factors + features + grouping
-                              + ['annotated_ok']))
+    cols_for_pca = sorted(set(factors + features + grouping + ["annotated_ok"]))
     print(f"      var_schema requests {len(cols_for_pca)} columns for PCA")
 
     df_proj = data_io.load_parquet_selective(
-        storage_location='cache',
-        filename=f'{STUDY}_recoded.parquet',
+        storage_location="cache",
+        filename=f"{STUDY}_recoded.parquet",
         columns=cols_for_pca,
         verbose=True,
     )
     df_full = data_io.load_parquet(
-        storage_location='cache',
-        filename=f'{STUDY}_recoded.parquet',
+        storage_location="cache",
+        filename=f"{STUDY}_recoded.parquet",
         verbose=False,
     )
 
@@ -59,7 +59,9 @@ def main():
     missing_from_proj = on_disk_pca_cols - proj_cols
     extra_in_proj = proj_cols - on_disk_pca_cols
     if missing_from_proj:
-        print(f"      [FAIL] PCA cols on disk that the projection MISSED: {sorted(missing_from_proj)}")
+        print(
+            f"      [FAIL] PCA cols on disk that the projection MISSED: {sorted(missing_from_proj)}"
+        )
         sys.exit(1)
     if extra_in_proj:
         print(f"      [FAIL] projection returned cols not requested: {sorted(extra_in_proj)}")
@@ -67,7 +69,9 @@ def main():
     if len(df_proj) != len(df_full):
         print(f"      [FAIL] row count mismatch: {len(df_proj)} vs {len(df_full)}")
         sys.exit(1)
-    print(f"      [OK] projection returns exactly the {len(proj_cols)} on-disk PCA cols, all rows preserved")
+    print(
+        f"      [OK] projection returns exactly the {len(proj_cols)} on-disk PCA cols, all rows preserved"
+    )
 
     print(f"\n[2] Running calculate_scaled_pca_scores on '{STUDY}' (load_from_cache=True)")
     result = pca.calculate_scaled_pca_scores(
@@ -81,7 +85,7 @@ def main():
     print(f"      [OK] PCA completed: result type={type(result).__name__}")
     if isinstance(result, tuple):
         for i, r in enumerate(result):
-            if hasattr(r, 'shape'):
+            if hasattr(r, "shape"):
                 print(f"         result[{i}] shape={r.shape}")
 
     print("\n[OK] PCA selective-load smoke test passed.")
@@ -92,5 +96,5 @@ def test_pca_selective_load():
     main()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

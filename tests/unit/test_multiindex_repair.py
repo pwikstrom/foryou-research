@@ -27,10 +27,6 @@ def test_all_tuple_columns_become_multiindex():
     assert out.loc["c1", ("other", "accepted")] == "x"
 
 
-
-
-
-
 def test_mixed_columns_stay_flat_and_scalars_accessible():
     """A scalar column alongside tuples must remain directly accessible."""
     df = pd.DataFrame(
@@ -45,19 +41,11 @@ def test_mixed_columns_stay_flat_and_scalars_accessible():
     assert out[("personas", "active_days")].tolist() == [3]
 
 
-
-
-
-
 def test_no_tuple_columns_is_a_noop():
     df = pd.DataFrame({"collection_id": ["c1"], "active_days": [3]})
     out = _repair_stringified_multiindex(df)
     assert out is df
     assert list(out.columns) == ["collection_id", "active_days"]
-
-
-
-
 
 
 def test_unparseable_parenthesised_string_is_kept():
@@ -68,10 +56,6 @@ def test_unparseable_parenthesised_string_is_kept():
     assert ("a", "b") in out.columns
 
 
-
-
-
-
 def test_active_days_lookup_works_on_both_column_shapes():
     """The timelines-dropdown lookup must survive flat AND MultiIndex columns.
 
@@ -79,6 +63,7 @@ def test_active_days_lookup_works_on_both_column_shapes():
     MultiIndex, which silently emptied the active-days map; the route reads the
     two columns separately instead.
     """
+
     def _build_map(filtered, target_id_col, active_days_col):
         ad_ids = filtered[target_id_col]
         if isinstance(ad_ids, pd.DataFrame):
@@ -93,8 +78,7 @@ def test_active_days_lookup_works_on_both_column_shapes():
             out[str(cid_raw)] = None if pd.isna(val) else int(val)
         return out
 
-    flat = pd.DataFrame({"collection_id": ["c1", "c2"],
-                         ("personas", "active_days"): [3, 9]})
+    flat = pd.DataFrame({"collection_id": ["c1", "c2"], ("personas", "active_days"): [3, 9]})
     assert _build_map(flat, "collection_id", ("personas", "active_days")) == {"c1": 3, "c2": 9}
 
     multi = pd.DataFrame(
@@ -103,10 +87,6 @@ def test_active_days_lookup_works_on_both_column_shapes():
         index=pd.Index(["c1", "c2"], name="collection_id"),
     ).reset_index()
     assert _build_map(multi, "collection_id", ("personas", "active_days")) == {"c1": 3, "c2": 9}
-
-
-
-
 
 
 def test_selective_load_sets_index_before_repair(monkeypatch, tmp_path):
@@ -119,22 +99,24 @@ def test_selective_load_sets_index_before_repair(monkeypatch, tmp_path):
 
     import fyp.core.data_io as data_io
 
-    source = pd.DataFrame({
-        "collection_id": ["c1", "c2"],
-        "('personas', 'active_days')": [3, 9],
-        "('other', 'accepted')": [True, False],
-    })
+    source = pd.DataFrame(
+        {
+            "collection_id": ["c1", "c2"],
+            "('personas', 'active_days')": [3, 9],
+            "('other', 'accepted')": [True, False],
+        }
+    )
     path = tmp_path / "collections_metadata.parquet"
     source.to_parquet(path)
 
     # Mirror the metadata-stripping read the real function performs.
-    monkeypatch.setattr(data_io, "_resolve_read_path",
-                        lambda *a, **kw: (str(path), "local", None), raising=False)
+    monkeypatch.setattr(
+        data_io, "_resolve_read_path", lambda *a, **kw: (str(path), "local", None), raising=False
+    )
 
     tbl = pq.read_table(str(path))
     meta = tbl.schema.metadata or {}
-    tbl = tbl.replace_schema_metadata(
-        {k: v for k, v in meta.items() if k != b"pandas"} or None)
+    tbl = tbl.replace_schema_metadata({k: v for k, v in meta.items() if k != b"pandas"} or None)
     df = tbl.to_pandas(types_mapper=pd.ArrowDtype)
 
     df = df.set_index("collection_id")

@@ -51,10 +51,6 @@ class PresentationConflict(Exception):
     """Raised when a save's expected etag does not match the stored state."""
 
 
-
-
-
-
 def _data_io():
     """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
@@ -62,17 +58,9 @@ def _data_io():
     return data_io
 
 
-
-
-
-
 def empty_presentation() -> dict:
     """Return a fresh, empty presentation payload."""
     return {"version": 1, "surfaces": {s: [] for s in SURFACES}}
-
-
-
-
 
 
 def load_presentation() -> dict | None:
@@ -103,10 +91,6 @@ def load_presentation() -> dict | None:
     return _seed_from_defaults()
 
 
-
-
-
-
 def _seed_from_defaults() -> dict | None:
     """Create the initial store from the packaged starter surfaces.
 
@@ -116,7 +100,9 @@ def _seed_from_defaults() -> dict | None:
     Returns None when the defaults file is missing/unreadable; a failed
     persist still returns the payload (read-only storage keeps working).
     """
-    defaults_path = Path(__file__).resolve().parents[2] / "config" / "var_presentation_defaults.json"
+    defaults_path = (
+        Path(__file__).resolve().parents[2] / "config" / "var_presentation_defaults.json"
+    )
     try:
         payload = json.loads(defaults_path.read_text(encoding="utf-8"))
     except Exception as e:
@@ -130,10 +116,6 @@ def _seed_from_defaults() -> dict | None:
     except Exception as e:
         logger.warning(f"WARNING: could not persist seeded presentation store ({e}).")
     return payload
-
-
-
-
 
 
 def _migrate_retired_names(payload: dict) -> dict:
@@ -169,10 +151,6 @@ def _migrate_retired_names(payload: dict) -> dict:
     return out
 
 
-
-
-
-
 def compute_presentation_etag(payload: dict | None = None) -> str:
     """Deterministic etag of the presentation content (sha256 of canonical JSON)."""
     if payload is None:
@@ -182,10 +160,6 @@ def compute_presentation_etag(payload: dict | None = None) -> str:
     surfaces = {s: sorted(payload.get("surfaces", {}).get(s, []) or []) for s in SURFACES}
     canonical = json.dumps(surfaces, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
-
-
-
-
 
 
 def save_presentation(
@@ -233,4 +207,3 @@ def save_presentation(
     }
     _data_io().save_json(data=payload, storage_location=LOCATION, filename=FILENAME)
     return {"etag": compute_presentation_etag(payload)}
-

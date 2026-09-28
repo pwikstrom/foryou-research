@@ -102,9 +102,16 @@ def family_for(kind: str) -> str:
     return KINDS.get(kind, (kind, FAMILY_PLAN))[1]
 
 
-def record(kind: str, message: str, *, collection_id: str | None = None,
-           platform: str | None = None, actor: str | None = None,
-           collection_ids=None, **detail) -> None:
+def record(
+    kind: str,
+    message: str,
+    *,
+    collection_id: str | None = None,
+    platform: str | None = None,
+    actor: str | None = None,
+    collection_ids=None,
+    **detail,
+) -> None:
     """Append one event. Never raises.
 
     Args:
@@ -144,8 +151,12 @@ def record(kind: str, message: str, *, collection_id: str | None = None,
             doc["version"] = VERSION
             return doc
 
-        data_io.update_json(storage_location=JOURNAL_LOCATION, filename=JOURNAL_FILENAME,
-                            mutate=_mutate, default=_empty_doc())
+        data_io.update_json(
+            storage_location=JOURNAL_LOCATION,
+            filename=JOURNAL_FILENAME,
+            mutate=_mutate,
+            default=_empty_doc(),
+        )
     except Exception as exc:
         logger.warning(f"enrichment_journal: could not record {kind!r}: {exc}")
 
@@ -171,8 +182,9 @@ def _matches(event: dict, collection_id: str | None, platform: str | None) -> bo
     return ev_platform is None or platform is None or ev_platform == platform
 
 
-def read(*, collection_id: str | None = None, platform: str | None = None,
-         limit: int = 100) -> list[dict]:
+def read(
+    *, collection_id: str | None = None, platform: str | None = None, limit: int = 100
+) -> list[dict]:
     """The newest events, newest first, each with its ``label`` and ``family``.
 
     Args:
@@ -181,8 +193,9 @@ def read(*, collection_id: str | None = None, platform: str | None = None,
         limit: Maximum events returned.
     """
     try:
-        doc = _coerce(data_io.load_json(storage_location=JOURNAL_LOCATION,
-                                        filename=JOURNAL_FILENAME))
+        doc = _coerce(
+            data_io.load_json(storage_location=JOURNAL_LOCATION, filename=JOURNAL_FILENAME)
+        )
     except Exception as exc:
         logger.warning(f"enrichment_journal: could not read the journal: {exc}")
         return []
@@ -203,8 +216,9 @@ def read(*, collection_id: str | None = None, platform: str | None = None,
 def collection_ids_present(limit_events: int = MAX_EVENTS) -> list[str]:
     """Every collection id named by any retained event (for a filter picker)."""
     try:
-        doc = _coerce(data_io.load_json(storage_location=JOURNAL_LOCATION,
-                                        filename=JOURNAL_FILENAME))
+        doc = _coerce(
+            data_io.load_json(storage_location=JOURNAL_LOCATION, filename=JOURNAL_FILENAME)
+        )
     except Exception:
         return []
     seen: dict[str, None] = {}

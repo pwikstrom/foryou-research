@@ -1,4 +1,3 @@
-
 import datetime as _dt
 import hashlib
 import json
@@ -42,7 +41,7 @@ event_type_column = "activity_type"
 # Sentinel for an uncapped sampling maximum. A blank ('' / '-') max in a study
 # definition means "no cap"; it is parsed to this value, which is larger than any real
 # per-cell or per-collection count, so min(count, SAMPLE_NO_CAP) == count.
-SAMPLE_NO_CAP = 10 ** 12
+SAMPLE_NO_CAP = 10**12
 
 
 def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
@@ -73,7 +72,6 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
         return default
 
 
-
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
     from fyp.core.fyp_config import fyp_cf
@@ -81,13 +79,9 @@ def _cf():
     return fyp_cf
 
 
-
-
 def _scrapes_label() -> str:
     """Lazy accessor for the config-derived scrapes label."""
     return _cf()["labels"]["SCRAPES_LABEL"]
-
-
 
 
 def _machine_annotations_label() -> str:
@@ -95,13 +89,9 @@ def _machine_annotations_label() -> str:
     return _cf()["labels"]["MACHINE_ANNOTATIONS_LABEL"]
 
 
-
-
 def _collections_label() -> str:
     """Lazy accessor for the config-derived collections label."""
     return _cf()["labels"]["COLLECTIONS_LABEL"]
-
-
 
 
 _CONFIG_CONSTANT_ACCESSORS = {
@@ -111,14 +101,13 @@ _CONFIG_CONSTANT_ACCESSORS = {
 }
 
 
-
-
 def __getattr__(name: str):
     """Serve the config-derived module constants lazily (PEP 562)."""
     accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
     if accessor is not None:
         return accessor()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Embeddings-derived niche map (see fyp.video_map). The niche columns are
 # joined into each study's recoded dataset on item_id so they surface as
@@ -157,20 +146,16 @@ _NICHE_COLUMN_BACKFILL = {
 def _fingerprint_input_files() -> dict:
     """Return the fingerprint-input map (label-derived, so config-lazy)."""
     return {
-        "collections_fp":  ("recoded", f"{_collections_label()}_recoded.parquet"),
-        "scrapes_fp":      ("recoded", f"{_scrapes_label()}_recoded.parquet"),
-        "annotations_fp":  ("recoded", f"{_machine_annotations_label()}_recoded.parquet"),
-        "video_map_fp":    (_VIDEO_MAP_LOCATION, _VIDEO_MAP_FILE),
+        "collections_fp": ("recoded", f"{_collections_label()}_recoded.parquet"),
+        "scrapes_fp": ("recoded", f"{_scrapes_label()}_recoded.parquet"),
+        "annotations_fp": ("recoded", f"{_machine_annotations_label()}_recoded.parquet"),
+        "video_map_fp": (_VIDEO_MAP_LOCATION, _VIDEO_MAP_FILE),
     }
-
-
 
 
 def _sidecar_filename(study_name: str) -> str:
     """Return the sidecar filename for a given study's recoded dataset."""
     return f"{study_name}_recoded.meta.json"
-
-
 
 
 def compute_study_config_hash(study_name: str) -> str:
@@ -206,8 +191,6 @@ def compute_study_config_hash(study_name: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-
-
 def _video_map_fingerprint():
     """The niche map's fingerprint: its ASSIGNMENT, not its file stat.
 
@@ -220,16 +203,16 @@ def _video_map_fingerprint():
     hash existed, or when the meta file cannot be read — a spurious rebuild is
     the safe failure here, a skipped one is not.
     """
-    fallback = data_io.stat(storage_location=_VIDEO_MAP_LOCATION,
-                            filename=_VIDEO_MAP_FILE)
+    fallback = data_io.stat(storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_FILE)
     if fallback is None:
         return None
     try:
-        if not data_io.exists(storage_location=_VIDEO_MAP_LOCATION,
-                              filename=_VIDEO_MAP_META_FILE):
+        if not data_io.exists(storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_META_FILE):
             return fallback
-        meta = data_io.load_json(storage_location=_VIDEO_MAP_LOCATION,
-                                 filename=_VIDEO_MAP_META_FILE) or {}
+        meta = (
+            data_io.load_json(storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_META_FILE)
+            or {}
+        )
         digest = meta.get("niche_assignment_hash")
         if digest:
             return {"niche_assignment_hash": str(digest)}
@@ -254,8 +237,6 @@ def compute_input_fingerprints() -> dict:
     return fps
 
 
-
-
 # Marker file recording the input fingerprints that produced the current
 # enrichment_status.parquet. Written right after the status save; compared by
 # _status_inputs_unchanged() so a consolidation with nothing new can skip the
@@ -274,8 +255,12 @@ def _write_status_inputs_marker(verbose: bool = False) -> None:
         fps = compute_input_fingerprints()
         payload = {key: fps.get(key) for key in _STATUS_FP_KEYS}
         payload["failed_scrapes_fp"] = compute_failed_scrapes_fingerprint()
-        data_io.save_json(data=payload, storage_location="recoded",
-                          filename=_STATUS_INPUTS_MARKER, verbose=verbose)
+        data_io.save_json(
+            data=payload,
+            storage_location="recoded",
+            filename=_STATUS_INPUTS_MARKER,
+            verbose=verbose,
+        )
     except Exception as exc:
         logger.warning(f"    Could not write the status-inputs marker: {exc}")
 
@@ -293,8 +278,9 @@ def _status_inputs_unchanged(verbose: bool = False) -> bool:
             return False
         if not data_io.exists(storage_location="recoded", filename=_STATUS_INPUTS_MARKER):
             return False
-        marker = data_io.load_json(storage_location="recoded",
-                                   filename=_STATUS_INPUTS_MARKER, verbose=verbose)
+        marker = data_io.load_json(
+            storage_location="recoded", filename=_STATUS_INPUTS_MARKER, verbose=verbose
+        )
         if not isinstance(marker, dict):
             return False
         fps = compute_input_fingerprints()
@@ -324,16 +310,12 @@ def compute_failed_scrapes_fingerprint() -> dict:
     return {"count": len(items), "hash": digest}
 
 
-
-
 def _hash_item_ids(df: pd.DataFrame) -> str:
     """Return a stable hash of the unique item_ids in a recoded dataset."""
     if df is None or df.empty or "item_id" not in df.columns:
         return "empty"
     ids = sorted(set(df["item_id"].dropna().astype(str).tolist()))
     return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()
-
-
 
 
 def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
@@ -369,8 +351,6 @@ def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
     }
 
 
-
-
 def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
     """Assemble the sidecar payload for a freshly (re)built recoded dataset."""
 
@@ -401,8 +381,6 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
     return sidecar
 
 
-
-
 def save_sidecar(study_name: str, recoded_df: pd.DataFrame, verbose: bool = False) -> dict:
     """Build and persist the sidecar for a study; return the payload written."""
 
@@ -414,10 +392,10 @@ def save_sidecar(study_name: str, recoded_df: pd.DataFrame, verbose: bool = Fals
         verbose=verbose,
     )
     if verbose:
-        logger.info(f"    [Sidecar] Wrote {_sidecar_filename(study_name)} (rows={sidecar['row_count']})")
+        logger.info(
+            f"    [Sidecar] Wrote {_sidecar_filename(study_name)} (rows={sidecar['row_count']})"
+        )
     return sidecar
-
-
 
 
 def load_sidecar(study_name: str, verbose: bool = False) -> dict | None:
@@ -436,8 +414,6 @@ def load_sidecar(study_name: str, verbose: bool = False) -> dict | None:
         return None
 
 
-
-
 def _fp_equal(a: dict | None, b: dict | None) -> bool:
     """Return True when two stat/fingerprint dicts compare as equal (both None is equal)."""
     if a is None and b is None:
@@ -445,8 +421,6 @@ def _fp_equal(a: dict | None, b: dict | None) -> bool:
     if a is None or b is None:
         return False
     return a == b
-
-
 
 
 def plan_refresh(study_name: str, verbose: bool = False) -> dict:
@@ -575,8 +549,6 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
     return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
 
 
-
-
 def _load_cached_core_datasets(verbose: bool = False) -> dict:
     """Load core datasets (scrape, annotations, collections) from cache or main storage.
 
@@ -594,44 +566,49 @@ def _load_cached_core_datasets(verbose: bool = False) -> dict:
         # try loading from local cache
         if data_io.exists(storage_location="cache", filename=f"core_{k}.parquet"):
             parquet_study_name = data_io.find_key_value_in_pq_metadata(
-                storage_location="cache", filename=f"core_{k}.parquet", the_key='study_name')
-            if parquet_study_name == 'everything':
+                storage_location="cache", filename=f"core_{k}.parquet", the_key="study_name"
+            )
+            if parquet_study_name == "everything":
                 if verbose:
-                    logger.info(f"    [Core datasets] Loading '{k}' from cache (study: '{parquet_study_name}')...")
-                tutti_data[k] = data_io.load_parquet(storage_location="cache", filename=f"core_{k}.parquet")
+                    logger.info(
+                        f"    [Core datasets] Loading '{k}' from cache (study: '{parquet_study_name}')..."
+                    )
+                tutti_data[k] = data_io.load_parquet(
+                    storage_location="cache", filename=f"core_{k}.parquet"
+                )
                 continue
 
         # fallback: load from main storage
         if not data_io.exists(storage_location="recoded", filename=f"{k}_recoded.parquet"):
             if verbose:
-                logger.info(f"    [Core datasets] '{k}_recoded.parquet' not present in main storage — treating as empty")
+                logger.info(
+                    f"    [Core datasets] '{k}_recoded.parquet' not present in main storage — treating as empty"
+                )
             tutti_data[k] = pd.DataFrame()
-            tutti_data[k].attrs["study_name"] = 'everything'
+            tutti_data[k].attrs["study_name"] = "everything"
             continue
 
         if verbose:
             logger.info(f"    [Core datasets] Loading '{k}' from main storage...")
-        tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
-        tutti_data[k].attrs["study_name"] = 'everything'
+        tutti_data[k] = data_io.load_parquet(
+            storage_location="recoded", filename=f"{k}_recoded.parquet"
+        )
+        tutti_data[k].attrs["study_name"] = "everything"
 
         # if main storage is GCS and cache is local, persist to cache for next time
-        if _cf()['data_io']['use_gcs_for_data'] and not _cf()['data_io']['use_gcs_for_cache']:
+        if _cf()["data_io"]["use_gcs_for_data"] and not _cf()["data_io"]["use_gcs_for_cache"]:
             if verbose:
                 logger.info(f"    [Core datasets] Saving '{k}' to local cache...")
-            data_io.save_parquet(df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet")
+            data_io.save_parquet(
+                df=tutti_data[k], storage_location="cache", filename=f"core_{k}.parquet"
+            )
 
     return tutti_data
 
 
-
-
-
 def _filter_enrichment_data(
-    tutti_data: dict,
-    unique_videos: set,
-    study_name: str | None = None,
-    verbose: bool = False
-    ) -> None:
+    tutti_data: dict, unique_videos: set, study_name: str | None = None, verbose: bool = False
+) -> None:
     """Load and filter scrape + annotation data to match the videos in the activity data.
 
     Modifies tutti_data in place: updates the 'scrape' and 'machine_annotations' entries.
@@ -647,21 +624,36 @@ def _filter_enrichment_data(
     # scrape data
     if tutti_data.get(_scrapes_label()) is None or tutti_data[_scrapes_label()].empty:
         tutti_data[_scrapes_label()] = _load_enrichment_frame(
-            _scrapes_label(), "Scrape", "scraped data", unique_videos, study_name, verbose)
+            _scrapes_label(), "Scrape", "scraped data", unique_videos, study_name, verbose
+        )
     else:
         cached = tutti_data[_scrapes_label()]
         tutti_data[_scrapes_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
-        logger.info(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[_scrapes_label()]):,} overlap with activity datasets.")
+        logger.info(
+            f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[_scrapes_label()]):,} overlap with activity datasets."
+        )
 
     # machine annotations
-    if tutti_data.get(_machine_annotations_label()) is None or tutti_data[_machine_annotations_label()].empty:
+    if (
+        tutti_data.get(_machine_annotations_label()) is None
+        or tutti_data[_machine_annotations_label()].empty
+    ):
         tutti_data[_machine_annotations_label()] = _load_enrichment_frame(
-            _machine_annotations_label(), "Machine annotations", "machine annotations",
-            unique_videos, study_name, verbose)
+            _machine_annotations_label(),
+            "Machine annotations",
+            "machine annotations",
+            unique_videos,
+            study_name,
+            verbose,
+        )
     else:
         cached = tutti_data[_machine_annotations_label()]
-        tutti_data[_machine_annotations_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
-        logger.info(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[_machine_annotations_label()]):,} overlap with activity datasets.")
+        tutti_data[_machine_annotations_label()] = cached[
+            cached["item_id"].isin(unique_videos)
+        ].copy()
+        logger.info(
+            f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[_machine_annotations_label()]):,} overlap with activity datasets."
+        )
 
 
 # Run-scoped stash of the full enrichment frames, or None when no run holds one.
@@ -701,9 +693,12 @@ class enrichment_preload:
             return False
         held, _ENRICHMENT_PRELOAD = _ENRICHMENT_PRELOAD, None
         if held:
-            logger.info(f"    [Enrichment preload] Released {len(held)} frame(s) held for this run.")
+            logger.info(
+                f"    [Enrichment preload] Released {len(held)} frame(s) held for this run."
+            )
             held.clear()
             import gc
+
             gc.collect()
         return False
 
@@ -739,19 +734,20 @@ def _load_enrichment_frame(
         source = "main storage"
         if stash is not None:
             stash[label] = full
-            logger.info(f"    [{tag}] Holding the full frame for the rest of this run "
-                        f"({len(full):,} rows, {_df_size_mb(full):.0f} MB).")
-    if not full.empty and study_name != 'everything':
+            logger.info(
+                f"    [{tag}] Holding the full frame for the rest of this run "
+                f"({len(full):,} rows, {_df_size_mb(full):.0f} MB)."
+            )
+    if not full.empty and study_name != "everything":
         out = full[full["item_id"].isin(unique_videos)].copy()
     else:
         # A parked frame must never be handed out by reference.
         out = full.copy() if stash is not None else full
-    logger.info(f"    [{tag}] ...done. Kept {len(out):,} rows in "
-                f"{_time.perf_counter() - t0:.2f}s ({source}).")
+    logger.info(
+        f"    [{tag}] ...done. Kept {len(out):,} rows in "
+        f"{_time.perf_counter() - t0:.2f}s ({source})."
+    )
     return out
-
-
-
 
 
 def _print_dataset_summary(tutti_data: dict) -> None:
@@ -762,9 +758,9 @@ def _print_dataset_summary(tutti_data: dict) -> None:
     logger.info("    [Core datasets] Datasets:")
     for k in tutti_data:
         if tutti_data[k] is not None:
-            logger.info(f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size_mb(tutti_data[k]):.1f}MB)")
-
-
+            logger.info(
+                f"    [Core datasets] - '{k}': {tutti_data[k].shape[0]:,}[R] x {tutti_data[k].shape[1]:,}[C] ({_df_size_mb(tutti_data[k]):.1f}MB)"
+            )
 
 
 # ============================================================================
@@ -773,10 +769,8 @@ def _print_dataset_summary(tutti_data: dict) -> None:
 
 
 def load_collection_data(
-    study_name: str = None,
-    all_data: pd.DataFrame | None = None,
-    verbose: bool = False
-    ) -> pd.DataFrame | None:
+    study_name: str = None, all_data: pd.DataFrame | None = None, verbose: bool = False
+) -> pd.DataFrame | None:
     """Load and filter collection activity data for a study definition.
 
     If all_data is None, loads from main storage with parquet filters.
@@ -791,19 +785,19 @@ def load_collection_data(
     if "study_defs" not in _cf():
         init_study_defs()
 
-    START_DATE = _cf()["study_defs"][study_name].get("START_DATE","1970-01-01")
+    START_DATE = _cf()["study_defs"][study_name].get("START_DATE", "1970-01-01")
     if isinstance(START_DATE, str):
         try:
             START_DATE = _dt.datetime.strptime(START_DATE, "%Y-%m-%d").date()
         except ValueError:
-            START_DATE = _dt.datetime(1970,1,1).date()
+            START_DATE = _dt.datetime(1970, 1, 1).date()
 
-    END_DATE = _cf()["study_defs"][study_name].get("END_DATE","2099-12-31")
+    END_DATE = _cf()["study_defs"][study_name].get("END_DATE", "2099-12-31")
     if isinstance(END_DATE, str):
         try:
             END_DATE = _dt.datetime.strptime(END_DATE, "%Y-%m-%d").date()
         except ValueError:
-            END_DATE = _dt.datetime(2099,12,31).date()
+            END_DATE = _dt.datetime(2099, 12, 31).date()
 
     # timestamp_column carries times-of-day; a date-only upper bound implicitly
     # means midnight, which excludes same-day events after 00:00:00. Treat the
@@ -811,18 +805,23 @@ def load_collection_data(
     # to the start of the following day (exclusive).
     END_BOUND = _dt.datetime.combine(END_DATE + _dt.timedelta(days=1), _dt.time.min)
 
-    sel = [(timestamp_column, ">=", START_DATE),(timestamp_column, "<", END_BOUND)]
+    sel = [(timestamp_column, ">=", START_DATE), (timestamp_column, "<", END_BOUND)]
 
-    the_selected_collections = _cf()["study_defs"][study_name].get("SELECTED_COLLECTIONS",[])
+    the_selected_collections = _cf()["study_defs"][study_name].get("SELECTED_COLLECTIONS", [])
     if len(the_selected_collections) > 0:
         the_selected_collections = [str(x) for x in the_selected_collections]
-        the_selected_collections = [re.search(r'\[(.*?)\]', s).group(1) if re.search(r'\[(.*?)\]', s) else s for s in the_selected_collections]
+        the_selected_collections = [
+            re.search(r"\[(.*?)\]", s).group(1) if re.search(r"\[(.*?)\]", s) else s
+            for s in the_selected_collections
+        ]
         sel.append((collection_id_column, "in", the_selected_collections))
 
     if all_data is None:
         if verbose:
             logger.info("    [DDP] Loading collection events from main storage")
-        out_df = data_io.load_parquet("recoded", f"{_collections_label()}_recoded.parquet", filters=sel, verbose=verbose)
+        out_df = data_io.load_parquet(
+            "recoded", f"{_collections_label()}_recoded.parquet", filters=sel, verbose=verbose
+        )
 
     else:
         if verbose:
@@ -832,15 +831,19 @@ def load_collection_data(
             mask = mask & all_data[collection_id_column].isin(the_selected_collections)
         out_df = all_data[mask].copy()
 
-        if collection_id_column not in out_df.columns or timestamp_column not in out_df.columns or len(out_df) == 0:
+        if (
+            collection_id_column not in out_df.columns
+            or timestamp_column not in out_df.columns
+            or len(out_df) == 0
+        ):
             logger.warning("!!! [DDP] No events found matching the study filters. Returning None.")
             return None
 
-    logger.info(f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}")
+    logger.info(
+        f"    [DDP] ...done. | Shape: {out_df.shape} | Unique collections: {out_df[collection_id_column].nunique()} | Date range: {out_df[timestamp_column].min():%Y-%m-%d} -- {out_df[timestamp_column].max():%Y-%m-%d}"
+    )
 
     return out_df
-
-
 
 
 # ============================================================================
@@ -852,28 +855,30 @@ def simple_sample_collection_events(
     study_name: str = None,
     all_collections_df: pd.DataFrame = None,
     enrichment_status: pd.DataFrame | None = None,
-    verbose: bool = False
-    ) -> pd.DataFrame:
+    verbose: bool = False,
+) -> pd.DataFrame:
     """Sample activity events using study-defined grouping factors and thresholds.
 
     Separates play/non-play events, applies group-size and group-count filters with
     sampling, then recombines.
     """
 
-    def _filter_and_sample(df: pd.DataFrame, group_cols: list[str],
-                           x_threshold: int, y_samples: int,
-                           rng: np.random.RandomState) -> pd.DataFrame:
+    def _filter_and_sample(
+        df: pd.DataFrame,
+        group_cols: list[str],
+        x_threshold: int,
+        y_samples: int,
+        rng: np.random.RandomState,
+    ) -> pd.DataFrame:
         """Filters aggregation groups by size and samples rows."""
-        group_sizes = df.groupby(group_cols)[group_cols[0]].transform('size')
+        group_sizes = df.groupby(group_cols)[group_cols[0]].transform("size")
         df_filtered = df[group_sizes >= x_threshold]
 
         sampled_indices = df_filtered.groupby(group_cols, group_keys=False).apply(
-            lambda g: g.sample(n=min(len(g), y_samples), random_state=rng),
-            include_groups=False
+            lambda g: g.sample(n=min(len(g), y_samples), random_state=rng), include_groups=False
         )
         result = df_filtered.loc[sampled_indices.index]
         return result
-
 
     if all_collections_df is None:
         raise ValueError("[Sampling] all_collections_df cannot be None")
@@ -884,7 +889,7 @@ def simple_sample_collection_events(
     # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
     # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
 
-    grouping_factors = get_grouping_factors_from_var_schema(some_events_df = the_df, verbose=False)
+    grouping_factors = get_grouping_factors_from_var_schema(some_events_df=the_df, verbose=False)
 
     if len(grouping_factors) != 2:
         raise ValueError("!!! [Sampling] Group factors must be exactly 2")
@@ -904,10 +909,15 @@ def simple_sample_collection_events(
 
     _study_def = _cf()["study_defs"][study_name]
     MIN_EVENTS_REQUIRED = parse_sample_threshold(_study_def.get("MIN_ACTIVITY_COUNT_PER_GROUP"), 30)
-    MAX_EVENTS_SELECTED = parse_sample_threshold(_study_def.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True)
-    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = parse_sample_threshold(_study_def.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20)
-    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = parse_sample_threshold(_study_def.get("MAX_GROUP_COUNT_PER_COLLECTION"), 200, uncapped=True)
-
+    MAX_EVENTS_SELECTED = parse_sample_threshold(
+        _study_def.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True
+    )
+    MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION = parse_sample_threshold(
+        _study_def.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20
+    )
+    MAX_GROUP_COUNT_SELECTED_PER_COLLECTION = parse_sample_threshold(
+        _study_def.get("MAX_GROUP_COUNT_PER_COLLECTION"), 200, uncapped=True
+    )
 
     # Filter to viewing events only (play + observe). Non-viewing activity types
     # are dropped — relevant signal from them is folded into adjacent play rows
@@ -918,42 +928,71 @@ def simple_sample_collection_events(
 
     if verbose:
         n_dropped = len(the_df) - len(all_viewing_events_df)
-        logger.info(f"    [Sampling] Viewing events (play+observe): {len(all_viewing_events_df):,}  |  Dropped non-viewing events: {n_dropped:,}")
-
+        logger.info(
+            f"    [Sampling] Viewing events (play+observe): {len(all_viewing_events_df):,}  |  Dropped non-viewing events: {n_dropped:,}"
+        )
 
     if verbose:
-        logger.info(f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events")
-        logger.info(f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment...")
+        logger.info(
+            f"    [Sampling] Dropping aggregation groups with less than {MIN_EVENTS_REQUIRED} events"
+        )
+        logger.info(
+            f"    [Sampling] Sampling at most {MAX_EVENTS_SELECTED} events from each remaining group. This might take a moment..."
+        )
     # select agg groups with the required number of events
-    viewing_events_within_agg_group_size_limits = _filter_and_sample(all_viewing_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng)
+    viewing_events_within_agg_group_size_limits = _filter_and_sample(
+        all_viewing_events_df, grouping_factors, MIN_EVENTS_REQUIRED, MAX_EVENTS_SELECTED, rng
+    )
     if verbose:
         sample_size = len(viewing_events_within_agg_group_size_limits)
         if sample_frame_size > 0:
-            logger.info(f"    [Sampling] Viewing events after sampling: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            logger.info(
+                f"    [Sampling] Viewing events after sampling: {sample_size:,} ({sample_size / sample_frame_size:.0%} of original)"
+            )
 
     # build a df with unique pairs of the two group factors
-    unique_group_factor_pairs = viewing_events_within_agg_group_size_limits[grouping_factors].drop_duplicates()
+    unique_group_factor_pairs = viewing_events_within_agg_group_size_limits[
+        grouping_factors
+    ].drop_duplicates()
 
     # Track Stage 2 selection effects for pre-check reporting:
     #   - excluded: collections with fewer than MIN post-Stage-1 cells
     #   - downsampled: collections with more than MAX post-Stage-1 cells (capped to MAX)
     cells_per_collection = unique_group_factor_pairs.groupby(grouping_factors[0]).size()
-    n_excluded_collections = int((cells_per_collection < MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION).sum())
-    n_downsampled_collections = int((cells_per_collection > MAX_GROUP_COUNT_SELECTED_PER_COLLECTION).sum())
+    n_excluded_collections = int(
+        (cells_per_collection < MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION).sum()
+    )
+    n_downsampled_collections = int(
+        (cells_per_collection > MAX_GROUP_COUNT_SELECTED_PER_COLLECTION).sum()
+    )
 
     if verbose:
-        logger.info(f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits")
-        logger.info(f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_COLLECTION} aggregation groups from each remaining collection. This might take a moment...")
+        logger.info(
+            f"    [Sampling] Dropping collections with less than {MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION} aggregation groups within the limits"
+        )
+        logger.info(
+            f"    [Sampling] Sampling at most {MAX_GROUP_COUNT_SELECTED_PER_COLLECTION} aggregation groups from each remaining collection. This might take a moment..."
+        )
     # select collections with a required number of groups
-    collections_within_group_count_limits = _filter_and_sample(unique_group_factor_pairs, grouping_factors[:1], MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION, MAX_GROUP_COUNT_SELECTED_PER_COLLECTION, rng)
+    collections_within_group_count_limits = _filter_and_sample(
+        unique_group_factor_pairs,
+        grouping_factors[:1],
+        MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION,
+        MAX_GROUP_COUNT_SELECTED_PER_COLLECTION,
+        rng,
+    )
     if verbose:
-        logger.info(f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}")
+        logger.info(
+            f"    [Sampling] Aggregation groups remaining after sampling: {len(collections_within_group_count_limits):,}"
+        )
 
     selected_pairs_index = collections_within_group_count_limits.set_index(grouping_factors).index
 
     # ----------------------------------------------------------------------
     # find the viewing events in the selected groups
-    viewing_events_in_candidate_groups = viewing_events_within_agg_group_size_limits.set_index(grouping_factors)
+    viewing_events_in_candidate_groups = viewing_events_within_agg_group_size_limits.set_index(
+        grouping_factors
+    )
 
     # use isin() boolean mask instead of .loc[MultiIndex] to avoid potential reindexing
     viewing_events_in_selected_groups = viewing_events_in_candidate_groups[
@@ -962,21 +1001,24 @@ def simple_sample_collection_events(
     if verbose:
         sample_size = len(viewing_events_in_selected_groups)
         if sample_frame_size > 0:
-            logger.info(f"    [Sampling] Viewing events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size/sample_frame_size:.0%} of original)")
+            logger.info(
+                f"    [Sampling] Viewing events remaining in the sampled aggregation groups: {sample_size:,} ({sample_size / sample_frame_size:.0%} of original)"
+            )
 
     combined = viewing_events_in_selected_groups
     if verbose:
-        logger.info(f"    [Sampling] Sampled viewing events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups")
-    combined.drop("D_id", axis=1, inplace=True, errors='ignore')
+        logger.info(
+            f"    [Sampling] Sampled viewing events: {len(combined):,} in {len(combined[grouping_factors].drop_duplicates()):,} groups"
+        )
+    combined.drop("D_id", axis=1, inplace=True, errors="ignore")
 
     # Surface selection effects so callers (pre-check) can show them to the user.
-    combined.attrs['sampling_report'] = {
-        'n_excluded_collections': n_excluded_collections,
-        'n_downsampled_collections': n_downsampled_collections,
-        'min_cells_per_collection': MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION,
-        'max_cells_per_collection': MAX_GROUP_COUNT_SELECTED_PER_COLLECTION,
+    combined.attrs["sampling_report"] = {
+        "n_excluded_collections": n_excluded_collections,
+        "n_downsampled_collections": n_downsampled_collections,
+        "min_cells_per_collection": MIN_GROUP_COUNT_REQUIRED_PER_COLLECTION,
+        "max_cells_per_collection": MAX_GROUP_COUNT_SELECTED_PER_COLLECTION,
     }
-
 
     # Caller is responsible for passing enrichment_status if the summary is wanted.
     # We deliberately do not reload from GCS here — an earlier version did, which
@@ -987,31 +1029,51 @@ def simple_sample_collection_events(
 
     if enrichment_status_df is None:
         logger.info("    [Sampling] No enrichment_status available — skipping enrichment summary")
-        logger.info(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+        logger.info(
+            f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups"
+        )
         logger.info(f"    [Sampling] - Unique items: {len(combined_deduped):,}")
         return combined
 
     # Ensure item_id is the index for the merge (callers may pass it as a column)
-    if 'item_id' in enrichment_status_df.columns:
-        enrichment_status_df = enrichment_status_df.set_index('item_id')
+    if "item_id" in enrichment_status_df.columns:
+        enrichment_status_df = enrichment_status_df.set_index("item_id")
 
-    combined_deduped_enrichment_status = pd.merge(left=combined_deduped, right=enrichment_status_df, left_on='item_id', right_index=True, how='left')
+    combined_deduped_enrichment_status = pd.merge(
+        left=combined_deduped,
+        right=enrichment_status_df,
+        left_on="item_id",
+        right_index=True,
+        how="left",
+    )
 
-    enrichment_summary = combined_deduped_enrichment_status.select_dtypes(include=["bool"]).fillna(False).sum().to_dict()
+    enrichment_summary = (
+        combined_deduped_enrichment_status.select_dtypes(include=["bool"])
+        .fillna(False)
+        .sum()
+        .to_dict()
+    )
 
-    mapper = _cf()['var_schema'][['variable_name','display_name']].dropna().set_index('variable_name').to_dict()['display_name']
+    mapper = (
+        _cf()["var_schema"][["variable_name", "display_name"]]
+        .dropna()
+        .set_index("variable_name")
+        .to_dict()["display_name"]
+    )
 
-    logger.info(f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups")
+    logger.info(
+        f"    [Sampling] Sampling completed: {combined.shape[0]:,} events in {len(combined[grouping_factors].drop_duplicates()):,} groups"
+    )
     logger.info(f"    [Sampling] - Unique items: {len(combined_deduped_enrichment_status):,}")
     for k in enrichment_summary:
         if len(combined_deduped_enrichment_status) > 0:
-            logger.info(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k]/len(combined_deduped_enrichment_status):.0%})")
+            logger.info(
+                f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} ({enrichment_summary[k] / len(combined_deduped_enrichment_status):.0%})"
+            )
         else:
             logger.info(f"    [Sampling] - {mapper.get(k, k)}: {enrichment_summary[k]:,} (N/A)")
 
     return combined
-
-
 
 
 # ============================================================================
@@ -1024,8 +1086,8 @@ def load_study_datasets(
     all_datasets: dict = {},
     load_from_cache: bool = True,
     enrichment_status: pd.DataFrame | None = None,
-    verbose: bool = False
-    ) -> dict | None:
+    verbose: bool = False,
+) -> dict | None:
     """Load all core datasets for a study: collections, scrape data, and machine annotations.
 
     Handles caching, date-range filtering, and optional sampling based on the study definition.
@@ -1040,37 +1102,41 @@ def load_study_datasets(
     if study_name not in _cf()["study_defs"].keys():
         raise ValueError(f"study_name '{study_name}' not found in config")
 
-
     logger.info(f"Loading core datasets for study '{study_name}'...")
 
     # load core datasets from cache or main storage
-    if load_from_cache and not _cf()['data_io']['use_gcs_for_cache']:
+    if load_from_cache and not _cf()["data_io"]["use_gcs_for_cache"]:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
 
     elif len(all_datasets) > 0:
         tutti_data = deepcopy(all_datasets)
         if verbose:
-            logger.info(f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided")
+            logger.info(
+                f"    [Core datasets] Using in-memory core datasets provided as argument: {len(tutti_data)} dataframes provided"
+            )
     else:
         tutti_data = {}
         if verbose:
-            logger.info("    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage.")
-
+            logger.info(
+                "    [Core datasets] Starting without precomputed core datasets. Loading study core datasets from main storage."
+            )
 
     # --------------------------------------------------------------------
     # load and filter activity data
     # --------------------------------------------------------------------
     tutti_data["collections"] = load_collection_data(
-        study_name=study_name, all_data=tutti_data.get("collections"), verbose=verbose)
+        study_name=study_name, all_data=tutti_data.get("collections"), verbose=verbose
+    )
 
     for k in tutti_data.keys():
         if tutti_data.get(k) is None:
             tutti_data[k] = pd.DataFrame()
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
-        logger.warning(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
+        logger.warning(
+            f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None"
+        )
         return None
-
 
     # --------------------------------------------------------------------
     # sample activity data
@@ -1078,21 +1144,29 @@ def load_study_datasets(
     sample_frame_setting = _cf()["study_defs"][study_name].get("SAMPLE_FRAME", "off")
 
     if sample_frame_setting == "off":
-        logger.info("    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data.")
+        logger.info(
+            "    [DD Sampling] Sample frame setting is 'off'. Not sampling collection data."
+        )
         sample_frame = None
 
     elif sample_frame_setting in ("events", "activities"):
         # 'activities' (formerly 'events') doesn't need enrichment_status — use all collection events as the frame.
         sample_frame = tutti_data["collections"].copy()
-        logger.info(f"    [DD Sampling] Sample frame setting is '{sample_frame_setting}'. Using all {len(sample_frame):,} collection events as sample frame.")
+        logger.info(
+            f"    [DD Sampling] Sample frame setting is '{sample_frame_setting}'. Using all {len(sample_frame):,} collection events as sample frame."
+        )
 
     else:
         # 'scraped' and 'annotated' require enrichment_status to pick rows.
         if enrichment_status is None:
             if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-                enrichment_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+                enrichment_status = data_io.load_parquet(
+                    storage_location="recoded", filename="enrichment_status.parquet"
+                )
             else:
-                logger.info("    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet")
+                logger.info(
+                    "    [DD Sampling] 'enrichment_status.parquet' not present — no enrichment data available yet"
+                )
 
         # Callers may pass enrichment_status with item_id as either the index or
         # a column (run_recode_refresh_studies resets it to a column so the same
@@ -1105,38 +1179,55 @@ def load_study_datasets(
 
         if sample_frame_setting == "scraped":
             if enrichment_status is None:
-                logger.warning("!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None")
+                logger.warning(
+                    "!!! [DD Sampling] Sample frame setting is 'scraped' but no enrichment_status is available. Returning None"
+                )
                 return None
             selected_videos = enrichment_status[enrichment_status["scraped_ok"]].index.tolist()
-            sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-            logger.info(f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame.")
+            sample_frame = tutti_data["collections"][
+                tutti_data["collections"]["item_id"].isin(selected_videos)
+            ].copy()
+            logger.info(
+                f"    [DD Sampling] Sample frame setting is 'scraped'. Using only {len(sample_frame):,} collection events that are scraped as sample frame."
+            )
 
         elif sample_frame_setting == "annotated":
             if enrichment_status is None:
-                logger.warning("!!! [DD Sampling] Sample frame setting is 'annotated' but no enrichment_status is available. Returning None")
+                logger.warning(
+                    "!!! [DD Sampling] Sample frame setting is 'annotated' but no enrichment_status is available. Returning None"
+                )
                 return None
             selected_videos = enrichment_status[enrichment_status["annotated_ok"]].index.tolist()
-            sample_frame = tutti_data["collections"][tutti_data["collections"]["item_id"].isin(selected_videos)].copy()
-            logger.info(f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame.")
+            sample_frame = tutti_data["collections"][
+                tutti_data["collections"]["item_id"].isin(selected_videos)
+            ].copy()
+            logger.info(
+                f"    [DD Sampling] Sample frame setting is 'annotated'. Using only {len(sample_frame):,} collection events that are annotated as sample frame."
+            )
 
     if sample_frame is not None:
         tutti_data["collections"] = simple_sample_collection_events(
-            study_name=study_name, all_collections_df=sample_frame,
-            enrichment_status=enrichment_status, verbose=verbose)
+            study_name=study_name,
+            all_collections_df=sample_frame,
+            enrichment_status=enrichment_status,
+            verbose=verbose,
+        )
 
     if tutti_data.get("collections", pd.DataFrame()).empty:
-        logger.warning(f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None")
+        logger.warning(
+            f"!!! [Core datasets] Sampling resulted in empty datasets for study definition '{study_name}'. Returning None"
+        )
         return None
-
 
     # --------------------------------------------------------------------
     # load scraped and annotated data
     # --------------------------------------------------------------------
     unique_videos = set(tutti_data["collections"]["item_id"].dropna().values.tolist())
-    logger.info(f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets")
+    logger.info(
+        f"    [Core datasets] Found {len(unique_videos):,} unique videos in activity datasets"
+    )
 
     _filter_enrichment_data(tutti_data, unique_videos, study_name=study_name, verbose=verbose)
-
 
     if verbose:
         _print_dataset_summary(tutti_data)
@@ -1146,14 +1237,9 @@ def load_study_datasets(
     return tutti_data
 
 
-
-
-
 def load_collection_datasets(
-    collection_id: str = None,
-    load_from_cache: bool = True,
-    verbose: bool = False
-    ) -> dict | None:
+    collection_id: str = None, load_from_cache: bool = True, verbose: bool = False
+) -> dict | None:
     """Load all core datasets for a single collection.
 
     Similar to load_study_datasets but filters by collection_id instead of a study definition.
@@ -1162,21 +1248,26 @@ def load_collection_datasets(
 
     logger.info(f"Loading core datasets for collection '{collection_id}'...")
 
-    if load_from_cache and not _cf()['data_io']['use_gcs_for_cache']:
+    if load_from_cache and not _cf()["data_io"]["use_gcs_for_cache"]:
         tutti_data = _load_cached_core_datasets(verbose=verbose)
     else:
         tutti_data = {}
         if verbose:
             logger.info("    [Core datasets] Loading core datasets from main storage.")
         for k in [_scrapes_label(), _machine_annotations_label(), _collections_label()]:
-            tutti_data[k] = data_io.load_parquet(storage_location="recoded", filename=f"{k}_recoded.parquet")
-
+            tutti_data[k] = data_io.load_parquet(
+                storage_location="recoded", filename=f"{k}_recoded.parquet"
+            )
 
     # --------------------------------------------------------------------
     # filter activity data to the requested collection
     # --------------------------------------------------------------------
-    if _collections_label() in tutti_data and isinstance(tutti_data[_collections_label()], pd.DataFrame):
-        tutti_data[_collections_label()] = tutti_data[_collections_label()][tutti_data[_collections_label()]["collection_id"] == collection_id]
+    if _collections_label() in tutti_data and isinstance(
+        tutti_data[_collections_label()], pd.DataFrame
+    ):
+        tutti_data[_collections_label()] = tutti_data[_collections_label()][
+            tutti_data[_collections_label()]["collection_id"] == collection_id
+        ]
         if len(tutti_data[_collections_label()]) == 0:
             logger.info(f"    [Core datasets] No collections found for id '{collection_id}'")
             return None
@@ -1184,12 +1275,10 @@ def load_collection_datasets(
     unique_videos = set(tutti_data[_collections_label()]["item_id"].dropna().values.tolist())
     logger.info(f"    [Core datasets] Found {len(unique_videos):,} unique videos")
 
-
     # --------------------------------------------------------------------
     # filter scraped and annotated data
     # --------------------------------------------------------------------
     _filter_enrichment_data(tutti_data, unique_videos, verbose=verbose)
-
 
     if verbose:
         _print_dataset_summary(tutti_data)
@@ -1197,8 +1286,6 @@ def load_collection_datasets(
     logger.info(f"...done. Core datasets loaded for collection '{collection_id}'")
 
     return tutti_data
-
-
 
 
 # ============================================================================
@@ -1220,7 +1307,9 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset: pd.DataFrame = 
     }
 
     if study_dataset is None:
-        source_cols = list(set(["item_id"] + [source_col for _, (source_col, _) in agg_defs.items()]))
+        source_cols = list(
+            set(["item_id"] + [source_col for _, (source_col, _) in agg_defs.items()])
+        )
         return None, list(set(source_cols))
 
     agg_dict = {}
@@ -1232,15 +1321,12 @@ def _build_agg_dict_to_generate_basic_video_stats(study_dataset: pd.DataFrame = 
     return agg_dict, list(set(confirmed_cols))
 
 
-
-
-
 def select_videos_from_study_dataset(
     study_dataset: pd.DataFrame = None,
     query_string: str = "",
     verbose: bool = False,
-    notebook_mode: bool = False
-    ) -> pd.DataFrame:
+    notebook_mode: bool = False,
+) -> pd.DataFrame:
     """Select and aggregate video-level stats from a merged study dataset, then filter by query."""
 
     if study_dataset is None:
@@ -1248,20 +1334,20 @@ def select_videos_from_study_dataset(
 
     agg_dict, confirmed_cols = _build_agg_dict_to_generate_basic_video_stats(study_dataset)
 
-    video_stats = study_dataset[confirmed_cols].groupby('item_id').agg(**agg_dict)
+    video_stats = study_dataset[confirmed_cols].groupby("item_id").agg(**agg_dict)
 
     if "duration" in video_stats.columns:
-        video_stats['duration_ok_to_annotate'] = (video_stats['duration'] <= _cf()["machine"]["max_duration_for_annotation"]).fillna(False)
+        video_stats["duration_ok_to_annotate"] = (
+            video_stats["duration"] <= _cf()["machine"]["max_duration_for_annotation"]
+        ).fillna(False)
         video_stats.drop(columns=["duration"], inplace=True)
     else:
-        video_stats['duration_ok_to_annotate'] = False
+        video_stats["duration_ok_to_annotate"] = False
 
     video_stats.fillna(False, inplace=True)
     video_stats.query(query_string, inplace=True)
 
     return video_stats
-
-
 
 
 # ============================================================================
@@ -1286,18 +1372,16 @@ def _backfill_source_platform(series: pd.Series) -> pd.Series:
     return series.fillna(default).astype("string[pyarrow]")
 
 
-
-
-def _merge_flag_columns(base_df: pd.DataFrame, frame: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+def _merge_flag_columns(
+    base_df: pd.DataFrame, frame: pd.DataFrame, cols: list[str]
+) -> pd.DataFrame:
     """Left-merge ``cols`` from a consolidated enrichment frame onto base rows.
 
     The one merge line both the full status rebuild and the incremental patch
     use — shared so the two paths cannot diverge on merge semantics
     (item_id-keyed, left join, duplicates from the frame surface identically).
     """
-    return pd.merge(left=base_df, right=frame[['item_id', *cols]], on='item_id', how='left')
-
-
+    return pd.merge(left=base_df, right=frame[["item_id", *cols]], on="item_id", how="left")
 
 
 _STATUS_FLAG_COLS_SCRAPE = ["scraped_ok", "video_downloaded"]
@@ -1327,10 +1411,12 @@ def status_patch_allowed(scrape_consolidated: bool, annotations_consolidated: bo
         if not _fp_equal(marker.get("collections_fp"), fps.get("collections_fp")):
             return False
         if not scrape_consolidated and not _fp_equal(
-                marker.get("scrapes_fp"), fps.get("scrapes_fp")):
+            marker.get("scrapes_fp"), fps.get("scrapes_fp")
+        ):
             return False
         if not annotations_consolidated and not _fp_equal(
-                marker.get("annotations_fp"), fps.get("annotations_fp")):
+            marker.get("annotations_fp"), fps.get("annotations_fp")
+        ):
             return False
         # Regime flip: when a lane's recoded file did not exist at the last
         # status build (fp None), the whole frame carried that lane's
@@ -1376,7 +1462,9 @@ def patch_enrichment_status(
     """
     _t_start = _time.perf_counter()
     try:
-        status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+        status = data_io.load_parquet(
+            storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+        )
     except Exception as exc:
         logger.warning(f"    Could not load enrichment_status for patching: {exc}")
         return None
@@ -1399,7 +1487,7 @@ def patch_enrichment_status(
         base = status.loc[touched_mask].drop(columns=refresh_cols).reset_index()
         if scrape_frame is not None:
             scr = scrape_frame
-            if not scr.empty and {'item_id', *_STATUS_FLAG_COLS_SCRAPE}.issubset(scr.columns):
+            if not scr.empty and {"item_id", *_STATUS_FLAG_COLS_SCRAPE}.issubset(scr.columns):
                 scr = scr.loc[scr["item_id"].isin(ids)]
                 base = _merge_flag_columns(base, scr, _STATUS_FLAG_COLS_SCRAPE)
             else:
@@ -1407,7 +1495,7 @@ def patch_enrichment_status(
                     base[col] = pd.Series(False, index=base.index, dtype="bool[pyarrow]")
         if annotation_frame is not None:
             ann = annotation_frame
-            if not ann.empty and {'item_id', *_STATUS_FLAG_COLS_ANNO}.issubset(ann.columns):
+            if not ann.empty and {"item_id", *_STATUS_FLAG_COLS_ANNO}.issubset(ann.columns):
                 ann = ann.loc[ann["item_id"].isin(ids)]
                 base = _merge_flag_columns(base, ann, _STATUS_FLAG_COLS_ANNO)
             else:
@@ -1420,7 +1508,8 @@ def patch_enrichment_status(
         if len(base) != n_touched:
             logger.warning(
                 f"    Status patch declined: merge changed the touched row count "
-                f"({n_touched} -> {len(base)}).")
+                f"({n_touched} -> {len(base)})."
+            )
             return None
         status = pd.concat([status.loc[~touched_mask], base.reindex(columns=status.columns)])
         status = status.sort_index(kind="mergesort")
@@ -1433,7 +1522,9 @@ def patch_enrichment_status(
         scrape_fail[status.index.isin(failed_ids)] = True
     status["scrape_fail"] = scrape_fail
 
-    data_io.save_parquet(df=status, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+    data_io.save_parquet(
+        df=status, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+    )
     _write_status_inputs_marker(verbose=verbose)
     logger.info(
         f"[CONSOLIDATE][TIMING] status PATCH touched={n_touched:,}/{len(ids):,} "
@@ -1442,25 +1533,21 @@ def patch_enrichment_status(
     return status
 
 
-
-
 def update_enrichment_status(
-    all_datasets: dict = {},
-    save_to_disk: bool = True,
-    verbose: bool = False
-    ) -> pd.DataFrame:
+    all_datasets: dict = {}, save_to_disk: bool = True, verbose: bool = False
+) -> pd.DataFrame:
     """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
 
     _t_start = _time.perf_counter()
-    activity_columns = ['item_id', collection_id_column]
-    has_platform = 'source_platform' in all_datasets[_collections_label()].columns
+    activity_columns = ["item_id", collection_id_column]
+    has_platform = "source_platform" in all_datasets[_collections_label()].columns
     if has_platform:
-        activity_columns.append('source_platform')
+        activity_columns.append("source_platform")
     combined_activity_data = all_datasets[_collections_label()][activity_columns]
     if has_platform:
         combined_activity_data = combined_activity_data.copy()
-        combined_activity_data['source_platform'] = _backfill_source_platform(
-            combined_activity_data['source_platform']
+        combined_activity_data["source_platform"] = _backfill_source_platform(
+            combined_activity_data["source_platform"]
         )
 
     named_aggs = {
@@ -1470,17 +1557,21 @@ def update_enrichment_status(
     if has_platform:
         # Cheap per-item platform lookup for queue builders and the annotation
         # guard (an item_id never spans platforms, so "first" is exact).
-        named_aggs["source_platform"] = pd.NamedAgg(column='source_platform', aggfunc="first")
+        named_aggs["source_platform"] = pd.NamedAgg(column="source_platform", aggfunc="first")
     enrichment_status_df = combined_activity_data.groupby("item_id").agg(**named_aggs)
     _t_groupby = _time.perf_counter() - _t_start
 
     annotation_votes = pd.DataFrame()
     if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-        existing = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+        existing = data_io.load_parquet(
+            storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+        )
         if "annotation_votes" in existing.columns:
             annotation_votes = existing[["annotation_votes"]].copy()
 
-    enrichment_status_df["nunique_collections"] = enrichment_status_df["nunique_collections"].astype("int64[pyarrow]")
+    enrichment_status_df["nunique_collections"] = enrichment_status_df[
+        "nunique_collections"
+    ].astype("int64[pyarrow]")
 
     enrichment_status_df.reset_index(inplace=True)
 
@@ -1499,40 +1590,73 @@ def update_enrichment_status(
         enrichment_status_df = enrichment_status_df[id_len == modal_len].copy()
 
     scrapes_for_merge = all_datasets.get(_scrapes_label())
-    if scrapes_for_merge is not None and not scrapes_for_merge.empty and {'item_id', 'scraped_ok', 'video_downloaded'}.issubset(scrapes_for_merge.columns):
+    if (
+        scrapes_for_merge is not None
+        and not scrapes_for_merge.empty
+        and {"item_id", "scraped_ok", "video_downloaded"}.issubset(scrapes_for_merge.columns)
+    ):
         enrichment_status_df = _merge_flag_columns(
-            enrichment_status_df, scrapes_for_merge, ['scraped_ok', 'video_downloaded'])
+            enrichment_status_df, scrapes_for_merge, ["scraped_ok", "video_downloaded"]
+        )
     else:
-        enrichment_status_df["scraped_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
-        enrichment_status_df["video_downloaded"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
+        enrichment_status_df["scraped_ok"] = pd.Series(
+            False, index=enrichment_status_df.index, dtype="bool[pyarrow]"
+        )
+        enrichment_status_df["video_downloaded"] = pd.Series(
+            False, index=enrichment_status_df.index, dtype="bool[pyarrow]"
+        )
 
     annotations_for_merge = all_datasets.get(_machine_annotations_label())
-    if annotations_for_merge is not None and not annotations_for_merge.empty and {'item_id', 'annotated_ok', 'annotated_fail'}.issubset(annotations_for_merge.columns):
+    if (
+        annotations_for_merge is not None
+        and not annotations_for_merge.empty
+        and {"item_id", "annotated_ok", "annotated_fail"}.issubset(annotations_for_merge.columns)
+    ):
         enrichment_status_df = _merge_flag_columns(
-            enrichment_status_df, annotations_for_merge, ['annotated_ok', 'annotated_fail'])
+            enrichment_status_df, annotations_for_merge, ["annotated_ok", "annotated_fail"]
+        )
     else:
-        enrichment_status_df["annotated_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
-        enrichment_status_df["annotated_fail"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
+        enrichment_status_df["annotated_ok"] = pd.Series(
+            False, index=enrichment_status_df.index, dtype="bool[pyarrow]"
+        )
+        enrichment_status_df["annotated_fail"] = pd.Series(
+            False, index=enrichment_status_df.index, dtype="bool[pyarrow]"
+        )
 
     failed_scrapes = load_failed_scrapes()
     failed_scrapes = pd.DataFrame(failed_scrapes, columns=["item_id"])
     failed_scrapes["scrape_fail"] = True
     failed_scrapes = failed_scrapes.convert_dtypes(dtype_backend="pyarrow")
 
-    enrichment_status_df = pd.merge(left=enrichment_status_df, right=failed_scrapes, on="item_id", how="left").copy()
+    enrichment_status_df = pd.merge(
+        left=enrichment_status_df, right=failed_scrapes, on="item_id", how="left"
+    ).copy()
 
     enrichment_status_df.set_index("item_id", inplace=True)
 
     if not annotation_votes.empty:
-        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotation_votes, left_index=True, right_index=True, how="left").copy()
+        enrichment_status_df = pd.merge(
+            left=enrichment_status_df,
+            right=annotation_votes,
+            left_index=True,
+            right_index=True,
+            how="left",
+        ).copy()
     else:
-        enrichment_status_df["annotation_votes"] = pd.Series(0, index=enrichment_status_df.index, dtype="int64[pyarrow]")
+        enrichment_status_df["annotation_votes"] = pd.Series(
+            0, index=enrichment_status_df.index, dtype="int64[pyarrow]"
+        )
 
     _t_merges = _time.perf_counter() - _t_start - _t_groupby
     _t_save = 0.0
     if save_to_disk:
         _t_mark = _time.perf_counter()
-        data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+        data_io.save_parquet(
+            df=enrichment_status_df,
+            storage_location="recoded",
+            filename="enrichment_status.parquet",
+            verbose=verbose,
+        )
         # Record what this status file was built from so an unchanged-input
         # consolidation can skip the rebuild entirely. Written AFTER the
         # parquet on purpose (a stale marker forces a rebuild; a premature
@@ -1546,9 +1670,6 @@ def update_enrichment_status(
     )
 
     return enrichment_status_df
-
-
-
 
 
 def consolidate_enrichment_data(
@@ -1575,6 +1696,7 @@ def consolidate_enrichment_data(
             cannot prove equality (and force_consolidation always bypasses
             them). Off by default; the worker passes the admin setting.
     """
+
     def _progress(pct: float, msg: str) -> None:
         if progress_cb is not None:
             try:
@@ -1590,14 +1712,20 @@ def consolidate_enrichment_data(
     # lazily; when both lanes are quiet and the status inputs are unchanged,
     # nothing corpus-sized is read at all.
     (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
-        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose,
-        incremental=incremental)
+        force_consolidation=force_consolidation,
+        return_saved_data=False,
+        verbose=verbose,
+        incremental=incremental,
+    )
 
     logger.info("\n*** Scrape")
     _progress(40, "Consolidating scrape files…")
     (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
-        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose,
-        incremental=incremental)
+        force_consolidation=force_consolidation,
+        return_saved_data=False,
+        verbose=verbose,
+        incremental=incremental,
+    )
 
     had_new_data = new_annotations or new_scrape_data
 
@@ -1625,9 +1753,14 @@ def consolidate_enrichment_data(
     # built, only the touched ids' flag columns can have moved — patch those
     # instead of the measured 75-310 s full rebuild. Declines to the full
     # rebuild on any doubt.
-    if incremental and not force_consolidation and status_patch_allowed(
+    if (
+        incremental
+        and not force_consolidation
+        and status_patch_allowed(
             scrape_consolidated=bool(new_scrape_data),
-            annotations_consolidated=bool(new_annotations)):
+            annotations_consolidated=bool(new_annotations),
+        )
+    ):
         logger.info("\n*** Patching (and saving) data enrichment status...")
         _progress(65, "Patching enrichment status…")
         patched = patch_enrichment_status(
@@ -1643,13 +1776,16 @@ def consolidate_enrichment_data(
             logger.info("Status patch declined — taking the full rebuild path.")
 
     if not status_patched:
+
         def _recoded_or_empty(label: str) -> pd.DataFrame:
             fn = f"{label}_recoded.parquet"
             if data_io.exists(storage_location="recoded", filename=fn):
                 return data_io.load_parquet(storage_location="recoded", filename=fn)
             return pd.DataFrame()
 
-        collections = data_io.load_parquet(filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
+        collections = data_io.load_parquet(
+            filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded"
+        )
         if annotations is None:
             annotations = _recoded_or_empty(_machine_annotations_label())
         if scrape_data is None:
@@ -1657,18 +1793,21 @@ def consolidate_enrichment_data(
 
         logger.info("\n*** Updating (and saving) data enrichment status...")
         _progress(65, "Updating enrichment status…")
-        update_enrichment_status(all_datasets={
-            _collections_label(): collections,
-            _machine_annotations_label(): annotations,
-            _scrapes_label(): scrape_data,
-        }, verbose=verbose)
+        update_enrichment_status(
+            all_datasets={
+                _collections_label(): collections,
+                _machine_annotations_label(): annotations,
+                _scrapes_label(): scrape_data,
+            },
+            verbose=verbose,
+        )
         logger.info("...done.")
 
     fine_results = {
         _collections_label(): collections,
         _machine_annotations_label(): annotations,
-        _scrapes_label(): scrape_data
-        }
+        _scrapes_label(): scrape_data,
+    }
 
     fine_results["had_new_data"] = had_new_data
 
@@ -1688,20 +1827,23 @@ def consolidate_enrichment_data(
         except Exception as exc:
             logger.warning(f"    Could not load the collections mapping for impact: {exc}")
             collections = data_io.load_parquet(
-                filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
+                filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded"
+            )
 
     if changed_item_ids and collections is not None and not collections.empty:
         _progress(85, "Computing impact on studies…")
-        logger.info(f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items...")
+        logger.info(
+            f"\n*** Computing consolidation impact for {len(changed_item_ids):,} changed items..."
+        )
 
         # Drop NA collection_ids — legacy raw_files predating the manifest-based
         # ingest can leave orphan rows with no cid. They don't belong to any
         # collection or study so they shouldn't contribute to impact; including
         # them would also break the sorted() below (NA comparisons raise).
         affected_collection_ids = {
-            cid for cid in collections.loc[
-                collections["item_id"].isin(changed_item_ids),
-                collection_id_column
+            cid
+            for cid in collections.loc[
+                collections["item_id"].isin(changed_item_ids), collection_id_column
             ].unique()
             if pd.notna(cid)
         }
@@ -1715,7 +1857,9 @@ def consolidate_enrichment_data(
                 affected_studies.append(sname)
             else:
                 cleaned = [
-                    re.search(r'\[(.*?)\]', str(s)).group(1) if re.search(r'\[(.*?)\]', str(s)) else str(s)
+                    re.search(r"\[(.*?)\]", str(s)).group(1)
+                    if re.search(r"\[(.*?)\]", str(s))
+                    else str(s)
                     for s in selected
                 ]
                 if affected_collection_ids & set(cleaned):
@@ -1729,21 +1873,24 @@ def consolidate_enrichment_data(
             "affected_study_names": sorted(affected_studies),
             "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
         }
-        logger.info(f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected.")
+        logger.info(
+            f"    {len(affected_collection_ids)} collection(s) and {len(affected_studies)} study/studies affected."
+        )
 
     _progress(95, "Finalizing…")
     fine_results["impact"] = impact
     return fine_results
 
 
-
-
 _SHADOW_CHECK_FILENAME = "consolidation_shadow_check.json"
 
 
-def _per_item_signatures(df: pd.DataFrame, exclude: frozenset | set = frozenset()) -> dict[str, str]:
+def _per_item_signatures(
+    df: pd.DataFrame, exclude: frozenset | set = frozenset()
+) -> dict[str, str]:
     """Per-item content signatures of a consolidated frame (dtype-insensitive)."""
     from fyp.scrape.scrape import _scrape_value_signatures
+
     if df is None or df.empty:
         return {}
     if df.index.name == "item_id":
@@ -1752,8 +1899,9 @@ def _per_item_signatures(df: pd.DataFrame, exclude: frozenset | set = frozenset(
     return _scrape_value_signatures(df, value_cols)
 
 
-def _signature_mismatch(live: pd.DataFrame, shadow: pd.DataFrame,
-                        exclude: frozenset | set = frozenset()) -> dict:
+def _signature_mismatch(
+    live: pd.DataFrame, shadow: pd.DataFrame, exclude: frozenset | set = frozenset()
+) -> dict:
     """Compare two frames per item. Returns {count, sample, column_drift}."""
     live_cols = set() if live is None else set(live.columns) - set(exclude)
     shadow_cols = set() if shadow is None else set(shadow.columns) - set(exclude)
@@ -1762,7 +1910,8 @@ def _signature_mismatch(live: pd.DataFrame, shadow: pd.DataFrame,
     live_sig = _per_item_signatures(live, exclude=shared_exclude)
     shadow_sig = _per_item_signatures(shadow, exclude=shared_exclude)
     bad = sorted(
-        item for item in set(live_sig) | set(shadow_sig)
+        item
+        for item in set(live_sig) | set(shadow_sig)
         if live_sig.get(item) != shadow_sig.get(item)
     )
     return {"count": len(bad), "sample": bad[:10], "column_drift": column_drift}
@@ -1802,39 +1951,51 @@ def verify_consolidation_equivalence(
     logger.info("\n*** Shadow-verifying consolidation equivalence...")
     _progress(15, "Shadow rebuild: annotations…")
     (_, shadow_annotations, _) = consolidate_and_save_refined_annotations(
-        force_consolidation=True, verbose=verbose, dry_run=True)
+        force_consolidation=True, verbose=verbose, dry_run=True
+    )
     _progress(40, "Shadow rebuild: scrapes…")
     (_, shadow_scrapes, _) = consolidate_and_save_scrape_data(
-        force_consolidation=True, verbose=verbose, dry_run=True)
+        force_consolidation=True, verbose=verbose, dry_run=True
+    )
 
     mismatches: dict = {}
 
     _progress(60, "Comparing scrape frames…")
     live_scrapes = data_io.load_parquet(
-        storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet")
+        storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"
+    )
     mismatches[_scrapes_label()] = _signature_mismatch(
-        live_scrapes, shadow_scrapes, exclude=_SCRAPE_PROVENANCE_COLS)
+        live_scrapes, shadow_scrapes, exclude=_SCRAPE_PROVENANCE_COLS
+    )
     del live_scrapes
 
     _progress(72, "Comparing annotation frames…")
     live_annotations = data_io.load_parquet(
-        storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet")
+        storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"
+    )
     mismatches[_machine_annotations_label()] = _signature_mismatch(
-        live_annotations, shadow_annotations)
+        live_annotations, shadow_annotations
+    )
     del live_annotations
 
     _progress(85, "Comparing enrichment status…")
     collections = data_io.load_parquet(
-        filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
-    shadow_status = update_enrichment_status(all_datasets={
-        _collections_label(): collections,
-        _machine_annotations_label(): shadow_annotations,
-        _scrapes_label(): shadow_scrapes,
-    }, save_to_disk=False, verbose=verbose)
+        filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded"
+    )
+    shadow_status = update_enrichment_status(
+        all_datasets={
+            _collections_label(): collections,
+            _machine_annotations_label(): shadow_annotations,
+            _scrapes_label(): shadow_scrapes,
+        },
+        save_to_disk=False,
+        verbose=verbose,
+    )
     live_status = None
     if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
         live_status = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet")
+            storage_location="recoded", filename="enrichment_status.parquet"
+        )
     mismatches["enrichment_status"] = _signature_mismatch(live_status, shadow_status)
 
     ok = all(m["count"] == 0 and not m["column_drift"] for m in mismatches.values())
@@ -1844,8 +2005,7 @@ def verify_consolidation_equivalence(
         "mismatches": mismatches,
     }
     try:
-        data_io.save_json(data=result, storage_location="recoded",
-                          filename=_SHADOW_CHECK_FILENAME)
+        data_io.save_json(data=result, storage_location="recoded", filename=_SHADOW_CHECK_FILENAME)
     except Exception as exc:
         logger.warning(f"    Could not persist the shadow-check result: {exc}")
 
@@ -1856,11 +2016,10 @@ def verify_consolidation_equivalence(
             if m["count"] or m["column_drift"]:
                 logger.error(
                     f"[CONSOLIDATE][SHADOW] MISMATCH artifact={name} items={m['count']} "
-                    f"column_drift={m['column_drift']} sample={m['sample']}")
+                    f"column_drift={m['column_drift']} sample={m['sample']}"
+                )
     _progress(95, "Finalizing…")
     return result
-
-
 
 
 # ============================================================================
@@ -1904,7 +2063,8 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
         available = set(
             data_io.get_parquet_columns(
                 storage_location=_VIDEO_MAP_LOCATION, filename=_VIDEO_MAP_FILE
-            ) or []
+            )
+            or []
         )
 
     join_cols = [c for c in _NICHE_COLUMNS if c in available]
@@ -1945,10 +2105,6 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
     return df
 
 
-
-
-
-
 def _annotations_for_study(study_name, annotations_df):
     """Return the annotations a study should merge against.
 
@@ -1972,16 +2128,18 @@ def _annotations_for_study(study_name, annotations_df):
         return annotations_df
     archive_fn = f"{_machine_annotations_label()}_all_versions.parquet"
     if not data_io.exists(storage_location="recoded", filename=archive_fn):
-        logger.warning(f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations.")
+        logger.warning(
+            f"    [new_merge] study '{study_name}' pinned to {pin} but archive missing; using active annotations."
+        )
         return annotations_df
     archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
     if archive is None or archive.empty:
         return annotations_df
     pinned = annotation_versioning.select_version_view(archive, pin)
-    logger.info(f"    [new_merge] study '{study_name}' pinned to annotation_version={pin}: {len(pinned):,} annotations.")
+    logger.info(
+        f"    [new_merge] study '{study_name}' pinned to annotation_version={pin}: {len(pinned):,} annotations."
+    )
     return pinned
-
-
 
 
 def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
@@ -2002,6 +2160,7 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     Returns:
         The frame with the four calculated columns present.
     """
+
     def _safe_vector_divide(x, y):
         return x / y.clip(lower=1).mask(x.isna() | y.isna(), pd.NA)
 
@@ -2009,7 +2168,11 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     calc_col = ["days_since_created"]
     if "local_timestamp" in shebang.columns and "create_time" in shebang.columns:
         shebang[calc_col[-1]] = shebang["local_timestamp"] - shebang["create_time"]
-        shebang[calc_col[-1]] = shebang[calc_col[-1]].map(lambda x: x.days if x is not pd.NA else pd.NA).astype("int64[pyarrow]")
+        shebang[calc_col[-1]] = (
+            shebang[calc_col[-1]]
+            .map(lambda x: x.days if x is not pd.NA else pd.NA)
+            .astype("int64[pyarrow]")
+        )
         shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0)
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="int64[pyarrow]")
@@ -2021,12 +2184,19 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     if "plays_per_day" not in shebang.columns:
         shebang["plays_per_day"] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
     need_ppd = shebang["plays_per_day"].isna()
-    if need_ppd.any() and "play_count" in shebang.columns and "days_since_created" in shebang.columns and not shebang["days_since_created"].isna().all():
+    if (
+        need_ppd.any()
+        and "play_count" in shebang.columns
+        and "days_since_created" in shebang.columns
+        and not shebang["days_since_created"].isna().all()
+    ):
         # Mask the -1 missing-count sentinel first, or the fallback goes negative
         # (e.g. Instagram, whose view count is never available). Zero is a real
         # value (0 plays/day) and is kept. Mirrors derive_plays_per_day.
-        plays = shebang['play_count'].astype("double[pyarrow]").mask(shebang['play_count'] < 0, pd.NA)
-        fallback = _safe_vector_divide(plays, shebang['days_since_created'])
+        plays = (
+            shebang["play_count"].astype("double[pyarrow]").mask(shebang["play_count"] < 0, pd.NA)
+        )
+        fallback = _safe_vector_divide(plays, shebang["days_since_created"])
         shebang.loc[need_ppd, "plays_per_day"] = fallback[need_ppd]
 
     # 3. scraped fail
@@ -2038,7 +2208,9 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     calc_col += ["completion_rate"]
     if "play_duration" in shebang.columns and "duration" in shebang.columns:
         shebang[calc_col[-1]] = shebang["play_duration"] / shebang["duration"]
-        shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0, upper=1).astype("double[pyarrow]")
+        shebang[calc_col[-1]] = (
+            shebang[calc_col[-1]].clip(lower=0, upper=1).astype("double[pyarrow]")
+        )
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
@@ -2047,9 +2219,11 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     # extra_data at ingest). Group mean = the collection's own engagement rate.
     calc_col += ["engaged"]
     if "extra_data" in shebang.columns:
-        shebang[calc_col[-1]] = shebang["extra_data"].map(
-            lambda s: 1.0 if parse_extra_data_tokens(s) else 0.0
-        ).astype("double[pyarrow]")
+        shebang[calc_col[-1]] = (
+            shebang["extra_data"]
+            .map(lambda s: 1.0 if parse_extra_data_tokens(s) else 0.0)
+            .astype("double[pyarrow]")
+        )
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
@@ -2058,9 +2232,10 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     calc_col += ["rewatched"]
     if "play_duration" in shebang.columns and "duration" in shebang.columns:
         shebang[calc_col[-1]] = (
-            shebang["play_duration"] > shebang["duration"]
-        ).astype("double[pyarrow]").mask(
-            shebang["play_duration"].isna() | shebang["duration"].isna(), pd.NA)
+            (shebang["play_duration"] > shebang["duration"])
+            .astype("double[pyarrow]")
+            .mask(shebang["play_duration"].isna() | shebang["duration"].isna(), pd.NA)
+        )
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
 
@@ -2068,17 +2243,18 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
     calc_col += ["is_weekend"]
     if "local_weekday" in shebang.columns:
         weekday = shebang["local_weekday"].astype("string[pyarrow]").str.lower()
-        shebang[calc_col[-1]] = weekday.isin(["saturday", "sunday"]).map(
-            {True: "weekend", False: "weekday"}
-        ).astype("string[pyarrow]").mask(weekday.isna(), pd.NA)
+        shebang[calc_col[-1]] = (
+            weekday.isin(["saturday", "sunday"])
+            .map({True: "weekend", False: "weekday"})
+            .astype("string[pyarrow]")
+            .mask(weekday.isna(), pd.NA)
+        )
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="string[pyarrow]")
 
     if verbose:
         logger.info(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
     return shebang
-
-
 
 
 def _ensure_enrichment_status_columns(shebang: pd.DataFrame) -> pd.DataFrame:
@@ -2105,14 +2281,12 @@ def _ensure_enrichment_status_columns(shebang: pd.DataFrame) -> pd.DataFrame:
     return shebang
 
 
-
-
 def new_merge(
     study_name: str = None,
     all_datasets: dict = {},
     verbose: bool = False,
     save_to_cache: bool = True,
-    ) -> pd.DataFrame:
+) -> pd.DataFrame:
     """Merge activity data with scrape + annotation data, add calculated columns, and optionally cache."""
 
     logger.info("Merging all datasets...")
@@ -2133,10 +2307,11 @@ def new_merge(
         if all_datasets[k] is None:
             logger.info(f"all_datasets['{k}'] is None")
 
-
     # merge scrape + annotations into enrichment data
     scrapes_df = all_datasets.get(_scrapes_label())
-    annotations_df = _annotations_for_study(study_name, all_datasets.get(_machine_annotations_label()))
+    annotations_df = _annotations_for_study(
+        study_name, all_datasets.get(_machine_annotations_label())
+    )
     has_scrapes = scrapes_df is not None and not scrapes_df.empty
     has_annotations = annotations_df is not None and not annotations_df.empty
 
@@ -2145,11 +2320,13 @@ def new_merge(
         # are stamped with source_platform at annotation time (legacy rows are
         # backfilled at consolidation). A pre-backfill annotations frame falls
         # back to item_id and inherits the scrape side's source_platform.
-        if 'source_platform' in scrapes_df.columns and 'source_platform' in annotations_df.columns:
-            annotation_join_key = ['source_platform', 'item_id']
+        if "source_platform" in scrapes_df.columns and "source_platform" in annotations_df.columns:
+            annotation_join_key = ["source_platform", "item_id"]
         else:
-            annotation_join_key = 'item_id'
-        enriched_data = pd.merge(left=scrapes_df, right=annotations_df, on=annotation_join_key, how='left')
+            annotation_join_key = "item_id"
+        enriched_data = pd.merge(
+            left=scrapes_df, right=annotations_df, on=annotation_join_key, how="left"
+        )
     elif has_scrapes:
         enriched_data = scrapes_df
     elif has_annotations:
@@ -2166,15 +2343,19 @@ def new_merge(
         logger.info("No activity data")
         return enriched_data
 
-    if 'source_platform' in activity_data.columns and activity_data['source_platform'].isna().any():
+    if "source_platform" in activity_data.columns and activity_data["source_platform"].isna().any():
         # Pre-column activity rows carry NA and would match no enrichment under
         # the composite key below (and leave holes in the Platform factor) —
         # backfill on a copy (activity_data is a reference into all_datasets).
         activity_data = activity_data.copy()
-        activity_data['source_platform'] = _backfill_source_platform(activity_data['source_platform'])
+        activity_data["source_platform"] = _backfill_source_platform(
+            activity_data["source_platform"]
+        )
 
     if len(enriched_data) == 0:
-        logger.info("No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)")
+        logger.info(
+            "No enriched data — caching activity-only dataset (no scrape/annotation enrichment yet)"
+        )
         shebang = activity_data.copy()
     else:
         # Biggest join in the pipeline: events × item-metadata. Composite key
@@ -2182,12 +2363,17 @@ def new_merge(
         # item ids are only guaranteed unique within a platform. Polars'
         # parallel hash join is substantially faster and more memory-efficient
         # than pandas at events-scale (tens of millions of rows).
-        if 'source_platform' in activity_data.columns and 'source_platform' in enriched_data.columns:
-            join_key = ['source_platform', 'item_id']
+        if (
+            "source_platform" in activity_data.columns
+            and "source_platform" in enriched_data.columns
+        ):
+            join_key = ["source_platform", "item_id"]
         else:
-            join_key = 'item_id'
-            logger.warning("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
-        shebang = fast_join(activity_data, enriched_data, on=join_key, how='left')
+            join_key = "item_id"
+            logger.warning(
+                "WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only"
+            )
+        shebang = fast_join(activity_data, enriched_data, on=join_key, how="left")
 
     # Release the join inputs before the calculated-column work. Peak RSS on the
     # big merge was ~3x the final frame because the sources stayed alive in
@@ -2198,7 +2384,7 @@ def new_merge(
     # this function returns.
     _collections_key = _collections_label()
     _collections_src = all_datasets.get(_collections_key)
-    if _collections_src is not None and hasattr(_collections_src, 'attrs'):
+    if _collections_src is not None and hasattr(_collections_src, "attrs"):
         _preserved = pd.DataFrame()
         _preserved.attrs = dict(_collections_src.attrs)
         all_datasets[_collections_key] = _preserved
@@ -2239,21 +2425,22 @@ def new_merge(
         t1 = _dt.datetime.now()
         if verbose:
             logger.info(f"  Saving the '{study_name}' dataset to cache...")
-        shebang.attrs['study_name'] = study_name
+        shebang.attrs["study_name"] = study_name
         data_io.save_parquet(
             df=shebang,
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
             asyncronous=True,
-            verbose=verbose)
+            verbose=verbose,
+        )
         if verbose:
-            logger.info(f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds")
+            logger.info(
+                f"  ...done. Time taken to save datasets to cache: {(_dt.datetime.now() - t1).total_seconds():.1f} seconds"
+            )
 
     logger.info(f"...done. Merged all datasets. Shape: {shebang.shape}")
 
     return shebang
-
-
 
 
 # ============================================================================
@@ -2276,8 +2463,6 @@ _CALCULATED_ENRICHMENT_COLUMNS = {
     # drop the cached copies before re-merging to avoid _x/_y suffixing.
     *_NICHE_COLUMNS,
 }
-
-
 
 
 def apply_enrichment_only_patch(
@@ -2306,7 +2491,9 @@ def apply_enrichment_only_patch(
         storage_location="cache", filename=cache_filename, verbose=verbose
     )
     if cached_df is None or cached_df.empty:
-        logger.warning(f"    [EnrichPatch] Cached '{cache_filename}' missing/empty — aborting patch")
+        logger.warning(
+            f"    [EnrichPatch] Cached '{cache_filename}' missing/empty — aborting patch"
+        )
         return None
 
     if "item_id" not in cached_df.columns:
@@ -2315,8 +2502,12 @@ def apply_enrichment_only_patch(
 
     scrape_filename = f"{_scrapes_label()}_recoded.parquet"
     annot_filename = f"{_machine_annotations_label()}_recoded.parquet"
-    scrape_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=scrape_filename) or [])
-    annot_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=annot_filename) or [])
+    scrape_schema_cols = set(
+        data_io.get_parquet_columns(storage_location="recoded", filename=scrape_filename) or []
+    )
+    annot_schema_cols = set(
+        data_io.get_parquet_columns(storage_location="recoded", filename=annot_filename) or []
+    )
 
     # Columns we will recompute in new_merge(): anything sourced from scrapes or
     # annotations, plus the four calculated columns. item_id and source_platform
@@ -2358,7 +2549,9 @@ def apply_enrichment_only_patch(
     _t_merge = _time.perf_counter() - _t_merge
 
     if result is None or result.empty:
-        logger.warning("    [EnrichPatch] Merge returned empty — aborting patch (caller should full-rebuild)")
+        logger.warning(
+            "    [EnrichPatch] Merge returned empty — aborting patch (caller should full-rebuild)"
+        )
         return None
 
     # Block until the async parquet write in new_merge finishes before writing
@@ -2369,7 +2562,9 @@ def apply_enrichment_only_patch(
             pass
         save_sidecar(study_name=study_name, recoded_df=result, verbose=verbose)
     except Exception as exc:
-        logger.warning(f"    [Sidecar] Non-fatal: failed to write sidecar after enrichment patch: {exc}")
+        logger.warning(
+            f"    [Sidecar] Non-fatal: failed to write sidecar after enrichment patch: {exc}"
+        )
 
     result.attrs["refresh_action"] = "enrichment_patch"
     result.attrs["study_name"] = study_name
@@ -2393,8 +2588,6 @@ def apply_enrichment_only_patch(
     return result
 
 
-
-
 # ============================================================================
 # Entry points — create unified datasets
 # ============================================================================
@@ -2407,8 +2600,8 @@ def create_study_recoded_dataset(
     load_from_cache: bool = True,
     enrichment_status: pd.DataFrame | None = None,
     force_full_rebuild: bool = False,
-    verbose: bool = False
-    ) -> pd.DataFrame | None:
+    verbose: bool = False,
+) -> pd.DataFrame | None:
     """Generate a unified, merged dataset for a study definition.
 
     Loads core datasets, applies sampling, merges activity + enrichment data, and caches the result.
@@ -2479,13 +2672,18 @@ def create_study_recoded_dataset(
         all_datasets=all_datasets,
         load_from_cache=load_from_cache,
         enrichment_status=enrichment_status,
-        verbose=verbose)
+        verbose=verbose,
+    )
     _t_load = _time.perf_counter() - _t_phase
     _rss_after_load = _rss_mb()
 
     if all_datasets is None:
-        logger.warning(f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None")
-        logger.info(f"[RECODE][TIMING] study={study_name} load={_t_load:.2f}s merge=0.00s total={_t_load:.2f}s")
+        logger.warning(
+            f"!!! [Core datasets] No activity data matched the study definition '{study_name}'. Returning None"
+        )
+        logger.info(
+            f"[RECODE][TIMING] study={study_name} load={_t_load:.2f}s merge=0.00s total={_t_load:.2f}s"
+        )
         return None
 
     _t_phase = _time.perf_counter()
@@ -2493,7 +2691,7 @@ def create_study_recoded_dataset(
         study_name=study_name,
         all_datasets=all_datasets,
         save_to_cache=save_to_cache,
-        verbose=verbose
+        verbose=verbose,
     )
     _t_merge = _time.perf_counter() - _t_phase
     _rss_after_merge = _rss_mb()
@@ -2503,10 +2701,10 @@ def create_study_recoded_dataset(
     sampling_report = None
     if isinstance(all_datasets, dict):
         collections_df = all_datasets.get("collections")
-        if collections_df is not None and hasattr(collections_df, 'attrs'):
-            sampling_report = collections_df.attrs.get('sampling_report')
+        if collections_df is not None and hasattr(collections_df, "attrs"):
+            sampling_report = collections_df.attrs.get("sampling_report")
     if sampling_report and study_recoded_dataset is not None:
-        study_recoded_dataset.attrs['sampling_report'] = sampling_report
+        study_recoded_dataset.attrs["sampling_report"] = sampling_report
 
     # Write the refresh sidecar alongside the recoded parquet so future refresh
     # calls can fingerprint inputs and skip redundant rebuilds. `new_merge`
@@ -2520,12 +2718,16 @@ def create_study_recoded_dataset(
                 pass
             save_sidecar(study_name=study_name, recoded_df=study_recoded_dataset, verbose=verbose)
         except Exception as exc:
-            logger.warning(f"    [Sidecar] Non-fatal: failed to write sidecar for '{study_name}': {exc}")
+            logger.warning(
+                f"    [Sidecar] Non-fatal: failed to write sidecar for '{study_name}': {exc}"
+            )
 
     if study_recoded_dataset is not None:
         study_recoded_dataset.attrs["refresh_action"] = "full_rebuild"
 
-    logger.info(f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB")
+    logger.info(
+        f"...done. Unified dataset for study '{study_name}' generated. Total memory used: {_df_size_mb(study_recoded_dataset):.2f} MB"
+    )
     logger.info(
         f"[RECODE][TIMING] study={study_name} "
         f"load={_t_load:.2f}s merge={_t_merge:.2f}s "
@@ -2548,13 +2750,9 @@ def create_study_recoded_dataset(
     return study_recoded_dataset
 
 
-
-
-
 def create_collection_unified_dataset(
-    collection_id: str = None,
-    verbose: bool = False
-    ) -> pd.DataFrame | None:
+    collection_id: str = None, verbose: bool = False
+) -> pd.DataFrame | None:
     """Generate a unified, merged dataset for a single collection.
 
     Loads core datasets filtered to collection_id, merges activity + enrichment data.
@@ -2567,24 +2765,21 @@ def create_collection_unified_dataset(
     logger.info(f"Generating unified dataset for collection '{collection_id}'")
 
     all_datasets = load_collection_datasets(
-        collection_id=collection_id,
-        load_from_cache=True,
-        verbose=verbose)
+        collection_id=collection_id, load_from_cache=True, verbose=verbose
+    )
 
     if all_datasets is None:
-        logger.warning(f"!!! [Core datasets] No activity data matched the collection '{collection_id}'. Returning None")
+        logger.warning(
+            f"!!! [Core datasets] No activity data matched the collection '{collection_id}'. Returning None"
+        )
         return None
 
     collection_dataset = new_merge(
-        study_name=None,
-        all_datasets=all_datasets,
-        save_to_cache=False,
-        verbose=verbose
+        study_name=None, all_datasets=all_datasets, save_to_cache=False, verbose=verbose
     )
 
-    logger.info(f"...done. Unified dataset for collection '{collection_id}' generated. Total memory used: {_df_size_mb(collection_dataset):.2f} MB")
+    logger.info(
+        f"...done. Unified dataset for collection '{collection_id}' generated. Total memory used: {_df_size_mb(collection_dataset):.2f} MB"
+    )
 
     return collection_dataset
-
-
-

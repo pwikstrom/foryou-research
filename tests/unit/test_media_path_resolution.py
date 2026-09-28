@@ -27,10 +27,10 @@ def main() -> int:
     assert cands[0] == "123.mp4" and "tiktok/123.mp4" in cands, f"got {cands}"
 
     with tempfile.TemporaryDirectory() as tmp:
-        original_media = fyp_cf['paths']['media']
-        original_use_gcs = fyp_cf['data_io']['use_gcs_for_media']
-        fyp_cf['paths']['media'] = tmp
-        fyp_cf['data_io']['use_gcs_for_media'] = False
+        original_media = fyp_cf["paths"]["media"]
+        original_use_gcs = fyp_cf["data_io"]["use_gcs_for_media"]
+        fyp_cf["paths"]["media"] = tmp
+        fyp_cf["data_io"]["use_gcs_for_media"] = False
 
         try:
             VID_FLAT = "1111111111111111111"
@@ -48,11 +48,19 @@ def main() -> int:
 
             # Legacy flat file found via fallback (verified → size included)
             r = media_paths.resolve_media(VID_FLAT, platform="tiktok")
-            assert r == {"kind": "local", "path": os.path.join(tmp, f"{VID_FLAT}.mp4"), "size": 1}, r
+            assert r == {
+                "kind": "local",
+                "path": os.path.join(tmp, f"{VID_FLAT}.mp4"),
+                "size": 1,
+            }, r
 
             # Platform subpath found first
             r = media_paths.resolve_media(VID_PLAT, platform="tiktok")
-            assert r == {"kind": "local", "path": os.path.join(platform_dir, f"{VID_PLAT}.mp4"), "size": 1}, r
+            assert r == {
+                "kind": "local",
+                "path": os.path.join(platform_dir, f"{VID_PLAT}.mp4"),
+                "size": 1,
+            }, r
 
             # Both present → platform subpath wins
             r = media_paths.resolve_media(VID_BOTH, platform="tiktok")
@@ -64,7 +72,9 @@ def main() -> int:
             assert r == {"kind": "local", "path": link, "size": 1}, r
 
             # An invalid storage_link falls back to probing
-            r = media_paths.resolve_media(VID_PLAT, platform="tiktok", storage_link="/nope/missing.mp4")
+            r = media_paths.resolve_media(
+                VID_PLAT, platform="tiktok", storage_link="/nope/missing.mp4"
+            )
             assert r is not None and r["path"].endswith(f"tiktok/{VID_PLAT}.mp4"), r
 
             # Nothing anywhere → None
@@ -80,8 +90,8 @@ def main() -> int:
             print("OK — media path resolution verified")
             return 0
         finally:
-            fyp_cf['paths']['media'] = original_media
-            fyp_cf['data_io']['use_gcs_for_media'] = original_use_gcs
+            fyp_cf["paths"]["media"] = original_media
+            fyp_cf["data_io"]["use_gcs_for_media"] = original_use_gcs
 
 
 def test_media_path_resolution():

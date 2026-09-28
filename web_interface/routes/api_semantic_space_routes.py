@@ -23,7 +23,7 @@ from web_interface.data_service import (
 from web_interface.permissions import permission_required
 from web_interface.task_status import is_cloud_run
 
-semantic_space_bp = Blueprint('semantic_space_bp', __name__)
+semantic_space_bp = Blueprint("semantic_space_bp", __name__)
 
 # In-process cache: rebuilt only when the map file's mtime changes.
 _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
@@ -39,30 +39,90 @@ _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 # in the same words the niche info bar uses (see _SS_TYPICALITY_BANDS).
 _OVERLAYS = [
     {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
-    {"key": "typicality", "label": "Typicality", "kind": "numeric", "field": "typicality",
-     "pct_field": "typicality_pct"},
+    {
+        "key": "typicality",
+        "label": "Typicality",
+        "kind": "numeric",
+        "field": "typicality",
+        "pct_field": "typicality_pct",
+    },
     {"key": "platform", "label": "Platform", "kind": "categorical", "field": "source_platform"},
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
-    {"key": "faves_per_K_play", "label": "Faves per 1K plays", "kind": "numeric", "field": "faves_per_K_play", "decimals": 3},
-    {"key": "comments_per_K_play", "label": "Comments per 1K plays", "kind": "numeric", "field": "comments_per_K_play", "decimals": 3},
-    {"key": "shares_per_K_play", "label": "Shares per 1K plays", "kind": "numeric", "field": "shares_per_K_play", "decimals": 3},
-    {"key": "saves_per_K_play", "label": "Saves per 1K plays", "kind": "numeric", "field": "saves_per_K_play", "decimals": 3},
-    {"key": "sensitivity_score", "label": "Sensitivity", "kind": "numeric", "field": "sensitivity_score"},
-    {"key": "political_score", "label": "Political content", "kind": "numeric", "field": "political_score"},
-    {"key": "speech_vs_music", "label": "Speech vs music", "kind": "numeric", "field": "speech_vs_music"},
-    {"key": "faces_age_estimate", "label": "Face age estimate", "kind": "numeric", "field": "faces_age_estimate"},
-    {"key": "australian_relevance", "label": "Australian relevance", "kind": "categorical", "field": "australian_relevance"},
-    {"key": "tiktok_native", "label": "TikTok-native", "kind": "categorical", "field": "tiktok_native"},
+    {
+        "key": "faves_per_K_play",
+        "label": "Faves per 1K plays",
+        "kind": "numeric",
+        "field": "faves_per_K_play",
+        "decimals": 3,
+    },
+    {
+        "key": "comments_per_K_play",
+        "label": "Comments per 1K plays",
+        "kind": "numeric",
+        "field": "comments_per_K_play",
+        "decimals": 3,
+    },
+    {
+        "key": "shares_per_K_play",
+        "label": "Shares per 1K plays",
+        "kind": "numeric",
+        "field": "shares_per_K_play",
+        "decimals": 3,
+    },
+    {
+        "key": "saves_per_K_play",
+        "label": "Saves per 1K plays",
+        "kind": "numeric",
+        "field": "saves_per_K_play",
+        "decimals": 3,
+    },
+    {
+        "key": "sensitivity_score",
+        "label": "Sensitivity",
+        "kind": "numeric",
+        "field": "sensitivity_score",
+    },
+    {
+        "key": "political_score",
+        "label": "Political content",
+        "kind": "numeric",
+        "field": "political_score",
+    },
+    {
+        "key": "speech_vs_music",
+        "label": "Speech vs music",
+        "kind": "numeric",
+        "field": "speech_vs_music",
+    },
+    {
+        "key": "faces_age_estimate",
+        "label": "Face age estimate",
+        "kind": "numeric",
+        "field": "faces_age_estimate",
+    },
+    {
+        "key": "australian_relevance",
+        "label": "Australian relevance",
+        "kind": "categorical",
+        "field": "australian_relevance",
+    },
+    {
+        "key": "tiktok_native",
+        "label": "TikTok-native",
+        "kind": "categorical",
+        "field": "tiktok_native",
+    },
     {"key": "trend", "label": "Trend", "kind": "categorical", "field": "trend"},
     {"key": "advertising", "label": "Advertising", "kind": "categorical", "field": "advertising"},
     {"key": "aigc", "label": "AI-generated", "kind": "categorical", "field": "aigc"},
     {"key": "main_gender", "label": "Main gender", "kind": "categorical", "field": "main_gender"},
-    {"key": "main_ethnicity", "label": "Main ethnicity", "kind": "categorical", "field": "main_ethnicity"},
+    {
+        "key": "main_ethnicity",
+        "label": "Main ethnicity",
+        "kind": "categorical",
+        "field": "main_ethnicity",
+    },
 ]
-
-
-
-
 
 
 def _niche_category_shares(df: pd.DataFrame, top_n: int = 3) -> dict[int, list]:
@@ -98,10 +158,6 @@ def _niche_category_shares(df: pd.DataFrame, top_n: int = 3) -> dict[int, list]:
     }
 
 
-
-
-
-
 def _build_payload() -> dict:
     """Assemble the columnar map payload from the enriched map file + niches.
 
@@ -111,7 +167,8 @@ def _build_payload() -> dict:
         lookup, the ``overlays`` manifest, and corpus counts.
     """
     df = data_io.load_parquet_selective(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE,
+        storage_location=embeddings.STORE_LOCATION,
+        filename=video_map.MAP_FILE,
     )
     total_videos = int(len(df))
 
@@ -119,9 +176,13 @@ def _build_payload() -> dict:
     mapped = df[df["x"].notna()].copy()
     mapped["item_id"] = mapped["item_id"].astype("string")
 
-    niches_meta = data_io.load_json(
-        storage_location=embeddings.STORE_LOCATION, filename=video_map.NICHES_FILE,
-    ) or {}
+    niches_meta = (
+        data_io.load_json(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=video_map.NICHES_FILE,
+        )
+        or {}
+    )
 
     points = {
         "item_id": mapped["item_id"].tolist(),
@@ -140,7 +201,9 @@ def _build_payload() -> dict:
         col = mapped[field]
         if ov["kind"] == "numeric":
             decimals = ov.get("decimals", 4)
-            points[field] = [round(float(v), decimals) if pd.notna(v) else None for v in col.tolist()]
+            points[field] = [
+                round(float(v), decimals) if pd.notna(v) else None for v in col.tolist()
+            ]
         else:
             points[field] = col.astype("string").fillna("unknown").tolist()
         entry = {"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field}
@@ -150,8 +213,7 @@ def _build_payload() -> dict:
         pct_field = ov.get("pct_field")
         if pct_field and pct_field in mapped.columns:
             points[pct_field] = [
-                round(float(v), 1) if pd.notna(v) else None
-                for v in mapped[pct_field].tolist()
+                round(float(v), 1) if pd.notna(v) else None for v in mapped[pct_field].tolist()
             ]
             entry["pct_field"] = pct_field
         overlays.append(entry)
@@ -168,9 +230,8 @@ def _build_payload() -> dict:
             "name": v.get("name") or f"Niche {k}",
             "size": int(v.get("size", 0)),
             "terms": [str(t) for t in (v.get("terms") or [])],
-            "top_categories": cat_shares.get(int(k)) or [
-                {"label": str(c), "pct": None} for c in (v.get("top_categories") or [])
-            ],
+            "top_categories": cat_shares.get(int(k))
+            or [{"label": str(c), "pct": None} for c in (v.get("top_categories") or [])],
             "typicality": v.get("typicality"),
             "typicality_pct": v.get("typicality_pct"),
             "isolation_pct": v.get("isolation_pct"),
@@ -193,12 +254,14 @@ def _build_payload() -> dict:
     # accuracy rather than asking the reader to take the layout on trust. Absent
     # on maps built before the score existed; the frontend then omits it.
     build_meta = {}
-    if data_io.exists(storage_location=embeddings.STORE_LOCATION,
-                      filename=video_map.MAP_META_FILE):
-        build_meta = data_io.load_json(
-            storage_location=embeddings.STORE_LOCATION,
-            filename=video_map.MAP_META_FILE,
-        ) or {}
+    if data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE):
+        build_meta = (
+            data_io.load_json(
+                storage_location=embeddings.STORE_LOCATION,
+                filename=video_map.MAP_META_FILE,
+            )
+            or {}
+        )
 
     return {
         "points": points,
@@ -211,12 +274,8 @@ def _build_payload() -> dict:
     }
 
 
-
-
-
-
-@semantic_space_bp.route('/api/semantic_space/map', methods=['GET'])
-@permission_required('tab.semantic_space')
+@semantic_space_bp.route("/api/semantic_space/map", methods=["GET"])
+@permission_required("tab.semantic_space")
 def api_semantic_space_map():
     """Return the global video map (mapped points + niche metadata + overlays).
 
@@ -224,12 +283,16 @@ def api_semantic_space_map():
     heavy parquet read happens only after a ``video_map_refresh``.
     """
     if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE):
-        return jsonify({
-            "error": "The video map has not been built yet. Run the "
-                     "'video_map_refresh' task to generate it."
-        }), 404
+        return jsonify(
+            {
+                "error": "The video map has not been built yet. Run the "
+                "'video_map_refresh' task to generate it."
+            }
+        ), 404
 
-    fingerprint = data_io.stat(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE)
+    fingerprint = data_io.stat(
+        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE
+    )
     key = None if fingerprint is None else f"{fingerprint['size']}:{fingerprint['mtime']}"
 
     if _MAP_CACHE["payload"] is None or _MAP_CACHE["fingerprint"] != key:
@@ -243,10 +306,8 @@ def api_semantic_space_map():
     return jsonify(_MAP_CACHE["payload"])
 
 
-
-
-@semantic_space_bp.route('/api/semantic_space/status', methods=['GET'])
-@permission_required('tab.semantic_space')
+@semantic_space_bp.route("/api/semantic_space/status", methods=["GET"])
+@permission_required("tab.semantic_space")
 def api_semantic_space_status():
     """Lightweight freshness signal for the Semantic Space tab.
 
@@ -278,7 +339,8 @@ def api_semantic_space_status():
     )
     fingerprint = (
         data_io.stat(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE)
-        if map_exists else None
+        if map_exists
+        else None
     )
     map_built_at = fingerprint.get("mtime") if fingerprint else None
 
@@ -295,10 +357,12 @@ def api_semantic_space_status():
     map_meta = None
     model_mismatch = False
     if map_exists and data_io.exists(
-            storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE):
+        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE
+    ):
         try:
             map_meta = data_io.load_json(
-                storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE)
+                storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE
+            )
         except Exception:
             map_meta = None
     active_model = None
@@ -319,27 +383,29 @@ def api_semantic_space_status():
     else:
         phase = None
 
-    return jsonify({
-        # The cascade is topping up the embedding store (map unchanged).
-        "embeddings_updating": bool(emb_running or pipeline_in_flight),
-        # A new map is actively being calculated.
-        "map_rebuilding": bool(map_running),
-        # The visible map is behind the embedding store, or was built by a
-        # different embedding model than the active backend's.
-        "map_stale": behind > 0 or model_mismatch,
-        "behind": behind,
-        "phase": phase,
-        "map_exists": bool(map_exists),
-        "map_built_at": map_built_at,
-        "embedded": int(embedded) if isinstance(embedded, (int, float)) else None,
-        "map_built_from": int(map_built_from) if isinstance(map_built_from, (int, float)) else None,
-        # Build provenance (None for maps predating the meta file).
-        "map_meta": map_meta if isinstance(map_meta, dict) else None,
-        "active_embedding_model": active_model,
-        "model_mismatch": model_mismatch,
-    })
-
-
+    return jsonify(
+        {
+            # The cascade is topping up the embedding store (map unchanged).
+            "embeddings_updating": bool(emb_running or pipeline_in_flight),
+            # A new map is actively being calculated.
+            "map_rebuilding": bool(map_running),
+            # The visible map is behind the embedding store, or was built by a
+            # different embedding model than the active backend's.
+            "map_stale": behind > 0 or model_mismatch,
+            "behind": behind,
+            "phase": phase,
+            "map_exists": bool(map_exists),
+            "map_built_at": map_built_at,
+            "embedded": int(embedded) if isinstance(embedded, (int, float)) else None,
+            "map_built_from": int(map_built_from)
+            if isinstance(map_built_from, (int, float))
+            else None,
+            # Build provenance (None for maps predating the meta file).
+            "map_meta": map_meta if isinstance(map_meta, dict) else None,
+            "active_embedding_model": active_model,
+            "model_mismatch": model_mismatch,
+        }
+    )
 
 
 def _user_ctx() -> tuple:
@@ -351,8 +417,6 @@ def _user_ctx() -> tuple:
     if role == "admin":
         is_admin = True
     return username, role, is_admin
-
-
 
 
 def _accessible_collection_ids() -> set:
@@ -371,10 +435,8 @@ def _accessible_collection_ids() -> set:
     return ids
 
 
-
-
-@semantic_space_bp.route('/api/semantic_space/collections', methods=['GET'])
-@permission_required('tab.semantic_space')
+@semantic_space_bp.route("/api/semantic_space/collections", methods=["GET"])
+@permission_required("tab.semantic_space")
 def api_semantic_space_collections():
     """List the collections the user can overlay, scoped to the selected study.
 
@@ -383,19 +445,27 @@ def api_semantic_space_collections():
     param the list is restricted to that study's collections (and the user must
     have access to it); without one it falls back to every accessible collection.
     """
-    study = (request.args.get('study') or '').strip()
+    study = (request.args.get("study") or "").strip()
     username, role, is_admin = _user_ctx()
     accessible_studies = get_accessible_studies(username, role, is_admin)
 
     if study:
         if study not in accessible_studies:
             return jsonify({"collections": []})
-        cids = [str(d.get("collection_id")) for d in get_study_collections(study)
-                if d.get("collection_id")]
+        cids = [
+            str(d.get("collection_id"))
+            for d in get_study_collections(study)
+            if d.get("collection_id")
+        ]
     else:
-        cids = sorted({str(d.get("collection_id"))
-                       for s in accessible_studies for d in get_study_collections(s)
-                       if d.get("collection_id")})
+        cids = sorted(
+            {
+                str(d.get("collection_id"))
+                for s in accessible_studies
+                for d in get_study_collections(s)
+                if d.get("collection_id")
+            }
+        )
 
     display = load_display_id_map()
     seen: set = set()
@@ -409,10 +479,8 @@ def api_semantic_space_collections():
     return jsonify({"collections": collections})
 
 
-
-
-@semantic_space_bp.route('/api/semantic_space/trajectory', methods=['GET'])
-@permission_required('tab.semantic_space')
+@semantic_space_bp.route("/api/semantic_space/trajectory", methods=["GET"])
+@permission_required("tab.semantic_space")
 def api_semantic_space_trajectory():
     """Centre-of-gravity / entropy / daily trajectory for one collection.
 
@@ -420,27 +488,32 @@ def api_semantic_space_trajectory():
     embedding-derived niche labels (see :mod:`web_interface.semantic_trajectory`)
     and returns the per-day + all-time metrics the overlay renders.
     """
-    collection_id = (request.args.get('collection_id') or '').strip()
+    collection_id = (request.args.get("collection_id") or "").strip()
     if not collection_id:
         return jsonify({"error": "collection_id is required"}), 400
     if collection_id not in _accessible_collection_ids():
         return jsonify({"error": "Collection not found or not accessible"}), 403
 
     if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE):
-        return jsonify({
-            "error": "The video map has not been built yet. Run the "
-                     "'video_map_refresh' task to generate it."
-        }), 404
+        return jsonify(
+            {
+                "error": "The video map has not been built yet. Run the "
+                "'video_map_refresh' task to generate it."
+            }
+        ), 404
 
-    interval = request.args.get('interval', 'month')
-    if interval not in ('day', 'week', 'month', 'all'):
-        interval = 'month'
-    start = (request.args.get('start') or '').strip() or None
-    end = (request.args.get('end') or '').strip() or None
+    interval = request.args.get("interval", "month")
+    if interval not in ("day", "week", "month", "all"):
+        interval = "month"
+    start = (request.args.get("start") or "").strip() or None
+    end = (request.args.get("end") or "").strip() or None
 
     try:
         payload = semantic_trajectory.build_trajectory(
-            collection_id, interval=interval, start=start, end=end,
+            collection_id,
+            interval=interval,
+            start=start,
+            end=end,
         )
     except Exception as exc:
         return jsonify({"error": f"Failed to build trajectory: {exc}"}), 500

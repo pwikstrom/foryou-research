@@ -16,7 +16,8 @@ from fyp.ingest.base import (
 def _upgrade(files):
     """Run the real in-place upgrade over a bare ledger dict."""
     shim = type(
-        "_Shim", (),
+        "_Shim",
+        (),
         {"_upgrade_legacy_ledger_entries": ForYouCollection._upgrade_legacy_ledger_entries},
     )()
     shim.ledger = {"files": files}
@@ -25,45 +26,61 @@ def _upgrade(files):
 
 
 def test_migrated_entries_are_restamped():
-    files = _upgrade({
-        "a.zip": {
-            "outcome": "discarded_at_load", "raw_rows": 0, "kept_rows": 0,
-            "notes": LEGACY_MIGRATION_NOTE,
-        },
-    })
+    files = _upgrade(
+        {
+            "a.zip": {
+                "outcome": "discarded_at_load",
+                "raw_rows": 0,
+                "kept_rows": 0,
+                "notes": LEGACY_MIGRATION_NOTE,
+            },
+        }
+    )
     assert files["a.zip"]["outcome"] == "skipped_legacy"
 
 
 def test_migrated_entries_lose_their_invented_zero_counts():
-    files = _upgrade({
-        "a.zip": {
-            "outcome": "discarded_at_load", "raw_rows": 0, "kept_rows": 0,
-            "notes": LEGACY_MIGRATION_NOTE,
-        },
-    })
+    files = _upgrade(
+        {
+            "a.zip": {
+                "outcome": "discarded_at_load",
+                "raw_rows": 0,
+                "kept_rows": 0,
+                "notes": LEGACY_MIGRATION_NOTE,
+            },
+        }
+    )
     assert files["a.zip"]["raw_rows"] is None
     assert files["a.zip"]["kept_rows"] is None
 
 
 def test_a_real_too_few_rows_discard_is_left_alone():
-    files = _upgrade({
-        "b.zip": {"outcome": "discarded_at_load", "raw_rows": 3, "kept_rows": 0},
-    })
+    files = _upgrade(
+        {
+            "b.zip": {"outcome": "discarded_at_load", "raw_rows": 3, "kept_rows": 0},
+        }
+    )
     assert files["b.zip"] == {
-        "outcome": "discarded_at_load", "raw_rows": 3, "kept_rows": 0,
+        "outcome": "discarded_at_load",
+        "raw_rows": 3,
+        "kept_rows": 0,
     }
 
 
 def test_an_ingested_file_is_left_alone():
-    files = _upgrade({
-        "c.zip": {"outcome": "added_as_new", "raw_rows": 100, "kept_rows": 90},
-    })
+    files = _upgrade(
+        {
+            "c.zip": {"outcome": "added_as_new", "raw_rows": 100, "kept_rows": 90},
+        }
+    )
     assert files["c.zip"]["outcome"] == "added_as_new"
 
 
 def test_upgrade_is_idempotent():
     entry = {
-        "outcome": "discarded_at_load", "raw_rows": 0, "kept_rows": 0,
+        "outcome": "discarded_at_load",
+        "raw_rows": 0,
+        "kept_rows": 0,
         "notes": LEGACY_MIGRATION_NOTE,
     }
     first = dict(_upgrade({"a.zip": dict(entry)})["a.zip"])

@@ -21,34 +21,21 @@ def no_failed_scrapes(monkeypatch):
     monkeypatch.setattr(od, "load_failed_scrapes", lambda verbose=False: [])
 
 
-
-
-
-
 def _frame(**overrides):
     base = {
         "item_id": ["a", "b", "c", "d"],
         "extra_data": ["fave", None, "comment:hi,share", ""],
         "play_duration": pd.array([30, 90, None, 10], dtype="int64[pyarrow]"),
         "duration": pd.array([60, 60, 60, None], dtype="int64[pyarrow]"),
-        "local_weekday": pd.array(["saturday", "monday", None, "sunday"],
-                                  dtype="string[pyarrow]"),
+        "local_weekday": pd.array(["saturday", "monday", None, "sunday"], dtype="string[pyarrow]"),
     }
     base.update(overrides)
     return pd.DataFrame(base)
 
 
-
-
-
-
 def test_engaged_flags_rows_with_engagement_tokens(no_failed_scrapes):
     out = od._add_merge_calculated_columns(_frame())
     assert out["engaged"].tolist() == [1.0, 0.0, 1.0, 0.0]
-
-
-
-
 
 
 def test_rewatched_true_only_when_play_exceeds_duration(no_failed_scrapes):
@@ -59,19 +46,11 @@ def test_rewatched_true_only_when_play_exceeds_duration(no_failed_scrapes):
     assert pd.isna(out["rewatched"].iloc[3])
 
 
-
-
-
-
 def test_is_weekend_two_level_factor_with_na_passthrough(no_failed_scrapes):
     out = od._add_merge_calculated_columns(_frame())
     assert out["is_weekend"].tolist()[:2] == ["weekend", "weekday"]
     assert pd.isna(out["is_weekend"].iloc[2])
     assert out["is_weekend"].iloc[3] == "weekend"
-
-
-
-
 
 
 def test_missing_inputs_yield_na_defaults_not_errors(no_failed_scrapes):
@@ -82,16 +61,8 @@ def test_missing_inputs_yield_na_defaults_not_errors(no_failed_scrapes):
         assert out[col].isna().all()
 
 
-
-
-
-
 def test_new_columns_registered_for_enrichment_patch():
     assert {"engaged", "rewatched", "is_weekend"} <= od._CALCULATED_ENRICHMENT_COLUMNS
-
-
-
-
 
 
 def test_contract_numeric_transforms_covers_heavy_tailed_features():
@@ -101,10 +72,6 @@ def test_contract_numeric_transforms_covers_heavy_tailed_features():
     assert transforms["days_since_created"] == "log1p"
 
 
-
-
-
-
 def test_contract_validators_reject_unknown_transform():
     from fyp.core import derived_contract as dc
 
@@ -112,10 +79,6 @@ def test_contract_validators_reject_unknown_transform():
     contract["fields"][0]["transform"] = "sqrt"
     errors = dc.validate_contract(contract)
     assert any("invalid transform" in e for e in errors)
-
-
-
-
 
 
 def test_promoted_roles_reach_var_schema():
@@ -138,16 +101,14 @@ def test_promoted_roles_reach_var_schema():
     assert pd.isna(vs.at[VIDEOS_WATCHED_COL, "role"])
 
 
-
-
-
-
 def test_total_videos_prefers_videos_watched_over_legacy_group_size():
-    df = pd.DataFrame({
-        "collection_id": ["c1", "c1", "c2"],
-        svc.VIDEOS_WATCHED_COL: [10, 20, 30],
-        svc.GROUP_SIZE_COL: [1, 1, 1],
-    })
+    df = pd.DataFrame(
+        {
+            "collection_id": ["c1", "c1", "c2"],
+            svc.VIDEOS_WATCHED_COL: [10, 20, 30],
+            svc.GROUP_SIZE_COL: [1, 1, 1],
+        }
+    )
     assert svc.total_videos(df) == 60
 
     legacy = df.drop(columns=[svc.VIDEOS_WATCHED_COL])

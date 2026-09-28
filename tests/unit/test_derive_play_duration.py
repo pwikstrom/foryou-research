@@ -23,16 +23,16 @@ from fyp.ingest import derive_play_duration
 
 
 def _frame(seconds, activity_types, item_ids, extra_data=None):
-    df = pd.DataFrame({
-        "utc_timestamp": pd.to_datetime(seconds, unit="s", utc=True),
-        "activity_type": pd.array(activity_types, dtype="string[pyarrow]"),
-        "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
-    })
+    df = pd.DataFrame(
+        {
+            "utc_timestamp": pd.to_datetime(seconds, unit="s", utc=True),
+            "activity_type": pd.array(activity_types, dtype="string[pyarrow]"),
+            "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
+        }
+    )
     if extra_data is not None:
         df["extra_data"] = pd.array(extra_data, dtype="string[pyarrow]")
     return df
-
-
 
 
 def test_forward_delta_on_plays():
@@ -45,15 +45,11 @@ def test_forward_delta_on_plays():
     print("PASS: forward delta assigned to plays; last row NA")
 
 
-
-
 def test_non_play_rows_get_na():
     out = derive_play_duration(_frame([0, 10, 20], ["play", "search", "play"], ["a", None, "b"]))
     assert out.loc[0, "play_duration"] == 10
     assert pd.isna(out.loc[1, "play_duration"])
     print("PASS: non-play rows get NA")
-
-
 
 
 def test_cap_yields_na():
@@ -67,17 +63,17 @@ def test_cap_yields_na():
     print("PASS: durations above the cap become NA")
 
 
-
-
 def test_same_item_run_collapses_onto_first_play():
     # play(x) at t=0, fave(x) at t=15, play(y) at t=25: the lead play gets
     # 15 + 10 = 25 (the fave's forward delta included) and the fave folds
     # into the lead's extra_data.
-    out = derive_play_duration(_frame(
-        [0, 15, 25, 30],
-        ["play", "fave", "play", "play"],
-        ["x", "x", "y", "z"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 15, 25, 30],
+            ["play", "fave", "play", "play"],
+            ["x", "x", "y", "z"],
+        )
+    )
     assert out.loc[0, "play_duration"] == 25
     assert pd.isna(out.loc[1, "play_duration"])
     assert out.loc[0, "extra_data"] == "fave"
@@ -85,33 +81,31 @@ def test_same_item_run_collapses_onto_first_play():
     print("PASS: same-item run collapses onto the first play with extra_data annotation")
 
 
-
-
 def test_run_annotation_includes_payload():
-    out = derive_play_duration(_frame(
-        [0, 5, 20],
-        ["play", "comment", "play"],
-        ["x", "x", "y"],
-        extra_data=[None, "nice,  video", None],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 5, 20],
+            ["play", "comment", "play"],
+            ["x", "x", "y"],
+            extra_data=[None, "nice,  video", None],
+        )
+    )
     assert out.loc[0, "play_duration"] == 20
     assert out.loc[0, "extra_data"] == "comment:nice video"
     print("PASS: run annotation carries the cleaned activity payload")
 
 
-
-
 def test_run_without_play_gets_na():
-    out = derive_play_duration(_frame(
-        [0, 5, 20],
-        ["fave", "comment", "play"],
-        ["x", "x", "y"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 5, 20],
+            ["fave", "comment", "play"],
+            ["x", "x", "y"],
+        )
+    )
     assert pd.isna(out.loc[0, "play_duration"])
     assert pd.isna(out.loc[1, "play_duration"])
     print("PASS: same-item run without a play stays NA")
-
-
 
 
 def test_empty_and_single_row():
@@ -123,22 +117,22 @@ def test_empty_and_single_row():
     print("PASS: empty and single-row frames handled")
 
 
-
-
 def test_missing_extra_data_column_is_added():
     out = derive_play_duration(_frame([0, 10], ["play", "play"], ["a", "b"]))
     assert "extra_data" in out.columns
     print("PASS: missing extra_data column added")
 
 
-
-
 def test_fallback_fold_links_distant_engagement():
     # A fave a week after the (only logged) play of the same item still folds
     # into that play's extra_data — the IG videos_watched / liked_posts case.
-    out = derive_play_duration(_frame(
-        [0, 20, 7 * 86400], ["play", "play", "fave"], ["a", "b", "a"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 20, 7 * 86400],
+            ["play", "play", "fave"],
+            ["a", "b", "a"],
+        )
+    )
     assert out.loc[0, "extra_data"] == "fave"
     assert pd.isna(out.loc[1, "extra_data"])
     # play_duration stays adjacency-based: the distant fave adds no dwell.
@@ -146,16 +140,16 @@ def test_fallback_fold_links_distant_engagement():
     print("PASS: fallback fold links distant same-item engagement")
 
 
-
-
 def test_fallback_fold_picks_nearest_play():
     # The item was played twice; a later non-adjacent fave folds onto the
     # nearer of the two plays.
-    out = derive_play_duration(_frame(
-        [0, 100000, 100200, 100500],
-        ["play", "play", "play", "fave"],
-        ["a", "a", "b", "a"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 100000, 100200, 100500],
+            ["play", "play", "play", "fave"],
+            ["a", "a", "b", "a"],
+        )
+    )
     # Rows 0-1 are an adjacency run (rewatch): the second play's type is
     # annotated on the lead play, as before.
     assert out.loc[0, "extra_data"] == "play"
@@ -164,40 +158,44 @@ def test_fallback_fold_picks_nearest_play():
     print("PASS: fallback fold picks the nearest play of the item")
 
 
-
-
 def test_fallback_fold_leaves_engagement_from_before_the_watch_history():
     # A bookmark made a year before the watch history begins: its nearest play
     # of the item is a later re-watch, not the viewing it belongs to.
-    out = derive_play_duration(_frame(
-        [0, 365 * 86400, 365 * 86400 + 20], ["save", "play", "play"], ["a", "b", "a"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 365 * 86400, 365 * 86400 + 20],
+            ["save", "play", "play"],
+            ["a", "b", "a"],
+        )
+    )
     assert pd.isna(out.loc[2, "extra_data"])
     assert pd.isna(out.loc[2, "link_method"])
     print("PASS: pre-window engagement is not linked to a later re-watch")
 
 
-
-
 def test_fallback_fold_carries_comment_payload():
-    out = derive_play_duration(_frame(
-        [0, 100, 5000], ["play", "play", "comment"], ["a", "b", "a"],
-        extra_data=[None, None, "nice, one"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 100, 5000],
+            ["play", "play", "comment"],
+            ["a", "b", "a"],
+            extra_data=[None, None, "nice, one"],
+        )
+    )
     assert out.loc[0, "extra_data"] == "comment:nice one"
     print("PASS: fallback fold carries the cleaned comment payload")
-
-
 
 
 def test_link_method_names_the_fold_that_linked_each_play():
     # Adjacent fave -> "adjacent" on the lead play; a distant fave on another
     # item -> "nearest_play" on that item's play; untouched plays stay null.
-    out = derive_play_duration(_frame(
-        [0, 5, 60, 120, 7 * 86400],
-        ["play", "fave", "play", "play", "fave"],
-        ["a", "a", "b", "c", "b"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 5, 60, 120, 7 * 86400],
+            ["play", "fave", "play", "play", "fave"],
+            ["a", "a", "b", "c", "b"],
+        )
+    )
     assert out.loc[0, "link_method"] == "adjacent"
     assert out.loc[2, "link_method"] == "nearest_play"
     assert pd.isna(out.loc[3, "link_method"])
@@ -206,8 +204,6 @@ def test_link_method_names_the_fold_that_linked_each_play():
     assert pd.isna(out.loc[4, "link_method"])
     assert pd.api.types.is_string_dtype(out["link_method"])
     print("PASS: link_method names the fold")
-
-
 
 
 def test_link_method_lists_both_folds_and_keeps_parser_value():
@@ -227,17 +223,17 @@ def test_link_method_lists_both_folds_and_keeps_parser_value():
     print("PASS: link_method lists both folds and keeps the parser's value")
 
 
-
-
 def test_fallback_fold_without_matching_play_is_noop():
-    out = derive_play_duration(_frame(
-        [0, 3600], ["play", "fave"], ["a", "z"],
-    ))
+    out = derive_play_duration(
+        _frame(
+            [0, 3600],
+            ["play", "fave"],
+            ["a", "z"],
+        )
+    )
     assert pd.isna(out.loc[0, "extra_data"])
     assert pd.isna(out.loc[1, "extra_data"])
     print("PASS: engagement without a matching play stays standalone")
-
-
 
 
 if __name__ == "__main__":

@@ -5,10 +5,6 @@ import pytest
 import fyp.annotation.backends as backends
 
 
-
-
-
-
 def test_gemini_backend_registers_and_caches():
     b1 = backends.get_backend("gemini")
     b2 = backends.get_backend("gemini")
@@ -18,17 +14,9 @@ def test_gemini_backend_registers_and_caches():
     assert b1.cloud_run_capable is True
 
 
-
-
-
-
 def test_unknown_backend_raises():
     with pytest.raises(ValueError, match="Unknown annotation backend"):
         backends.get_backend("nope")
-
-
-
-
 
 
 def test_qwen_api_backend_registers():
@@ -40,10 +28,6 @@ def test_qwen_api_backend_registers():
     assert b.cloud_run_capable is True
 
 
-
-
-
-
 def test_active_backend_name_defaults_to_gemini(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
@@ -51,32 +35,22 @@ def test_active_backend_name_defaults_to_gemini(monkeypatch):
     assert backends.active_backend_name() == "gemini"
 
 
-
-
-
-
 def test_active_backend_name_reads_setting(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "qwen_local"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "qwen_local"}
+    )
     assert backends.active_backend_name() == "qwen_local"
-
-
-
-
 
 
 def test_active_backend_name_rejects_unknown_value(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "nope_backend"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "nope_backend"}
+    )
     assert backends.active_backend_name() == "gemini"
-
-
-
-
 
 
 def test_gemini_availability_shape():
@@ -89,15 +63,13 @@ def test_gemini_availability_shape():
         assert {"name", "ok", "detail", "fix"} <= set(check)
 
 
-
-
-
 def test_minicpm_id_registered(monkeypatch):
     """minicpm_local is a first-class id: in BACKEND_IDS and settings-valid."""
     from fyp.annotation.backends import settings as backend_settings
 
     assert "minicpm_local" in backends.BACKEND_IDS
     assert "minicpm_local" in backends._BACKEND_MODULES
-    monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "minicpm_local"})
+    monkeypatch.setattr(
+        backend_settings, "_load_settings", lambda: {"annotation_backend": "minicpm_local"}
+    )
     assert backends.active_backend_name() == "minicpm_local"

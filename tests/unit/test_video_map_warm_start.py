@@ -23,10 +23,15 @@ from fyp.analysis import video_map as vm
 
 
 def _prev_map(monkeypatch, item_ids, niches):
-    df = pd.DataFrame({"item_id": item_ids, "niche": niches, "niche_name": [f"n{n}" for n in niches]})
+    df = pd.DataFrame(
+        {"item_id": item_ids, "niche": niches, "niche_name": [f"n{n}" for n in niches]}
+    )
     monkeypatch.setattr(data_io, "exists", lambda **k: True)
-    monkeypatch.setattr(data_io, "load_parquet_selective",
-                        lambda storage_location="", filename="", columns=None, **k: df[columns].copy())
+    monkeypatch.setattr(
+        data_io,
+        "load_parquet_selective",
+        lambda storage_location="", filename="", columns=None, **k: df[columns].copy(),
+    )
 
 
 def _blobs(seed=0, n_per=40, k=3, dim=5):
@@ -40,7 +45,7 @@ def _blobs(seed=0, n_per=40, k=3, dim=5):
 
 def test_centroids_are_previous_niche_means_in_the_current_space(monkeypatch):
     ids, X, prev_labels = _blobs()
-    _prev_map(monkeypatch, ids, prev_labels + 10)   # previous ids 10,11,12
+    _prev_map(monkeypatch, ids, prev_labels + 10)  # previous ids 10,11,12
 
     cents, reason = vm._warm_start_centroids(ids, X, n_niches=3)
 
@@ -79,21 +84,24 @@ def test_warm_start_keeps_the_partition_after_a_small_append(monkeypatch):
     _prev_map(monkeypatch, ids, (prev_labels + 1) % 3)
     # Append a handful of new points near each blob.
     rng = np.random.default_rng(7)
-    extra = np.vstack([X[prev_labels == k][:1] + rng.normal(scale=0.5, size=(2, X.shape[1]))
-                       for k in range(3)]).astype(np.float32)
+    extra = np.vstack(
+        [X[prev_labels == k][:1] + rng.normal(scale=0.5, size=(2, X.shape[1])) for k in range(3)]
+    ).astype(np.float32)
     ids2 = ids + [f"new{i}" for i in range(len(extra))]
     X2 = np.vstack([X, extra])
 
     cents, _ = vm._warm_start_centroids(ids2, X2, 3)
     assert cents is not None
-    labels = MiniBatchKMeans(n_clusters=3, init=cents, n_init=1, random_state=0,
-                             batch_size=64).fit_predict(X2)
+    labels = MiniBatchKMeans(
+        n_clusters=3, init=cents, n_init=1, random_state=0, batch_size=64
+    ).fit_predict(X2)
 
     # Every old point stays with the niche it started in (up to relabelling).
     aligned, carried, prev_per_item = vm._align_labels_to_previous(
-        ids2, labels, "niche", "niche_name")
+        ids2, labels, "niche", "niche_name"
+    )
     prev_ids = (prev_labels + 1) % 3
-    assert (aligned[:len(ids)] == prev_ids).all(), "warm-started niches must keep their members"
+    assert (aligned[: len(ids)] == prev_ids).all(), "warm-started niches must keep their members"
     assert len(carried) == 3, "every previous name carries over"
 
     # The previous assignment comes back alongside, in the SAME id space as the

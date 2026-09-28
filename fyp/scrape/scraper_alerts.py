@@ -41,13 +41,9 @@ KIND_SESSION_EXPIRED = "session_expired"
 KIND_CIRCUIT_BREAKER = "circuit_breaker"
 
 
-
-
 def _now_iso() -> str:
     """Return the current UTC time as an ISO-8601 string."""
     return datetime.now(UTC).isoformat()
-
-
 
 
 def load_alerts() -> dict:
@@ -55,21 +51,22 @@ def load_alerts() -> dict:
     try:
         # A missing file is the normal no-alerts state — check exists() first
         # so every status poll doesn't log a [DATA_IO] load error for it.
-        if not data_io.exists(storage_location=ALERTS_LOCATION,
-                              filename=ALERTS_FILENAME):
+        if not data_io.exists(storage_location=ALERTS_LOCATION, filename=ALERTS_FILENAME):
             return {}
-        alerts = data_io.load_json(storage_location=ALERTS_LOCATION,
-                                   filename=ALERTS_FILENAME)
+        alerts = data_io.load_json(storage_location=ALERTS_LOCATION, filename=ALERTS_FILENAME)
         return alerts if isinstance(alerts, dict) else {}
     except Exception as e:
         logger.warning(f"Could not load scraper alerts: {e}")
         return {}
 
 
-
-
-def raise_alert(platform: str, kind: str, category: str | None = None,
-                count: int | None = None, message: str | None = None) -> None:
+def raise_alert(
+    platform: str,
+    kind: str,
+    category: str | None = None,
+    count: int | None = None,
+    message: str | None = None,
+) -> None:
     """Raise (or refresh) a platform's alert. Never raises.
 
     A re-raise of the same kind keeps the original ``raised_at`` and bumps
@@ -102,15 +99,16 @@ def raise_alert(platform: str, kind: str, category: str | None = None,
         return alerts
 
     try:
-        data_io.update_json(storage_location=ALERTS_LOCATION,
-                            filename=ALERTS_FILENAME, mutate=_mutate, default={})
-        logger.warning(f"  [scrape] Raised scraper alert for '{platform}': "
-                       f"{kind} ({category}) — visible in the web UI until the "
-                       f"scraper succeeds again or an admin dismisses it.")
+        data_io.update_json(
+            storage_location=ALERTS_LOCATION, filename=ALERTS_FILENAME, mutate=_mutate, default={}
+        )
+        logger.warning(
+            f"  [scrape] Raised scraper alert for '{platform}': "
+            f"{kind} ({category}) — visible in the web UI until the "
+            f"scraper succeeds again or an admin dismisses it."
+        )
     except Exception as e:
         logger.warning(f"Could not raise scraper alert for '{platform}': {e}")
-
-
 
 
 def clear_alert(platform: str, reason: str = "") -> None:
@@ -134,9 +132,11 @@ def clear_alert(platform: str, reason: str = "") -> None:
             alerts.pop(platform)
             return alerts
 
-        data_io.update_json(storage_location=ALERTS_LOCATION,
-                            filename=ALERTS_FILENAME, mutate=_mutate, default={})
-        logger.info(f"  [scrape] Cleared scraper alert for '{platform}'"
-                    f"{f' ({reason})' if reason else ''}.")
+        data_io.update_json(
+            storage_location=ALERTS_LOCATION, filename=ALERTS_FILENAME, mutate=_mutate, default={}
+        )
+        logger.info(
+            f"  [scrape] Cleared scraper alert for '{platform}'{f' ({reason})' if reason else ''}."
+        )
     except Exception as e:
         logger.warning(f"Could not clear scraper alert for '{platform}': {e}")

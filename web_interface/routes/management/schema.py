@@ -1,6 +1,5 @@
 """Variable schema / presentation endpoints (/api/manage/schema*, /api/manage/presentation)."""
 
-
 import pandas as pd
 from flask import jsonify, request
 from flask_login import login_required
@@ -20,11 +19,9 @@ from ... import activity_log
 from ...permissions import permission_required
 
 
-
 from ...services.worker_status import (
     _actor,
 )
-
 
 
 from ._blueprint import management_bp
@@ -50,7 +47,6 @@ def _df_to_records(df: pd.DataFrame) -> list[dict]:
     return out
 
 
-
 def _var_schema_admin_enabled() -> bool:
     """Off-switch for the schema admin UI.
 
@@ -62,7 +58,6 @@ def _var_schema_admin_enabled() -> bool:
     return bool(features.get("var_schema_admin", True))
 
 
-
 def _ownership_sets() -> dict:
     """Return the contract / registry-legacy membership sets, never raising.
 
@@ -72,10 +67,18 @@ def _ownership_sets() -> dict:
     (a field a CURRENT contract still owns is NOT legacy). Any set an
     unloadable contract would feed stays empty.
     """
-    sets: dict = {k: set() for k in (
-        "annotation", "scrape", "activity", "derived",
-        "annotation_legacy", "scrape_legacy", "activity_legacy",
-    )}
+    sets: dict = {
+        k: set()
+        for k in (
+            "annotation",
+            "scrape",
+            "activity",
+            "derived",
+            "annotation_legacy",
+            "scrape_legacy",
+            "activity_legacy",
+        )
+    }
     try:
         from fyp.annotation import annotation_contract as ac
 
@@ -103,9 +106,7 @@ def _ownership_sets() -> dict:
     try:
         from fyp.annotation import annotation_versioning as av
 
-        sets["annotation_legacy"] = (
-            set(av.union_field_metadata().keys()) - sets["annotation"]
-        )
+        sets["annotation_legacy"] = set(av.union_field_metadata().keys()) - sets["annotation"]
     except Exception:
         pass
     try:
@@ -117,14 +118,10 @@ def _ownership_sets() -> dict:
     try:
         from fyp.core import activity_versioning as av_act
 
-        sets["activity_legacy"] = (
-            set(av_act.union_field_metadata().keys()) - sets["activity"]
-        )
+        sets["activity_legacy"] = set(av_act.union_field_metadata().keys()) - sets["activity"]
     except Exception:
         pass
     return sets
-
-
 
 
 _ORIGIN_ORDER = (
@@ -138,8 +135,6 @@ _ORIGIN_ORDER = (
 )
 
 
-
-
 def _row_origin(variable_name: str, sets: dict) -> str:
     """Provenance label for a row, computed from contract membership.
 
@@ -151,8 +146,6 @@ def _row_origin(variable_name: str, sets: dict) -> str:
         if variable_name in sets.get(key, set()):
             return label
     return ""
-
-
 
 
 def _contract_locked_map(df, sets: dict | None = None) -> dict:
@@ -185,8 +178,11 @@ def _contract_locked_map(df, sets: dict | None = None) -> dict:
         section_owned = vn in section_owned_cols
         is_legacy = vn in legacy_cols
         meta_owned = (
-            vn in annotation_cols or vn in scrape_cols
-            or vn in activity_cols or vn in derived_cols or is_legacy
+            vn in annotation_cols
+            or vn in scrape_cols
+            or vn in activity_cols
+            or vn in derived_cols
+            or is_legacy
         )
         if meta_owned or is_annotation:
             entry = {"metadata": meta_owned, "section": is_annotation or section_owned}
@@ -196,10 +192,8 @@ def _contract_locked_map(df, sets: dict | None = None) -> dict:
     return locked
 
 
-
-
-@management_bp.route('/api/manage/schema', methods=['GET'])
-@permission_required('tab.admin.schema')
+@management_bp.route("/api/manage/schema", methods=["GET"])
+@permission_required("tab.admin.schema")
 @login_required
 def get_schema():
     if not _var_schema_admin_enabled():
@@ -224,7 +218,8 @@ def get_schema():
         # source so the read-only tooltips point at the right place.
         ac_source = ac.contract_status().get("source")
         contract_path = (
-            f"{ac.RUNTIME_FILENAME} (runtime)" if ac_source == "runtime"
+            f"{ac.RUNTIME_FILENAME} (runtime)"
+            if ac_source == "runtime"
             else "config/annotation_contract.toml (baked)"
         )
         sets = _ownership_sets()
@@ -233,57 +228,60 @@ def get_schema():
         # field), replacing the retired stored ``source`` column.
         for rec in rows:
             rec["origin"] = _row_origin(rec.get("variable_name", ""), sets)
-        return jsonify({
-            "rows": rows,
-            "columns": ["origin"] + [c for c in df.columns if c != "origin"],
-            "semantic_columns": list(SEMANTIC_COLUMNS),
-            "enums": {
-                "role": sorted(VAR_SCHEMA_ROLES),
-                "scale": sorted(VAR_SCHEMA_SCALES),
-            },
-            "contract_locked": _contract_locked_map(df, sets),
-            "contract_path": contract_path,
-            "scrape_contract_path": "config/scrape_contract.toml",
-            # The presentation store is the only admin-editable payload left
-            # (the metadata is contract-owned); its etag guards saves.
-            "presentation": presentation.get("surfaces", {}),
-            "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
-            "etag": vp.compute_presentation_etag(presentation),
-            "current_hash": compute_var_schema_hash(),
-        })
+        return jsonify(
+            {
+                "rows": rows,
+                "columns": ["origin"] + [c for c in df.columns if c != "origin"],
+                "semantic_columns": list(SEMANTIC_COLUMNS),
+                "enums": {
+                    "role": sorted(VAR_SCHEMA_ROLES),
+                    "scale": sorted(VAR_SCHEMA_SCALES),
+                },
+                "contract_locked": _contract_locked_map(df, sets),
+                "contract_path": contract_path,
+                "scrape_contract_path": "config/scrape_contract.toml",
+                # The presentation store is the only admin-editable payload left
+                # (the metadata is contract-owned); its etag guards saves.
+                "presentation": presentation.get("surfaces", {}),
+                "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
+                "etag": vp.compute_presentation_etag(presentation),
+                "current_hash": compute_var_schema_hash(),
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-
-@management_bp.route('/api/manage/schema/validate', methods=['POST'])
-@permission_required('tab.admin.schema')
+@management_bp.route("/api/manage/schema/validate", methods=["POST"])
+@permission_required("tab.admin.schema")
 @login_required
 def validate_schema_endpoint():
     """Retired: metadata is contract-owned; only presentation flags are editable."""
-    return jsonify({
-        "error": "retired",
-        "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
-                   "Presentation flags save via POST /api/manage/presentation.",
-    }), 410
+    return jsonify(
+        {
+            "error": "retired",
+            "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
+            "Presentation flags save via POST /api/manage/presentation.",
+        }
+    ), 410
 
 
-
-@management_bp.route('/api/manage/schema', methods=['POST'])
-@permission_required('tab.admin.schema')
+@management_bp.route("/api/manage/schema", methods=["POST"])
+@permission_required("tab.admin.schema")
 @login_required
 def save_schema_endpoint():
     """Retired: metadata is contract-owned; only presentation flags are editable."""
-    return jsonify({
-        "error": "retired",
-        "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
-                   "Presentation flags save via POST /api/manage/presentation.",
-    }), 410
+    return jsonify(
+        {
+            "error": "retired",
+            "message": "var_schema metadata is contract-owned; edit the contract TOMLs. "
+            "Presentation flags save via POST /api/manage/presentation.",
+        }
+    ), 410
 
 
-
-@management_bp.route('/api/manage/presentation', methods=['POST'])
-@permission_required('tab.admin.schema')
+@management_bp.route("/api/manage/presentation", methods=["POST"])
+@permission_required("tab.admin.schema")
 @login_required
 def save_presentation_endpoint():
     """Persist the global web-surface membership flags (the admin defaults).
@@ -305,10 +303,15 @@ def save_presentation_endpoint():
         if not isinstance(surfaces, dict):
             return jsonify({"error": "surfaces must be an object"}), 400
         known = set(fyp_cf["var_schema"]["variable_name"].astype("string"))
-        unknown = sorted({
-            n for names in surfaces.values() if isinstance(names, list)
-            for n in names if n not in known
-        })
+        unknown = sorted(
+            {
+                n
+                for names in surfaces.values()
+                if isinstance(names, list)
+                for n in names
+                if n not in known
+            }
+        )
         if unknown:
             return jsonify({"error": "unknown variables", "unknown": unknown}), 400
 
@@ -316,11 +319,13 @@ def save_presentation_endpoint():
         try:
             result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=_actor())
         except vp.PresentationConflict as e:
-            return jsonify({
-                "error": "conflict",
-                "message": str(e),
-                "etag": vp.compute_presentation_etag(),
-            }), 409
+            return jsonify(
+                {
+                    "error": "conflict",
+                    "message": str(e),
+                    "etag": vp.compute_presentation_etag(),
+                }
+            ), 409
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
@@ -330,7 +335,9 @@ def save_presentation_endpoint():
         if hash_changed:
             # Presentation flags are excluded from the hash by design; a change
             # here means something else drifted — surface it loudly.
-            print(f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]}).")
+            print(
+                f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]})."
+            )
         activity_log.record(
             actor=_actor(),
             category="admin",
@@ -340,5 +347,3 @@ def save_presentation_endpoint():
         return jsonify({"etag": result["etag"], "hash_changed": hash_changed})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-

@@ -37,6 +37,7 @@ def _data_io():
 
     return data_io
 
+
 REGISTRY_FILENAME = "activity_versions.json"
 REGISTRY_LOCATION = "recoded"
 LEGACY_VERSION = "acv0_legacy"
@@ -49,13 +50,9 @@ PROVENANCE_COLUMN = "activity_contract_version"
 _DESCRIPTOR_CACHE: dict = {}
 
 
-
-
 def _sha256_hex(text: str, length: int = 64) -> str:
     """Return the hex SHA-256 of ``text`` truncated to ``length`` chars."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
-
-
 
 
 def build_activity_version_descriptor(contract: dict, label: str | None = None) -> dict:
@@ -91,8 +88,6 @@ def build_activity_version_descriptor(contract: dict, label: str | None = None) 
     }
 
 
-
-
 def active_version_descriptor(fresh: bool = False) -> dict:
     """Return the version descriptor for the current activity contract.
 
@@ -113,8 +108,6 @@ def active_version_descriptor(fresh: bool = False) -> dict:
     return descriptor
 
 
-
-
 def active_activity_version(fresh: bool = False) -> str:
     """Return just the current ``activity_contract_version`` id, never raising."""
     try:
@@ -123,13 +116,9 @@ def active_activity_version(fresh: bool = False) -> str:
         return "unknown"
 
 
-
-
 def empty_registry() -> dict:
     """Return a fresh, empty version registry."""
     return {"versions": {}, "preferred": None}
-
-
 
 
 def _register_into(
@@ -157,8 +146,6 @@ def _register_into(
     return registry
 
 
-
-
 def _promote_into(registry: dict, version: str) -> dict:
     """Return a copy of ``registry`` with ``preferred`` set to ``version``."""
     registry = _copy.deepcopy(registry)
@@ -167,8 +154,6 @@ def _promote_into(registry: dict, version: str) -> dict:
     registry.pop("active", None)  # pre-2026-07 key name
     registry["preferred"] = version
     return registry
-
-
 
 
 def load_registry() -> dict:
@@ -189,15 +174,11 @@ def load_registry() -> dict:
     return empty_registry()
 
 
-
-
 def save_registry(registry: dict) -> None:
     """Persist the version registry to storage."""
     _data_io().save_json(
         data=registry, storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
-
-
 
 
 def register_version(descriptor: dict | None = None, created_at: str | None = None) -> dict:
@@ -218,13 +199,9 @@ def register_version(descriptor: dict | None = None, created_at: str | None = No
     return updated
 
 
-
-
 def get_preferred_version() -> str | None:
     """Return the currently active (promoted) activity version, if any."""
     return load_registry().get("preferred")
-
-
 
 
 def promote_version(version: str) -> dict:
@@ -232,8 +209,6 @@ def promote_version(version: str) -> dict:
     registry = _promote_into(load_registry(), version)
     save_registry(registry)
     return registry
-
-
 
 
 def list_versions() -> list[dict]:
@@ -246,8 +221,6 @@ def list_versions() -> list[dict]:
         summary["preferred"] = version == preferred
         summaries.append(summary)
     return summaries
-
-
 
 
 def union_field_metadata(versions_to_include: set | None = None) -> dict:
@@ -266,16 +239,12 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
         return {}
 
 
-
-
 def stamp_version(df: pd.DataFrame) -> pd.DataFrame:
     """Stamp the per-row ``activity_contract_version`` provenance column in place."""
     df[PROVENANCE_COLUMN] = pd.Series(
         active_activity_version(), index=df.index, dtype="string[pyarrow]"
     )
     return df
-
-
 
 
 def ensure_active_version_registered() -> str:

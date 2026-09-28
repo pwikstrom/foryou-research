@@ -65,9 +65,9 @@ _INCONCLUSIVE_DETAIL_MARKERS = ("empty media response",)
 _MEDIA_PROBE_BYTES = 64 * 1024
 _MEDIA_PROBE_TIMEOUT_S = 15
 
-_run_lock = threading.Lock()      # held for the duration of a run
-_state_lock = threading.Lock()    # guards the in-memory document
-_current: dict | None = None      # in-memory result (authoritative between saves)
+_run_lock = threading.Lock()  # held for the duration of a run
+_state_lock = threading.Lock()  # guards the in-memory document
+_current: dict | None = None  # in-memory result (authoritative between saves)
 
 
 def _now_iso() -> str:
@@ -75,18 +75,16 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-
-
-
-
 def _never_run_stub() -> dict:
     """Return the document served before any health check has ever run."""
-    return {"schema_version": 1, "overall": "never_run", "trigger": None,
-            "started_at": None, "finished_at": None, "checks": {}}
-
-
-
-
+    return {
+        "schema_version": 1,
+        "overall": "never_run",
+        "trigger": None,
+        "started_at": None,
+        "finished_at": None,
+        "checks": {},
+    }
 
 
 def _overall(checks: dict) -> str:
@@ -99,10 +97,6 @@ def _overall(checks: dict) -> str:
     if "ok" in statuses:
         return "ok"
     return "fail"
-
-
-
-
 
 
 # Cookie freshness status → chip status (green/yellow/red/grey).
@@ -128,17 +122,9 @@ def _worst_chip(*statuses: str) -> str:
     return worst
 
 
-
-
-
-
 def _chip_from_check_status(status: str | None) -> str:
     """Map a health-check status to a chip status (running/never_run → unknown)."""
     return status if status in ("ok", "warn", "fail") else "unknown"
-
-
-
-
 
 
 def _platform_summary(check: dict, cookie: dict) -> str:
@@ -156,13 +142,9 @@ def _platform_summary(check: dict, cookie: dict) -> str:
     return " · ".join(parts)
 
 
-
-
-
-
-def derive_card_health(live_cookie: dict | None = None,
-                       alerts: dict | None = None,
-                       annotation_live: dict | None = None) -> dict:
+def derive_card_health(
+    live_cookie: dict | None = None, alerts: dict | None = None, annotation_live: dict | None = None
+) -> dict:
     """Collapse the health doc + live cookie health into enrichment-card chips.
 
     Produces one green/yellow/red/grey status per scraper platform (combining
@@ -228,8 +210,11 @@ def derive_card_health(live_cookie: dict | None = None,
         # fresh availability probe until the next health-check run.
         annotation = {
             "status": "ok" if live.get("ok") else "fail",
-            "summary": (f"{live_backend} requirements OK (not yet health-checked)"
-                        if live.get("ok") else (live.get("reason") or f"{live_backend} unavailable")),
+            "summary": (
+                f"{live_backend} requirements OK (not yet health-checked)"
+                if live.get("ok")
+                else (live.get("reason") or f"{live_backend} unavailable")
+            ),
             "checked_at": None,
         }
     else:
@@ -242,20 +227,12 @@ def derive_card_health(live_cookie: dict | None = None,
     return {"ran": ran, "platforms": platforms, "annotation": annotation}
 
 
-
-
-
-
 def is_running() -> bool:
     """True while a health-check run is in flight in this process."""
     if _run_lock.acquire(blocking=False):
         _run_lock.release()
         return False
     return True
-
-
-
-
 
 
 def get_health() -> dict:
@@ -285,10 +262,6 @@ def get_health() -> dict:
     return _never_run_stub()
 
 
-
-
-
-
 def _persist(doc: dict) -> None:
     """Store the document in memory and best-effort write the local temp file."""
     global _current
@@ -299,10 +272,6 @@ def _persist(doc: dict) -> None:
             json.dump(doc, f)
     except Exception as e:
         logger.warning(f"Could not persist system health: {e}")
-
-
-
-
 
 
 def start_health_check(trigger: str) -> bool:
@@ -326,10 +295,6 @@ def start_health_check(trigger: str) -> bool:
     return True
 
 
-
-
-
-
 def maybe_start_boot_check() -> None:
     """Boot hook: run a health check unless a persisted result is still fresh.
 
@@ -338,8 +303,9 @@ def maybe_start_boot_check() -> None:
     problem must not break app startup.
     """
     try:
-        max_age_h = float(get_config().get("web", {}).get(
-            "health_check_max_age_hours", _DEFAULT_MAX_AGE_HOURS))
+        max_age_h = float(
+            get_config().get("web", {}).get("health_check_max_age_hours", _DEFAULT_MAX_AGE_HOURS)
+        )
         doc = get_health()
         finished = doc.get("finished_at")
         if finished and max_age_h > 0:
@@ -352,14 +318,16 @@ def maybe_start_boot_check() -> None:
         logger.warning(f"Boot health check could not start: {e}")
 
 
-
-
-
-
 def _run_all_checks(trigger: str) -> None:
     """Worker body: run every check sequentially, persisting after each."""
-    doc = {"schema_version": 1, "overall": "running", "trigger": trigger,
-           "started_at": _now_iso(), "finished_at": None, "checks": {}}
+    doc = {
+        "schema_version": 1,
+        "overall": "running",
+        "trigger": trigger,
+        "started_at": _now_iso(),
+        "finished_at": None,
+        "checks": {},
+    }
     _persist(doc)
 
     status_df = _load_status_frame()
@@ -367,54 +335,94 @@ def _run_all_checks(trigger: str) -> None:
 
     for platform in sc.platforms(sc.load_contract()):
         key = f"scrape_{platform}"
-        doc["checks"][key] = {"status": "running", "message": "Checking...",
-                              "detail": None, "duration_s": None, "checked_at": None}
+        doc["checks"][key] = {
+            "status": "running",
+            "message": "Checking...",
+            "detail": None,
+            "duration_s": None,
+            "checked_at": None,
+        }
         _persist(doc)
         try:
-            doc["checks"][key] = _check_platform(platform, status_df, fill_profiles.get(platform, []))
+            doc["checks"][key] = _check_platform(
+                platform, status_df, fill_profiles.get(platform, [])
+            )
         except Exception as e:
-            doc["checks"][key] = {"status": "fail", "message": "Health check crashed",
-                                  "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+            doc["checks"][key] = {
+                "status": "fail",
+                "message": "Health check crashed",
+                "detail": repr(e),
+                "duration_s": None,
+                "checked_at": _now_iso(),
+            }
         try:
             doc["checks"][key]["cookie"] = _cached_cookie_health(platform)
         except Exception:
-            doc["checks"][key]["cookie"] = {"status": "unknown", "message": "Cookie health unavailable"}
+            doc["checks"][key]["cookie"] = {
+                "status": "unknown",
+                "message": "Cookie health unavailable",
+            }
         _persist(doc)
 
-    doc["checks"]["gemini"] = {"status": "running", "message": "Checking...",
-                               "detail": None, "duration_s": None, "checked_at": None}
+    doc["checks"]["gemini"] = {
+        "status": "running",
+        "message": "Checking...",
+        "detail": None,
+        "duration_s": None,
+        "checked_at": None,
+    }
     _persist(doc)
     try:
         doc["checks"]["gemini"] = _check_annotation_backend()
     except Exception as e:
-        doc["checks"]["gemini"] = {"status": "fail", "message": "Annotation backend check crashed",
-                                   "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
-    doc["checks"]["embedding"] = {"status": "running", "message": "Checking...",
-                                  "detail": None, "duration_s": None, "checked_at": None}
+        doc["checks"]["gemini"] = {
+            "status": "fail",
+            "message": "Annotation backend check crashed",
+            "detail": repr(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
+    doc["checks"]["embedding"] = {
+        "status": "running",
+        "message": "Checking...",
+        "detail": None,
+        "duration_s": None,
+        "checked_at": None,
+    }
     _persist(doc)
     try:
         doc["checks"]["embedding"] = _check_embedding_backend()
     except Exception as e:
-        doc["checks"]["embedding"] = {"status": "fail", "message": "Embedding backend check crashed",
-                                      "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+        doc["checks"]["embedding"] = {
+            "status": "fail",
+            "message": "Embedding backend check crashed",
+            "detail": repr(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
     try:
         doc["checks"]["email"] = _check_email()
     except Exception as e:
-        doc["checks"]["email"] = {"status": "fail", "message": "Email check crashed",
-                                  "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+        doc["checks"]["email"] = {
+            "status": "fail",
+            "message": "Email check crashed",
+            "detail": repr(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
     try:
         doc["checks"]["background_tasks"] = _check_task_failures()
     except Exception as e:
         doc["checks"]["background_tasks"] = {
-            "status": "fail", "message": "Task-failure check crashed",
-            "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+            "status": "fail",
+            "message": "Task-failure check crashed",
+            "detail": repr(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
     doc["overall"] = _overall(doc["checks"])
     doc["finished_at"] = _now_iso()
     _persist(doc)
-
-
-
-
 
 
 def _check_email() -> dict:
@@ -431,17 +439,25 @@ def _check_email() -> dict:
     wanted = get_signup_email_verification_required()
     base = {"detail": None, "duration_s": None, "checked_at": _now_iso()}
     if configured:
-        msg = ("Outgoing mail configured; signups verify their email"
-               if wanted else "Outgoing mail configured; email verification is switched off")
+        msg = (
+            "Outgoing mail configured; signups verify their email"
+            if wanted
+            else "Outgoing mail configured; email verification is switched off"
+        )
         return {"status": "ok", "message": msg, **base}
     if wanted:
-        return {"status": "warn",
-                "message": "Email verification is on but outgoing mail is not configured, "
-                           "so signups are being admitted without verification",
-                **base, "detail": "Set MAIL_PASSWORD and [site].mail_sender / FYP_MAIL_SENDER"}
-    return {"status": "ok",
-            "message": "Outgoing mail not configured (no emails are sent); verification is off",
-            **base}
+        return {
+            "status": "warn",
+            "message": "Email verification is on but outgoing mail is not configured, "
+            "so signups are being admitted without verification",
+            **base,
+            "detail": "Set MAIL_PASSWORD and [site].mail_sender / FYP_MAIL_SENDER",
+        }
+    return {
+        "status": "ok",
+        "message": "Outgoing mail not configured (no emails are sent); verification is off",
+        **base,
+    }
 
 
 def _check_task_failures() -> dict:
@@ -456,8 +472,13 @@ def _check_task_failures() -> dict:
     dead = task_failures.unacknowledged_dead()
     checked_at = _now_iso()
     if not dead:
-        return {"status": "ok", "message": "No unacknowledged task failures",
-                "detail": None, "duration_s": None, "checked_at": checked_at}
+        return {
+            "status": "ok",
+            "message": "No unacknowledged task failures",
+            "detail": None,
+            "duration_s": None,
+            "checked_at": checked_at,
+        }
 
     by_task: dict[str, int] = {}
     for entry in dead:
@@ -472,29 +493,25 @@ def _check_task_failures() -> dict:
     }
 
 
-
-
-
-
 def _load_status_frame() -> pd.DataFrame | None:
     """Load the minimal enrichment-status frame used to pick test items."""
     try:
         if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
             return None
         return data_io.load_parquet_selective(
-            storage_location="recoded", filename="enrichment_status.parquet",
-            columns=["source_platform", "scraped_ok"], set_index="item_id")
+            storage_location="recoded",
+            filename="enrichment_status.parquet",
+            columns=["source_platform", "scraped_ok"],
+            set_index="item_id",
+        )
     except Exception as e:
         logger.warning(f"Could not load enrichment status for health check: {e}")
         return None
 
 
-
-
-
-
-def _pick_test_items(status_df: pd.DataFrame | None, platform: str,
-                     limit: int = _MAX_TEST_ITEMS) -> list[str]:
+def _pick_test_items(
+    status_df: pd.DataFrame | None, platform: str, limit: int = _MAX_TEST_ITEMS
+) -> list[str]:
     """Return up to ``limit`` recently-scraped item ids, most recent first.
 
     Takes the matching rows from the end: the frame is rebuilt from
@@ -519,10 +536,6 @@ def _pick_test_items(status_df: pd.DataFrame | None, platform: str,
     return [str(item_id) for item_id in reversed(matching[-limit:])]
 
 
-
-
-
-
 def _load_fill_profiles() -> dict[str, list[str]]:
     """Compute each platform's historically-expected base fields.
 
@@ -541,8 +554,10 @@ def _load_fill_profiles() -> dict[str, list[str]]:
             return {}
         base_cols = [c for c in sc.base_field_names(contract) if c not in _ORCHESTRATOR_FIELDS]
         df = data_io.load_parquet_selective(
-            storage_location="recoded", filename=filename,
-            columns=list(dict.fromkeys(["source_platform", *base_cols])))
+            storage_location="recoded",
+            filename=filename,
+            columns=list(dict.fromkeys(["source_platform", *base_cols])),
+        )
         if df is None or "source_platform" not in df.columns:
             return {}
         profiles: dict[str, list[str]] = {}
@@ -550,7 +565,8 @@ def _load_fill_profiles() -> dict[str, list[str]]:
             if not len(group):
                 continue
             profiles[str(platform)] = [
-                c for c in base_cols
+                c
+                for c in base_cols
                 if c in group.columns and group[c].notna().mean() >= _FILL_THRESHOLD
             ]
         return profiles
@@ -559,11 +575,9 @@ def _load_fill_profiles() -> dict[str, list[str]]:
         return {}
 
 
-
-
-
-
-def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str]) -> tuple[str, str | None, str | None]:
+def _check_row_format(
+    scraper, raw_df: pd.DataFrame, expected_fields: list[str]
+) -> tuple[str, str | None, str | None]:
     """Validate a fetched raw row against the contract and historical fill.
 
     Runs the row through the production canonicalization path
@@ -582,8 +596,7 @@ def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str])
         return "fail", "Metadata format drift: canonicalization failed", repr(e)
 
     row = canonical.iloc[0]
-    empty = [f for f in expected_fields
-             if f not in canonical.columns or pd.isna(row[f])]
+    empty = [f for f in expected_fields if f not in canonical.columns or pd.isna(row[f])]
     total = len(expected_fields)
     if empty:
         # Rates and plays_per_day are all derived from play_count; when only
@@ -592,18 +605,19 @@ def _check_row_format(scraper, raw_df: pd.DataFrame, expected_fields: list[str])
         # not a schema/format problem.
         play_count_derived = set(sc.per_k_sources(sc.load_contract())) | {"plays_per_day"}
         if set(empty) <= play_count_derived:
-            message = ("play_count unavailable in this environment — "
-                       "play_count-derived field(s) came back empty")
+            message = (
+                "play_count unavailable in this environment — "
+                "play_count-derived field(s) came back empty"
+            )
         else:
             message = "Metadata format drift: historically-filled field(s) came back empty"
-        return ("warn", message,
-                f"{total - len(empty)} of {total} expected fields filled OK · "
-                f"empty: {', '.join(empty)}")
+        return (
+            "warn",
+            message,
+            f"{total - len(empty)} of {total} expected fields filled OK · "
+            f"empty: {', '.join(empty)}",
+        )
     return "ok", f"all {total} expected fields filled" if total else None, None
-
-
-
-
 
 
 def _probe_media(scraper, item_id: str) -> dict:
@@ -619,37 +633,55 @@ def _probe_media(scraper, item_id: str) -> dict:
     try:
         target = scraper.media_probe_url(item_id)
     except Exception as e:
-        return {"status": "warn", "message": "Media URL resolution failed",
-                "detail": repr(e), "bytes_read": 0,
-                "duration_s": round(time.monotonic() - t0, 2)}
+        return {
+            "status": "warn",
+            "message": "Media URL resolution failed",
+            "detail": repr(e),
+            "bytes_read": 0,
+            "duration_s": round(time.monotonic() - t0, 2),
+        }
     if not target or not target.get("url"):
-        return {"status": "skipped", "message": "No media URL available for this item",
-                "detail": None, "bytes_read": 0, "duration_s": None}
+        return {
+            "status": "skipped",
+            "message": "No media URL available for this item",
+            "detail": None,
+            "bytes_read": 0,
+            "duration_s": None,
+        }
 
     try:
         headers = {**(target.get("headers") or {}), "Range": f"bytes=0-{_MEDIA_PROBE_BYTES - 1}"}
-        resp = requests.get(target["url"], headers=headers, stream=True,
-                            timeout=_MEDIA_PROBE_TIMEOUT_S)
+        resp = requests.get(
+            target["url"], headers=headers, stream=True, timeout=_MEDIA_PROBE_TIMEOUT_S
+        )
         try:
             chunk = next(resp.iter_content(chunk_size=_MEDIA_PROBE_BYTES), b"")
         finally:
             resp.close()
         duration = round(time.monotonic() - t0, 2)
         if resp.status_code in (200, 206) and chunk:
-            return {"status": "ok",
-                    "message": f"CDN served {len(chunk) // 1024}KB in {duration}s",
-                    "detail": None, "bytes_read": len(chunk), "duration_s": duration}
-        return {"status": "warn",
-                "message": f"CDN responded HTTP {resp.status_code} with {len(chunk)} bytes",
-                "detail": None, "bytes_read": len(chunk), "duration_s": duration}
+            return {
+                "status": "ok",
+                "message": f"CDN served {len(chunk) // 1024}KB in {duration}s",
+                "detail": None,
+                "bytes_read": len(chunk),
+                "duration_s": duration,
+            }
+        return {
+            "status": "warn",
+            "message": f"CDN responded HTTP {resp.status_code} with {len(chunk)} bytes",
+            "detail": None,
+            "bytes_read": len(chunk),
+            "duration_s": duration,
+        }
     except Exception as e:
-        return {"status": "warn", "message": "Media probe request failed",
-                "detail": repr(e), "bytes_read": 0,
-                "duration_s": round(time.monotonic() - t0, 2)}
-
-
-
-
+        return {
+            "status": "warn",
+            "message": "Media probe request failed",
+            "detail": repr(e),
+            "bytes_read": 0,
+            "duration_s": round(time.monotonic() - t0, 2),
+        }
 
 
 def _media_probe_bot_walled(media: dict) -> bool:
@@ -662,12 +694,17 @@ def _media_probe_bot_walled(media: dict) -> bool:
     if media.get("status") != "warn":
         return False
     text = f"{media.get('message') or ''} {media.get('detail') or ''}".lower().replace("’", "'")
-    return any(kw in text for kw in ("not a bot", "not a robot", "rate-limit",
-                                     "rate limit", "too many requests", "429"))
-
-
-
-
+    return any(
+        kw in text
+        for kw in (
+            "not a bot",
+            "not a robot",
+            "rate-limit",
+            "rate limit",
+            "too many requests",
+            "429",
+        )
+    )
 
 
 def _failure_may_be_stale_item(classified: str, detail: str) -> bool:
@@ -684,12 +721,9 @@ def _failure_may_be_stale_item(classified: str, detail: str) -> bool:
     return any(marker in detail.lower() for marker in _INCONCLUSIVE_DETAIL_MARKERS)
 
 
-
-
-
-
-def _check_platform(platform: str, status_df: pd.DataFrame | None,
-                    expected_fields: list[str]) -> dict:
+def _check_platform(
+    platform: str, status_df: pd.DataFrame | None, expected_fields: list[str]
+) -> dict:
     """Test-scrape a platform and classify the outcome.
 
     Metadata-only (``save_media=False``); the fetched row is validated against
@@ -707,10 +741,14 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
     """
     item_ids = _pick_test_items(status_df, platform)
     if not item_ids:
-        return {"status": "warn",
-                "message": "No test item available (no successfully scraped items yet)",
-                "detail": None, "duration_s": None, "checked_at": _now_iso(),
-                "item_id": None}
+        return {
+            "status": "warn",
+            "message": "No test item available (no successfully scraped items yet)",
+            "detail": None,
+            "duration_s": None,
+            "checked_at": _now_iso(),
+            "item_id": None,
+        }
 
     scraper = get_scraper(platform)
     tried: list[str] = []
@@ -724,16 +762,12 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
     if len(tried) > 1:
         skipped = len(tried) - 1
         if result["status"] == "ok":
-            result["message"] += (f" (after {skipped} unavailable "
-                                  f"item{'s' if skipped > 1 else ''})")
+            result["message"] += f" (after {skipped} unavailable item{'s' if skipped > 1 else ''})"
         else:
-            result["message"] += (f" — tried {len(tried)} previously-scraped items, "
-                                  "none of them reachable")
+            result["message"] += (
+                f" — tried {len(tried)} previously-scraped items, none of them reachable"
+            )
     return result
-
-
-
-
 
 
 def _check_one_item(scraper, item_id: str, expected_fields: list[str]) -> tuple[dict, bool]:
@@ -751,8 +785,14 @@ def _check_one_item(scraper, item_id: str, expected_fields: list[str]) -> tuple[
         cleanup_temp_files(save_path, item_id)
     duration = round(time.monotonic() - t0, 2)
 
-    result = {"status": "ok", "message": "", "detail": None, "duration_s": duration,
-              "checked_at": _now_iso(), "item_id": item_id}
+    result = {
+        "status": "ok",
+        "message": "",
+        "detail": None,
+        "duration_s": duration,
+        "checked_at": _now_iso(),
+        "item_id": item_id,
+    }
 
     if raw.empty:
         error_type = raw.attrs.get("error_type")
@@ -761,8 +801,10 @@ def _check_one_item(scraper, item_id: str, expected_fields: list[str]) -> tuple[
         result["detail"] = detail
         if error_type in THROTTLE_CATEGORIES:
             result["status"] = "warn"
-            result["message"] = (f"Throttled/bot-checked fetching {item_id} — "
-                                 "likely environmental (datacenter IP), not a code failure")
+            result["message"] = (
+                f"Throttled/bot-checked fetching {item_id} — "
+                "likely environmental (datacenter IP), not a code failure"
+            )
         elif classified.startswith("transient:"):
             result["status"] = "warn"
             result["message"] = f"Transient failure fetching {item_id}"
@@ -789,16 +831,14 @@ def _check_one_item(scraper, item_id: str, expected_fields: list[str]) -> tuple[
         # The bot wall that broke the media probe also degrades the metadata
         # response (e.g. YouTube's player response carries `duration`), so the
         # missing fields are environmental, not format drift.
-        result["message"] += (" — likely environmental: media probe hit a bot "
-                              "wall / rate limit on this IP, which also degrades metadata")
+        result["message"] += (
+            " — likely environmental: media probe hit a bot "
+            "wall / rate limit on this IP, which also degrades metadata"
+        )
     # A row came back, so the item is not stale whatever the format check said:
     # fill drift and a bot-walled media probe are real signals, not reasons to
     # move to another canary.
     return result, False
-
-
-
-
 
 
 def _check_annotation_backend() -> dict:
@@ -817,13 +857,22 @@ def _check_annotation_backend() -> dict:
     try:
         result = get_backend(backend_name).availability()
     except ValueError as e:
-        return {"status": "fail", "message": f"Backend '{backend_name}' unavailable",
-                "detail": str(e), "duration_s": None, "checked_at": _now_iso(),
-                "backend": backend_name}
-    return {"status": "ok" if result.ok else "fail",
-            "message": f"{backend_name} ready" if result.ok else result.reason,
-            "detail": None, "duration_s": None, "checked_at": _now_iso(),
-            "backend": backend_name}
+        return {
+            "status": "fail",
+            "message": f"Backend '{backend_name}' unavailable",
+            "detail": str(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+            "backend": backend_name,
+        }
+    return {
+        "status": "ok" if result.ok else "fail",
+        "message": f"{backend_name} ready" if result.ok else result.reason,
+        "detail": None,
+        "duration_s": None,
+        "checked_at": _now_iso(),
+        "backend": backend_name,
+    }
 
 
 def _check_embedding_backend() -> dict:
@@ -838,17 +887,26 @@ def _check_embedding_backend() -> dict:
     try:
         result = get_backend(backend_name).availability()
     except ValueError as e:
-        return {"status": "fail", "message": f"Embedding backend '{backend_name}' unavailable",
-                "detail": str(e), "duration_s": None, "checked_at": _now_iso()}
+        return {
+            "status": "fail",
+            "message": f"Embedding backend '{backend_name}' unavailable",
+            "detail": str(e),
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
     model_id = None
     try:
         model_id = get_backend(backend_name).model_id()
     except Exception:
         pass
     ready = f"{backend_name} ready" + (f" ({model_id})" if model_id else "")
-    return {"status": "ok" if result.ok else "fail",
-            "message": ready if result.ok else result.reason,
-            "detail": None, "duration_s": None, "checked_at": _now_iso()}
+    return {
+        "status": "ok" if result.ok else "fail",
+        "message": ready if result.ok else result.reason,
+        "detail": None,
+        "duration_s": None,
+        "checked_at": _now_iso(),
+    }
 
 
 def _check_gemini() -> dict:
@@ -856,22 +914,38 @@ def _check_gemini() -> dict:
     machine_annotation.initialize_machine()
     client = get_config()["machine"]["gemini"].get("client")
     if client is None:
-        return {"status": "fail",
-                "message": "Gemini client failed to initialize (offline or bad credentials)",
-                "detail": None, "duration_s": None, "checked_at": _now_iso()}
+        return {
+            "status": "fail",
+            "message": "Gemini client failed to initialize (offline or bad credentials)",
+            "detail": None,
+            "duration_s": None,
+            "checked_at": _now_iso(),
+        }
 
     model = get_config()["machine"]["gemini"]["model"]
     t0 = time.monotonic()
     try:
         client.models.generate_content(
-            model=model, contents="ping",
+            model=model,
+            contents="ping",
             config=google.genai.types.GenerateContentConfig(
                 max_output_tokens=1,
-                thinking_config=google.genai.types.ThinkingConfig(thinking_budget=0)))
+                thinking_config=google.genai.types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
         duration = round(time.monotonic() - t0, 2)
-        return {"status": "ok", "message": f"{model} responded in {duration}s",
-                "detail": None, "duration_s": duration, "checked_at": _now_iso()}
+        return {
+            "status": "ok",
+            "message": f"{model} responded in {duration}s",
+            "detail": None,
+            "duration_s": duration,
+            "checked_at": _now_iso(),
+        }
     except Exception as e:
-        return {"status": "fail", "message": f"{model} generation call failed",
-                "detail": repr(e), "duration_s": round(time.monotonic() - t0, 2),
-                "checked_at": _now_iso()}
+        return {
+            "status": "fail",
+            "message": f"{model} generation call failed",
+            "detail": repr(e),
+            "duration_s": round(time.monotonic() - t0, 2),
+            "checked_at": _now_iso(),
+        }

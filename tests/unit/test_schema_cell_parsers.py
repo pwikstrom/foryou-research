@@ -31,6 +31,7 @@ import fyp.annotation.recode_variables as rv
 # parse_accepted_labels
 # ---------------------------------------------------------------------------
 
+
 def test_accepted_labels_blank_to_empty() -> None:
     for blank in (None, pd.NA, ""):
         assert rv.parse_accepted_labels(blank) == []

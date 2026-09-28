@@ -68,14 +68,14 @@ def worker_env() -> dict[str, str]:
         roots.append(str(fyp_root))
 
     inherited = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p]
-    env["PYTHONPATH"] = os.pathsep.join(
-        roots + [p for p in inherited if p not in roots])
+    env["PYTHONPATH"] = os.pathsep.join(roots + [p for p in inherited if p not in roots])
     return env
 
 
 def scrape_platforms() -> list[str]:
     """Platforms registered in the scrape contract (each gets its own worker)."""
     import fyp.scrape.scrape_queues as scrape_queues
+
     return scrape_queues.registered_platforms()
 
 
@@ -189,34 +189,222 @@ def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | Non
     return _LONG_RUNNING_DEADLINES.get(name)
 
 
-
 # --- Global State ---
 # Store process handles and logs
 processes = {
     **{
-        name: {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+        name: {
+            "proc": None,
+            "logs": deque(maxlen=1000),
+            "status": "stopped",
+            "progress": {},
+            "data": {},
+            "start_time": None,
+            "last_message": "",
+            "study_name": None,
+        }
         for name in SCRAPER_PROCESS_NAMES
     },
-    "queue_annotator": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "queue_annotator_batch": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "meta_refresh_groups": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "timelines_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "recode_refresh_studies": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "pca_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "consolidate_enrichment": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "study_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "ingest_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "aio_fetch": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "collection_metadata_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "collection_delete": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "sequence_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "sessions_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "embeddings_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "video_map_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "retokenise_hashtags": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "ab_eval": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "ops_report": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "enrichment_supervisor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+    "queue_annotator": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "queue_annotator_batch": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "meta_refresh_groups": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "timelines_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "recode_refresh_studies": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "pca_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "consolidate_enrichment": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "study_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "ingest_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "aio_fetch": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "collection_metadata_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "collection_delete": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "sequence_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "sessions_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "embeddings_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "video_map_refresh": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "retokenise_hashtags": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "ab_eval": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "ops_report": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
+    "enrichment_supervisor": {
+        "proc": None,
+        "logs": deque(maxlen=1000),
+        "status": "stopped",
+        "progress": {},
+        "data": {},
+        "start_time": None,
+        "last_message": "",
+        "study_name": None,
+    },
 }
 
 process_stats = {}
@@ -234,7 +422,6 @@ def _snapshot_process_stats() -> None:
     _process_stats_snapshot.update(json.loads(json.dumps(process_stats)))
 
 
-
 def load_process_stats():
     global process_stats
     try:
@@ -248,8 +435,6 @@ def load_process_stats():
         print(f"Failed to load process stats: {e}")
         process_stats.clear()
     _snapshot_process_stats()
-
-
 
 
 def forget_process_stats(key: str) -> bool:
@@ -274,9 +459,6 @@ def forget_process_stats(key: str) -> bool:
     return True
 
 
-
-
-
 def save_process_stats():
     """Persist process_stats without clobbering concurrent writers.
 
@@ -287,6 +469,7 @@ def save_process_stats():
     in-memory dict is then resynced to the merged authoritative contents.
     """
     try:
+
         def _merge(fresh):
             fresh = fresh if isinstance(fresh, dict) else {}
             for key, value in process_stats.items():
@@ -311,8 +494,6 @@ def save_process_stats():
         print(f"Failed to save process stats: {e}")
 
 
-
-
 def enqueue_output(out, queue, process_state, name=None):
     """Drain a worker subprocess's stdout into the UI log and progress state.
 
@@ -327,9 +508,9 @@ def enqueue_output(out, queue, process_state, name=None):
         process_state: The ``processes[name]`` entry to update.
         name: The process name, used as the durable run log's key.
     """
-    for line in iter(out.readline, b''):
-        line_str = line.decode('utf-8')
-        print(line_str, end='') # Mirror to console
+    for line in iter(out.readline, b""):
+        line_str = line.decode("utf-8")
+        print(line_str, end="")  # Mirror to console
 
         # Update last message for UI
         process_state["last_message"] = line_str.strip()
@@ -356,14 +537,10 @@ def enqueue_output(out, queue, process_state, name=None):
     out.close()
 
 
-
-
 def _log_run_line(name, line_str: str) -> None:
     """Append one worker stdout line to the durable run log."""
     if name:
         run_logs.append(name, line_str)
-
-
 
 
 def monitor_process_completion(name, proc):
@@ -398,13 +575,17 @@ def monitor_process_completion(name, proc):
     # Record stats — start from any existing entry, overlay ::DATA:: emitted by the
     # process, then set the standard completion fields on top.
     merged = {**process_stats.get(name, {}), **processes[name].get("data", {})}
-    merged.update({
-        "last_success": end_time.isoformat() if outcome == "Success" else merged.get("last_success"),
-        "last_run_end_time": end_time.isoformat(),
-        "last_run_duration": duration,
-        "last_run_outcome": outcome,
-        "last_run_study": study_name
-    })
+    merged.update(
+        {
+            "last_success": end_time.isoformat()
+            if outcome == "Success"
+            else merged.get("last_success"),
+            "last_run_end_time": end_time.isoformat(),
+            "last_run_duration": duration,
+            "last_run_outcome": outcome,
+            "last_run_study": study_name,
+        }
+    )
     process_stats[name] = merged
     save_process_stats()
 
@@ -421,8 +602,9 @@ def monitor_process_completion(name, proc):
             phase="subprocess",
         )
 
-    run_logs.finalize(name, run_logs.STATE_COMPLETED if outcome == "Success"
-                      else run_logs.STATE_FAILED)
+    run_logs.finalize(
+        name, run_logs.STATE_COMPLETED if outcome == "Success" else run_logs.STATE_FAILED
+    )
 
     # Update global state to stopped
     _clear_graceful_stop(name)
@@ -442,10 +624,13 @@ def monitor_process_completion(name, proc):
             from web_interface.services import refresh_pipeline
 
             record = refresh_pipeline.load_run()
-            if (record and record.get("in_flight")
-                    and name in refresh_pipeline.STEP_ORDER
-                    and (record.get("steps", {}).get(name) or {}).get("state")
-                    in ("origin", "dispatched")):
+            if (
+                record
+                and record.get("in_flight")
+                and name in refresh_pipeline.STEP_ORDER
+                and (record.get("steps", {}).get(name) or {}).get("state")
+                in ("origin", "dispatched")
+            ):
                 threading.Thread(
                     target=run_local_refresh_run,
                     args=(record["run_id"],),
@@ -485,8 +670,9 @@ def local_pipeline_script_map() -> dict:
     }
 
 
-def run_local_refresh_run(run_id: str, finished: str | None = None,
-                          outcome: str = "Success") -> None:
+def run_local_refresh_run(
+    run_id: str, finished: str | None = None, outcome: str = "Success"
+) -> None:
     """Drive a refresh run to completion as sequential subprocesses (local dev).
 
     Same planner and the same pruning as Cloud Run; the only difference is the
@@ -528,15 +714,23 @@ def run_local_refresh_run(run_id: str, finished: str | None = None,
             _publish_local_run_summary(run_id)
             return
 
-        targets = ([(action["step"], action["task_args"])] if action["action"] == "spine"
-                   else list(action["leaves"]))
+        targets = (
+            [(action["step"], action["task_args"])]
+            if action["action"] == "spine"
+            else list(action["leaves"])
+        )
         stage_total = refresh_pipeline.stage_total(record["steps"])
         stage_index = refresh_pipeline.next_stage_index(record["steps"])
         fork_at = None
         if action["action"] == "fork":
-            fork_at = next((n for n in reversed(refresh_pipeline.STEP_ORDER)
-                            if (record["steps"].get(n) or {}).get("state")
-                            in ("origin", "dispatched")), None)
+            fork_at = next(
+                (
+                    n
+                    for n in reversed(refresh_pipeline.STEP_ORDER)
+                    if (record["steps"].get(n) or {}).get("state") in ("origin", "dispatched")
+                ),
+                None,
+            )
 
         dispatched: dict[str, dict] = {}
         failed_at = None
@@ -547,9 +741,11 @@ def run_local_refresh_run(run_id: str, finished: str | None = None,
                 failed_at = step_name
                 break
             success, msg = start_process(
-                step_name, script_path,
+                step_name,
+                script_path,
                 args=_task_args_to_cli(step_name, step_args),
-                started_by=f"auto-pipeline (after {record.get('origin')})")
+                started_by=f"auto-pipeline (after {record.get('origin')})",
+            )
             if not success:
                 print(f"[refresh-run] Failed to start {step_name}: {msg}")
                 failed_at = step_name
@@ -558,16 +754,19 @@ def run_local_refresh_run(run_id: str, finished: str | None = None,
             # to {}. Subprocess ::PROGRESS:: lines only update named keys, so
             # these survive until the step finishes.
             if step_name in processes:
-                processes[step_name]["progress"].update({
-                    "stage_index": stage_index,
-                    "stage_total": stage_total,
-                    "stage_name": step_name,
-                })
+                processes[step_name]["progress"].update(
+                    {
+                        "stage_index": stage_index,
+                        "stage_total": stage_total,
+                        "stage_name": step_name,
+                    }
+                )
             dispatched[step_name] = {}
 
             # Wait for monitor_process_completion to finish tearing the process
             # down; once proc is None its stats have been written.
             import time as _t
+
             while processes.get(step_name, {}).get("proc") is not None:
                 _t.sleep(0.5)
 
@@ -576,11 +775,9 @@ def run_local_refresh_run(run_id: str, finished: str | None = None,
                 failed_at = step_name
                 break
 
-        refresh_pipeline.record_dispatch(run_id, dispatched, prunes=prunes,
-                                         fork_at=fork_at)
+        refresh_pipeline.record_dispatch(run_id, dispatched, prunes=prunes, fork_at=fork_at)
         if failed_at:
-            refresh_pipeline.finish_run(partial=True, failed_at=failed_at,
-                                        run_id=run_id)
+            refresh_pipeline.finish_run(partial=True, failed_at=failed_at, run_id=run_id)
             _publish_local_run_summary(run_id)
             return
 
@@ -620,10 +817,12 @@ def _publish_local_run_summary(run_id: str) -> None:
             mem.pop("consolidation_impact", None)
 
 
-
-def _dispatch_cloud_task(name: str, task_args: dict,
-                         dispatch_deadline_seconds: int | None = None,
-                         schedule_delay_seconds: int | None = None) -> tuple[bool, str]:
+def _dispatch_cloud_task(
+    name: str,
+    task_args: dict,
+    dispatch_deadline_seconds: int | None = None,
+    schedule_delay_seconds: int | None = None,
+) -> tuple[bool, str]:
     """Dispatch a background task via Google Cloud Tasks.
 
     Args:
@@ -683,9 +882,11 @@ def _dispatch_cloud_task(name: str, task_args: dict,
 
         if dispatch_deadline_seconds:
             if dispatch_deadline_seconds > CLOUD_TASKS_MAX_DISPATCH_DEADLINE:
-                print(f"[CloudTasks] {name}: dispatch deadline "
-                      f"{dispatch_deadline_seconds}s exceeds the Cloud Tasks maximum; "
-                      f"clamping to {CLOUD_TASKS_MAX_DISPATCH_DEADLINE}s.")
+                print(
+                    f"[CloudTasks] {name}: dispatch deadline "
+                    f"{dispatch_deadline_seconds}s exceeds the Cloud Tasks maximum; "
+                    f"clamping to {CLOUD_TASKS_MAX_DISPATCH_DEADLINE}s."
+                )
                 dispatch_deadline_seconds = CLOUD_TASKS_MAX_DISPATCH_DEADLINE
             task.dispatch_deadline = duration_pb2.Duration(
                 seconds=dispatch_deadline_seconds,
@@ -695,6 +896,7 @@ def _dispatch_cloud_task(name: str, task_args: dict,
             from datetime import timedelta as _timedelta
 
             from google.protobuf import timestamp_pb2
+
             schedule_ts = timestamp_pb2.Timestamp()
             schedule_ts.FromDatetime(datetime.now(UTC) + _timedelta(seconds=schedule_delay_seconds))
             task.schedule_time = schedule_ts
@@ -704,31 +906,34 @@ def _dispatch_cloud_task(name: str, task_args: dict,
         import time as _time
         import traceback as _tb
         from google.api_core import exceptions as _gax_exc
+
         last_err: Exception | None = None
         for attempt in range(3):
             try:
                 response = client.create_task(parent=parent, task=task)
                 print(f"[CloudTasks] Dispatched task for {name}: {response.name}")
                 return True, "Task dispatched"
-            except (_gax_exc.ServiceUnavailable,
-                    _gax_exc.DeadlineExceeded,
-                    _gax_exc.InternalServerError) as e:
+            except (
+                _gax_exc.ServiceUnavailable,
+                _gax_exc.DeadlineExceeded,
+                _gax_exc.InternalServerError,
+            ) as e:
                 last_err = e
                 details = getattr(e, "details", lambda: None)()
                 metadata = getattr(e, "trailing_metadata", lambda: None)()
-                print(f"[CloudTasks] {type(e).__name__} dispatching {name} "
-                      f"(attempt {attempt + 1}/3): {e} | details={details!r} "
-                      f"| metadata={metadata!r}")
+                print(
+                    f"[CloudTasks] {type(e).__name__} dispatching {name} "
+                    f"(attempt {attempt + 1}/3): {e} | details={details!r} "
+                    f"| metadata={metadata!r}"
+                )
                 if attempt == 0:
                     _tb.print_exc()
-                _time.sleep(0.5 * (2 ** attempt))
+                _time.sleep(0.5 * (2**attempt))
         raise last_err if last_err else RuntimeError("Cloud Tasks dispatch failed")
 
     except Exception as e:
         print(f"[CloudTasks] Failed to dispatch {name}: {type(e).__name__}: {e}")
         return False, f"Cloud Tasks dispatch failed: {e}"
-
-
 
 
 def _drain_lease_conflict(name: str) -> str | None:
@@ -746,24 +951,24 @@ def _drain_lease_conflict(name: str) -> str | None:
             platform = name.removeprefix("queue_scraper_")
             lease = drain_lease.read_drain_lease(platform)
             if lease:
-                return (f"Blocked: {drain_lease.describe_lease(lease)} is draining "
-                        f"this queue. Wait for it to finish (or for its lease to "
-                        f"expire, ~{drain_lease.LEASE_STALE_S // 60} min after it stops).")
+                return (
+                    f"Blocked: {drain_lease.describe_lease(lease)} is draining "
+                    f"this queue. Wait for it to finish (or for its lease to "
+                    f"expire, ~{drain_lease.LEASE_STALE_S // 60} min after it stops)."
+                )
         elif name == "consolidate_enrichment":
             leases = drain_lease.active_drain_leases()
             if leases:
                 held = "; ".join(drain_lease.describe_lease(v) for v in leases.values())
-                return (f"Blocked: {held} is writing scrape data right now. "
-                        f"Consolidate after the drain finishes.")
+                return (
+                    f"Blocked: {held} is writing scrape data right now. "
+                    f"Consolidate after the drain finishes."
+                )
     except Exception as exc:
         # The lease is a guard, not a dependency — never block starts on a
         # lease-read failure.
         print(f"Drain-lease check failed (ignoring): {exc}")
     return None
-
-
-
-
 
 
 def _journal_worker_started(name: str, started_by: str, task_args: dict | None) -> None:
@@ -777,14 +982,15 @@ def _journal_worker_started(name: str, started_by: str, task_args: dict | None) 
     try:
         if started_by == "enrichment_supervisor":
             return
-        if not (name.startswith("queue_scraper_")
-                or name in ("queue_annotator", "queue_annotator_batch",
-                            "consolidate_enrichment")):
+        if not (
+            name.startswith("queue_scraper_")
+            or name in ("queue_annotator", "queue_annotator_batch", "consolidate_enrichment")
+        ):
             return
         from web_interface.services import enrichment_journal as journal
 
         ta = task_args or {}
-        platform = name[len("queue_scraper_"):] if name.startswith("queue_scraper_") else None
+        platform = name[len("queue_scraper_") :] if name.startswith("queue_scraper_") else None
         if platform:
             what = f"{journal.platform_label(platform)} scraper"
         elif name.startswith("queue_annotator"):
@@ -797,21 +1003,36 @@ def _journal_worker_started(name: str, started_by: str, task_args: dict | None) 
         if ta.get("max_batches"):
             extras.append(f"at most {ta['max_batches']} batch(es)")
         if name == "consolidate_enrichment" and "auto_refresh" in ta:
-            extras.append("with the analysis refresh" if ta.get("auto_refresh")
-                          else "without the analysis refresh")
+            extras.append(
+                "with the analysis refresh"
+                if ta.get("auto_refresh")
+                else "without the analysis refresh"
+            )
         message = f"{what} started by hand — {journal.actor_label(started_by)}"
         if extras:
             message += f" ({', '.join(extras)})"
-        journal.record("worker.started", message, platform=platform,
-                       actor=started_by or None, worker=name,
-                       batch_size=ta.get("batch_size"), max_batches=ta.get("max_batches"))
+        journal.record(
+            "worker.started",
+            message,
+            platform=platform,
+            actor=started_by or None,
+            worker=name,
+            batch_size=ta.get("batch_size"),
+            max_batches=ta.get("max_batches"),
+        )
     except Exception:
         pass
 
 
-def start_process(name: str, script_path, args: list = [], study_name: str | None = None,
-                  task_args: dict | None = None, started_by: str = "",
-                  extra_task_args: dict | None = None) -> tuple[bool, str]:
+def start_process(
+    name: str,
+    script_path,
+    args: list = [],
+    study_name: str | None = None,
+    task_args: dict | None = None,
+    started_by: str = "",
+    extra_task_args: dict | None = None,
+) -> tuple[bool, str]:
     """Start a background process. Uses Cloud Tasks on Cloud Run for eligible processes,
     otherwise falls back to subprocess.
 
@@ -846,9 +1067,11 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
 
             backend_name = active_backend_name()
             if not get_backend(backend_name).cloud_run_capable:
-                return False, (f"The '{backend_name}' annotation backend runs only on a "
-                               f"local machine — switch the backend to Gemini in "
-                               f"Admin → Backends, or run the annotator locally.")
+                return False, (
+                    f"The '{backend_name}' annotation backend runs only on a "
+                    f"local machine — switch the backend to Gemini in "
+                    f"Admin → Backends, or run the annotator locally."
+                )
         except ValueError as exc:
             return False, f"Annotation backend unavailable: {exc}"
 
@@ -860,9 +1083,11 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
 
             backend_name = active_backend_name()
             if not get_backend(backend_name).cloud_run_capable:
-                return False, (f"The '{backend_name}' embedding backend runs only on a "
-                               f"local machine — switch the backend to Gemini in "
-                               f"Admin → Backends, or run the embeddings refresh locally.")
+                return False, (
+                    f"The '{backend_name}' embedding backend runs only on a "
+                    f"local machine — switch the backend to Gemini in "
+                    f"Admin → Backends, or run the embeddings refresh locally."
+                )
         except ValueError as exc:
             return False, f"Embedding backend unavailable: {exc}"
 
@@ -902,11 +1127,13 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
                 last_msg = (status.get("progress") or {}).get("message") or "—"
                 task_failures.record_failure(
                     task=name,
-                    error=(f"Previous run found dead: status stuck at 'running' "
-                           f"with a heartbeat {age / 60:.0f} min old (last message: "
-                           f"{last_msg}). No failure was recorded by the run "
-                           f"itself — the process was most likely SIGKILLed "
-                           f"(out of memory)."),
+                    error=(
+                        f"Previous run found dead: status stuck at 'running' "
+                        f"with a heartbeat {age / 60:.0f} min old (last message: "
+                        f"{last_msg}). No failure was recorded by the run "
+                        f"itself — the process was most likely SIGKILLed "
+                        f"(out of memory)."
+                    ),
                     status_key=status_key,
                     disposition=task_failures.DISPOSITION_DEAD,
                     phase="presumed_oom",
@@ -932,12 +1159,16 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         # duplicate record under the same id, and the dispatch's record
         # arrived a moment later marking it "interrupted" (2026-09-05: every
         # third worker run showed twice, one of them "interrupted").
-        run_logs.open_run(status_key, run_id=task_args["log_run_id"],
-                          started_by=task_args["started_by"],
-                          task_args=task_args, mode="cloud")
+        run_logs.open_run(
+            status_key,
+            run_id=task_args["log_run_id"],
+            started_by=task_args["started_by"],
+            task_args=task_args,
+            mode="cloud",
+        )
         success, msg = _dispatch_cloud_task(
-            name, task_args,
-            dispatch_deadline_seconds=dispatch_deadline_for(name, task_args))
+            name, task_args, dispatch_deadline_seconds=dispatch_deadline_for(name, task_args)
+        )
         if not success:
             run_logs.abort_run(status_key, msg)
         if success:
@@ -945,6 +1176,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             # Write an immediate "running" status so the UI shows feedback
             # before the task-runner instance starts up and writes its own status.
             from web_interface.task_status import GCSStatusReporter
+
             placeholder = GCSStatusReporter(status_key)
             placeholder._status["state"] = "running"
             placeholder._status["start_time"] = datetime.now(UTC).isoformat()
@@ -979,7 +1211,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             cwd=str(PROJECT_ROOT),
-            env=env_vars
+            env=env_vars,
         )
         processes[name]["proc"] = proc
         processes[name]["status"] = "running"
@@ -1006,12 +1238,14 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
 
         # Open the durable run before the reader thread starts, so the banner
         # is the run's first line and nothing the worker prints races ahead of it.
-        run_logs.open_run(name, started_by=started_by, task_args=_ta,
-                          mode="subprocess")
+        run_logs.open_run(name, started_by=started_by, task_args=_ta, mode="subprocess")
         _journal_worker_started(name, started_by, _ta)
 
         # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name], name))
+        t = threading.Thread(
+            target=enqueue_output,
+            args=(proc.stdout, processes[name]["logs"], processes[name], name),
+        )
         t.daemon = True
         t.start()
         # Kept so monitor_process_completion can wait for the pipe to drain
@@ -1026,8 +1260,6 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         return True, "Started"
     except Exception as e:
         return False, str(e)
-
-
 
 
 def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
@@ -1203,8 +1435,6 @@ def stop_process(name: str) -> tuple[bool, str]:
     return False, "Not running"
 
 
-
-
 def graceful_stop_process(name: str) -> tuple[bool, str]:
     """Signal a process to stop after finishing its current batch."""
     # Cloud Tasks path: use GCS cancel sentinel
@@ -1226,15 +1456,11 @@ def graceful_stop_process(name: str) -> tuple[bool, str]:
     return False, "Not running"
 
 
-
-
 def _clear_graceful_stop(name: str) -> None:
     """Remove the graceful stop sentinel file for a process."""
     sentinel = GRACEFUL_STOP_DIR / f"{name}.stop"
     if sentinel.exists():
         sentinel.unlink(missing_ok=True)
-
-
 
 
 def check_graceful_stop(name: str) -> bool:

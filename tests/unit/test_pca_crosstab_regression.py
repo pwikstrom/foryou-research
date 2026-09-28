@@ -30,7 +30,6 @@ Run:
     PYTHONPATH=. python tests/unit/test_pca_crosstab_regression.py
 """
 
-
 import sys
 import traceback
 from pathlib import Path
@@ -43,9 +42,6 @@ project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
 from fyp.analysis.pca import transform_category_column_to_counts_df  # noqa: E402
-
-
-
 
 
 def _build_events(dtype_label: str) -> pd.DataFrame:
@@ -75,13 +71,12 @@ def _build_events(dtype_label: str) -> pd.DataFrame:
     else:
         raise ValueError(dtype_label)
 
-    return pd.DataFrame({
-        "collection_id": pd.array(collection_ids, dtype=target_dtype),
-        "category":      pd.array(categories,     dtype=target_dtype),
-    })
-
-
-
+    return pd.DataFrame(
+        {
+            "collection_id": pd.array(collection_ids, dtype=target_dtype),
+            "category": pd.array(categories, dtype=target_dtype),
+        }
+    )
 
 
 def test_crosstab_with_string_pyarrow_dtype() -> None:
@@ -97,9 +92,6 @@ def test_crosstab_with_string_pyarrow_dtype() -> None:
     assert counts.loc["00000000-0000-4000-8000-000000000001", "b"] == 1.0
 
 
-
-
-
 def test_crosstab_with_arrow_dtype_string() -> None:
     """The dtype my polars round-trip produces: ArrowDtype(pa.string()).
     Before the fix, this raised ArrowInvalid inside pd.crosstab."""
@@ -112,9 +104,6 @@ def test_crosstab_with_arrow_dtype_string() -> None:
     assert counts.loc["00000000-0000-4000-8000-000000000002", "c"] == 1.0
 
 
-
-
-
 def test_crosstab_with_arrow_large_string_dtype() -> None:
     """Polars' native preference: ArrowDtype(pa.large_string()).
     Same failure mode as arrow_string before the fix."""
@@ -125,23 +114,16 @@ def test_crosstab_with_arrow_large_string_dtype() -> None:
     assert counts.shape == (2, 3)
 
 
-
-
-
 def test_crosstab_with_multiple_grouping_factors() -> None:
     """Two grouping factors: the crosstab index becomes a MultiIndex.
     The list-of-Series `index=` path must continue to work."""
-    events = pd.DataFrame({
-        "collection_id": pd.array(
-            ["c1", "c1", "c2", "c2"], dtype=pd.ArrowDtype(pa.string())
-        ),
-        "cohort": pd.array(
-            ["A", "B", "A", "B"], dtype=pd.ArrowDtype(pa.string())
-        ),
-        "category": pd.array(
-            ["x", "y", "x", "x"], dtype=pd.ArrowDtype(pa.string())
-        ),
-    })
+    events = pd.DataFrame(
+        {
+            "collection_id": pd.array(["c1", "c1", "c2", "c2"], dtype=pd.ArrowDtype(pa.string())),
+            "cohort": pd.array(["A", "B", "A", "B"], dtype=pd.ArrowDtype(pa.string())),
+            "category": pd.array(["x", "y", "x", "x"], dtype=pd.ArrowDtype(pa.string())),
+        }
+    )
     counts = transform_category_column_to_counts_df(
         events,
         the_column="category",
@@ -151,22 +133,19 @@ def test_crosstab_with_multiple_grouping_factors() -> None:
     assert counts.shape == (4, 2)
 
 
-
-
-
 def test_crosstab_with_list_column_explodes_before_counting() -> None:
     """The target column can be a list-valued arrow column — elements
     are exploded to individual rows before crosstabbing."""
     list_type = pd.ArrowDtype(pa.list_(pa.string()))
-    events = pd.DataFrame({
-        "collection_id": pd.array(
-            ["c1", "c1", "c2"], dtype=pd.ArrowDtype(pa.string())
-        ),
-        "tags": pd.Series(
-            [["sport", "news"], ["news"], ["music", "sport"]],
-            dtype=list_type,
-        ),
-    })
+    events = pd.DataFrame(
+        {
+            "collection_id": pd.array(["c1", "c1", "c2"], dtype=pd.ArrowDtype(pa.string())),
+            "tags": pd.Series(
+                [["sport", "news"], ["news"], ["music", "sport"]],
+                dtype=list_type,
+            ),
+        }
+    )
     counts = transform_category_column_to_counts_df(
         events, the_column="tags", grouping_factors=["collection_id"]
     )
@@ -177,9 +156,6 @@ def test_crosstab_with_list_column_explodes_before_counting() -> None:
     assert counts.loc["c2", "music"] == 1.0
 
 
-
-
-
 TESTS = [
     test_crosstab_with_string_pyarrow_dtype,
     test_crosstab_with_arrow_dtype_string,
@@ -187,9 +163,6 @@ TESTS = [
     test_crosstab_with_multiple_grouping_factors,
     test_crosstab_with_list_column_explodes_before_counting,
 ]
-
-
-
 
 
 def main() -> int:
@@ -205,9 +178,6 @@ def main() -> int:
     total = len(TESTS)
     print(f"\n{total - fails}/{total} passed")
     return 0 if fails == 0 else 1
-
-
-
 
 
 if __name__ == "__main__":

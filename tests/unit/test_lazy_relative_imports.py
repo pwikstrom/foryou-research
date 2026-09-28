@@ -17,17 +17,9 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "web_interface"
 PACKAGE_ROOT = "web_interface"
 
 
-
-
-
-
 def _module_name(path: Path) -> str:
     rel = path.relative_to(WEB_ROOT.parent).with_suffix("")
     return ".".join(rel.parts)
-
-
-
-
 
 
 def _resolve_relative(current_module: str, node: ast.ImportFrom) -> str:
@@ -35,12 +27,8 @@ def _resolve_relative(current_module: str, node: ast.ImportFrom) -> str:
     package_parts = current_module.split(".")[:-1]
     if node.level > len(package_parts):
         return ""
-    base = package_parts[:len(package_parts) - node.level + 1]
+    base = package_parts[: len(package_parts) - node.level + 1]
     return ".".join(base + ([node.module] if node.module else []))
-
-
-
-
 
 
 def test_all_relative_imports_resolve():
@@ -56,5 +44,6 @@ def test_all_relative_imports_resolve():
                 failures.append(
                     f"{path.relative_to(WEB_ROOT.parent)}:{node.lineno} — "
                     f"'from {'.' * node.level}{node.module or ''} import ...' "
-                    f"resolves to {target or '<beyond package root>'!r}, which does not exist")
+                    f"resolves to {target or '<beyond package root>'!r}, which does not exist"
+                )
     assert not failures, "Unresolvable relative imports:\n" + "\n".join(failures)

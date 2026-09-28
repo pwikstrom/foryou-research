@@ -48,10 +48,11 @@ def canonical(monkeypatch):
     from fyp.core import fyp_config
 
     monkeypatch.setattr(
-        fyp_config, "get_config",
-        lambda *a, **k: {"site": {"app_url": CANONICAL,
-                                 "contact_email": "info@example.org",
-                                 "repo_url": REPO}},
+        fyp_config,
+        "get_config",
+        lambda *a, **k: {
+            "site": {"app_url": CANONICAL, "contact_email": "info@example.org", "repo_url": REPO}
+        },
     )
 
 
@@ -119,9 +120,7 @@ def test_every_sitemap_url_actually_serves(client):
 def test_every_public_page_is_registered(app):
     """A new public page must not be able to ship without indexing metadata."""
     registered = {
-        rule.endpoint
-        for rule in app.url_map.iter_rules()
-        if rule.endpoint.startswith("public_bp.")
+        rule.endpoint for rule in app.url_map.iter_rules() if rule.endpoint.startswith("public_bp.")
     } - NON_PAGE_ENDPOINTS
 
     assert registered | {"index"} == set(seo.PUBLIC_PAGES)
@@ -271,7 +270,8 @@ def test_structured_data_honours_an_operator_who_wants_no_repo_links(app, monkey
     from fyp.core import fyp_config
 
     monkeypatch.setattr(
-        fyp_config, "get_config",
+        fyp_config,
+        "get_config",
         lambda *a, **k: {"site": {"app_url": CANONICAL, "repo_url": ""}},
     )
 
