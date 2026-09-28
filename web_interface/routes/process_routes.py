@@ -9,20 +9,7 @@ from flask_login import current_user, login_required
 
 import web_interface.auth as auth
 from fyp.core import logging_setup
-from fyp.core.fyp_config import (
-    CONSOLIDATE_ENRICHMENT_SCRIPT,
-    EMBEDDINGS_REFRESH_SCRIPT,
-    META_REFRESH_GROUPS_SCRIPT,
-    PCA_REFRESH_SCRIPT,
-    QUEUE_ANNOTATOR_BATCH_SCRIPT,
-    QUEUE_ANNOTATOR_SCRIPT,
-    QUEUE_SCRAPER_SCRIPT,
-    RECODE_REFRESH_STUDIES_SCRIPT,
-    SESSIONS_REFRESH_SCRIPT,
-    TIMELINES_REFRESH_SCRIPT,
-    VIDEO_MAP_REFRESH_SCRIPT,
-)
-from web_interface import activity_log, run_logs, task_failures
+from web_interface import activity_log, run_logs, task_failures, worker_registry
 
 from ..permissions import user_has_permission
 from ..process_manager import (
@@ -64,43 +51,10 @@ from ..services.refresh_pipeline import (
     QUEUED_DELIVERY_GRACE_SECONDS as FORK_START_GRACE_SECONDS,  # noqa: E402
 )
 
-# Tasks that are safe for the QUEUE to retry after a failed attempt: pure
-# recomputations that rewrite their artifacts from source data, so a partial
-# run leaves nothing to reconcile. Everything else deliberately stays
-# single-attempt — see the reasons below — and its failure goes straight to
-# the ledger instead:
-#   queue_scraper_* / queue_annotator  — the queue prune is the claim; a retry
-#       either re-scrapes/re-annotates (real money) or loses the batch, and
-#       circuit-breaker / permanent-storm aborts must never be retried.
-#   queue_annotator_batch              — a retried submit could submit (and
-#       pay for) the same Gemini batch job twice.
-#   consolidate_enrichment             — a retry would double-fire the
-#       downstream refresh pipeline.
-#   collection_delete                  — destructive and partially-applied.
-#   ingest_refresh                     — ledger-guarded but partial writes.
-#   embeddings_refresh                 — NOT idempotent: shards are uuid-named
-#       appends, so a retried live link would write a duplicate shard
-#       (2026-08-14 twin-shard incident). The worker's single-flight lease
-#       makes a redelivered link exit cleanly, and a retry would also
-#       re-spend embedding credits.
-#   ab_eval                            — has its own 409 concurrency gate.
+# Tasks the Cloud Tasks queue may retry after a failed attempt (the rationale
+# for each worker's setting is in web_interface/worker_registry.py).
 QUEUE_RETRY_SAFE: set[str] = {
-    "recode_refresh_studies",
-    "meta_refresh_groups",
-    "pca_refresh",
-    "study_refresh",
-    "timelines_refresh",
-    "sequence_refresh",
-    "sessions_refresh",
-    "collection_metadata_refresh",
-    "video_map_refresh",
-    "retokenise_hashtags",
-    "benchmark_parquet_read",
-    "aio_fetch",
-    # Fully idempotent: every tick re-reads the queues/status from scratch and
-    # dispatches at most one worker, which start_process refuses if already
-    # running. A retried tick is at worst a no-op.
-    "enrichment_supervisor",
+    name for name, spec in worker_registry.WORKERS.items() if spec.retry_safe
 }
 
 # Total attempts the app is willing to see for a retry-safe task. Must not
@@ -115,6 +69,10 @@ MAX_APP_RETRIES = 4
 def api_start(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
+    if not worker_registry.WORKERS[name].generic_start:
+        # Workers with their own launch endpoint (study refresh, ingestion,
+        # deletes, reports, ...) need arguments this card door cannot supply.
+        return jsonify({"error": f"{name} is started from its own endpoint"}), 400
 
     # Refuse to start the annotator when Gemini is not configured — otherwise the
     # worker boots, finds no client, and fails every item. A pure config check
@@ -251,20 +209,6 @@ def api_start(name):
 
     study_name = data.get("study_name")
 
-    script_map = {
-        **{scraper_name: QUEUE_SCRAPER_SCRIPT for scraper_name in SCRAPER_PROCESS_NAMES},
-        "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
-        "queue_annotator_batch": QUEUE_ANNOTATOR_BATCH_SCRIPT,
-        "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
-        "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
-        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
-        "pca_refresh": PCA_REFRESH_SCRIPT,
-        "consolidate_enrichment": CONSOLIDATE_ENRICHMENT_SCRIPT,
-        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
-        "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
-        "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
-    }
-
     # Plan the run before starting the origin, so the chart can show what is
     # coming from the first poll instead of appearing only once the first
     # dependent has been dispatched.
@@ -296,7 +240,7 @@ def api_start(name):
 
     success, msg = start_process(
         name,
-        script_map[name],
+        worker_registry.worker_script(name),
         args,
         study_name=study_name,
         started_by=started_by,
@@ -715,61 +659,7 @@ def _ensure_task_functions_loaded() -> None:
         return
     _task_functions_loaded = True
 
-    from web_interface.run_ab_eval import run_ab_eval
-    from web_interface.run_aio_fetch import run_aio_fetch
-    from web_interface.run_benchmark_parquet_read import run_benchmark_parquet_read
-    from web_interface.run_collection_delete import run_collection_delete
-    from web_interface.run_collection_metadata_refresh import run_collection_metadata_refresh
-    from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
-    from web_interface.run_embeddings_refresh import run_embeddings_refresh
-    from web_interface.run_enrichment_supervisor import run_enrichment_supervisor
-    from web_interface.run_ingest_refresh import run_ingest_refresh
-    from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
-    from web_interface.run_ops_report import run_ops_report
-    from web_interface.run_pca_refresh import run_pca_refresh
-    from web_interface.run_queue_annotator import run_queue_annotator
-    from web_interface.run_queue_annotator_batch import run_queue_annotator_batch
-    from web_interface.run_queue_scraper import run_queue_scraper
-    from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
-    from web_interface.run_retokenise_hashtags import run_retokenise_hashtags
-    from web_interface.run_sequence_refresh import run_sequence_refresh
-    from web_interface.run_sessions_refresh import run_sessions_refresh
-    from web_interface.run_study_refresh import run_study_refresh
-    from web_interface.run_timelines_refresh import run_timelines_refresh
-    from web_interface.run_video_map_refresh import run_video_map_refresh
-
-    TASK_FUNCTIONS.update(
-        {
-            "consolidate_enrichment": run_consolidate_enrichment,
-            "recode_refresh_studies": run_recode_refresh_studies,
-            "meta_refresh_groups": run_meta_refresh_groups,
-            "pca_refresh": run_pca_refresh,
-            "study_refresh": run_study_refresh,
-            "queue_annotator": run_queue_annotator,
-            "queue_annotator_batch": run_queue_annotator_batch,
-            # One entry per platform; the bare name is a transition alias so an
-            # in-flight chain dispatched before the per-platform rename still runs
-            # (it defaults to the contract's default platform).
-            **{scraper_name: run_queue_scraper for scraper_name in SCRAPER_PROCESS_NAMES},
-            "queue_scraper": run_queue_scraper,
-            "timelines_refresh": run_timelines_refresh,
-            "ingest_refresh": run_ingest_refresh,
-            "aio_fetch": run_aio_fetch,
-            "collection_metadata_refresh": run_collection_metadata_refresh,
-            "collection_delete": run_collection_delete,
-            "benchmark_parquet_read": run_benchmark_parquet_read,
-            "sequence_refresh": run_sequence_refresh,
-            "sessions_refresh": run_sessions_refresh,
-            "embeddings_refresh": run_embeddings_refresh,
-            "video_map_refresh": run_video_map_refresh,
-            "retokenise_hashtags": run_retokenise_hashtags,
-            "ab_eval": run_ab_eval,
-            # Deliberately NOT in QUEUE_RETRY_SAFE: a queue retry would re-send
-            # the report email. A failed run lands in the task-failures ledger.
-            "ops_report": run_ops_report,
-            "enrichment_supervisor": run_enrichment_supervisor,
-        }
-    )
+    TASK_FUNCTIONS.update(worker_registry.load_task_functions())
 
 
 def _get_status_key(name: str, task_args: dict) -> str:

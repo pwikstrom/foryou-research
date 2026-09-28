@@ -15,6 +15,7 @@ from fyp.analysis.organize_datasets import (
 )
 from fyp.scrape import scraper_alerts
 from fyp.scrape.platform_scraper import get_scraper
+from web_interface import worker_registry
 
 from ... import activity_log
 from ...permissions import permission_required
@@ -1527,7 +1528,6 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 @permission_required("tab.data_management.refresh")
 @login_required
 def api_consolidate_enrichment():
-    from fyp.core.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
 
     if _is_worker_running("consolidate_enrichment"):
         return jsonify({"status": "error", "message": "Consolidation already running"}), 409
@@ -1616,7 +1616,7 @@ def api_consolidate_enrichment():
 
     success, msg = start_process(
         "consolidate_enrichment",
-        CONSOLIDATE_ENRICHMENT_SCRIPT,
+        worker_registry.worker_script("consolidate_enrichment"),
         task_args=task_args if task_args else None,
         started_by=_actor(),
         extra_task_args={

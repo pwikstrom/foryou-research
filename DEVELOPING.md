@@ -90,7 +90,7 @@ foryou-research/
 │   ├── __init__.py              # Import-free: docstring + __version__ only (never import submodules here)
 │   ├── core/
 │   │   ├── fyp_config.py        # Config loader; lazy get_config() + PEP 562 `fyp_cf`; root via __proj__.py sentinel or FYP_CONFIG_PATH
-│   │   ├── paths.py             # PROJECT_ROOT + the run_*.py *_SCRIPT constants + PYTHON_EXEC (re-exported from fyp_config)
+│   │   ├── paths.py             # PROJECT_ROOT + PYTHON_EXEC (re-exported from fyp_config)
 │   │   ├── data_io.py           # Unified I/O (local + GCS, parquet, JSON, ndjson); runtime register_location() + local_copy()/release_local_copy() (temp-file zip/binary reader)
 │   │   ├── types.py             # PyArrow dtype helpers and conversion
 │   │   ├── polars_ops.py        # Polars helpers for expensive pandas ops at scale

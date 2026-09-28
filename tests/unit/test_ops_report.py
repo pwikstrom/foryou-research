@@ -6,13 +6,13 @@ import pytest
 
 
 def test_ops_report_registered_everywhere():
-    """The classic four-places registration must be complete."""
-    from fyp.core.fyp_config import OPS_REPORT_SCRIPT
+    """ops_report is a registered worker, and deliberately not queue-retry-safe."""
     from web_interface import process_manager
     from web_interface.routes import process_routes
+    from web_interface.worker_registry import worker_script
 
-    assert OPS_REPORT_SCRIPT.name == "run_ops_report.py"
-    assert OPS_REPORT_SCRIPT.exists()
+    assert worker_script("ops_report").name == "run_ops_report.py"
+    assert worker_script("ops_report").exists()
     assert "ops_report" in process_manager.CLOUD_TASK_ELIGIBLE
     assert "ops_report" in process_manager.processes
 

@@ -4,6 +4,7 @@ from flask import jsonify, request
 from flask_login import login_required
 
 import fyp.annotation.annotation_versioning as annotation_versioning
+from web_interface import worker_registry
 
 from ... import activity_log
 from ...permissions import permission_required
@@ -619,7 +620,6 @@ def start_ab_eval_run():
     """
     try:
         from fyp.annotation import ab_eval
-        from fyp.core.fyp_config import AB_EVAL_SCRIPT
 
         # Explicit gate on top of start_process's own check: one A/B run at a
         # time (a second concurrent run would double the annotation spend and
@@ -670,7 +670,10 @@ def start_ab_eval_run():
         if arms_spec is not None:
             task_args["arms_spec"] = arms_spec
         success, msg = start_process(
-            "ab_eval", AB_EVAL_SCRIPT, task_args=task_args, started_by=_actor()
+            "ab_eval",
+            worker_registry.worker_script("ab_eval"),
+            task_args=task_args,
+            started_by=_actor(),
         )
         if not success:
             return jsonify({"status": "error", "message": msg}), 409

@@ -15,7 +15,7 @@ def test_sessions_refresh_registered_everywhere():
 
 
 def test_sessions_refresh_script_constant():
-    from fyp.core.fyp_config import SESSIONS_REFRESH_SCRIPT
+    from web_interface.worker_registry import worker_script
 
-    assert SESSIONS_REFRESH_SCRIPT.name == "run_sessions_refresh.py"
-    assert SESSIONS_REFRESH_SCRIPT.exists()
+    assert worker_script("sessions_refresh").name == "run_sessions_refresh.py"
+    assert worker_script("sessions_refresh").exists()

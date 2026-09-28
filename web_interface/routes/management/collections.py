@@ -19,6 +19,7 @@ from fyp.ingest.raw_names import (
     entry_display_id,
     normalize_display_id,
 )
+from web_interface import worker_registry
 
 from ... import activity_log
 from ...collection_accounts import collection_counts_by_user
@@ -155,11 +156,9 @@ def delete_collection():
     if not collection_ids:
         return jsonify({"error": "Missing collection_id"}), 400
 
-    from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
-
     success, msg = start_process(
         "collection_delete",
-        COLLECTION_DELETE_SCRIPT,
+        worker_registry.worker_script("collection_delete"),
         task_args={"collection_ids": collection_ids},
         started_by=_actor(),
     )
@@ -625,7 +624,6 @@ def _tick_now(cid: str) -> dict:
     The same mechanics as the tick endpoint below; shared here so Arm and
     "Run a cycle now" start the loop the same way.
     """
-    from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
 
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
@@ -635,7 +633,7 @@ def _tick_now(cid: str) -> dict:
             prev_start = (ce.last_tick() or {}).get("start_time")
             success, msg = start_process(
                 "enrichment_supervisor",
-                ENRICHMENT_SUPERVISOR_SCRIPT,
+                worker_registry.worker_script("enrichment_supervisor"),
                 args=["--collection-id", cid],
                 task_args={"collection_id": cid},
                 started_by=_actor(),
@@ -867,7 +865,6 @@ def tick_collection_enrichment(collection_id):
     explicit click is the authorization), so a plan can be tested end to end
     before automatic ticks are enabled.
     """
-    from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
 
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
@@ -904,7 +901,7 @@ def tick_collection_enrichment(collection_id):
         prev_start = (ce.last_tick() or {}).get("start_time")
         success, msg = start_process(
             "enrichment_supervisor",
-            ENRICHMENT_SUPERVISOR_SCRIPT,
+            worker_registry.worker_script("enrichment_supervisor"),
             args=["--collection-id", cid],
             task_args={"collection_id": cid},
             started_by=_actor(),

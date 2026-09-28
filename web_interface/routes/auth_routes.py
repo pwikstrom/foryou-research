@@ -47,6 +47,8 @@ from ..security import user_manager
 auth_bp = Blueprint("auth_bp", __name__)
 logger = logging.getLogger(__name__)
 
+from web_interface import worker_registry
+
 from ..slack_service import get_recent_messages
 
 
@@ -655,13 +657,11 @@ def api_admin_users():
 
         result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
         if cascade and unlinked:
-            from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
-
             from ..process_manager import start_process
 
             ok, pmsg = start_process(
                 "collection_delete",
-                COLLECTION_DELETE_SCRIPT,
+                worker_registry.worker_script("collection_delete"),
                 task_args={"collection_ids": unlinked},
                 started_by=current_user.username,
             )
@@ -1034,7 +1034,6 @@ def api_irrelevant_words_apply():
     run a forced full reconsolidation afterward. Refuses (409) while a scraper/annotator/
     consolidation is running, since it rewrites the same scrape parquets.
     """
-    from fyp.core.fyp_config import RETOKENISE_HASHTAGS_SCRIPT
 
     from ..process_manager import start_process
     from .management_routes import _is_worker_running, _workers_blocking_consolidate
@@ -1054,7 +1053,9 @@ def api_irrelevant_words_apply():
         ), 409
 
     success, msg = start_process(
-        "retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT, started_by=current_user.username
+        "retokenise_hashtags",
+        worker_registry.worker_script("retokenise_hashtags"),
+        started_by=current_user.username,
     )
     if success:
         activity_log.record(

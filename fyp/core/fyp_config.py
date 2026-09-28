@@ -12,79 +12,13 @@ from google.api_core.exceptions import Forbidden as google_Forbidden
 from google.cloud import storage as gcs_storage
 
 # Root discovery (FYP_CONFIG_PATH override, __proj__.py walk, the sys.path
-# append) and the PROJECT_ROOT / worker-script constants live in
+# append) and the PROJECT_ROOT / PYTHON_EXEC constants live in
 # fyp.core.paths; importing it preserves the historical import-time side
 # effects. The redundant-alias form re-exports every name so external code
 # keeps importing them from fyp.fyp_config.
-from fyp.core.paths import (
-    AB_EVAL_SCRIPT as AB_EVAL_SCRIPT,
-)
-from fyp.core.paths import (
-    AIO_FETCH_SCRIPT as AIO_FETCH_SCRIPT,
-)
-from fyp.core.paths import (
-    COLLECTION_DELETE_SCRIPT as COLLECTION_DELETE_SCRIPT,
-)
-from fyp.core.paths import (
-    COLLECTION_METADATA_REFRESH_SCRIPT as COLLECTION_METADATA_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    CONSOLIDATE_ENRICHMENT_SCRIPT as CONSOLIDATE_ENRICHMENT_SCRIPT,
-)
-from fyp.core.paths import (
-    EMBEDDINGS_REFRESH_SCRIPT as EMBEDDINGS_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    ENRICHMENT_SUPERVISOR_SCRIPT as ENRICHMENT_SUPERVISOR_SCRIPT,
-)
-from fyp.core.paths import (
-    INGEST_REFRESH_SCRIPT as INGEST_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    META_REFRESH_GROUPS_SCRIPT as META_REFRESH_GROUPS_SCRIPT,
-)
-from fyp.core.paths import (
-    OPS_REPORT_SCRIPT as OPS_REPORT_SCRIPT,
-)
-from fyp.core.paths import (
-    PCA_REFRESH_SCRIPT as PCA_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    PROJECT_ROOT as PROJECT_ROOT,
-)
-from fyp.core.paths import (
-    PYTHON_EXEC as PYTHON_EXEC,
-)
-from fyp.core.paths import (
-    QUEUE_ANNOTATOR_BATCH_SCRIPT as QUEUE_ANNOTATOR_BATCH_SCRIPT,
-)
-from fyp.core.paths import (
-    QUEUE_ANNOTATOR_SCRIPT as QUEUE_ANNOTATOR_SCRIPT,
-)
-from fyp.core.paths import (
-    QUEUE_SCRAPER_SCRIPT as QUEUE_SCRAPER_SCRIPT,
-)
-from fyp.core.paths import (
-    RECODE_REFRESH_STUDIES_SCRIPT as RECODE_REFRESH_STUDIES_SCRIPT,
-)
-from fyp.core.paths import (
-    RETOKENISE_HASHTAGS_SCRIPT as RETOKENISE_HASHTAGS_SCRIPT,
-)
-from fyp.core.paths import (
-    SEQUENCE_REFRESH_SCRIPT as SEQUENCE_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    SESSIONS_REFRESH_SCRIPT as SESSIONS_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    TIMELINES_REFRESH_SCRIPT as TIMELINES_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    VIDEO_MAP_REFRESH_SCRIPT as VIDEO_MAP_REFRESH_SCRIPT,
-)
-from fyp.core.paths import (
-    abs_project_root_path as abs_project_root_path,
-)
+from fyp.core.paths import PROJECT_ROOT as PROJECT_ROOT
+from fyp.core.paths import PYTHON_EXEC as PYTHON_EXEC
+from fyp.core.paths import abs_project_root_path as abs_project_root_path
 
 # import fyp
 

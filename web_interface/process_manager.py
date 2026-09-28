@@ -9,7 +9,7 @@ from pathlib import Path
 import fyp
 import fyp.core.data_io as data_io
 from fyp.core.fyp_config import PROJECT_ROOT, PYTHON_EXEC, active_config_path
-from web_interface import run_logs, task_failures
+from web_interface import run_logs, task_failures, worker_registry
 from web_interface.task_status import (
     force_clear_status,
     is_cloud_run,
@@ -78,89 +78,22 @@ def scrape_platforms() -> list[str]:
     return scrape_queues.registered_platforms()
 
 
-# One scraper process per platform (queue_scraper_<platform>), each draining
-# its own to_scrape_<platform>.json queue as its own Cloud Task chain.
-SCRAPER_PROCESS_NAMES = [f"queue_scraper_{p}" for p in scrape_platforms()]
+# Worker facts (names, scripts, deadlines, eligibility) live in one table,
+# web_interface/worker_registry.py; the module-level names below are views of it.
+SCRAPER_PROCESS_NAMES = worker_registry.SCRAPER_PROCESS_NAMES
 
+# Processes eligible for Cloud Tasks dispatch: every registered worker.
+CLOUD_TASK_ELIGIBLE = set(worker_registry.WORKERS)
 
-# Processes eligible for Cloud Tasks dispatch.
-CLOUD_TASK_ELIGIBLE = {
-    "consolidate_enrichment",
-    "recode_refresh_studies",
-    "meta_refresh_groups",
-    "pca_refresh",
-    "study_refresh",
-    "queue_annotator",
-    "queue_annotator_batch",
-    "timelines_refresh",
-    "ingest_refresh",
-    "aio_fetch",
-    "collection_metadata_refresh",
-    "collection_delete",
-    "benchmark_parquet_read",
-    "sequence_refresh",
-    "sessions_refresh",
-    "embeddings_refresh",
-    "video_map_refresh",
-    "retokenise_hashtags",
-    "ab_eval",
-    "ops_report",
-    "enrichment_supervisor",
-}
-CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
-
-
-# Corpus-scale sweeps that run well past Cloud Tasks' 600s default dispatch
-# deadline. pca_refresh regenerates every study's recoded frame + runs the
-# group-stats sweep (~26 min at 12 studies); recode_refresh_studies is ~7 min.
-# sessions_refresh / timelines_refresh / embeddings_refresh are self-chaining:
-# their own _DISPATCH_DEADLINE governs only the links they dispatch themselves.
-# 1800s is the Cloud Tasks MAXIMUM for HTTP targets, and a batch link can exceed
-# even that (44 min observed 2026-08-12), so sessions_refresh's initial link is
-# setup-only and its links claim their successor via CAS before chaining — see
-# run_sessions_refresh._claim_chain_dispatch.
-# Keep in sync with the workers that define _DISPATCH_DEADLINE;
-# tests/unit/test_dispatch_deadlines.py pins that.
-# Cloud Tasks rejects any HTTP-target dispatchDeadline outside [15s, 30m] with
-# a 400 at task-creation time — the task is never queued at all. 2026-09-03
-# prod: consolidate_enrichment was given 3600s and every dispatch (the armed
-# post-scrape trigger AND the admin's Consolidate button) failed with
-# "Task.dispatchDeadline must be between [15s, 30m]" until redeployed.
-# _dispatch_cloud_task clamps to this as a last line of defence; the table
-# below must never need it.
-CLOUD_TASKS_MAX_DISPATCH_DEADLINE = 1800
-
-_LONG_RUNNING_DEADLINES = {
-    "pca_refresh": 1800,
-    "recode_refresh_studies": 1800,
-    "sessions_refresh": 1800,
-    "timelines_refresh": 1800,
-    "embeddings_refresh": 1800,
-    "queue_annotator_batch": 1800,
-    # The last two pipeline steps still on the 600s default, found 2026-09-04
-    # while investigating a map task dispatched at 04:32 and not delivered
-    # until 04:55. That delay was never traced to a cause — the queue logged no
-    # attempts — but these two were the only steps in the refresh graph
-    # without an entry, and the map runs ~300s: half the default, on a budget
-    # that grows with the corpus. Every sibling already had one; the
-    # inconsistency was the bug, whatever the delay turns out to have been.
-    "video_map_refresh": 1800,
-    "meta_refresh_groups": 1800,
-    # A consolidation is normally ~2 min, but two of its modes are not: a
-    # force rebuild over the whole corpus, and the weekly shadow verification
-    # (which rebuilds scrapes AND annotations, then signature-compares three
-    # artifacts, ~13 min). 2026-09-02 prod: the shadow check ran 772-816s five
-    # times, each attempt answering 200 after Cloud Tasks had already given up
-    # at 600s and re-delivered — 66 minutes of an 8-vCPU runner for one check.
-    "consolidate_enrichment": CLOUD_TASKS_MAX_DISPATCH_DEADLINE,
-}
+CLOUD_TASKS_MAX_DISPATCH_DEADLINE = worker_registry.CLOUD_TASKS_MAX_DISPATCH_DEADLINE
 
 
 def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | None:
     """Cloud Tasks dispatch deadline for a task, or None for the 600s default.
 
-    THE single source of truth, because a deadline is a property of the worker,
-    not of who launched it. Cloud Tasks' default is 600s: a handler that runs
+    The one accessor every dispatch site uses; the values are declared per
+    worker in ``worker_registry.WORKERS``, because a deadline is a property of
+    the worker, not of who launched it. Cloud Tasks' default is 600s: a handler that runs
     longer never gets to respond, so the queue re-dispatches it from scratch up
     to max-attempts while the original attempt keeps running — the run "starts
     over and over", and for a self-chaining worker each doomed attempt spawns
@@ -172,39 +105,24 @@ def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | Non
 
     Args:
         name: Process name (per-platform scrapers included).
-        task_args: The task's arguments; only the annotator reads them (its
-            deadline scales with batch size).
+        task_args: The task's arguments. Unused (no deadline depends on them
+            any more); kept so every dispatch site can pass them.
 
     Returns:
         Deadline in seconds, or None to accept the Cloud Tasks default.
     """
-    if name == "queue_annotator":
-        # Used to scale to 3600 above 1000 items, which Cloud Tasks rejects
-        # outright (see CLOUD_TASKS_MAX_DISPATCH_DEADLINE) — the big-batch
-        # path could never have dispatched. The ceiling is the deadline.
-        return CLOUD_TASKS_MAX_DISPATCH_DEADLINE
+    spec = worker_registry.WORKERS.get(name)
+    if spec is not None:
+        return spec.deadline
     if name.startswith("queue_scraper_"):
-        return 1800
-    return _LONG_RUNNING_DEADLINES.get(name)
+        return CLOUD_TASKS_MAX_DISPATCH_DEADLINE
+    return None
 
 
 # --- Global State ---
 # Store process handles and logs
 processes = {
-    **{
-        name: {
-            "proc": None,
-            "logs": deque(maxlen=1000),
-            "status": "stopped",
-            "progress": {},
-            "data": {},
-            "start_time": None,
-            "last_message": "",
-            "study_name": None,
-        }
-        for name in SCRAPER_PROCESS_NAMES
-    },
-    "queue_annotator": {
+    name: {
         "proc": None,
         "logs": deque(maxlen=1000),
         "status": "stopped",
@@ -213,197 +131,9 @@ processes = {
         "start_time": None,
         "last_message": "",
         "study_name": None,
-    },
-    "queue_annotator_batch": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "meta_refresh_groups": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "timelines_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "recode_refresh_studies": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "pca_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "consolidate_enrichment": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "study_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "ingest_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "aio_fetch": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "collection_metadata_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "collection_delete": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "sequence_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "sessions_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "embeddings_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "video_map_refresh": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "retokenise_hashtags": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "ab_eval": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "ops_report": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
-    "enrichment_supervisor": {
-        "proc": None,
-        "logs": deque(maxlen=1000),
-        "status": "stopped",
-        "progress": {},
-        "data": {},
-        "start_time": None,
-        "last_message": "",
-        "study_name": None,
-    },
+    }
+    for name, spec in worker_registry.WORKERS.items()
+    if spec.tracked
 }
 
 process_stats = {}
@@ -648,24 +378,8 @@ def local_pipeline_script_map() -> dict:
     the local run aborts with "Unknown step". Exposed at module level so the
     invariant is unit-testable against the registry.
     """
-    from fyp.core.fyp_config import (
-        EMBEDDINGS_REFRESH_SCRIPT,
-        META_REFRESH_GROUPS_SCRIPT,
-        PCA_REFRESH_SCRIPT,
-        RECODE_REFRESH_STUDIES_SCRIPT,
-        SESSIONS_REFRESH_SCRIPT,
-        TIMELINES_REFRESH_SCRIPT,
-        VIDEO_MAP_REFRESH_SCRIPT,
-    )
-
     return {
-        "recode_refresh_studies": RECODE_REFRESH_STUDIES_SCRIPT,
-        "meta_refresh_groups": META_REFRESH_GROUPS_SCRIPT,
-        "pca_refresh": PCA_REFRESH_SCRIPT,
-        "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
-        "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
-        "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
-        "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
+        name: spec.script for name, spec in worker_registry.WORKERS.items() if spec.pipeline_step
     }
 
 

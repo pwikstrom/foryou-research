@@ -18,6 +18,7 @@ from fyp.analysis.studies import (
 from fyp.core.fyp_config import (
     fyp_cf,
 )
+from web_interface import worker_registry
 
 from ... import activity_log
 from ...data_service import (
@@ -447,11 +448,9 @@ def save_study():
             # follow-on sessions refresh here. Failure only logs — the study
             # refresh itself already succeeded.
             try:
-                from fyp.core.fyp_config import SESSIONS_REFRESH_SCRIPT
-
                 ok, start_msg = start_process(
                     "sessions_refresh",
-                    SESSIONS_REFRESH_SCRIPT,
+                    worker_registry.worker_script("sessions_refresh"),
                     task_args={"stale_only": True, "skip_if_busy": True},
                     started_by=_actor_name,
                 )

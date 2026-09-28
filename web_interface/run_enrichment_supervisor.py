@@ -41,6 +41,7 @@ import time
 from datetime import datetime, timezone
 
 import fyp.core.data_io as data_io
+from web_interface import worker_registry
 from web_interface.services import collection_enrichment as ce
 from web_interface.services import enrichment_journal as journal
 from web_interface.task_status import TaskStatusReporter
@@ -227,26 +228,6 @@ def _annotator_process() -> str:
     return "queue_annotator"
 
 
-# Subprocess-mode script paths for the workers this tick starts. On Cloud Run
-# start_process dispatches a Cloud Task and ignores the path; locally it spawns
-# the script, so both modes need an entry here.
-def _script_for(name: str):
-    from fyp.core.fyp_config import (
-        CONSOLIDATE_ENRICHMENT_SCRIPT,
-        QUEUE_ANNOTATOR_BATCH_SCRIPT,
-        QUEUE_ANNOTATOR_SCRIPT,
-        QUEUE_SCRAPER_SCRIPT,
-    )
-
-    if name.startswith("queue_scraper"):
-        return QUEUE_SCRAPER_SCRIPT
-    return {
-        "queue_annotator": QUEUE_ANNOTATOR_SCRIPT,
-        "queue_annotator_batch": QUEUE_ANNOTATOR_BATCH_SCRIPT,
-        "consolidate_enrichment": CONSOLIDATE_ENRICHMENT_SCRIPT,
-    }[name]
-
-
 def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
     from web_interface.process_manager import start_process
 
@@ -254,7 +235,11 @@ def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
     if name.startswith("queue_scraper_"):
         args = ["--platform", name[len("queue_scraper_") :]]
     return start_process(
-        name, _script_for(name), args, task_args=task_args or {}, started_by="enrichment_supervisor"
+        name,
+        worker_registry.worker_script(name),
+        args,
+        task_args=task_args or {},
+        started_by="enrichment_supervisor",
     )
 
 

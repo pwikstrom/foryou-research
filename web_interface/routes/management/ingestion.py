@@ -14,6 +14,7 @@ from fyp.core.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import get_main_collection, parse_donor_timezone
+from web_interface import worker_registry
 
 from ... import activity_log
 from ...data_service import (
@@ -108,7 +109,6 @@ def get_ingestion_sources():
 @login_required
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
-    from fyp.core.fyp_config import AIO_FETCH_SCRIPT
 
     if not _aws_credentials_available():
         return jsonify(
@@ -125,7 +125,7 @@ def fetch_aio_data():
 
     success, msg = start_process(
         "aio_fetch",
-        AIO_FETCH_SCRIPT,
+        worker_registry.worker_script("aio_fetch"),
         task_args={"hours_back": hours_back},
         started_by=_actor(),
     )
@@ -362,11 +362,10 @@ def upload_ingestion_file():
 @login_required
 def refresh_collection_metadata():
     """Regenerate _metadata.parquet from scratch using all events."""
-    from fyp.core.fyp_config import COLLECTION_METADATA_REFRESH_SCRIPT
 
     success, msg = start_process(
         "collection_metadata_refresh",
-        COLLECTION_METADATA_REFRESH_SCRIPT,
+        worker_registry.worker_script("collection_metadata_refresh"),
         started_by=_actor(),
     )
     if success:
@@ -378,9 +377,10 @@ def refresh_collection_metadata():
 @permission_required("tab.data_management.ingestion")
 @login_required
 def refresh_ingestion_collection():
-    from fyp.core.fyp_config import INGEST_REFRESH_SCRIPT
 
-    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT, started_by=_actor())
+    success, msg = start_process(
+        "ingest_refresh", worker_registry.worker_script("ingest_refresh"), started_by=_actor()
+    )
     if success:
         activity_log.record(
             actor=_actor(),

@@ -11,6 +11,8 @@ import os
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
+from web_interface import worker_registry
+
 from ..permissions import permission_required
 from ._access import current_user_ctx, owned_collection_access_error
 
@@ -294,7 +296,6 @@ def api_my_withdraw(collection_id):
     confirmation modal) — a server-side second factor against a stray click.
     """
     import fyp.core.data_io as data_io
-    from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
 
     from .. import activity_log
     from ..mail_utils import is_email, send_withdrawal_email_async
@@ -357,7 +358,7 @@ def api_my_withdraw(collection_id):
 
     success, msg = start_process(
         "collection_delete",
-        COLLECTION_DELETE_SCRIPT,
+        worker_registry.worker_script("collection_delete"),
         task_args={"collection_ids": [str(collection_id)]},
         started_by=current_user.username,
     )
@@ -419,13 +420,14 @@ def api_my_restore(collection_id):
 def api_my_process():
     """Run the ingest worker over all pending uploads (corpus-wide, same
     process the Data Management page starts). 409 = already running."""
-    from fyp.core.fyp_config import INGEST_REFRESH_SCRIPT
 
     from .. import activity_log
     from ..process_manager import start_process
 
     success, msg = start_process(
-        "ingest_refresh", INGEST_REFRESH_SCRIPT, started_by=current_user.username
+        "ingest_refresh",
+        worker_registry.worker_script("ingest_refresh"),
+        started_by=current_user.username,
     )
     if success:
         activity_log.record(
