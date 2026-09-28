@@ -24,6 +24,21 @@ public version. Entries below describe the Hub as it stands at that release.
   content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
   checks that `docs/routes.md` matches the URL map and that the release
   version agrees across its five files. No behaviour change.
+- **Internal: single sources of truth for workers, accessors and route
+  checks.** Every background worker is declared once in
+  `web_interface/worker_registry.py` (script, entry point, Cloud Tasks
+  deadline, retry safety, launch surfaces); the nine tables that used to repeat
+  those facts, and every chained link's deadline, derive from it, and the
+  `fyp` library no longer holds the web app's worker script paths. Shared
+  helpers replace copied code: `fyp.core.runtime` (config, labels, Cloud Run
+  detection, graceful stop), `VIDEO_VIEW_TYPES` for the play/observe pair,
+  the scrapers' download-and-store steps, the stub-login test client, and one
+  study-parameter check for the analysis endpoints. No behaviour change;
+  verified by before/after snapshots of the worker wiring and of every
+  route's anonymous and missing-/denied-study responses.
+- **Faster status polling and user lookups.** Hot request paths read their
+  JSON in one storage round-trip instead of an existence probe plus a read
+  (a task-status read on GCS: ~129 ms → ~62 ms).
 - **Internal: tests that could not fail now can.** 34 checks in the ab_eval
   and var-schema tests only printed their result; eleven test files ran no
   test under pytest; one golden test was missing from the safety-net runner.
@@ -207,6 +222,13 @@ public version. Entries below describe the Hub as it stands at that release.
   parts of the Admin tab raised an error for roles without that tab. Both now
   live once in `static/js/core/dom_utils.js`, loaded on every page, and a test
   fails if two scripts define the same global.
+- **Saving a video tag or vote can no longer blank the user's file** after a
+  transient storage error: the read-modify-write now fails instead of saving
+  over an unread file.
+- **Arming consolidation after starting a scrape/annotate queue no longer
+  depends on another script's globals for its CSRF token.** Scripts set no
+  CSRF header by hand any more; the shared fetch wrapper in `main.js` adds it
+  to every write request.
 - **Local `docker build` no longer copies `config/config.local.toml`** into the
   image (Cloud Build already excluded it).
 
