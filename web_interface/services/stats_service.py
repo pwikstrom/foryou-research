@@ -1,7 +1,6 @@
 """Study-stats and date-window helpers shared by the management endpoints.
 
-Pure moves from ``web_interface/routes/management_routes.py`` (Phase 7b) —
-event-window filtering, study stats calculation/estimation, design feedback,
+Event-window filtering, study stats calculation/estimation, design feedback,
 and consolidation-staleness evaluation. ``_calculate_stats``,
 ``_compute_universe_enrichment`` and the window filters are also consumed by
 the ``run_study_refresh`` worker (via the ``management_routes`` shim).
@@ -399,10 +398,10 @@ def _calculate_stats(
     _t_total = _time.perf_counter()
 
     # 1. Load enrichment status once (used for both dataset creation and stats matching).
-    # We previously tried backgrounding this load, but simple_sample_collection_events
-    # reloaded the parquet for its diagnostic summary, defeating the parallelism and
-    # causing a duplicate read. Serial load + pass-through is simpler and lets callees
-    # reuse the DataFrame without a second GCS round-trip.
+    # Loaded serially and passed through rather than in the background: a
+    # background load gains nothing because simple_sample_collection_events
+    # would reload the parquet for its diagnostic summary anyway. Pass-through
+    # lets callees reuse the DataFrame without a second GCS round-trip.
     _t_phase = _time.perf_counter()
     df_status = None
     if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
@@ -1177,9 +1176,9 @@ def _evaluate_consolidation_staleness() -> dict:
         # process's memory: the copy loaded at the top of this function is
         # already seconds old by here (one status read per pipeline step), and a
         # write by another instance in that window would be put back to its
-        # pre-write state. 2026-09-03: a stats poll 0.7 s after "Consolidate"
-        # was armed erased the fresh `auto_armed` flag this way, and the armed
-        # refresh never fired.
+        # pre-write state (a stats poll 0.7 s after "Consolidate" is armed can
+        # erase the fresh `auto_armed` flag this way, so the armed refresh
+        # never fires).
         load_process_stats()
         fresh_entry = process_stats.get("consolidate_enrichment", {})
         if fresh_entry.pop("consolidation_impact", None) is not None:

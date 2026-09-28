@@ -1,3 +1,8 @@
+"""Account and administration routes.
+
+Login, signup, email verification and logout; the admin user, role, permission
+and settings APIs; and each user's own settings, profile and variable catalog."""
+
 import logging
 import os
 from datetime import datetime, timezone
@@ -384,19 +389,16 @@ def api_admin_users():
 
             # Try to load file directly (data_io.load_json returns None if missing/fail)
             try:
-                # print(f"[DEBUG] Attempting to load {user_filename} for user {u.username}")
                 user_data_file = data_io.load_json(storage_location="users", filename=user_filename)
 
                 # Try lowercase if failed
                 if not user_data_file:
-                    # print(f"[DEBUG] Failed to load {user_filename}, trying lowercase...")
                     user_filename_lower = f"{u.username.lower()}.json"
                     user_data_file = data_io.load_json(
                         storage_location="users", filename=user_filename_lower
                     )
 
                 if user_data_file:
-                    # print(f"[DEBUG] Successfully loaded data for {u.username}")
                     user_annotations = user_data_file.get("annotations", {})
 
                     notes_count = 0

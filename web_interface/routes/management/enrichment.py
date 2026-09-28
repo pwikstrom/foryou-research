@@ -349,7 +349,7 @@ def get_enrichment_stats():
     # deliberately long: the costs are asymmetric. A crash leaves the cards
     # locked for ten minutes; a false positive kills a healthy run in the
     # sub-second gap between one step completing and the next dispatching,
-    # which is what a 60 s window did twice on 2026-09-04.
+    # which a 60 s window does.
     # An outstanding fan-out is NOT abandoned: a leaf dropped by a 429 is
     # redelivered by the queue minutes later, and resolve_forked_pipeline owns
     # that window with its own (much longer) grace. Clearing the run here at 60s
@@ -380,8 +380,8 @@ def get_enrichment_stats():
             # whichever web instance answers, and save_process_stats writes the
             # WHOLE entry from this process's memory. An instance whose copy
             # predated another instance's write would put its stale entry back —
-            # 2026-09-03 that erased a fresh `auto_armed` flag 47 s after it was
-            # set, and the armed refresh never fired.
+            # e.g. erasing a fresh `auto_armed` flag seconds after it was set, so
+            # the armed refresh never fires.
             refresh_run = (
                 refresh_pipeline.finish_run(
                     partial=True, reason="abandoned", run_id=refresh_run.get("run_id")
@@ -961,8 +961,8 @@ def calculate_to_scrape():
         df_study = None
 
         if data_io.exists(storage_location="cache", filename=recoded_fn):
-            # Load only the required column if possible, but load_parquet loads all if columns not provided properly or we can just load the whole file.
-            # Actually, calculate_to_scrape only really needs item_id. The full load is fine as the files are usually small enough, but let's just load it.
+            # calculate_to_scrape needs only item_id, but recoded study files
+            # are small enough that loading the whole file is fine.
             df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
 
         if df_study is None or df_study.empty:

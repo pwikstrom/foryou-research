@@ -1,3 +1,8 @@
+"""Data engine behind the Explore tab.
+
+Column classification, per-column metadata and slider bounds, filtering and
+free-text search over a study frame, and summary statistics."""
+
 import datetime as _dt
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -345,7 +350,7 @@ def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
     first casts the column to pandas' own string dtype — a full copy of every
     byte with offsets widened 4 -> 8 bytes per row. A global search sweeps 78
     of this schema's 119 columns, and holding a copy of each one at once
-    exhausted a 16 GiB instance on a 2.4M-row study (2026-08-17). Matching in
+    exhausts a 16 GiB instance on a 2.4M-row study. Matching in
     place allocates only the mask.
 
     Columns Arrow cannot match as text directly — timestamps, booleans, and
@@ -371,8 +376,8 @@ def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
             pa.types.is_string(pa_type.value_type) or pa.types.is_large_string(pa_type.value_type)
         ):
             if " " in term:
-                # Elements used to be joined with a space before matching, so a
-                # term spanning two of them matched. Preserve that by joining
+                # A term containing a space may span two list elements, so
+                # match it against the elements joined with a space — joining
                 # only for the terms that can span — the join is transient and
                 # this column alone, not the corpus.
                 hits = pc.fill_null(

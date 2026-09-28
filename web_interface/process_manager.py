@@ -1,3 +1,9 @@
+"""Starts, stops and tracks the Hub's ``run_*`` workers.
+
+Workers run as local subprocesses in development and as Cloud Tasks on Cloud
+Run. This module also keeps ``process_stats``, the shared record of their runs;
+the worker facts themselves are declared in :mod:`web_interface.worker_registry`."""
+
 import json
 import os
 import subprocess
@@ -35,10 +41,9 @@ def worker_env() -> dict[str, str]:
     answers first — under an editable venv install that is the checkout pip was
     pointed at, not necessarily the one this server runs from. Either route can
     land the child on a different ``config.toml`` (and its gitignored
-    ``config.local.toml`` overlay), which means a different data store. On
-    2026-08-28 that is exactly what happened: workers spawned during a local
-    end-to-end test read and pruned the production scrape queue while the
-    server itself was on the local store.
+    ``config.local.toml`` overlay), which means a different data store: workers
+    spawned during a local end-to-end test can read and prune the production
+    scrape queue while the server itself is on the local store.
 
     Two pins remove both degrees of freedom. ``FYP_CONFIG_PATH`` names the
     config file this process actually loaded, which both root-discovery paths
@@ -97,11 +102,10 @@ def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | Non
     longer never gets to respond, so the queue re-dispatches it from scratch up
     to max-attempts while the original attempt keeps running — the run "starts
     over and over", and for a self-chaining worker each doomed attempt spawns
-    its own chain. 2026-08-04 pca_refresh looped this way; 2026-08-16 the same
-    trap hit timelines_refresh from the *pipeline* side, where every dispatch
-    site (spine advance, fork leaves, refresh-downstream) omitted the deadline
-    that ``start_process`` was careful to pass — four concurrent chains writing
-    one status file, which is what made the progress bar jump backwards.
+    its own chain. Every dispatch site (``start_process``, the pipeline's spine
+    advance, fork leaves, refresh-downstream) must pass the deadline: one that
+    omits it yields concurrent chains writing one status file, which shows up
+    as a progress bar jumping backwards.
 
     Args:
         name: Process name (per-platform scrapers included).
@@ -827,8 +831,7 @@ def start_process(
             # A stale 'running' status is a corpse: the run died without ever
             # reaching the failure wrapper, which for these workers means a
             # SIGKILL (out of memory) — no traceback, no ledger entry, so
-            # repeated silent deaths go unnoticed (pca_refresh died this way
-            # three times, 2026-08-08/09). Dead-letter it HERE: the dispatch
+            # repeated silent deaths go unnoticed. Dead-letter it HERE: the dispatch
             # below writes a fresh 'running' placeholder, so by the time the
             # task runner starts, the corpse is already overwritten and
             # unobservable from that side. Never raises.
@@ -863,11 +866,10 @@ def start_process(
         task_args["log_run_id"] = task_args.get("log_run_id") or run_logs.new_run_id()
 
         # Open the run BEFORE the task exists. A hot task runner picks a task
-        # up within ~200 ms of its creation — faster than this write landed —
-        # and the worker's attach_run then found nothing to adopt, opened a
-        # duplicate record under the same id, and the dispatch's record
-        # arrived a moment later marking it "interrupted" (2026-09-05: every
-        # third worker run showed twice, one of them "interrupted").
+        # up within ~200 ms of its creation — faster than this write lands —
+        # and the worker's attach_run would then find nothing to adopt, open a
+        # duplicate record under the same id, and the dispatch's record would
+        # arrive a moment later marking it "interrupted".
         run_logs.open_run(
             status_key,
             run_id=task_args["log_run_id"],

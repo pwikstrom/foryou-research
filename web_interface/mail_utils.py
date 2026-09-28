@@ -1,3 +1,8 @@
+"""Outgoing email over SMTP.
+
+Verification, welcome, invitation, admin-notification, withdrawal and
+annotation-batch messages, most with a fire-and-forget ``*_async`` variant."""
+
 import logging
 import os
 import re

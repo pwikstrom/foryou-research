@@ -20,8 +20,8 @@ run modes, decided at the setup link:
   derives the subset by comparing each collection's coverage windows and
   in-window play count against the per-collection provenance block in
   sessions_meta.json; global invalidators (model/params/schema change,
-  missing meta, and — since 2026-08-16 — a changed embedding store or
-  annotation corpus) escalate to full.
+  missing meta, and a changed embedding store or annotation corpus) escalate
+  to full.
 * **noop** (``stale_only`` with nothing stale): return immediately without
   touching anything.
 
@@ -33,10 +33,9 @@ The chain is pinned to one corpus-mean fingerprint at link 0: if the shard
 store moves mid-run (an embeddings_refresh appended a shard), later links see
 CorpusMeanDrift and restart the chain from scratch — bounded at
 MAX_CHAIN_RESTARTS — rather than publish an artifact whose halves were
-centred on different means. Since 2026-08-16 a store that moved *between*
-runs escalates to a full rebuild too, so the residual ``corpus_mean_drift``
-meta flag only marks the degraded case where the store could not be read at
-all.
+centred on different means. A store that moved *between* runs escalates to
+a full rebuild too, so the residual ``corpus_mean_drift`` meta flag only marks
+the degraded case where the store could not be read at all.
 
 Locally it loops the same links in one subprocess.
 """
@@ -65,7 +64,7 @@ COLLECTIONS_PER_BATCH = 8
 # collections (biggest first) until it holds PLAYS_PER_BATCH plays or
 # MAX_COLLECTIONS_PER_BATCH collections. With a fixed count of 8 the tail
 # links were eight tiny collections each and ~40 s of pure per-link overhead
-# (loads + dispatch) for a second of segmentation (prod, 2026-09-02); the
+# (loads + dispatch) for a second of segmentation (measured in production); the
 # budget folds that tail into one or two links while the biggest collections
 # still get links of their own. Segmentation is parallel within a link, so a
 # bigger link costs wall time only in proportion to its plays.
@@ -125,10 +124,10 @@ def _flag(value) -> bool:
 def _manifest_n_plays(value) -> int:
     """Read a manifest ``counts`` entry as a play count.
 
-    Before 2026-08-16 the entry was ``[n_plays, n_annotated]``; the annotated
-    term was dropped (it was structurally always 0 — see
-    :func:`session_explorer.discover_covered_collections`). A chain that was
-    already in flight across the deploy still carries the list shape in its
+    The legacy shape is ``[n_plays, n_annotated]``; the annotated term was
+    dropped (it was structurally always 0 — see
+    :func:`session_explorer.discover_covered_collections`). A chain in flight
+    across a deploy that changed the shape still carries the list in its
     progress file, and its final link runs on the new code.
     """
     if isinstance(value, (list, tuple)):
@@ -248,8 +247,8 @@ def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
     A link that outlives its Cloud Tasks dispatch deadline is retried by the
     platform while the original execution keeps running — both eventually try
     to chain, and without this claim the chain FORKS into concurrent
-    duplicates (2026-08-11/12: four chains re-segmented the corpus in
-    parallel; the anti-partial-publish guard then failed the stragglers).
+    duplicates (four chains have been seen re-segmenting the corpus in
+    parallel, with the anti-partial-publish guard then failing the stragglers).
     The first execution to CAS its chunk into the progress file's
     ``dispatched`` set chains; every other execution of the same link stops.
 
@@ -396,7 +395,7 @@ def run_sessions_refresh(
     # mean pinning, stale-file sweep — then it chains immediately. It must
     # never process a batch: the initial task runs under the Cloud Tasks
     # dispatch deadline (1800s max for HTTP targets), and a batch link can
-    # exceed that (44 min observed 2026-08-12), which makes Cloud Tasks
+    # exceed that (44 min observed), which makes Cloud Tasks
     # retry the "failed" dispatch and fork a duplicate chain while the
     # original keeps running. Setup completes in seconds, so the deadline is
     # trivially met and retries of the initial task can no longer fork.

@@ -58,8 +58,8 @@ sessions_bp = Blueprint("sessions_bp", __name__)
 
 # Default for the ad-hoc ``min_emb_plays`` quality filter (query-time only —
 # the artifact itself is unfiltered). From the embedding-entropy study's donor
-# floors, adapted to the single-session grain. The coverage floor that used to
-# sit beside it is now an admin setting; see _session_floors.
+# floors, adapted to the single-session grain. The coverage floor is an admin
+# setting; see _session_floors.
 DEFAULT_MIN_EMB_PLAYS = 5
 OVERVIEW_LIMIT_DEFAULT = 200
 OVERVIEW_LIMIT_MAX = 1000

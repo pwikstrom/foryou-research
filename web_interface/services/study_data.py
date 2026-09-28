@@ -1,8 +1,7 @@
 """Study/explorer data loading, caches and user-tag enrichment.
 
-Pure moves from web_interface/data_service.py (Phase 7c). StudyCache and its
-double-checked locking are verbatim; every cache singleton keeps its identity
-via the data_service facade re-exports."""
+Re-exported through :mod:`web_interface.data_service`; every cache singleton
+keeps its identity across those re-exports."""
 
 import threading
 import time
@@ -34,7 +33,7 @@ class StudyCache:
         # hasattr-guarded creation let two first-ever requests each make their
         # own lock and load concurrently, doubling peak RAM). Deliberately
         # global rather than per-study: two multi-GB studies loading at once
-        # is exactly the shape that OOM-killed the instance on 2026-08-03.
+        # is exactly the shape that OOM-kills the instance.
         self.loading_lock = threading.Lock()
 
     def get(self, study_name, current_mtime=None):
@@ -681,9 +680,9 @@ def _cached_study_frame(study, verbose=False):
 
         # Loading holds the raw frame AND the filtered result in memory at
         # once (the context mask reads the raw frame), so a very large study
-        # cannot fit alongside previously cached frames — on 2026-08-03 the
-        # all_collections load (7.25 GB raw + 5.52 GB filtered) OOM-killed
-        # the 16 GiB instance because two other studies were still cached.
+        # cannot fit alongside previously cached frames — the all_collections
+        # load (7.25 GB raw + 5.52 GB filtered) OOM-kills a 16 GiB instance
+        # while two other studies are still cached.
         # Evict everything else FIRST when the incoming study is big; eviction
         # at insert time (the LRU default) happens after the peak. A missing
         # sidecar reads as big — the cost of over-evicting is a re-load,
@@ -725,10 +724,9 @@ def _cached_study_frame(study, verbose=False):
         # since a rewritten parquet changes the mtime and invalidates the entry.
         # Assigning the index (rather than reset_index) rebinds the axis without
         # copying the columns; filtered_df is this function's own fresh object.
-        # This also retires the hash-engine warm-up that used to stand here: a
-        # RangeIndex resolves labels arithmetically and builds no shared lazy
-        # engine, so the race that made a concurrent prefetch pair miss a valid
-        # row_idx cannot happen on it.
+        # A RangeIndex also needs no hash-engine warm-up: it resolves labels
+        # arithmetically and builds no shared lazy engine, so a concurrent
+        # prefetch pair cannot race on it and miss a valid row_idx.
         filtered_df.index = pd.RangeIndex(len(filtered_df))
 
         # Re-read the mtime *after* loading so the cache entry is
@@ -1099,8 +1097,8 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
             else:
                 id_to_tags[str_id] = list(tags)
 
-    # Was: if not annotated_ids: return early.
-    # We continue now to ensure "Has Annotation" is present even if empty.
+    # No early return when nothing is annotated: "Has Annotation" must be
+    # present even if empty.
 
     cols = {}
     ctypes = {}

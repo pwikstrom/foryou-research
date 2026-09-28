@@ -44,10 +44,10 @@ def _warm_worker_imports() -> None:
     fail with "cannot import name 'analyse_timeline'". It reproduces
     8-times-in-9 with a barrier in front of the same three imports.
 
-    Prod lost 5-7 collections per batch to exactly this on 2026-08-15, and only
-    on CHAIN LINKS: link 0 runs ``_discover_collections`` first, which resolves
-    the same module single-threaded, so its pool was always warm. Links 1..n
-    skip discovery and went straight to the pool. Calling this from the parent
+    In production this cost 5-7 collections per batch, and only on CHAIN
+    LINKS: link 0 runs ``_discover_collections`` first, which resolves the
+    same module single-threaded, so its pool is always warm. Links 1..n skip
+    discovery and go straight to the pool. Calling this from the parent
     thread gives every link link-0's head start.
 
     Since the batch moved onto forked processes the same call matters for a
@@ -432,9 +432,8 @@ def _process_batch(
     batch_total = len(collection_ids)
     valid_count = 0
     _t_batch = time.perf_counter()
-    # Per-collection compute seconds, so a slow batch can be attributed. Before
-    # this the log only said "Collection 9/15" at completion and the 13-minute
-    # batch of 2026-09-03 could not be explained from the record.
+    # Per-collection compute seconds, so a slow batch can be attributed: a bare
+    # "Collection 9/15" at completion cannot explain a 13-minute batch.
     unit_secs: dict[str, float] = {}
     done: set[str] = set()
 
@@ -479,11 +478,11 @@ def _process_batch(
         max_workers = 1
 
     if max_workers > 1:
-        # Threads were what ran here before, and they delivered no
-        # parallelism: the aggregation is pandas over object columns (lists,
-        # strings) and holds the GIL — measured 2026-09-03, 8 threads ran 8
-        # units in 27 s against 3.5 s for one (1.1×); 8 forked processes ran
-        # them in 4.6 s (6.2×). The children compute only; the parent writes.
+        # Processes, not threads: threads deliver no parallelism here, because
+        # the aggregation is pandas over object columns (lists, strings) and
+        # holds the GIL — measured, 8 threads ran 8 units in 27 s against 3.5 s
+        # for one (1.1×); 8 forked processes ran them in 4.6 s (6.2×). The
+        # children compute only; the parent writes.
         reporter.log(f"Using {max_workers} worker processes.")
         _FORK_CTX.clear()
         _FORK_CTX.update(

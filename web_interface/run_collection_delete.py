@@ -1,3 +1,7 @@
+"""Worker: delete collections from the dataset and rebuild what they touched.
+
+Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
+
 import json
 import sys
 import time
@@ -261,11 +265,11 @@ def run_collection_delete(
     # 9. Reconcile the former owners' auto-managed study pairs: shrink their
     # SELECTED_COLLECTIONS, or remove the pair when nothing is owned any more.
     # Owners come from the pre-delete tags snapshot — the live entries are
-    # already gone. Runs BEFORE the refresh dispatch below: on 2026-09-14 a
-    # participant's only collection was deleted, the refresh for their Just Me
-    # study was dispatched first, and this step then removed the study — the
-    # refresh ran against a definition that no longer existed, retried four
-    # times and dead-lettered. Never fails the delete.
+    # already gone. Runs BEFORE the refresh dispatch below: otherwise deleting
+    # a participant's only collection dispatches a refresh for their Just Me
+    # study, this step then removes the study, and the refresh runs against a
+    # definition that no longer exists, retries and dead-letters. Never fails
+    # the delete.
     try:
         from web_interface.services.participant_studies import sync_for_cids
 
@@ -284,7 +288,7 @@ def run_collection_delete(
 
     # 10. Dispatch a study_refresh for each affected study that still exists so
     # its cache rebuilds without the deleted collection. Done from inside this
-    # worker so we get the same dispatch path the delete route used to use.
+    # worker, through the same dispatch path the routes use.
     refresh_targets = _refresh_targets(affected_studies, fyp_cf.get("study_defs") or {})
     reporter.update_progress(
         95,

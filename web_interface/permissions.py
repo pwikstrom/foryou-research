@@ -127,35 +127,34 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
     "tab.my_stuff.preferences",
     "tab.my_stuff.video_tags",
     "tab.my_stuff.profile",
-    # 2026-07 (S4): the vote endpoints used to be ungated for any logged-in
-    # user; existing roles keep voting, the student role (skip-listed) does not.
+    # The vote endpoints were originally open to any logged-in user; existing
+    # roles keep voting, the student role (skip-listed) does not.
     # Note: grant-all keys are re-appended every boot, so they cannot be
     # durably revoked from a non-skipped role via the admin matrix.
     "feature.annotation_votes",
-    # 2026-08 My Collections: strictly the user's own donated data (ownership
+    # My Collections: strictly the user's own donated data (ownership
     # gate on every endpoint), so granting it to every role is safe — a holder
     # with no linked collection only ever sees the empty state.
     "tab.my_stuff.my_collections",
 ]
 
-# Implied grants for the 2026-07 Admin-tab restructure: pages that used to live
-# inside a broader sub-page (General, Variable Visibility) became their own
-# sidebar entries with their own keys. Any role that held the old umbrella key
-# gets the split-out keys, so existing roles keep seeing exactly what they saw.
-# (The new "tab.admin.scrapers" page is deliberately NOT implied — it is new
-# functionality, granted explicitly or via the admin role.)
+# Implied grants for pages split out of a broader sub-page (General, Variable
+# Visibility) into sidebar entries with their own keys. Any role that holds the
+# umbrella key gets the split-out keys, so existing roles keep seeing exactly
+# what they saw. ("tab.admin.scrapers" is deliberately NOT implied — it is
+# separate functionality, granted explicitly or via the admin role.)
 PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
     "tab.admin.general": ["tab.admin.backends", "tab.admin.stoplist"],
-    # 2026-08 Daily Ops Report page: a read view over the same operational
+    # Daily Ops Report page: a read view over the same operational
     # state System Information exposes, so it rides with that key.
     "tab.admin.system_info": ["tab.admin.ops_report"],
     "tab.admin.schema": ["tab.admin.versions", "tab.admin.ab_eval"],
-    # 2026-07 read-only Data Contracts page: version history for the scrape /
+    # Read-only Data Contracts page: version history for the scrape /
     # activity contracts, so it rides with the annotation Versions key.
     "tab.admin.versions": ["tab.admin.data_contracts"],
-    # 2026-07 Data Management restructure: "Scrape & Annotate" split into a
-    # Scrape page and an Annotation page. Roles that held the old enrichment
-    # key gain both new keys; the stale key stays in roles.json harmlessly.
+    # The former "Scrape & Annotate" page is now a Scrape page and an
+    # Annotation page. Roles that hold the old enrichment key gain both keys;
+    # the stale key stays in roles.json harmlessly.
     "tab.data_management.enrichment": [
         "tab.data_management.scrape",
         "tab.data_management.annotation",

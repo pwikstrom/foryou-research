@@ -1,10 +1,10 @@
-"""Facade for the split data services (Phase 7c).
+"""Stable import surface for the study, timeline and analysis data services.
 
-The implementation now lives in web_interface/services/ (study_data,
-timeline_service, analysis_data, user_variables). This module remains the
-stable import surface for the route modules, workers, scripts and tests;
-every historical name — including the cache singletons, whose object
-identity is preserved by these re-exports — is importable from here.
+The implementation lives in web_interface/services/ (study_data,
+timeline_service, analysis_data, user_variables). Route modules, workers,
+scripts and tests import from here; every name — including the cache
+singletons, whose object identity is preserved by these re-exports — is
+importable from this module.
 """
 
 from .services.analysis_data import (  # noqa: F401

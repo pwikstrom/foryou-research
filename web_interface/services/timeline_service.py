@@ -1,6 +1,6 @@
 """Timeline cache building and read path.
 
-Pure moves from web_interface/data_service.py (Phase 7c)."""
+Re-exported through :mod:`web_interface.data_service`."""
 
 import json
 

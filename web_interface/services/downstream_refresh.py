@@ -76,10 +76,10 @@ def accumulate_deferred_impact(impact: dict | None, *, from_plan: bool = False) 
     supervisor's finalize tell its own work from the operator's. An automatic
     enrichment plan consolidates with the refresh deferred on purpose and
     expects the loop to spend that debt at the end of the cycle. An operator
-    who unticks "refresh caches afterwards" is saying the opposite — and until
-    this flag existed both wrote the same ledger entry, so the supervisor spent
-    a manual debt 3.5 minutes after it was created (2026-09-04), overriding the
-    choice with no trace on screen.
+    who unticks "refresh caches afterwards" is saying the opposite — without
+    this flag both write the same ledger entry, and the supervisor would spend
+    a manual debt minutes after it was created, overriding the choice with no
+    trace on screen.
 
     The flag is sticky across a merge: once any plan debt is in the entry the
     loop owns it, because the plan's own cycle genuinely needs that refresh and

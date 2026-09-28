@@ -1,3 +1,9 @@
+"""The Hub's Flask application: app factory, blueprint registration and app-wide hooks.
+
+On the task-runner service (``K_SERVICE=fyp-task-runner``) only the internal
+Cloud Tasks blueprint is registered. Run this module directly for a local
+development server."""
+
 import logging
 import os
 import sys
@@ -35,8 +41,8 @@ log.setLevel(logging.ERROR)
 
 # The task-runner service serves only the Cloud Tasks internal blueprint. Gating
 # the web-UI blueprint IMPORTS (not just their registration) on this flag keeps
-# the heavy web-only route modules — management_routes alone is ~3.6k lines — out
-# of every task-runner cold start.
+# the heavy web-only route modules (the management package alone is over 6k
+# lines) out of every task-runner cold start.
 _IS_TASK_RUNNER = os.environ.get("K_SERVICE") == "fyp-task-runner"
 
 
@@ -110,10 +116,10 @@ def _register_web_ui(app):
     def canonicalise_host():
         """Send ``www.`` traffic to the canonical host with a 301.
 
-        Two hostnames serving the same page with a 200 is what cost
-        foryouresearch.net its entire index in 2026-08: Google treated the apex
-        and ``www.`` as duplicates, kept ``www.`` — which still carried the old
-        Wix ``noindex`` — and dropped the real site with it. The redirect makes
+        Two hostnames serving the same page with a 200 can cost a domain its
+        entire index: Google treats the apex and ``www.`` as duplicates, may
+        keep ``www.`` — whose last crawl can still carry a stale ``noindex`` —
+        and drop the real site with it. The redirect makes
         the choice explicit instead of leaving it to a crawler. See
         ``web_interface.seo`` for why it is scoped to the ``www.`` twin only.
         """

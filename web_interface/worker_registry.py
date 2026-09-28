@@ -1,7 +1,7 @@
 """The one table of background workers and everything each one is wired to.
 
 Every worker is a ``web_interface/run_<name>.py`` module with a
-``run_<name>(task_args, reporter, …)`` entry point. It runs two ways:
+``run_<name>(reporter, task_args)`` entry point. It runs two ways:
 
 * **locally** — ``process_manager.start_process`` spawns the module as a
   subprocess (:func:`worker_script`);
@@ -29,9 +29,8 @@ from fyp.core.paths import PROJECT_ROOT
 from fyp.scrape import scrape_queues
 
 # Cloud Tasks rejects any HTTP-target dispatchDeadline outside [15s, 30m] with
-# a 400 at task-creation time — the task is never queued at all. 2026-09-03
-# prod: consolidate_enrichment was given 3600s and every dispatch failed until
-# redeployed. process_manager._dispatch_cloud_task clamps to this as a last
+# a 400 at task-creation time — the task is never queued at all, so a worker
+# given 3600s fails every dispatch. process_manager._dispatch_cloud_task clamps to this as a last
 # line of defence; no deadline below may ever need it.
 CLOUD_TASKS_MAX_DISPATCH_DEADLINE = 1800
 
@@ -85,15 +84,14 @@ def _w(name: str, **kwargs) -> WorkerSpec:
 # (~26 min at 12 studies); recode_refresh_studies is ~7 min. The self-chaining
 # workers (scrapers, annotators, sessions / timelines / embeddings refresh) pass
 # the same deadline to each next link via deadline_for(); a batch link can
-# exceed even 1800s (44 min observed 2026-08-12), so sessions_refresh's
-# initial link is setup-only and its links claim their successor via CAS before
-# chaining (run_sessions_refresh._claim_chain_dispatch). video_map_refresh and
-# meta_refresh_groups were the last refresh-graph steps on the default, found
-# 2026-09-04. A consolidation is normally ~2 min, but a force rebuild and the
-# weekly shadow verification are not (~13 min; 2026-09-02 prod: the shadow
-# check ran 772-816s five times, each answering after the queue had given up at
-# 600s and re-delivered). The annotator once scaled to 3600s for big batches,
-# which Cloud Tasks rejects; the ceiling is its deadline.
+# exceed even 1800s (44 min observed), so sessions_refresh's initial link is
+# setup-only and its links claim their successor via CAS before chaining
+# (run_sessions_refresh._claim_chain_dispatch). Every refresh-graph step needs
+# an explicit deadline; none may rely on the default. A consolidation is
+# normally ~2 min, but a force rebuild and the weekly shadow verification are
+# not (~13 min; the shadow check has run 772-816s, answering after a 600s queue
+# deadline had already given up and re-delivered). Big annotator batches would
+# need more than 3600s, which Cloud Tasks rejects; the ceiling is its deadline.
 # tests/unit/test_dispatch_deadlines.py pins these against the workers.
 #
 # Retry safety: tasks the QUEUE may retry after a failed attempt are pure
@@ -111,7 +109,7 @@ def _w(name: str, **kwargs) -> WorkerSpec:
 #   ingest_refresh                     — ledger-guarded but partial writes.
 #   embeddings_refresh                 — NOT idempotent: shards are uuid-named
 #       appends, so a retried live link would write a duplicate shard
-#       (2026-08-14 twin-shard incident); a retry would also re-spend
+#       (a twin shard); a retry would also re-spend
 #       embedding credits.
 #   ab_eval                            — has its own 409 concurrency gate.
 #   ops_report                         — a retry would re-send the email.

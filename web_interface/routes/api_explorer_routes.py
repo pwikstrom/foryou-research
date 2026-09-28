@@ -1,3 +1,8 @@
+"""Explore-tab APIs: study definitions, methods notes, metadata and filtering.
+
+Also serves the admin System Information, System Health and daily ops report
+endpoints."""
+
 import copy
 import os
 import platform
@@ -97,7 +102,6 @@ def _enforce_study_collections(metadata, study, verbose=False):
         # Get authoritative list of collections for this study
         collections = get_study_collections(study)
         valid_collection_ids = set()
-        # valid_ids = set()
 
         if not collections:
             print(
@@ -703,10 +707,6 @@ def api_explorer_metadata():
                 storage_location="cache", filename=f"{study}_explorer_metadata.json"
             )
 
-            # ... (Dynamic columns logic omitted for brevity as it modifies potential_metadata in place) ...
-            # To avoid complexity in replacement, I will assume the dynamic logic is robust or harmless if metadata is discarded later.
-            # Actually, I need to keep the existing logic structure but wrap the return.
-
             # Force refresh of dynamic metadata (User Tags & Has Annotation)
             # We must re-calculate these every time because the cache might be stale w.r.t user actions
             dynamic_cols = {}
@@ -844,7 +844,6 @@ def api_explorer_metadata():
                 )
 
             if potential_metadata:
-                # print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
                 return jsonify(make_serializable(potential_metadata))
             else:
                 print(f"    [DATA_ROUTES] Cache invalidated for {study}, regenerating...")
@@ -1177,7 +1176,6 @@ def api_explorer_filter():
         is_empty_filters = (not filters) and (not search_query)
 
         if is_empty_filters and reuse_total_stats and "total_stats" in cached_metadata:
-            # print("    Using cached total_stats for Slice 1")
             # Copy: the metadata dict is a shared cache entry now, and the
             # User Tags injection below must not write into it.
             result["stats"] = dict(cached_metadata["total_stats"])
@@ -1208,7 +1206,6 @@ def api_explorer_filter():
         s1_available = (trigger_slice is None or trigger_slice == 1) and "stats" in result
 
         if is_identical and s1_available:
-            # print("    Slice 2 identical to Slice 1, reusing stats")
             result["stats2"] = result["stats"]
             result["count2"] = result["count"]
         else:
@@ -1216,7 +1213,6 @@ def api_explorer_filter():
             is_empty_filters2 = (not filters2) and (not search_query2)
 
             if is_empty_filters2 and reuse_total_stats and "total_stats" in cached_metadata:
-                # print("    Using cached total_stats for Slice 2")
                 result["stats2"] = dict(cached_metadata["total_stats"])
                 result["count2"] = len(df)
             else:

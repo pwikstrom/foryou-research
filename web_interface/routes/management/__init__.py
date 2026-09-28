@@ -1,15 +1,16 @@
-"""Management routes package (Phase 7b split of management_routes.py).
+"""Management routes package: one submodule per admin domain.
 
 All submodules register their view functions on the single shared
 ``management_bp`` blueprint; endpoint names equal view-function names, so
-``url_for`` targets are unchanged from the pre-split module.
+``url_for("management.<view>")`` targets do not depend on which submodule
+defines a view.
 """
 
 from ._blueprint import management_bp  # noqa: F401
 
-# Importing the submodules registers their routes on management_bp, in the
-# same order the routes appeared in the pre-split module; the isort fence keeps
-# the import sorter from alphabetising them.
+# Importing the submodules registers their routes on management_bp. The order
+# is the blueprint's route registration order, kept stable on purpose; the
+# isort fence keeps the import sorter from alphabetising them.
 # isort: off
 from . import (  # noqa: E402,F401
     studies,

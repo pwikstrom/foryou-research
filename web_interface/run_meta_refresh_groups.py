@@ -1,3 +1,7 @@
+"""Worker: rebuild each study's Explore metadata (``{study}_explorer_metadata.json``).
+
+Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
+
 import sys
 from datetime import UTC, datetime
 from pathlib import Path

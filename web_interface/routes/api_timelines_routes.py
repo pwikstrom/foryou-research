@@ -1,3 +1,5 @@
+"""Timelines-tab APIs: per-collection timeline data, the collection picker and annotation votes."""
+
 import traceback
 
 import pandas as pd
@@ -68,20 +70,11 @@ def api_timeline_data():
     )
 
     has_access = False
-    # This might be slow if we check every time.
-    # But for security it's needed.
-    # To optimize: we can trust the frontend IF we assume obscure IDs are secret enough?
-    # No, strict requirement "user should only see...". Backend must enforce.
-    # Optimization: iterate studies, check if collection is in it. Stop at first match.
+    # The backend must enforce access on every request: collection ids are not
+    # secrets. Iterate the accessible studies and stop at the first match.
 
     for accessible_study in studies:
         study_collections = get_study_collections(accessible_study)
-        # Convert to set of strings for fast lookup
-        # (study_collections is cached if we used lru_cache, but we didn't add it yet.
-        # explorer_backend.get_explorer_data IS cached.
-        # And get_study_collections uses simple load_parquet which hits disk or OS buffer.)
-
-        # Let's just check the ids.
         for d in study_collections:
             if str(d.get("collection_id")) == str(collection_id):
                 has_access = True
@@ -150,15 +143,12 @@ def api_timeline_collections():
     # Iterate studies and get collections (using optimized loader)
     for study in studies:
         study_collections = get_study_collections(study)  # returns list of dicts
-        # print(f"DEBUG TIMELINE: Study {study} returned {len(study_collections)} collections")
         for d in study_collections:
             # d is {'collection_id': ..., }
             if "collection_id" in d:
                 cid = str(d["collection_id"])
                 allowed_collection_ids.add(cid)
                 collection_studies_map.setdefault(cid, []).append(study)
-
-    # print(f"DEBUG TIMELINE: Total allowed collection IDs: {len(allowed_collection_ids)}")
     if not allowed_collection_ids:
         return jsonify([])
 
@@ -211,46 +201,25 @@ def api_timeline_collections():
         else:
             return jsonify([])
 
-    # FILTER BY ALLOWED IDS
-    # Ensure target column is string for comparison
+    # Probe the id column; a duplicated column name yields a DataFrame, whose
+    # first column is used.
     try:
-        # Check if target_id_col is in columns (it might be index moved to col)
-        # If duplicated, take first
         s_ids = filtered[target_id_col]
         if isinstance(s_ids, pd.DataFrame):
             s_ids = s_ids.iloc[:, 0]
-
-        # Create mask
-        # We need to ensure we align with the filtered DataFrame
-        # Easier: Filter the DataFrame
-
-        # We need to handle the case where columns are duplicated (DataFrame result)
-        # So let's extract the series specifically
-        # handled above
-
-        # We can't use .isin on a DataFrame property if it's duplicated easily without care.
-        # But let's assume standard case or handle unique.
-
-        # Let's rebuild the flow slightly to be robust:
-        # 1. Get all accepted as before
-        # 2. Extract unique tuples of (id, ...)
-        # 3. Filter list
 
     except Exception as e:
         print(f"Error filtering allowed IDs: {e}")
         return jsonify([])
 
-    # Vectorized optimized extraction (re-using previous logic but adding filter)
+    # Unique collection ids, filtered against the allowed set.
     try:
         don_ids_series = filtered[target_id_col]
         if isinstance(don_ids_series, pd.DataFrame):
             don_ids_series = don_ids_series.iloc[:, 0]
 
         unique_ids = don_ids_series.unique().tolist()
-        # print(f"DEBUG TIMELINE: Total unique collections in metadata: {len(unique_ids)}")
 
-        # Filter against allowed set
-        # Only include if in allowed_collection_ids
         final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_collection_ids]
 
         # Build a {collection_id -> active_days} lookup for the dropdown.

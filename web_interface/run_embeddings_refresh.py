@@ -31,8 +31,8 @@ DEFAULT_BATCH_SIZE = 20000
 # Single-flight lease: one shared CAS-guarded file names the live run and the
 # links it has executed. Guards the three dispatch paths that bypass
 # process_manager's busy check (Cloud Tasks redelivery of a live task, the
-# consolidate pipeline's raw dispatch, and self-chaining) — 2026-08-14 two
-# concurrent runs embedded the same backlog slice and wrote twin shards.
+# consolidate pipeline's raw dispatch, and self-chaining) — without it two
+# concurrent runs can embed the same backlog slice and write twin shards.
 _LEASE_FILE = "embeddings_run_lease.json"
 _LEASE_LOCATION = "cache"
 # A crashed run's lease stops blocking after this long — matches the Cloud

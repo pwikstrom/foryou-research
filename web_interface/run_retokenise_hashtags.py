@@ -1,3 +1,8 @@
+"""Worker: re-apply the current hashtag stoplist to the stored scrape parquets.
+
+A clean-only pass; a consolidation is still needed to propagate the change.
+Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
+
 import sys
 import time
 from pathlib import Path

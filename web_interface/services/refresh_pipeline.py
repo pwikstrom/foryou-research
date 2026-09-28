@@ -317,7 +317,7 @@ STEPS: list[Step] = [
 BY_NAME: dict[str, Step] = {s.name: s for s in STEPS}
 #: Every step, origin included, in dependency order.
 STEP_ORDER: list[str] = [s.name for s in STEPS]
-#: The dispatchable steps — what used to be ``PIPELINE_STEPS_ORDER``.
+#: The dispatchable steps (every step except the origin-only ones).
 DOWNSTREAM_ORDER: list[str] = [s.name for s in STEPS if s.tier != TIER_ORIGIN_ONLY]
 SPINE: tuple[str, ...] = tuple(s.name for s in STEPS if s.tier == TIER_SPINE)
 LEAVES: tuple[str, ...] = tuple(s.name for s in STEPS if s.tier == TIER_LEAF)
@@ -961,8 +961,7 @@ def summarize(record: dict) -> str:
 #: with maxAttempts=4 and 60 s→600 s backoff, a task dropped by a 429 (no free
 #: runner instance) is redelivered for up to an hour and then never again. Any
 #: shorter grace declares a run dead while its next step is still on its way —
-#: on 2026-09-04 the semantic map was delivered 23 minutes after dispatch and
-#: the run had been swept at minute 10, twenty seconds before it woke.
+#: a step delivered 23 minutes after dispatch is normal under 429 backoff.
 QUEUED_DELIVERY_GRACE_SECONDS = 3600
 
 
@@ -1003,7 +1002,7 @@ def last_activity_ts(record: dict | None) -> str | None:
     abandonment window leaves the record "stale" the whole time it is busy. The
     moment it completes — before the task runner's advance lands — the run looks
     exactly like one whose server died: flag set, nothing running, record
-    untouched for over a minute. That race killed a real run twice on 2026-09-04.
+    untouched for over a minute, and the sweep would kill a healthy run.
 
     The activity signal is each in-run step's own STATUS FILE ``updated_at``,
     not its ``process_stats`` end time. The status file is single-writer and
@@ -1073,8 +1072,7 @@ def finish_run(
     """
     # Whether THIS call is the one that closed the run: the fan-out barrier
     # can reach finish_run twice when leaves finish together, and the history
-    # must carry one line per run, not one per caller (2026-09-05, 13:19:57
-    # and 13:19:58).
+    # must carry one line per run, not one per caller.
     closed_here = {"v": False}
 
     def _apply(record: dict) -> bool | None:

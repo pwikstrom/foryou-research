@@ -1,3 +1,7 @@
+"""Worker: fetch recent AIO donations and participant metadata from AWS.
+
+Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
+
 import sys
 import time
 from pathlib import Path

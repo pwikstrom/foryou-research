@@ -3,8 +3,7 @@
 Every analysis-tab endpoint that takes a study (or collection) parameter must
 verify the current user can access it — the permission decorator alone only
 gates the tab, not the data. These helpers centralise the check so the route
-modules don't each re-implement it (the pattern originated in
-``api_correlations_routes.py`` during the Correlations Phase 0 audit).
+modules don't each re-implement it.
 """
 
 from flask import jsonify

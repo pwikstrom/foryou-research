@@ -1,3 +1,8 @@
+"""Recent messages from the configured Slack channel.
+
+Reads ``SLACK_BOT_TOKEN`` / ``SLACK_CHANNEL_ID`` and caches the result for five
+minutes to stay clear of Slack's rate limits."""
+
 import os
 import time
 from datetime import UTC, datetime
@@ -50,14 +55,14 @@ def get_recent_messages(limit=5):
 
         formatted_messages = []
         for msg in messages:
-            # Skip subtypes like channel_join, etc., if needed. keeping simple for now.
+            # Every message with text is kept, including subtypes such as
+            # channel_join.
             if "text" in msg:
                 ts = float(msg.get("ts", 0))
                 ts_iso = datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec="seconds")
 
-                # Try to get user info if needed, but 'user' ID is what we have.
-                # resolving every user might be slow, so we can just use the ID or look it up if we cache users.
-                # For now, just use the ID or 'Bot' if username is missing.
+                # The raw Slack user id is shown; resolving each id to a name
+                # would cost an API call per user.
                 user_id = msg.get("user", "Unknown")
 
                 formatted_messages.append(

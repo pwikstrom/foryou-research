@@ -1,3 +1,10 @@
+"""User accounts and roles for the Hub.
+
+Defines the ``User`` model, ``RoleManager`` (roles.json and its boot-time
+permission migrations), ``UserManager`` (the per-user JSON store), password
+hashing, profile validation, and the ``role_required`` / ``admin_required``
+decorators."""
+
 import binascii
 import datetime
 import hashlib
@@ -1391,9 +1398,8 @@ class UserManager:
         if user is None:
             return False, "User not found"
 
-        # Merge or replace? Let's generic replace for top-level keys, but maybe merge is safer?
-        # For now, strict replacement of the settings dict provided
-        # Or better: update existing dict with new keys
+        # Shallow merge: provided top-level keys replace their stored values;
+        # keys not provided are kept.
         if user.settings is None:
             user.settings = {}
 

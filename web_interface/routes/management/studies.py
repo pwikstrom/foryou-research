@@ -240,7 +240,6 @@ def save_study():
 
             if key not in existing_config or existing_config[key] != value:
                 changed_keys.append(key)
-                # print(f"Change detected in {key}: {existing_config.get(key)} -> {value}") # Debug
 
         # Note: we deliberately do NOT short-circuit when changed_keys is empty.
         # The study's cached artifacts depend on collection/scrape/annotation

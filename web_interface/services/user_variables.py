@@ -1,6 +1,6 @@
 """Study access control, per-user variable composition, schema metadata.
 
-Pure moves from web_interface/data_service.py (Phase 7c)."""
+Re-exported through :mod:`web_interface.data_service`."""
 
 import pandas as pd
 
@@ -129,9 +129,9 @@ def get_accessible_studies(
             # 2. Access requires an explicit grant: 'all', the user's role,
             #    or their username. Missing/empty/malformed => deny — a
             #    study is shared with nobody until someone shares it.
-            #    (Pre-S4 the default was allow; the boot-time
-            #    migrate_user_access_defaults() wrote explicit grants into
-            #    every study that relied on that.)
+            #    (Studies created when the default was allow were given
+            #    explicit grants by the boot-time
+            #    migrate_user_access_defaults().)
             if isinstance(user_access, list) and (
                 "all" in user_access or role in user_access or username in user_access
             ):
@@ -395,13 +395,11 @@ def load_schema_metadata(metadata):
             metadata["schema_map"] = schema_map
 
         else:
-            # Only reset if keys missing? Or always reset?
-            # If CSV missing, we might want to keep existing if available?
-            # But here we assume CSV is source of truth.
+            # The CSV is the source of truth: without it, the priorities and
+            # schema map are reset rather than kept from an earlier load.
             metadata["display_priority"] = []
             metadata["filter_priority"] = []
             metadata["schema_map"] = {}
     except Exception as e:
         print(f"Error loading priority list: {e}")
-        # Don't overwrite with empty if error?
     return metadata

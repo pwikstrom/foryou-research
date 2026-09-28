@@ -2,9 +2,9 @@
 
 The enrichment machinery already keeps several records — per-process run logs,
 the plan ledger, task status files, the refresh-run record, the admin activity
-log — and none of them tells the story of a cycle. Reconstructing the night of
-2026-09-04 took all five plus two parquet joins, and still missed that the last
-annotation batch had landed after its plan was parked and was never folded in.
+log — and none of them tells the story of a cycle. Reconstructing one night's
+cycles from them takes all five plus two parquet joins, and can still miss that
+an annotation batch landed after its plan was parked and was never folded in.
 
 This journal is the story, one line per event, at the altitude an operator
 reads: a plan armed, a queue built or emptied, a queue handed to a worker (and

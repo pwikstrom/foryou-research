@@ -1,3 +1,8 @@
+"""Flask-Login wiring: the shared ``login_manager``, ``user_manager`` and user loader.
+
+The web service bootstraps the user store (legacy migration, default admin);
+the task-runner service does not."""
+
 import os
 
 from flask import jsonify, redirect, request, url_for

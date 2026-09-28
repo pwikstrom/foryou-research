@@ -1,3 +1,9 @@
+"""Worker: consolidate scrapes and machine annotations into the enrichment artifacts.
+
+Publishes the consolidation's impact for the refresh pipeline and, when due,
+runs the weekly shadow verification against a full rebuild. Runs as a
+Cloud Task on the task-runner service, or as a local subprocess."""
+
 import sys
 import time
 from datetime import UTC, datetime
@@ -56,7 +62,7 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     arrive more than once for a single scheduling: Cloud Tasks re-delivers on
     any dispatch failure, and a check that already passed minutes ago has
     nothing to add. Without the guard a single re-delivery costs another full
-    corpus rebuild (2026-09-02: five attempts, 66 minutes of runner).
+    corpus rebuild (five attempts have cost 66 minutes of runner).
     """
     from fyp.analysis.organize_datasets import (
         consolidate_enrichment_data,
@@ -76,8 +82,8 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
         )
         return None
 
-    # It shares the consolidate card and log, so say plainly what this run is:
-    # on 2026-09-03 the admin read it as "consolidation fired twice".
+    # It shares the consolidate card and log, so say plainly what this run is;
+    # otherwise it reads as "consolidation fired twice".
     reporter.log(
         "Weekly shadow verification — a read-only check that the incremental "
         "artifacts match a full rebuild. Not a consolidation; nothing is written "

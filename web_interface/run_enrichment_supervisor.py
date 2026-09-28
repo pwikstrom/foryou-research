@@ -72,18 +72,18 @@ ANNOTATE_HELD_KEY = "annotate_held"
 # Ledger __meta__ key: set when the loop starts a scraper or annotator, cleared
 # when the loop consolidates. A plan that is parked or finishes while a job it
 # started is still running leaves the job's results with no tick to fold them
-# in — 85 annotations landed that way on 2026-09-04 and were missing from the
-# analysis refresh an hour later. The marker is the loop's own debt, so the
+# in (85 annotations once landed that way and were missing from the analysis
+# refresh an hour later). The marker is the loop's own debt, so the
 # no-plans path may settle it; an operator's manual runs never set it.
 SETTLE_OWED_KEY = "settle_owed"
 
 # Ledger entry key: set while a plan has nothing more to scrape but its own
 # videos are still queued for, or inside, an annotation job. The plan stays
-# Running until those are annotated and consolidated, and closes then. Until
-# 2026-09-09 the planner closed it the moment nothing was left to cut — in
-# the same tick that handed 1,055 videos to the annotator, so the history
-# read "Idle" two seconds before "Annotator started" and the panel said
-# "Idle · annotating now" for the 35 minutes the plan's last batch took.
+# Running until those are annotated and consolidated, and closes then.
+# Closing the moment nothing is left to cut would close it in the same tick
+# that hands its last batch to the annotator, so the history would read
+# "Idle" before "Annotator started" and the panel would say "Idle ·
+# annotating now" for as long as that batch takes (35 minutes for 1,055).
 FINISHING_KEY = "finishing"
 
 # ...but not for ever: a claim file left behind by a crashed annotator would
@@ -389,10 +389,9 @@ def run_enrichment_supervisor(
         outcome = {**outcome, "message": message + "."}
     elif outcome.get("action") == "plan":
         # A slice cut outside the boundary move (the first cycle after Arm)
-        # used to wait for the NEXT trigger before anyone started the scraper
-        # — and with no worker running, the next trigger is the hourly
-        # heartbeat: on 2026-09-05 the first slice sat 12 minutes until a
-        # manual tick, and would have sat 48. Start the scraper now.
+        # would otherwise wait for the NEXT trigger before anyone started the
+        # scraper — and with no worker running, the next trigger is the hourly
+        # heartbeat, up to an hour away. Start the scraper now.
         pcid = outcome.get("collection_id")
         plans = {**plans, pcid: {**(plans.get(pcid) or {}), "platform": outcome.get("platform")}}
         follow = _drain(reporter, plans)
@@ -630,9 +629,9 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
 
     # The hold is decided BEFORE the stall guard. A held queue is waiting on
     # purpose, and its length is unchanged tick after tick by design; the
-    # guard counts identical lengths per tick, so evaluating it first parked
-    # every armed plan on 2026-09-08 after three held ticks in which no
-    # annotator had run at all. Holding also clears any strikes, so the first
+    # guard counts identical lengths per tick, so evaluating it first would
+    # park every armed plan after three held ticks in which no annotator had
+    # run at all. Holding also clears any strikes, so the first
     # run after the hold starts from a clean count.
     if len(queue) < MIN_ANNOTATE_BATCH and more_coming:
         held = ce.get_meta(ANNOTATE_HELD_KEY)
@@ -715,8 +714,8 @@ def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> No
     The platform queue is shared by everything that scrapes — an armed plan's
     slices, a study's "Build scrape queue", a participant's first batch — and
     the drain takes all of it. Splitting the count between the armed plans'
-    recorded slices and everything else is what lets the history say "53
-    minutes of this cycle went to someone else's backlog" (2026-09-04).
+    recorded slices and everything else is what lets the history say, e.g.,
+    "53 minutes of this cycle went to someone else's backlog".
     """
     try:
         from fyp.scrape import scrape_queues
@@ -869,10 +868,9 @@ def _start_consolidation(task_args: dict) -> tuple[bool, str]:
     """Start a consolidation the way the Consolidate button does: with a run
     record, so the Refresh Pipeline chart draws it.
 
-    Until 2026-09-05 the loop's consolidations were started bare and the chart
-    kept showing whichever run came before — a consolidate-only run seeded
-    here reads on the chart exactly like a manual consolidation with the
-    refresh box unticked.
+    A consolidation started bare leaves the chart showing whichever run came
+    before; a consolidate-only run seeded here reads on the chart exactly like
+    a manual consolidation with the refresh box unticked.
     """
     from web_interface.services import refresh_pipeline
 
@@ -943,15 +941,15 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
     if not deferred.get("from_plan"):
         # The operator consolidated and chose not to refresh. That choice is
         # theirs to reverse with "Refresh All Affected"; spending it here
-        # overrode it silently 3.5 minutes later (2026-09-04). The impact panel
+        # would override it silently minutes later. The impact panel
         # keeps the debt visible, so nothing is lost by waiting.
         return None
     if not require_backstop:
         # "Quiet" means the LOOP is quiet, not merely this tick: a tick where
         # everything is WAITING (scraper mid-run, jobs in flight, nothing to
         # start) also falls through to here, and refreshing then would block
-        # the loop behind the pipeline for the rest of the cycle — observed
-        # live 2026-09-01, one tick after a boundary move.
+        # the loop behind the pipeline for the rest of the cycle (observed
+        # one tick after a boundary move).
         from web_interface.services.worker_status import _workers_blocking_consolidate
 
         if _workers_blocking_consolidate():
@@ -1168,8 +1166,8 @@ def _auto_cycle_items(
       job) because enrichment status has not seen it yet; without that, every
       overlapped cycle would re-count the previous cycle's items.
     * The yield inflates the cut so that what comes back annotated meets the
-      headroom — cutting exactly the headroom always left a shortfall that cost
-      a whole extra cycle (2026-09-05: cycle 4 existed to cover 23 videos).
+      headroom — cutting exactly the headroom always leaves a shortfall that
+      costs a whole extra cycle (e.g. a fourth cycle just to cover 23 videos).
     * The cap is ONE batch job, not the annotator's four concurrent jobs: the
       loop serialises on consolidation, so a cycle takes
       max(scrape this slice, annotate the previous one); the scraper feeds
@@ -1181,7 +1179,7 @@ def _auto_cycle_items(
 
     * The floor is :data:`ce.MIN_CYCLE_ITEMS`: a cycle's fixed cost is the same
       for one video as for two hundred, and a cut sized to exactly the headroom
-      shrank geometrically toward one-video cycles (2026-09-08). The plan may
+      shrinks geometrically toward one-video cycles. The plan may
       overshoot its target by at most the floor.
 
     Returns:
@@ -1226,9 +1224,9 @@ def _plan(reporter, plans: dict) -> dict | None:
         try:
             # Reload immediately before the read-modify-write below. The
             # handoff earlier in this same tick resets stall_count and prunes
-            # in_flight, and `plans` was snapshotted before it ran: on
-            # 2026-09-04 three productive cycles parked a healthy plan because
-            # this loop incremented the stale counter over the reset.
+            # in_flight, and `plans` was snapshotted before it ran; reading the
+            # snapshot increments the stale counter over the reset and parks a
+            # healthy plan after three productive cycles.
             entry = ce.get_plan(cid) or snapshot
             activity = ce.load_activity(cid)
             if activity is None or activity.empty:
@@ -1272,8 +1270,8 @@ def _plan(reporter, plans: dict) -> dict | None:
             settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
             expected_yield = _expected_yield(cid, platform)
             pending = _pending_annotations(activity)
-            # The cycle is always sized automatically (the manual knob went
-            # on 2026-09-09; a stored cycle_items_auto=False is ignored).
+            # The cycle is always sized automatically (there is no manual
+            # knob; a stored cycle_items_auto=False is ignored).
             if True:
                 status = ce.load_status(activity["item_id"].unique())
                 auto_items = _auto_cycle_items(
@@ -1288,10 +1286,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                     target = int(settings.get("annotation_target") or 0)
                     annotated = ce._annotated_unique(activity, status)
                     if target and annotated >= target:
-                        # The target is MET. This branch used to `continue`,
-                        # so an Auto plan that reached its target exactly read
-                        # "Running" for ever (2026-09-05: 10,570/10,570,
-                        # ticking nothing_to_do every hour). Close it the way
+                        # The target is MET. Merely skipping here would leave
+                        # a plan that reached its target exactly reading
+                        # "Running" for ever, ticking nothing_to_do every
+                        # hour. Close it the way
                         # plan_cycle would — once nothing of the collection's
                         # is still being annotated.
                         if _still_finishing(reporter, cid, entry, platform, pending):

@@ -1,3 +1,6 @@
+"""Video Analysis tab APIs: filtered item ids, item details, user tags and votes,
+and range-request video streaming."""
+
 import os
 import threading
 import time
@@ -306,7 +309,7 @@ def api_get_tags():
 @permission_required("tab.my_stuff.video_tags")
 def api_save_tags():
     data = request.json or {}
-    # study = data.get("study") # Deprecated for storage
+    # The request's "study" field is ignored: tags are not stored per study.
     item_id = str(data.get("item_id"))  # Ensure string for consistency
     variable = data.get("variable")
     tags = data.get("tags")  # List of tags
@@ -370,8 +373,6 @@ def api_save_tags():
     # Save
     # Save back to file structure
     user_file_data["annotations"] = user_data
-
-    # print(f"[TAGS] User data after update: {user_data}")
     data_io.save_json(data=user_file_data, storage_location="users", filename=filename)
     invalidate_user_json_cache(username)
 
@@ -400,9 +401,8 @@ def api_delete_tag(tag_name):
 
     # Iterate and remove
     # user_data structure: { item_id: { variable: [tags...] } }
-
-    # We need to collect keys to delete to avoid modifying dict while iterating if we were deleting keys,
-    # but here we are modifying lists inside.
+    # Keys to delete are collected first and removed after the loop, so the
+    # dicts are never resized while being iterated.
 
     items_to_prune = []
 
@@ -707,8 +707,8 @@ def api_video_stream(study, item_id):
         if denied is not None:
             return denied
 
-        # The study segment used to be decorative; it now scopes the stream —
-        # the item must actually appear in the (accessible) study being viewed.
+        # The study segment scopes the stream — the item must actually appear
+        # in the (accessible) study being viewed.
         # An admin may play any downloaded video (the Sessions tab's admin
         # view lists sessions the study does not contain), so only the
         # membership check is lifted for them: study access and the media

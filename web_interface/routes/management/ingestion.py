@@ -492,7 +492,7 @@ def structure_approve():
     # Only a withheld file needs its ledger entry dropped so the next run
     # reloads it. A "warn" verdict's file was ingested already; its ledger
     # entry is the record of that (counts, uploader, original filename) and
-    # deleting it left one 2026-09-07 upload with no provenance at all.
+    # deleting it would leave the upload with no provenance at all.
     main_collection = get_main_collection(verbose=False)
     ledger_entry = (main_collection.ledger.get("files") or {}).get(filename) or {}
     if ledger_entry.get("outcome") == "quarantined_structure":

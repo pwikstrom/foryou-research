@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 LEDGER_FILENAME = "participant_first_batches.json"
 
-# Master switch for the automatic first batch. Disabled 2026-08-26 pending a
-# decision on how participant enrichment should be scheduled — while False,
+# Master switch for the automatic first batch. Disabled pending a decision on
+# how participant enrichment should be scheduled — while False,
 # ingest queues NOTHING automatically and no ledger entries are created.
 AUTO_ENQUEUE_ENABLED = False
 

@@ -1,3 +1,7 @@
+"""Worker: regenerate collections_metadata.parquet from the recoded activity data.
+
+Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
+
 import sys
 import time
 from pathlib import Path

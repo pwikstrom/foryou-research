@@ -34,9 +34,9 @@ SESSION_COOKIE = {"tiktok": "sessionid", "instagram": "sessionid", "youtube": "_
 REPORT_DIR = "ops_report"
 KEEP_DATED_REPORTS = 60
 # Scrape failures are ordinary: dead, private and removed posts are a standing
-# share of every queue. Measured on prod 2026-09-04..08 — 14.1% of 12,213
-# attempts failed, 12.6-15.4% on any one day, and the worst single run of 50+
-# attempts was 24.2%. Only a rate outside that band is worth a Watch.
+# share of every queue. Measured in production over five days: 14.1% of
+# 12,213 attempts failed, 12.6-15.4% on any one day, and the worst single run
+# of 50+ attempts was 24.2%. Only a rate outside that band is worth a Watch.
 HIGH_SCRAPE_FAILURE_RATE = 0.30
 # Below this many attempts in the window a platform's rate says nothing — a
 # one-video run that fails is 100%. Small runs still count towards the totals.
@@ -631,9 +631,8 @@ def collect_status(hours_back: int = 24) -> dict:
             )
         # An owned collection that is neither in the dataset nor waiting as
         # an upload nor inside a withdrawal window is an upload that fell
-        # through the cracks (2026-09-06: a pending file was skipped on a
-        # name collision and its manifest entry cleaned, leaving only the
-        # owner link behind — this check would have flagged it that morning).
+        # through the cracks (e.g. a pending file skipped on a name collision
+        # whose manifest entry was cleaned, leaving only the owner link).
         dataset_ids = _dataset_collection_ids()
         withdrawn = _withdrawn_collection_ids()
         orphaned = _linked_collections_missing(tags, pending_cids, dataset_ids, withdrawn)
@@ -649,9 +648,8 @@ def collect_status(hours_back: int = 24) -> dict:
         else:
             check(sec, "Linked collections missing from the dataset", "green", "None")
         # The unowned counterpart: a tags entry with no owner, no data, no
-        # pending upload and no withdrawal is a leftover (2026-09-11: five
-        # entries from verification signups sat there since before the
-        # generated-id work). Edit Collections lists the dataset, so these
+        # pending upload and no withdrawal is a leftover (e.g. entries left by
+        # verification signups). Edit Collections lists the dataset, so these
         # never appear on a page — the delete endpoint is how they go.
         leftovers = _leftover_tag_entries(tags, pending_cids, dataset_ids, withdrawn)
         if leftovers:
@@ -667,9 +665,9 @@ def collect_status(hours_back: int = 24) -> dict:
             )
         else:
             check(sec, "Leftover collection entries", "green", "None")
-        # Writes have enforced unique display IDs since 2026-09-09, so a name
-        # shared by two collections predates the guard and has to be renamed
-        # by hand — until then both show the same label in every picker. An id
+        # Writes enforce unique display IDs, so a name shared by two
+        # collections predates that guard and has to be renamed by hand —
+        # until then both show the same label in every picker. An id
         # with no data is a leftover: it has no row in Edit Collections, so
         # renaming is not on offer for it — deleting it is the fix.
         from fyp.ingest.raw_names import duplicate_display_ids
@@ -707,8 +705,7 @@ def collect_status(hours_back: int = 24) -> dict:
         # panel shows, so the two can never disagree. A verdict keeps its
         # entry after the review, and an approved or rejected file is off that
         # panel — reporting one as outstanding sends the reader to a page with
-        # nothing on it (2026-09-09: a file approved on 09-07 was red here for
-        # two mornings). Quarantined files are held out of the activity data,
+        # nothing on it. Quarantined files are held out of the activity data,
         # so they are the red; a warned file ingested and only wants a look.
         from fyp.core.structure_sentinel import review_queue
 
@@ -1026,10 +1023,10 @@ def _linked_collections_missing(
 def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -> set[str]:
     """Process-stats keys of study refreshes whose study no longer exists.
 
-    A refresh entry outlives its study when the study is deleted (2026-09-14:
-    a participant's pair was removed by a collection delete after a refresh
-    had already been dispatched; the refresh failed and its entry kept the
-    worker board red for a week). Nobody can act on it — the study is gone —
+    A refresh entry outlives its study when the study is deleted (e.g. a
+    participant's pair removed by a collection delete after a refresh was
+    already dispatched: the refresh fails and its entry would keep the worker
+    board red indefinitely). Nobody can act on it — the study is gone —
     so it does not count as a worker sitting on a failure.
 
     Args:
@@ -1056,8 +1053,8 @@ def _leftover_tag_entries(
 ) -> list[str]:
     """Unowned tags entries with no metadata row, no pending manifest entry
     and no withdrawal record — nothing claims them, nothing lists them, and
-    the only thing they do is hold a display ID (2026-09-11: four names each
-    answered for a real collection and one of these)."""
+    the only thing they do is hold a display ID, which a real collection may
+    then share."""
     if dataset_ids is None:
         dataset_ids = _dataset_collection_ids()
     if withdrawn is None:
@@ -1117,7 +1114,7 @@ def _is_instance_drain(entry, drain_times) -> bool:
     scale-down; gunicorn tears down while a background thread still holds the
     GIL, and interpreter finalization aborts. The tell is a
     ``Handling signal: term`` line a second or two earlier — verified against
-    prod on 2026-08-27, where two such aborts had no deploy behind them.
+    production logs, where such aborts occur with no deploy behind them.
     """
     text = str(entry.get("textPayload") or "")
     if "Uncaught signal: 6" not in text and "SIGABRT" not in text:

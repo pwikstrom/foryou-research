@@ -56,7 +56,7 @@ _CORR_DEFAULTS = {
 # Per-group video count written by the PCA worker (see fyp.analysis.pca).
 # Current parquets carry it as `videos_watched` (a contract-declared variable:
 # consumption intensity, offered on the axes/matrix like any numeric column);
-# parquets built before 2026-08 carry the retired `group_size` name instead,
+# older parquets carry the retired `group_size` name instead,
 # which stays excluded from the dropdowns/matrix/centering and feeds only the
 # "N groups covering M videos" Sample-panel counts. Every read is optional.
 GROUP_SIZE_COL = "group_size"
@@ -106,8 +106,8 @@ def total_videos(df: pd.DataFrame) -> int | None:
     """Total videos the study's groups average over, for the unit banner.
 
     Read from the per-group video count when the PCA parquet carries one
-    (``videos_watched``, or the retired ``group_size`` name on parquets built
-    before 2026-08); None otherwise.
+    (``videos_watched``, or the retired ``group_size`` name on older
+    parquets); None otherwise.
     """
     col = VIDEOS_WATCHED_COL if VIDEOS_WATCHED_COL in df.columns else GROUP_SIZE_COL
     if col not in df.columns:
@@ -714,7 +714,7 @@ def build_scatter_payload(
 
     # Columnar payload: the old shape carried a server-built "<br>"-joined
     # hover string plus a {col: value} dict PER POINT — 5.4 of the 6 MB the
-    # endpoint shipped were that repetition (measured 2026-08-19). The values
+    # endpoint shipped were that repetition. The values
     # are still formatted here with the exact same format_value rules; the
     # client joins them into hover lines and per-point drill-down dicts.
 

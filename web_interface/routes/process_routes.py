@@ -1,3 +1,9 @@
+"""Worker control and execution routes.
+
+The admin start/stop/status/log APIs, and the internal Cloud Tasks endpoint
+(``/internal/run-task/<name>``) that runs a worker, records its stats, and
+advances self-chains and the refresh pipeline."""
+
 import json
 import threading
 import time
@@ -40,8 +46,8 @@ process_bp = Blueprint("process_bp", __name__)
 # terminal state within this many seconds of the fan-out is treated as having
 # failed to start — e.g. a Cloud Run 429 dropped the task. The grace must exceed
 # a worst-case cold start so a merely-slow boot is not flagged, AND the queue's
-# retry backoff: since 2026-07 the queue re-delivers a dropped task (min-backoff
-# 60s, doubling), so a leaf can legitimately boot several minutes late. Declaring
+# retry backoff: the queue re-delivers a dropped task (min-backoff 60s,
+# doubling), so a leaf can legitimately boot several minutes late. Declaring
 # it failed earlier than that would write a "pipeline aborted" summary for a run
 # that then goes on to succeed.
 # One constant with the sweep's queued-delivery grace: both answer "how long
@@ -701,8 +707,8 @@ def _ledger_stale_predecessor(name: str, status_key: str) -> None:
     A SIGKILL bypasses the failure wrapper entirely: no ``task_failures``
     entry is written and the status file stays ``state="running"`` with a
     frozen heartbeat — the UI's stale rule shows it as dead, but the
-    dead-letter ledger doesn't, so repeated silent deaths are easy to miss
-    (this happened twice with pca_refresh, 2026-08-08/09). Called when a NEW
+    dead-letter ledger doesn't, so repeated silent deaths are easy to miss.
+    Called when a NEW
     run of the same key starts (chunk 0): if the previous status is a stale
     ``running`` corpse, record it before ``reporter.start()`` overwrites it.
     Never raises — bookkeeping must not block the new run.
@@ -778,7 +784,7 @@ def _merge_run_stats(
     runs under the consolidate key (so the supervisor's gate serialises it) but
     is not a consolidation. It records under ``last_verify_*`` instead, so it
     never becomes the card's "Last: … OK" line (13 min right after a 42 s
-    consolidation read as "fired twice" on 2026-09-03) and never bumps
+    consolidation reads as "fired twice") and never bumps
     ``last_success``, which staleness checks read as "data consolidated".
     """
     merged = {**existing, **run_data}
@@ -1001,8 +1007,8 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                     )
                 else:
                     reporter.fail(f"Chain dispatch failed: {msg}")
-                    # A broken hand-off used to leave no stats row at all —
-                    # the ledger is the only durable trace of it.
+                    # A broken hand-off leaves no stats row at all — the
+                    # ledger is the only durable trace of it.
                     task_failures.record_failure(
                         task=name,
                         error=f"Chain dispatch failed: {msg}",
@@ -1130,8 +1136,8 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     if not entry.get("auto_armed"):
-        # Say so: 2026-09-03 two armed refreshes failed to fire and every exit
-        # here was silent, so the record could not tell which one it was.
+        # Say so: every exit here must be logged, otherwise a refresh that
+        # fails to fire leaves no record of which exit it took.
         print(
             f"[{just_finished}] Armed consolidate: no arm flag in process_stats "
             f"(keys: {sorted(k for k in entry if 'arm' in k) or 'none'})."
@@ -1275,11 +1281,11 @@ def _tick_enrichment_supervisor(just_finished: str) -> None:
     collection is armed — or the loop still OWES something with nothing
     armed: a consolidation for a job it started before its last plan
     finished, or the deferred analysis refresh of its own consolidations.
-    Gating purely on armed plans left both to the hourly heartbeat
-    (2026-09-05: a plan's last 87 annotations landed ten minutes after it
-    went Idle and sat "not consolidated" on the Dataset Assembly page for
-    the rest of the hour). The tick re-checks every precondition itself, so
-    a spurious call costs one cheap Cloud Task and nothing else.
+    Gating purely on armed plans leaves both to the hourly heartbeat (a
+    plan's last annotations landing after it goes Idle would sit "not
+    consolidated" on the Dataset Assembly page for up to an hour). The tick
+    re-checks every precondition itself, so a spurious call costs one cheap
+    Cloud Task and nothing else.
 
     Args:
         just_finished: The worker whose completion triggered this.

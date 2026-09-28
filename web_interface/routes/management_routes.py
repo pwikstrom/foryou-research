@@ -1,10 +1,10 @@
-"""Import shim for the split management routes (Phase 7b).
+"""Import surface for the management routes and their helpers.
 
-The 63 management endpoints now live in ``web_interface/routes/management/``
-(one submodule per domain, all registering on the same ``management_bp``), and
-the non-route helpers live in ``web_interface/services/``. This module remains
-the stable import surface: ``fyp_data_hub``, other route modules, the ``run_*``
-workers and the tests keep importing every historical name from here.
+The management endpoints live in ``web_interface/routes/management/`` (one
+submodule per domain, all registering on the same ``management_bp``), and the
+non-route helpers live in ``web_interface/services/``. This module re-exports
+both: ``fyp_data_hub``, other route modules, the ``run_*`` workers and the
+tests import these names from here.
 """
 
 from ..services.preview_cache import (  # noqa: F401

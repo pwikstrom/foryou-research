@@ -245,8 +245,8 @@ def list_collections():
 
             # Display IDs shared with another tags entry. Computed over the
             # tags file, not this listing, because the twin may have no
-            # metadata row at all (2026-09-11: leftover entries from
-            # verification signups) — the table would otherwise show one
+            # metadata row at all (e.g. leftover entries from verification
+            # signups) — the table would otherwise show one
             # "Sally Smith" and no sign that the name is taken twice.
             from fyp.ingest.raw_names import duplicate_display_ids
 
@@ -502,9 +502,9 @@ def save_collection_enrichment(collection_id):
     (a raised target, changed settings, or a fixed planner) resets both
     cursors: its walk had ended, and a fresh walk from the newest day costs
     nothing — every video already processed or failed for good is skipped, so
-    it picks up exactly what is left (2026-09-08: a plan whose deep dive had
-    skipped every quiet day sat with both cursors at the oldest month, and a
-    re-arm would have found nothing to do). Arming also stamps the run's
+    it picks up exactly what is left (a plan whose deep dive skipped every
+    quiet day can sit with both cursors at the oldest month, where a re-arm
+    that kept them would find nothing to do). Arming also stamps the run's
     starting line — ``run_started_at`` and the annotated count at that moment —
     which is the only thing that lets the panel say how far a RUN has come
     rather than how far the collection has. Resuming a paused plan keeps it.
@@ -592,9 +592,8 @@ def save_collection_enrichment(collection_id):
         queue_choice=data.get("queue_choice"),
         foreign_queued=data.get("foreign_queued"),
     )
-    # Arming used to change a ledger entry and nothing else: the first slice
-    # waited for the hourly heartbeat (up to an hour, on 2026-09-05 the
-    # better part of one). Arm now means "start" — one tick, right away.
+    # Arm means "start": tick right away, otherwise the first slice waits for
+    # the hourly heartbeat, up to an hour.
     ticked = None
     if patch.get("state") == ce.STATE_RUNNING and prev_state != ce.STATE_RUNNING:
         ticked = _tick_now(cid)

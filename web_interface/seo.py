@@ -1,14 +1,11 @@
 """Search-engine and social-preview metadata for the public mini-site.
 
-Until 2026-08 the public pages shipped no indexing metadata at all: one
-hardcoded ``<title>`` for all of them, no canonical link, no ``robots.txt`` and
-no sitemap. That was survivable while foryouresearch.net was a Wix site, and
-stopped being survivable the moment the domain was pointed at this app. Google
-then found byte-identical content on three hosts — the apex, ``www.`` and the
-raw Cloud Run URL — with nothing telling it which one to keep. It picked
-``www.``, whose last crawl still carried the old Wix ``noindex``, and the whole
-domain fell out of the index (Search Console, 2026-08-22: 0 pages indexed, 7
-excluded). This module supplies the signals that were missing.
+Supplies per-page titles and descriptions, a canonical link, ``robots.txt``
+and a sitemap. Without them a deployment serves byte-identical content on
+several hosts — the apex, ``www.`` and the raw Cloud Run URL — with nothing
+telling a search engine which one to keep. It may pick a host whose last crawl
+still carries a stale ``noindex`` and drop the whole domain from the index,
+which is what happened to foryouresearch.net before these signals existed.
 
 Everything keys off one value, ``[site] app_url`` — the public URL an operator
 wants indexed. It is deliberately the only place the canonical hostname is

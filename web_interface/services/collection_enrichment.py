@@ -28,8 +28,8 @@ So both processes buy days; they differ only in *which* days:
   first, uncapped, and INCLUDING days below the Correlations floor: a
   one-video day is still a sitting for Sessions and an honest zero-ish
   denominator for Timelines, and a light viewer's history is mostly such days
-  (2026-09-08: a DDP with 251 videos over 124 days had only 4 days of 10+, so
-  a floored deep dive could reach 46 of them and declared itself done). The
+  (a DDP with 251 videos over 124 days had only 4 days of 10+, so a floored
+  deep dive could reach 46 of them and would declare itself done). The
   only thing that buys Sessions, and it gives Timelines and Correlations honest
   denominators on a recent window.
 * **Process A (spread)** — a couple of *whole* days per calendar month, each
@@ -77,7 +77,7 @@ STATUS_FILENAME = "enrichment_status.parquet"
 # ~20 s save floor, a supervisor tick), and sizing the last slice to exactly
 # what the target still needs converged geometrically toward one-video cycles:
 # each scrape's failures left a residual, the next slice covered just that
-# residual, and so on (2026-09-08: 134, 51, 59, 24, 27, 11, 13, 5, 7, 3, 3, 1,
+# residual, and so on (observed: 134, 51, 59, 24, 27, 11, 13, 5, 7, 3, 3, 1,
 # 1, 1, ... videos, 25 s apart). The floor ends a plan in one cycle and lets
 # it overshoot its target by at most this many annotations. Applied by the
 # plan's cut AND its handoff, so what the floor scrapes also gets annotated.
@@ -118,17 +118,17 @@ DEFAULT_SETTINGS = {
     # full set of concurrent annotation jobs) — so a cycle's annotation is
     # ~one batch-job turnaround. True is the default the panel shows for a
     # collection with no plan yet (the GET route hands it DEFAULT_SETTINGS
-    # verbatim, so a False here made every new plan manual — 2026-09-08). A
+    # verbatim, so a False here would make every new plan manual). A
     # saved plan always stores its own value, so save_plan's re-seeding of
     # defaults cannot flip an existing plan's choice.
     "cycle_items_auto": True,
     "sample_share": 0.5,  # fraction of the cycle given to Process A
     # A: the ceiling on one sampled day. How many days a month the spread
-    # samples is NOT a setting any more (2026-09-09): it is derived from the
-    # target — see spread_days_per_month — because two quantity knobs (a
-    # target and a days-per-month limit) had to agree or one won silently,
-    # and on 2026-09-09 a 4,400 target sat above what 9 x 40 over six months
-    # could ever buy, so the plan idled short by construction. A stored
+    # samples is not a setting: it is derived from the target — see
+    # spread_days_per_month — because two quantity knobs (a target and a
+    # days-per-month limit) would have to agree or one wins silently; a
+    # 4,400 target above what 9 x 40 over six months could ever buy left a
+    # plan idling short by construction. A stored
     # ``a_days_per_month`` in an old ledger entry is inert.
     "a_day_cap": 50,
     "min_day_items": 10,  # the spread skips days below this (the
@@ -299,8 +299,8 @@ def normalize_settings(raw: dict | None) -> dict:
 
     _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
-    # Always automatic since 2026-09-09: the panel has no items-per-cycle
-    # knob any more, and a stored False from before is ignored on save.
+    # Always automatic: the panel has no items-per-cycle knob, and a stored
+    # False in an older ledger entry is ignored on save.
     out["cycle_items_auto"] = True
     # Floor 10: a cap under the min_day_items analysis floor would buy spread
     # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
@@ -498,8 +498,8 @@ def annotation_eligible(
     This must not be duplicated anywhere. An unscraped id in ``to_annotate.json``
     resolves no media, is refined as ``annotated_fail``, and is then pruned as
     permanently failed — the item is burnt and no queue builder will ever pick it
-    up again. That is exactly the 2026-08-26 hazard that switched the participant
-    first-batch auto-queue off.
+    up again. The same hazard is why the participant first-batch auto-queue is
+    off.
 
     Args:
         item_ids: Candidate ids.
@@ -660,8 +660,8 @@ def plan_cycle(
     reports the item ids to scrape and where the two cursors now stand. Pure: it
     reads data and returns a decision, it does not touch a queue or the ledger.
 
-    Three sizing rules, learned from the first runs against a numeric target
-    (2026-09-05, 391 videos short of the target took four one-day cycles):
+    Three sizing rules; without them a plan 391 videos short of its target
+    can take four one-day cycles to close the gap:
 
     * **Yield.** Scrapes and annotations each lose a share on the way (TikTok
       ~12% of scrapes, ~2% of annotations), so a slice cut to exactly what the
@@ -677,7 +677,7 @@ def plan_cycle(
       when what the target still needs is smaller than the next day: that much
       of the day is bought and the cursor is left ON the day, so raising the
       target later completes it before anything older is touched.
-    * **Within a day, whole viewing sessions first** (2026-09-09). Wherever
+    * **Within a day, whole viewing sessions first.** Wherever
       a day is cut rather than taken whole — the spread's capped days, the
       deep dive's partial last day — the cut takes the day's candidate
       sessions (at least ``session_min_plays`` plays, the Sessions tab's own
@@ -700,8 +700,8 @@ def plan_cycle(
             in (0, 1]; 1.0 keeps the raw clamp.
         pending: This collection's videos already queued or claimed for
             annotation — counted toward the target here, because enrichment
-            status cannot see them yet (without this the last slice was cut
-            against a target 581 videos further away than it was, 2026-09-05).
+            status cannot see them yet (without this the last slice can be cut
+            against a target hundreds of videos further away than it is).
         margin: Extra share to cut on top of the yield, for variance.
         session_min_plays: The smallest session taken whole; None means the
             shipped default. The planner is pure, so the live admin floor is
@@ -1069,8 +1069,8 @@ MAX_SPREAD_DAYS = 31
 
 
 # How long the steps of a cycle take until a collection has runs of its own
-# to measure: observed prod figures (2026-09-09: 1,289 scraped in 18 min;
-# a 1,055-video batch job in 20 min, a 14-video one in 6; consolidations
+# to measure: observed production figures (1,289 scraped in 18 min; a
+# 1,055-video batch job in 20 min, a 14-video one in 6; consolidations
 # 1-2.5 min).
 DEFAULT_TIMING = {
     "scrape_per_min": 70.0,  # videos the scraper gets through per minute
@@ -1315,12 +1315,10 @@ def handoff_scraped(
     the plan's annotation target. Annotating an already-scraped video is the
     cheapest step toward the target, so the loop always clears that backlog
     before any new scraping — and because the handoff outranks the plan step
-    in the tick, that ordering needs no extra machinery. (Until 2026-08-31
-    this sweep was the ``annotate_existing`` opt-in; the target now bounds it,
-    which is the protection the opt-in existed to provide. Stored plans may
-    still carry that key — nothing reads it.) The ``in_flight`` set no longer
-    scopes the handoff; it remains the plan's record of queued scrapes, which
-    is what stall detection reads.
+    in the tick, that ordering needs no extra machinery. The target is what
+    bounds the sweep; a legacy ``annotate_existing`` key in a stored plan is
+    inert. The ``in_flight`` set does not scope the handoff; it is the plan's
+    record of queued scrapes, which is what stall detection reads.
 
     Returns:
         ``{"ready": [ids to queue now], "in_flight": [ids still awaiting a
@@ -1444,7 +1442,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "run_start_annotated": entry.get("run_start_annotated"),
         # Where the LAST run ended, stamped when the plan closed: the meter of
         # a finished run reads these and stands still while the operator moves
-        # the target to prepare the next one (2026-09-09).
+        # the target to prepare the next one.
         "run_finished_at": entry.get("run_finished_at"),
         "run_end_annotated": entry.get("run_end_annotated"),
         "run_end_target": entry.get("run_end_target"),
@@ -1537,9 +1535,9 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
 
         # Four states that partition a row: annotated, awaiting annotation,
         # failed for good, or still to scrape. A scraped video whose
-        # annotation burnt out is failed, not awaiting (it used to count as
-        # both, and the chart's "not yet scraped" remainder came up short by
-        # that many).
+        # annotation burnt out is failed, not awaiting (counting it as both
+        # would leave the chart's "not yet scraped" remainder short by that
+        # many).
         frame = activity.assign(
             _ann=annotated,
             _await=scraped & ~annotated & ~row_failed,
@@ -1749,8 +1747,8 @@ def activity(platform: str | None = None) -> dict:
             }
         # A downstream refresh run (embeddings, map, studies…) gates every
         # tick just like a worker does, but no single worker names it —
-        # without this the strip read "waiting for the next tick" for the
-        # whole of a 15-minute pipeline (2026-09-04).
+        # without this the strip reads "waiting for the next tick" for the
+        # whole of a pipeline run, which can take 15 minutes.
         from web_interface.services import refresh_pipeline
 
         if refresh_pipeline.run_in_flight():
