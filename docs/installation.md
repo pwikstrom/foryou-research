@@ -58,6 +58,8 @@ The base dependency set covers everything hosted — optional services
 installs. The exception is the **local** model backends, which pull heavy
 ML dependencies via pip extras (`pip install -e ".[local_qwen]"`,
 `".[local_minicpm]"`, `".[local_embeddings]"`) — see their sections below.
+For exploring the Hub's outputs in notebooks, `pip install -e ".[notebook]"`
+adds JupyterLab and the plotting libraries; the app itself does not need them.
 
 ## Configure: the setup wizard
 

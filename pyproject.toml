@@ -72,6 +72,15 @@ local_minicpm = [
 local_embeddings = [
     "sentence-transformers>=3.0",
 ]
+# Interactive analysis of the Hub's outputs in notebooks. Nothing in the app
+# imports these, so they are not in requirements.txt (the production image).
+notebook = [
+    "jupyterlab>=4.2",
+    "ipywidgets>=8.1",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+    "itables>=2.1",
+]
 
 [tool.setuptools.packages.find]
 # Only the fyp library is packaged; web_interface stays app code.
