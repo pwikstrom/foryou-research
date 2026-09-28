@@ -474,9 +474,9 @@
 </div>
 
 {% if user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/methods_note.js') }}" defer></script>
+<script src="{{ asset_url('js/methods_note.js') }}" defer></script>
 {% endif %}
 {% if user.can_access('tab.my_stuff.tasks') %}
-<script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
+<script src="{{ asset_url('js/human_coding.js') }}" defer></script>
 {% endif %}
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=8"></script>
+<script src="{{ asset_url('js/my_stuff_tab.js') }}"></script>

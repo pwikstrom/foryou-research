@@ -151,8 +151,13 @@ admins; `GET /api/logs/<name>` serves them to the log modal, and
 No-build-step SPA: `templates/index.html` is the shell, `templates/tabs/`
 holds per-tab content, `static/main.js` is the tab-navigation controller and
 each tab has its own JS file. Everything is vanilla JS + `fetch()`; scripts
-are plain `<script>` tags with manual `?v=N` cache busting — bump the
-version when you change a file.
+are plain `<script>` tags. Templates reference every script and stylesheet as
+`{{ asset_url('main.js') }}` (`web_interface/static_assets.py`), which appends
+a hash of the file's content — a changed file gets a new URL on its own, so
+there is no version to bump. Shared helpers (`escapeHtml`, `showToast`) live
+once in `static/js/core/dom_utils.js`, loaded in `base.html` `<head>`: all
+scripts share one global scope, and `tests/unit/test_js_global_collisions.py`
+fails if two files define the same top-level name.
 
 Notable non-tab scripts in `static/js/`: `donation_review.js` (browser-side
 donation-export parsing and pruning — hard invariant: it makes **no**

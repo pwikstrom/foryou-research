@@ -135,6 +135,12 @@ def _register_web_ui(app):
         user_manager.touch_activity(current_user.get_id())
 
     @app.context_processor
+    def inject_asset_url():
+        """Expose ``asset_url()`` — content-hashed static URLs — to every template."""
+        from web_interface.static_assets import asset_url
+        return {"asset_url": asset_url}
+
+    @app.context_processor
     def inject_seo():
         """Expose the current page's search and social metadata as ``seo``.
 

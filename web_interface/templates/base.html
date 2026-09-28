@@ -35,18 +35,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@14.6.3/distribute/nouislider.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=79">
+    <link rel="stylesheet" href="{{ asset_url('style.css') }}">
     {% block app_libs %}
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/nouislider@14.6.3/distribute/nouislider.min.js"></script>
     {% endblock %}
     <!-- Loaded in <head> so every body script, deferred or not, can format dates. -->
-    <script src="{{ url_for('static', filename='js/datetime_format.js') }}?v=4"></script>
+    <script src="{{ asset_url('js/datetime_format.js') }}"></script>
     <!-- Also <head>: it stamps html.fyp-floating-tooltips, which suppresses the
          ::after tooltips, so loading it late would flash the clipped ones. -->
-    <script src="{{ url_for('static', filename='js/floating_tooltip.js') }}?v=2"></script>
+    <script src="{{ asset_url('js/floating_tooltip.js') }}"></script>
     <!-- Shared DOM helpers (escapeHtml, showToast): defined once, before any body script. -->
-    <script src="{{ url_for('static', filename='js/core/dom_utils.js') }}?v=1"></script>
+    <script src="{{ asset_url('js/core/dom_utils.js') }}"></script>
     {% block head %}{% endblock %}
     {% if seo.json_ld %}
     <script type="application/ld+json">{{ seo.json_ld | safe }}</script>

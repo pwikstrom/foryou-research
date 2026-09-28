@@ -199,7 +199,7 @@
      .dm-page, so it can be opened from both the Annotation Versions and the
      Annotation Testing sub-pages. -->
 {% include 'tabs/admin/annotation_contract_editor.html' %}
-<script src="{{ url_for('static', filename='js/admin_contract_editor.js') }}" defer></script>
+<script src="{{ asset_url('js/admin_contract_editor.js') }}" defer></script>
 {% endif %}
 
 <!-- User detail modal -->
@@ -321,4 +321,4 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=17"></script>
+<script src="{{ asset_url('js/admin_tab.js') }}"></script>
