@@ -6,26 +6,22 @@ from flask import jsonify, request
 from flask_login import login_required
 from werkzeug.utils import secure_filename
 
+import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
+from fyp.annotation.machine_annotation import rebuild_preferred_annotations_from_archive
 from fyp.core.fyp_config import (
     fyp_cf,
     load_var_schema,
 )
-import fyp.annotation.annotation_versioning as annotation_versioning
-from fyp.annotation.machine_annotation import rebuild_preferred_annotations_from_archive
 
 from ... import activity_log
 from ...data_service import (
     study_cache,
 )
 from ...permissions import permission_required
-
-
 from ...services.worker_status import (
     _actor,
 )
-
-
 from ._blueprint import management_bp
 from .schema import _var_schema_admin_enabled
 
@@ -107,6 +103,7 @@ def get_annotation_version(version):
         # switchable-to for an exact restore. The target is the version's
         # variant/backend (gemini when unset).
         from flask_login import current_user
+
         from ...permissions import user_has_permission
 
         restorable = (
@@ -310,6 +307,7 @@ def _backend_target_info(target: str | None) -> dict:
         check, or a local-only backend on Cloud Run.
     """
     from fyp.annotation.backends import active_backend_name, get_backend
+
     from ...task_status import is_cloud_run
 
     active = active_backend_name()
@@ -377,6 +375,7 @@ def download_annotation_contract():
     """Download the effective contract (runtime file if present, else baked)."""
     try:
         from flask import Response
+
         from fyp.annotation import annotation_contract as ac
 
         text = ac.effective_contract_text()
@@ -559,9 +558,11 @@ def upload_annotation_contract():
         ).strip() or None
         if switch_backend:
             from flask_login import current_user
+
+            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+
             from ...admin_settings import validate_setting_value
             from ...permissions import user_has_permission
-            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
 
             if not user_has_permission(current_user, "tab.admin.backends"):
                 return jsonify(
@@ -634,6 +635,7 @@ def upload_annotation_contract():
         if switch_backend:
             from fyp.annotation.backends import active_backend_name
             from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+
             from ...admin_settings import load_admin_settings, save_admin_settings
 
             prev_backend = active_backend_name()

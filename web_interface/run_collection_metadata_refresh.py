@@ -18,8 +18,9 @@ def run_collection_metadata_refresh(
     over it, then merges any preserved columns from the previous metadata file.
     Memory-heavy enough to OOM the data-hub, so this runs on the task-runner.
     """
-    import fyp.core.data_io as data_io
     import pandas as pd
+
+    import fyp.core.data_io as data_io
     from fyp.analysis.donations import (
         demographic_metadata_columns,
         generate_collection_metadata,

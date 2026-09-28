@@ -25,7 +25,6 @@ import pytest
 
 from fyp.scrape import scrape
 
-
 LABEL = "scrape_failed_items"
 
 

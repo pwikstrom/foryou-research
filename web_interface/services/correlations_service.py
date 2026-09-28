@@ -16,13 +16,13 @@ from scipy import stats as scipy_stats
 from statsmodels.stats.multitest import multipletests
 
 import fyp.core.data_io as data_io
-from fyp.core.fyp_config import fyp_cf
-from fyp.core.logging_setup import get_logger
 from fyp.annotation.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
     get_vars_by_role,
 )
+from fyp.core.fyp_config import fyp_cf
+from fyp.core.logging_setup import get_logger
 
 from .study_data import load_display_id_map
 from .user_variables import load_schema_metadata

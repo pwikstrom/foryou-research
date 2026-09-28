@@ -13,12 +13,12 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 import fyp.core.data_io as data_io
-from fyp.core.logging_setup import get_logger
 from fyp.analysis.organize_datasets import create_study_recoded_dataset
 from fyp.annotation.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
 )
+from fyp.core.logging_setup import get_logger
 from fyp.core.types import (
     convert_dtypes_to_pyarrow,
     convert_index_dtype_pyarrow,

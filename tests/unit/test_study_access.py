@@ -62,11 +62,11 @@ def test_analysis_side_admin_sees_everything(study_defs):
 
 
 def test_my_studies_matches_username_and_denies_unshared(study_defs, monkeypatch):
+    import web_interface.auth as auth_mod
+    import web_interface.routes.management.studies as studies_mod
     from web_interface import security
     from web_interface.auth import User
     from web_interface.fyp_data_hub import app
-    import web_interface.auth as auth_mod
-    import web_interface.routes.management.studies as studies_mod
 
     orig_get_user = security.user_manager.get_user
 
@@ -124,12 +124,12 @@ def test_migration_backfills_only_unshared_studies(monkeypatch):
 
 
 def test_save_study_rejects_empty_collections(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import User
-    from web_interface.fyp_data_hub import app
     import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
     from fyp.core.fyp_config import fyp_cf
+    from web_interface import security
+    from web_interface.auth import User
+    from web_interface.fyp_data_hub import app
 
     orig_get_user = security.user_manager.get_user
 

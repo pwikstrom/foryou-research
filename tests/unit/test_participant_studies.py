@@ -17,9 +17,9 @@ _OTHER = "someone-else@example.org"
 @pytest.fixture
 def svc(monkeypatch):
     """participant_studies wired to an in-memory defs dict + ownership map."""
-    from fyp.core.fyp_config import fyp_cf
     import web_interface.collection_accounts as accounts
     import web_interface.services.participant_studies as ps
+    from fyp.core.fyp_config import fyp_cf
 
     defs: dict = {}
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
@@ -197,8 +197,8 @@ def test_migration_skips_system_studies(monkeypatch):
 
 
 def test_default_study_picker_excludes_system_studies(monkeypatch):
-    from fyp.core.fyp_config import fyp_cf
     import fyp.analysis.studies as fyp_studies
+    from fyp.core.fyp_config import fyp_cf
     from web_interface import admin_settings
 
     monkeypatch.setitem(
@@ -310,6 +310,7 @@ def test_composed_stats_and_display_names(participant_defs):
 
 def test_compose_resolution_and_unions(participant_defs, monkeypatch):
     import pandas as pd
+
     from web_interface.services import study_data
 
     plus = f"__me_plus__{_OWNER}"
@@ -329,11 +330,11 @@ def test_compose_resolution_and_unions(participant_defs, monkeypatch):
 
 
 def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch):
+    import web_interface.auth as auth_mod
+    import web_interface.routes.management.studies as studies_mod
     from web_interface import security
     from web_interface.auth import User
     from web_interface.fyp_data_hub import app
-    import web_interface.auth as auth_mod
-    import web_interface.routes.management.studies as studies_mod
 
     manager = "__ps_manager__"
     orig_get_user = security.user_manager.get_user
@@ -397,11 +398,11 @@ def test_list_studies_keeps_presentation_keys_off_the_shared_defs(participant_de
     definition leaked whichever viewer was bound at request time into the
     next ``save_study_defs()`` write of studies.json.
     """
+    import web_interface.auth as auth_mod
+    import web_interface.routes.management.studies as studies_mod
     from web_interface import security
     from web_interface.auth import User
     from web_interface.fyp_data_hub import app
-    import web_interface.auth as auth_mod
-    import web_interface.routes.management.studies as studies_mod
 
     defs, _cache_files = participant_defs
     manager = "__ps_manager__"
@@ -449,8 +450,8 @@ def test_save_study_defs_drops_derived_presentation_keys(monkeypatch):
     copy is cleaned: ``run_study_refresh`` sets ``STUDY_NAME`` on the shared
     definition and keeps using it after the save.
     """
-    from fyp.core.fyp_config import fyp_cf
     import fyp.analysis.studies as studies
+    from fyp.core.fyp_config import fyp_cf
 
     defs = {
         "main_study": {"USER_ACCESS": ["all"], "STUDY_NAME": "main_study"},

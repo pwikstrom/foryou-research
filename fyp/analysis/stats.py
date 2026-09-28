@@ -39,8 +39,8 @@ import pandas as pd
 from scipy import stats as scipy_stats
 from statsmodels.stats.multitest import multipletests
 
-from fyp.core.logging_setup import get_logger
 from fyp.annotation.recode_variables import get_vars_by_role
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

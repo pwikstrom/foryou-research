@@ -18,12 +18,12 @@ from .services.analysis_data import (  # noqa: F401
     get_sequence_summary,
 )
 from .services.study_data import (  # noqa: F401
-    SECTION_ORDER,
-    TOTAL_STATS_PROVISIONAL_KEY,
-    StudyCache,
     _CAT_SCALES,
     _COLLECTION_TAGS_TTL,
     _USER_JSON_TTL,
+    SECTION_ORDER,
+    TOTAL_STATS_PROVISIONAL_KEY,
+    StudyCache,
     _collection_tags_cache,
     _collection_tags_cache_time,
     _enrichment_status,
@@ -58,8 +58,8 @@ from .services.study_data import (  # noqa: F401
     study_cache,
 )
 from .services.timeline_service import (  # noqa: F401
-    TIMELINE_SCHEMA_VERSION,
     _TIMELINE_REQUIRED_COLUMNS,
+    TIMELINE_SCHEMA_VERSION,
     _inject_other_bucket,
     _remap_analysis_indices,
     check_and_update_timeline_cache,

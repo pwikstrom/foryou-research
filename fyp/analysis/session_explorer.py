@@ -52,8 +52,8 @@ import pyarrow.compute as pa_compute
 
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, entropy_metrics
-from fyp.core.logging_setup import get_logger
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

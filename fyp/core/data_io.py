@@ -19,8 +19,8 @@ import pyarrow as pa
 import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
-from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.logging_setup import get_logger
+from fyp.core.types import convert_dtypes_to_pyarrow
 
 logger = get_logger(__name__)
 

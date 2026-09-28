@@ -33,8 +33,8 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.donations import demographic_metadata_columns
-from fyp.core.fyp_config import fyp_cf
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.fyp_config import fyp_cf
 
 from .services.study_data import get_collection_tags, invalidate_collection_tags_cache
 

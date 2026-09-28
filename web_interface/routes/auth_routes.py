@@ -11,25 +11,30 @@ import fyp.core.data_io as data_io
 import web_interface.auth as auth
 from fyp.core.fyp_config import fyp_cf
 
+from .. import activity_log, admin_notes, email_verification
 from ..admin_settings import (
     DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
+)
+from ..admin_settings import (
     SETTING_TYPES as ADMIN_SETTING_TYPES,
+)
+from ..admin_settings import (
     get_default_new_user_role,
     get_new_user_approval_required,
     get_session_floors,
     load_admin_settings,
     save_admin_settings,
-    study_names as admin_study_names,
     validate_setting_value,
 )
-from .. import activity_log, admin_notes
+from ..admin_settings import (
+    study_names as admin_study_names,
+)
 from ..collection_accounts import (
     collections_for_user,
     load_owner_map,
     orphan_placeholder_accounts,
     unlink_user,
 )
-from .. import email_verification
 from ..mail_utils import (
     is_email,
     mail_configured,
@@ -651,6 +656,7 @@ def api_admin_users():
         result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
         if cascade and unlinked:
             from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
+
             from ..process_manager import start_process
 
             ok, pmsg = start_process(

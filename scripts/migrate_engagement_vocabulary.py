@@ -99,8 +99,8 @@ def main(argv=None) -> int:
     import pandas as pd
 
     import fyp.core.data_io as data_io
-    from fyp.ingest.migrations import engagement_vocabulary as mig
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.ingest.migrations import engagement_vocabulary as mig
 
     filename = f"{COLLECTIONS_LABEL}_recoded.parquet"
     if not data_io.exists(storage_location="recoded", filename=filename):

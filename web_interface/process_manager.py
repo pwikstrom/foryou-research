@@ -17,7 +17,6 @@ from web_interface.task_status import (
     write_cancel_request,
 )
 
-
 # A status record whose `updated_at` is older than this is treated as stuck
 # in stop_process — the heartbeat (30 s interval) is clearly not running, so
 # we overwrite the file with a terminal state instead of just dropping a
@@ -905,6 +904,7 @@ def _dispatch_cloud_task(
         # times with short backoff before surfacing the failure to the UI.
         import time as _time
         import traceback as _tb
+
         from google.api_core import exceptions as _gax_exc
 
         last_err: Exception | None = None

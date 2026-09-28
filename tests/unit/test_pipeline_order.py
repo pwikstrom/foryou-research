@@ -55,7 +55,6 @@ import web_interface.services.refresh_pipeline as rp
 from web_interface.process_manager import local_pipeline_script_map
 from web_interface.routes.management_routes import PIPELINE_STEPS_ORDER
 
-
 PASS = 0
 FAIL = 0
 

@@ -7,8 +7,7 @@ blocks hoist under their backend, and the loaded config never carries the
 flat keys afterwards (single in-memory location, no split-brain).
 """
 
-from fyp.core.fyp_config import _LEGACY_GEMINI_KEYS, _normalize_machine_config
-from fyp.core.fyp_config import get_config
+from fyp.core.fyp_config import _LEGACY_GEMINI_KEYS, _normalize_machine_config, get_config
 
 
 def test_flat_keys_hoist_and_win_over_nested():

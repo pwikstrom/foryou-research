@@ -23,8 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
-import fyp.core.fyp_config
 import fyp.analysis.organize_datasets as od
+import fyp.core.fyp_config
 from fyp.core.fyp_config import fyp_cf
 
 

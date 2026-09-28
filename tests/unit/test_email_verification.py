@@ -18,7 +18,6 @@ import pytest
 
 from web_interface import auth, email_verification
 
-
 # --- helpers ---------------------------------------------------------------
 
 

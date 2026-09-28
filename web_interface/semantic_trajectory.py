@@ -30,9 +30,9 @@ import math
 import numpy as np
 import pandas as pd
 
-import fyp.core.data_io as data_io
 import fyp.analysis.embeddings as embeddings
 import fyp.analysis.video_map as video_map
+import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.timeline_analysis import compute_linreg
 

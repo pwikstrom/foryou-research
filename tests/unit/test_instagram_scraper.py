@@ -21,14 +21,13 @@ import pandas as pd
 import fyp.scrape.instagram_dl as instagram_dl
 from fyp.core.fyp_config import fyp_cf
 from fyp.scrape.instagram_dl import (
+    InstagramScraper,
     _classify_error,
     _info_to_row,
     _parse_media_info_counts,
     _parse_page_counts,
     _shortcode_to_mediaid,
-    InstagramScraper,
 )
-
 
 # A trimmed yt-dlp Instagram info dict. 'id' is the numeric media pk — the
 # raw row must carry the requested shortcode instead.

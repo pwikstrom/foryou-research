@@ -17,9 +17,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from fyp.scrape import scrape_contract as sc
 from fyp.annotation import var_presentation as vp
 from fyp.scrape import _coalesce_retired_columns
+from fyp.scrape import scrape_contract as sc
 
 
 def test_coalesce_single_platform_frame():

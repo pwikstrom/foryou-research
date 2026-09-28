@@ -24,9 +24,9 @@ def run_retokenise_hashtags(reporter: TaskStatusReporter, task_args: dict | None
     Returns None (no downstream chain).
     """
     import fyp.core.data_io as data_io
-    from fyp.core import types
     from fyp.analysis.organize_datasets import SCRAPES_LABEL
     from fyp.annotation.recode_variables import recode_tokenise
+    from fyp.core import types
 
     task_args = task_args or {}
     _t_start = time.perf_counter()

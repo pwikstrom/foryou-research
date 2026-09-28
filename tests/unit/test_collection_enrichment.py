@@ -33,7 +33,6 @@ import pytest
 
 import web_interface.services.collection_enrichment as ce
 
-
 # --------------------------------------------------------------------------- #
 # Fixtures
 # --------------------------------------------------------------------------- #
@@ -1270,8 +1269,9 @@ def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
 
 
 def test_held_queue_starts_after_the_maximum_hold(tick, monkeypatch):
-    import web_interface.run_enrichment_supervisor as sup
     from datetime import datetime, timedelta, timezone
+
+    import web_interface.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     stale = (
@@ -2054,8 +2054,9 @@ def test_a_met_target_also_waits_for_the_videos_in_flight(tick, monkeypatch):
 def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
     """A claim file a crashed annotator left behind must not hold a finished
     plan open for ever."""
-    import web_interface.run_enrichment_supervisor as sup
     from datetime import datetime, timedelta, timezone
+
+    import web_interface.run_enrichment_supervisor as sup
 
     stale = (datetime.now(timezone.utc) - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
     tick["plans"] = {

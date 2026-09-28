@@ -22,13 +22,12 @@ import google.genai
 import numpy as np
 import pandas as pd
 
-import fyp.core.data_io as data_io
-import fyp.core.media_paths as media_paths
-import fyp.scrape.scrape_queues as scrape_queues
-import fyp.core.utils as fyp_utils
 import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
 import fyp.core.gemini_client as gemini_client
-from fyp.core.logging_setup import get_logger
+import fyp.core.media_paths as media_paths
+import fyp.core.utils as fyp_utils
+import fyp.scrape.scrape_queues as scrape_queues
 
 # from fyp.organize_datasets import select_videos_from_study_dataset
 from fyp.annotation.annotation_schema import (
@@ -36,6 +35,7 @@ from fyp.annotation.annotation_schema import (
     flatten_structured,
 )
 from fyp.annotation.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
+from fyp.core.logging_setup import get_logger
 from fyp.core.types import convert_dtypes_to_pyarrow, scrub_surrogates_nested
 from fyp.core.utils import start_monitor
 

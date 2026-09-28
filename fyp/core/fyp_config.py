@@ -18,30 +18,73 @@ from google.cloud import storage as gcs_storage
 # keeps importing them from fyp.fyp_config.
 from fyp.core.paths import (
     AB_EVAL_SCRIPT as AB_EVAL_SCRIPT,
+)
+from fyp.core.paths import (
     AIO_FETCH_SCRIPT as AIO_FETCH_SCRIPT,
-    OPS_REPORT_SCRIPT as OPS_REPORT_SCRIPT,
-    ENRICHMENT_SUPERVISOR_SCRIPT as ENRICHMENT_SUPERVISOR_SCRIPT,
+)
+from fyp.core.paths import (
     COLLECTION_DELETE_SCRIPT as COLLECTION_DELETE_SCRIPT,
+)
+from fyp.core.paths import (
     COLLECTION_METADATA_REFRESH_SCRIPT as COLLECTION_METADATA_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     CONSOLIDATE_ENRICHMENT_SCRIPT as CONSOLIDATE_ENRICHMENT_SCRIPT,
+)
+from fyp.core.paths import (
     EMBEDDINGS_REFRESH_SCRIPT as EMBEDDINGS_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
+    ENRICHMENT_SUPERVISOR_SCRIPT as ENRICHMENT_SUPERVISOR_SCRIPT,
+)
+from fyp.core.paths import (
     INGEST_REFRESH_SCRIPT as INGEST_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     META_REFRESH_GROUPS_SCRIPT as META_REFRESH_GROUPS_SCRIPT,
+)
+from fyp.core.paths import (
+    OPS_REPORT_SCRIPT as OPS_REPORT_SCRIPT,
+)
+from fyp.core.paths import (
     PCA_REFRESH_SCRIPT as PCA_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     PROJECT_ROOT as PROJECT_ROOT,
+)
+from fyp.core.paths import (
     PYTHON_EXEC as PYTHON_EXEC,
+)
+from fyp.core.paths import (
     QUEUE_ANNOTATOR_BATCH_SCRIPT as QUEUE_ANNOTATOR_BATCH_SCRIPT,
+)
+from fyp.core.paths import (
     QUEUE_ANNOTATOR_SCRIPT as QUEUE_ANNOTATOR_SCRIPT,
+)
+from fyp.core.paths import (
     QUEUE_SCRAPER_SCRIPT as QUEUE_SCRAPER_SCRIPT,
+)
+from fyp.core.paths import (
     RECODE_REFRESH_STUDIES_SCRIPT as RECODE_REFRESH_STUDIES_SCRIPT,
+)
+from fyp.core.paths import (
     RETOKENISE_HASHTAGS_SCRIPT as RETOKENISE_HASHTAGS_SCRIPT,
+)
+from fyp.core.paths import (
     SEQUENCE_REFRESH_SCRIPT as SEQUENCE_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     SESSIONS_REFRESH_SCRIPT as SESSIONS_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     TIMELINES_REFRESH_SCRIPT as TIMELINES_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     VIDEO_MAP_REFRESH_SCRIPT as VIDEO_MAP_REFRESH_SCRIPT,
+)
+from fyp.core.paths import (
     abs_project_root_path as abs_project_root_path,
 )
-
 
 # import fyp
 
@@ -614,9 +657,9 @@ def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str 
             default) to read it fresh — which is what change detection needs.
     """
     try:
-        from fyp.annotation import var_presentation as vp
-        from fyp.annotation import annotation_contract as ac
         import fyp.core.data_io as data_io
+        from fyp.annotation import annotation_contract as ac
+        from fyp.annotation import var_presentation as vp
 
         # ``presentation`` is passed in by load_var_schema, which has just read
         # the store — recomputing the etag from the in-hand payload saves a
@@ -1002,8 +1045,8 @@ def load_var_schema(cf, verbose=False):
     legacy CSV path produced after its overlays, so the study hash is unchanged
     by the retirement.
     """
-    from fyp.annotation import var_presentation as vp
     from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import var_presentation as vp
 
     # 0. Refresh the runtime annotation-contract snapshot BEFORE the overlays, so
     #    every load_contract() call below (and the accepted_labels overlay) sees

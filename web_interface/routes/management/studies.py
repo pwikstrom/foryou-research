@@ -6,11 +6,8 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import current_user, login_required
 
-import fyp.core.data_io as data_io
-from fyp.core.fyp_config import (
-    fyp_cf,
-)
 import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
 from fyp.analysis.studies import (
     STUDY_ARTIFACT_SUFFIXES,
     SYSTEM_STUDY_NAME_PREFIX,
@@ -18,19 +15,19 @@ from fyp.analysis.studies import (
     is_system_study,
     save_study_defs,
 )
+from fyp.core.fyp_config import (
+    fyp_cf,
+)
 
 from ... import activity_log
 from ...data_service import (
     study_cache,
 )
+from ...permissions import permission_required
 from ...process_manager import (
     forget_process_stats,
     start_process,
 )
-from ...permissions import permission_required
-from ...task_status import is_cloud_run
-
-
 from ...services.preview_cache import (
     _collections_hash,
     get_preview_cells,
@@ -46,8 +43,7 @@ from ...services.stats_service import (
 from ...services.worker_status import (
     _actor,
 )
-
-
+from ...task_status import is_cloud_run
 from ._blueprint import management_bp
 
 

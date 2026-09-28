@@ -9,14 +9,15 @@ from flask_login import current_user, login_required
 
 import fyp.core.data_io as data_io
 import fyp.scrape.scrape_queues as scrape_queues
-from fyp.scrape import scraper_alerts
-from fyp.scrape.platform_scraper import get_scraper
 from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
     create_study_recoded_dataset,
 )
+from fyp.scrape import scraper_alerts
+from fyp.scrape.platform_scraper import get_scraper
 
 from ... import activity_log
+from ...permissions import permission_required
 from ...process_manager import (
     load_process_stats,
     process_stats,
@@ -24,11 +25,7 @@ from ...process_manager import (
     save_process_stats,
     start_process,
 )
-from ...permissions import permission_required
 from ...services import collection_enrichment, refresh_pipeline, system_health
-from ...task_status import is_cloud_run
-
-
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
     _evaluate_version_promotion_staleness,
@@ -43,10 +40,8 @@ from ...services.worker_status import (
     consolidate_entry_view,
     refresh_run_view,
 )
-
-
+from ...task_status import is_cloud_run
 from ._blueprint import management_bp
-
 
 _drain_lease_cache = {"ts": 0.0, "value": {}}
 _DRAIN_LEASE_CACHE_TTL_S = 30

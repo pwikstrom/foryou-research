@@ -22,10 +22,10 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         task_args: Optional dict. Recognised keys: ``studies`` (comma-separated
             study names to target), ``window_n``, ``session_gap_s``.
     """
-    from fyp.core import data_io
     from fyp.analysis import sequence_analysis
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.studies import init_study_defs
+    from fyp.core import data_io
+    from fyp.core.fyp_config import fyp_cf
 
     task_args = task_args or {}
     reporter.log("Starting Sequence Analysis Refresh...")

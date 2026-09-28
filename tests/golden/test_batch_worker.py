@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.core.data_io as data_io
 import fyp.annotation.machine_annotation as ma
+import fyp.core.data_io as data_io
 import web_interface.run_queue_annotator_batch as w
 from fyp.core.fyp_config import fyp_cf
 

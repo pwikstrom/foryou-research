@@ -20,8 +20,8 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
             ``run_recode_refresh_studies``). Defaults to every study.
     """
     import fyp.core.data_io as data_io
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.studies import init_study_defs
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.data_service import load_schema_metadata
     from web_interface.explorer_backend import (
         get_current_stats,

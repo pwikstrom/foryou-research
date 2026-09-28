@@ -577,8 +577,8 @@ def run_queue_annotator_batch(
     Returns:
         A chain dict (next link) or ``None`` when the work is done / failed.
     """
-    import fyp.core.data_io as data_io
     import fyp.annotation.machine_annotation_batch as batch
+    import fyp.core.data_io as data_io
     from fyp.annotation.backends import active_backend_name
 
     task_args = task_args or {}

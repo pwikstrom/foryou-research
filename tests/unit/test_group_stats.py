@@ -40,7 +40,6 @@ from scipy import stats as scipy_stats
 
 from fyp.analysis import stats as fstats
 
-
 N_COLLECTIONS = 6
 N_PER_COLLECTION = 30
 

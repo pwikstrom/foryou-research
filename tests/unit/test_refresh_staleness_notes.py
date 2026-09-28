@@ -13,7 +13,6 @@ import pytest
 
 from web_interface.services import stats_service as ss
 
-
 IMPACT_TS = "2026-08-16T10:00:00+00:00"
 BEFORE = "2026-08-16T09:00:00+00:00"
 AFTER = "2026-08-16T11:00:00+00:00"

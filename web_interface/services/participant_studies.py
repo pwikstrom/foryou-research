@@ -24,8 +24,6 @@ Every entry point is defensive — a failure here must never fail the caller.
 import threading
 
 import fyp.core.data_io as data_io
-from fyp.core.fyp_config import fyp_cf
-from fyp.core.logging_setup import get_logger
 from fyp.analysis.studies import (
     STUDY_ARTIFACT_SUFFIXES,
     SYSTEM_PARTICIPANT,
@@ -35,6 +33,8 @@ from fyp.analysis.studies import (
     participant_plus_name,
     save_study_defs,
 )
+from fyp.core.fyp_config import fyp_cf
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

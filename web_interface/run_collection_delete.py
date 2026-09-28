@@ -54,9 +54,9 @@ def run_collection_delete(
     affected study so their cached files get rebuilt without the deleted rows.
     """
     import fyp.core.data_io as data_io
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from fyp.analysis.studies import init_study_defs, save_study_defs
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.data_service import (
         invalidate_collection_tags_cache,
         study_cache,

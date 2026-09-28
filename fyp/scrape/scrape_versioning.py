@@ -26,10 +26,11 @@ import json
 
 import pandas as pd
 
+from fyp.core.logging_setup import get_logger
+
 # Sibling import goes through the package (never the old-path shim) — see
 # the shim-poisoning rule in docs/fyp-import-graph.md.
 from fyp.scrape import scrape_contract as sc
-from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

@@ -527,7 +527,6 @@ def test_matrix_payload_v2_fields(client, monkeypatch):
 
 def test_status_payload_staleness(monkeypatch):
     import fyp.core.data_io as data_io
-
     from web_interface.services.correlations_service import build_status_payload
 
     mtimes = {"s_PCA.parquet": 100.0, "s_recoded.parquet": 50.0}
@@ -661,6 +660,7 @@ def test_group_stats_endpoint(client, monkeypatch):
 def test_per_group_regressions_series_cap(monkeypatch):
     """More series than max_regression_series -> no per-group lines."""
     import numpy as np
+
     from web_interface.services import correlations_service as cs
 
     rng = np.random.RandomState(3)

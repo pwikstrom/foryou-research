@@ -12,8 +12,8 @@ real variants never leak into assertions.
 
 import pytest
 
-import fyp.annotation.backends as backends
 import fyp.annotation.annotation_versioning as av
+import fyp.annotation.backends as backends
 from fyp.annotation.backends import settings as backend_settings
 from fyp.annotation.backends import variants
 from fyp.core.fyp_config import get_config

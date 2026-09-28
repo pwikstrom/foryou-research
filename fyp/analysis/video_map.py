@@ -42,9 +42,9 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
-import fyp.core.gemini_client as gemini_client
-import fyp.core.data_io as data_io
 import fyp.analysis.embeddings as embeddings
+import fyp.core.data_io as data_io
+import fyp.core.gemini_client as gemini_client
 from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)

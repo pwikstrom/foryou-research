@@ -7,31 +7,27 @@ from flask import jsonify, request
 from flask_login import login_required
 
 import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import (
+    COLLECTIONS_LABEL,
+)
 from fyp.core.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import get_main_collection, parse_donor_timezone
-from fyp.analysis.organize_datasets import (
-    COLLECTIONS_LABEL,
-)
 
 from ... import activity_log
 from ...data_service import (
     invalidate_collection_tags_cache,
     load_display_id_map,
 )
+from ...permissions import permission_required
 from ...process_manager import (
     start_process,
 )
-from ...permissions import permission_required
 from ...security import user_manager
-
-
 from ...services.worker_status import (
     _actor,
 )
-
-
 from ._blueprint import management_bp
 
 
@@ -235,6 +231,7 @@ def upload_ingestion_file():
         known_display_keys,
         manifest_entry,
     )
+
     from ...services.study_data import get_collection_tags
 
     known_ids = known_collection_ids()

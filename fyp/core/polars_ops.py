@@ -35,8 +35,8 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 
-from fyp.core.types import downgrade_series_if_large, is_arrow_date
 from fyp.core.logging_setup import get_logger
+from fyp.core.types import downgrade_series_if_large, is_arrow_date
 
 logger = get_logger(__name__)
 

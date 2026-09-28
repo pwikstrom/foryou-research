@@ -20,7 +20,6 @@ from fyp.core.types import (
     scrub_surrogates_nested,
 )
 
-
 LONE = json.loads('"\\u2764\\uFE0F\\u200D\\uD83E\\uFA79"')  # ❤️‍ + lone \ud83e + 啕
 
 

@@ -16,7 +16,6 @@ import pandas as pd
 from web_interface import explorer_backend as explorer
 from web_interface.services import study_data
 
-
 _N_ROWS = 40
 
 

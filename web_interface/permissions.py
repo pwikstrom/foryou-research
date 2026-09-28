@@ -19,7 +19,6 @@ from functools import wraps
 from flask import abort, current_app
 from flask_login import current_user
 
-
 PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.explore", "label": "Explore"},
     {"key": "tab.timelines", "label": "Timelines"},

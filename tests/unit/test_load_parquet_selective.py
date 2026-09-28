@@ -19,8 +19,8 @@ from fyp.core import fyp_config
 
 fyp_config.initialize()
 
-from fyp.core import data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core import data_io
 
 
 def _expect(cond, msg):

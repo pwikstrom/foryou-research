@@ -17,8 +17,8 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.calc_collection_stats import generate_personas
-from fyp.core.logging_setup import get_logger
 from fyp.annotation.recode_variables import *
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

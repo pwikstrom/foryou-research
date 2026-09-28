@@ -9,7 +9,6 @@ from flask_login import current_user, login_required
 
 import web_interface.auth as auth
 from fyp.core import logging_setup
-from web_interface import activity_log, run_logs, task_failures
 from fyp.core.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
     EMBEDDINGS_REFRESH_SCRIPT,
@@ -23,9 +22,9 @@ from fyp.core.fyp_config import (
     TIMELINES_REFRESH_SCRIPT,
     VIDEO_MAP_REFRESH_SCRIPT,
 )
+from web_interface import activity_log, run_logs, task_failures
 
 from ..permissions import user_has_permission
-from ..services import refresh_pipeline
 from ..process_manager import (
     CLOUD_TASK_ELIGIBLE,
     SCRAPER_PROCESS_NAMES,
@@ -38,10 +37,11 @@ from ..process_manager import (
     start_process,
     stop_process,
 )
+from ..services import refresh_pipeline
 from ..task_status import (
     CANCEL_SUFFIX,
-    GCSStatusReporter,
     STATUS_PREFIX,
+    GCSStatusReporter,
     is_cloud_run,
     read_task_status,
     stamp_task_status,
@@ -60,8 +60,9 @@ process_bp = Blueprint("process_bp", __name__)
 # One constant with the sweep's queued-delivery grace: both answer "how long
 # may a dispatched task go undelivered before we call it lost", and the
 # queue's own maxRetryDuration is the only honest answer to either.
-from ..services.refresh_pipeline import QUEUED_DELIVERY_GRACE_SECONDS as FORK_START_GRACE_SECONDS  # noqa: E402
-
+from ..services.refresh_pipeline import (
+    QUEUED_DELIVERY_GRACE_SECONDS as FORK_START_GRACE_SECONDS,  # noqa: E402
+)
 
 # Tasks that are safe for the QUEUE to retry after a failed attempt: pure
 # recomputations that rewrite their artifacts from source data, so a partial
@@ -721,9 +722,9 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_collection_metadata_refresh import run_collection_metadata_refresh
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
     from web_interface.run_embeddings_refresh import run_embeddings_refresh
+    from web_interface.run_enrichment_supervisor import run_enrichment_supervisor
     from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
-    from web_interface.run_enrichment_supervisor import run_enrichment_supervisor
     from web_interface.run_ops_report import run_ops_report
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator

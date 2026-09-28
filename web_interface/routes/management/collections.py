@@ -5,6 +5,10 @@ from flask import jsonify, request
 from flask_login import login_required
 
 import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import (
+    COLLECTIONS_LABEL,
+)
+from fyp.analysis.studies import init_study_defs
 from fyp.core.fyp_config import (
     fyp_cf,
 )
@@ -15,28 +19,20 @@ from fyp.ingest.raw_names import (
     entry_display_id,
     normalize_display_id,
 )
-from fyp.analysis.organize_datasets import (
-    COLLECTIONS_LABEL,
-)
-from fyp.analysis.studies import init_study_defs
 
 from ... import activity_log
 from ...collection_accounts import collection_counts_by_user
 from ...data_service import (
     invalidate_collection_tags_cache,
 )
-from ...security import user_manager
+from ...permissions import permission_required
 from ...process_manager import (
     start_process,
 )
-from ...permissions import permission_required
-
-
+from ...security import user_manager
 from ...services.worker_status import (
     _actor,
 )
-
-
 from ._blueprint import management_bp
 
 
@@ -471,9 +467,8 @@ def _deferred_refresh_view() -> dict:
 @login_required
 def get_collection_enrichment(collection_id):
     """The collection's automatic-enrichment plan + live progress, for the modal."""
-    from ...services import collection_enrichment as ce
     from ... import admin_settings
-
+    from ...services import collection_enrichment as ce
     from .enrichment import _annotation_cost_estimate
 
     entry = ce.get_plan(collection_id)
@@ -524,8 +519,8 @@ def save_collection_enrichment(collection_id):
     which is the only thing that lets the panel say how far a RUN has come
     rather than how far the collection has. Resuming a paused plan keeps it.
     """
-    from ...services import collection_enrichment as ce
     from ...collection_accounts import load_owner_map
+    from ...services import collection_enrichment as ce
 
     data = request.json or {}
     cid = str(collection_id)
@@ -631,6 +626,7 @@ def _tick_now(cid: str) -> dict:
     "Run a cycle now" start the loop the same way.
     """
     from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
 
@@ -679,8 +675,8 @@ def _journal_plan_save(
 ) -> None:
     """One history line per Arm / Pause / Resume / settings save. Never raises."""
     try:
-        from ...services import enrichment_journal as journal
         from ...services import collection_enrichment as ce
+        from ...services import enrichment_journal as journal
 
         settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
         target = int(settings.get("annotation_target") or 0)
@@ -751,8 +747,9 @@ def preview_collection_enrichment_queues(collection_id):
     this collection's); ``breakdown`` is False when the queues were too big to
     attribute. No parquet read when both queues are empty.
     """
-    from fyp.scrape import scrape_queues
     from flask_login import current_user
+
+    from fyp.scrape import scrape_queues
 
     from ...permissions import user_has_permission
     from ...services import collection_enrichment as ce
@@ -871,6 +868,7 @@ def tick_collection_enrichment(collection_id):
     before automatic ticks are enabled.
     """
     from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
 

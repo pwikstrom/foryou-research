@@ -3,29 +3,23 @@
 from flask import jsonify, request
 from flask_login import login_required
 
+import fyp.annotation.annotation_versioning as annotation_versioning
 
 from ... import activity_log
+from ...permissions import permission_required
 from ...process_manager import (
     start_process,
 )
-from ...permissions import permission_required
-
-
 from ...services.worker_status import (
     _actor,
     _is_worker_running,
 )
-
-
-import fyp.annotation.annotation_versioning as annotation_versioning
-
 from ._blueprint import management_bp
 from .contracts import (
     _annotation_contract_impact,
     _backend_target_info,
     candidate_version_descriptor,
 )
-
 
 # Reserved pseudo-candidate name for the shipped (baked) default contract.
 # The Playground shows it as a permanent row so the default can be inspected,
@@ -240,6 +234,7 @@ def activate_ab_candidate(name):
     """
     try:
         from flask_login import current_user
+
         from fyp.annotation import ab_eval
         from fyp.annotation import annotation_contract as ac
         from fyp.annotation.backends import variants

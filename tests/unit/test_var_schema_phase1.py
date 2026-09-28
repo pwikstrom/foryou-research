@@ -38,17 +38,16 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-from fyp.core.fyp_config import (
-    fyp_cf,
-    reload_var_schema_if_changed,
-)
 from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_HASH_VERSION,
     compute_var_schema_hash,
     get_recode_func_registry,
 )
-
+from fyp.core.fyp_config import (
+    fyp_cf,
+    reload_var_schema_if_changed,
+)
 
 PASS = 0
 FAIL = 0

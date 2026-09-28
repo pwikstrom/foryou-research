@@ -8,8 +8,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 import fyp.core.data_io as data_io
-from fyp.core.fyp_config import fyp_cf
 from fyp.analysis.organize_datasets import create_study_recoded_dataset
+from fyp.core.fyp_config import fyp_cf
 from fyp.core.utils import ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 

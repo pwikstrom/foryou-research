@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fyp.analysis import entropy_metrics, session_explorer as se
+from fyp.analysis import entropy_metrics
+from fyp.analysis import session_explorer as se
 
 
 @pytest.fixture(scope="module")

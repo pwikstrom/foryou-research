@@ -4,26 +4,22 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import login_required
 
-from fyp.core.fyp_config import (
-    fyp_cf,
-    load_var_schema,
-)
 from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_ROLES,
     VAR_SCHEMA_SCALES,
     compute_var_schema_hash,
 )
+from fyp.core.fyp_config import (
+    fyp_cf,
+    load_var_schema,
+)
 
 from ... import activity_log
 from ...permissions import permission_required
-
-
 from ...services.worker_status import (
     _actor,
 )
-
-
 from ._blueprint import management_bp
 
 
@@ -206,8 +202,8 @@ def get_schema():
     post-save refresh omit the flag — they only need in-memory state.
     """
     try:
-        from fyp.annotation import var_presentation as vp
         from fyp.annotation import annotation_contract as ac
+        from fyp.annotation import var_presentation as vp
 
         if request.args.get("force_reload") in ("1", "true", "yes"):
             global fyp_cf

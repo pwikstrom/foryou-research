@@ -18,20 +18,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 
 import fyp.core.data_io as data_io
-from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
-from fyp.core import activity_contract as _activity_contract
-from fyp.core import activity_versioning as _activity_versioning
-from fyp.scrape import scrape_contract as _scrape_contract
-from fyp.scrape import scrape_versioning as _scrape_versioning
-from fyp.core import structure_sentinel as _structure_sentinel
 from fyp.analysis.donations import (
     demographic_metadata_columns,
     generate_collection_metadata,
     strip_demographic_columns,
 )
+from fyp.annotation.recode_variables import infer_timezone_offset
+from fyp.core import activity_contract as _activity_contract
+from fyp.core import activity_versioning as _activity_versioning
+from fyp.core import structure_sentinel as _structure_sentinel
 from fyp.core.logging_setup import get_logger
 from fyp.core.polars_ops import fast_vertical_concat
-from fyp.annotation.recode_variables import infer_timezone_offset
 from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.utils import (
     ACTIVITY_TYPE_MAP,
@@ -39,6 +36,9 @@ from fyp.core.utils import (
     RECEIVED_ACTIVITY_TYPES,
     share_method_base,
 )
+from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
+from fyp.scrape import scrape_contract as _scrape_contract
+from fyp.scrape import scrape_versioning as _scrape_versioning
 
 logger = get_logger(__name__)
 

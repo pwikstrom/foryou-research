@@ -21,8 +21,7 @@ from datetime import datetime
 import pandas as pd
 
 from fyp.scrape.platform_scraper import _THROTTLE_CATEGORIES
-from fyp.scrape.youtube_dl import _classify_error, _info_to_row, _parse_create_time, YouTubeScraper
-
+from fyp.scrape.youtube_dl import YouTubeScraper, _classify_error, _info_to_row, _parse_create_time
 
 _INFO = {
     "id": "pKOOk7f6FHk",

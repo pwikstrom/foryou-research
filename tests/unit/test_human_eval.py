@@ -593,6 +593,7 @@ def test_notifications():
     )
 
     import os
+
     from web_interface import mail_utils
 
     _check("is_email accepts a@b.co", mail_utils.is_email("a@b.co"))

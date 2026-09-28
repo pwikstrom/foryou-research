@@ -18,7 +18,6 @@ import pytest
 
 import fyp.analysis.video_map as video_map
 
-
 _N_PER_NICHE = 10
 
 

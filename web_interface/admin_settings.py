@@ -11,13 +11,16 @@ import time
 import fyp.core.data_io as data_io
 from fyp.analysis.embedding_backends.settings import (
     EMBEDDING_BACKEND_KEY,
+)
+from fyp.analysis.embedding_backends.settings import (
     get_embedding_backend as get_embedding_backend,  # re-export (read side lives in fyp)
 )
 from fyp.annotation.backends.settings import (
     ANNOTATION_BACKEND_KEY,
+)
+from fyp.annotation.backends.settings import (
     get_annotation_backend as get_annotation_backend,  # re-export (read side lives in fyp)
 )
-
 
 SETTINGS_FILENAME = "admin_settings.json"
 
@@ -340,8 +343,8 @@ def study_names() -> list[str]:
     Returns ``[]`` rather than raising if the definitions cannot be loaded.
     """
     try:
-        from fyp.core.fyp_config import fyp_cf
         from fyp.analysis.studies import init_study_defs, is_system_study
+        from fyp.core.fyp_config import fyp_cf
 
         init_study_defs()
         # System-managed participant studies are excluded: pointing the

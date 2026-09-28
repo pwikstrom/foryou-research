@@ -38,8 +38,8 @@ import pandas as pd
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-import fyp.core.data_io as data_io
 import fyp.analysis.embeddings as embeddings
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, session_explorer
 from fyp.core.fyp_config import fyp_cf
 from web_interface.data_service import (
@@ -50,9 +50,9 @@ from web_interface.data_service import (
     load_display_id_map,
 )
 
-from ._access import study_access_error
 from ..permissions import permission_required
 from ..task_status import is_cloud_run
+from ._access import study_access_error
 
 sessions_bp = Blueprint("sessions_bp", __name__)
 

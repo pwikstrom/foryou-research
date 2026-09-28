@@ -30,13 +30,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/golden
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 
 import pandas as pd
-
 from _harness import pinned_var_schema
 from test_structured_refinement_path import _structured_response
 
 import fyp.annotation.annotation_versioning as av
-import fyp.core.data_io as data_io
 import fyp.annotation.machine_annotation as ma
+import fyp.core.data_io as data_io
 from fyp.core.fyp_config import fyp_cf
 
 _ARCHIVE_FN = f"{ma.MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"

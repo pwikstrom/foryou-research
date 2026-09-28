@@ -16,9 +16,9 @@ import pyarrow.compute as pa_compute
 from cachetools import LRUCache
 
 import fyp.core.data_io as data_io
-from fyp.core.fyp_config import fyp_cf
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.studies import init_study_defs, is_composed_study, participant_me_name
+from fyp.core.fyp_config import fyp_cf
 
 from .. import explorer_backend as explorer
 

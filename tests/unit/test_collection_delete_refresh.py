@@ -27,6 +27,7 @@ def test_refresh_targets_skip_removed_and_composed_studies():
 def test_reconciliation_runs_before_the_refresh_dispatch():
     """Order in the worker source: the participant sync precedes step 10."""
     import inspect
+
     from web_interface import run_collection_delete as mod
 
     src = inspect.getsource(mod.run_collection_delete)
@@ -86,6 +87,7 @@ def test_forget_process_stats_removes_only_that_key(monkeypatch):
 def test_moviepy_audio_reader_destructor_is_quiet():
     pytest.importorskip("moviepy")
     from moviepy.audio.io.readers import FFMPEG_AudioReader
+
     from fyp.scrape.scrape import _patch_moviepy_audio_reader_del
 
     _patch_moviepy_audio_reader_del()

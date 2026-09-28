@@ -2,7 +2,6 @@
 
 import pytest
 
-
 # --------------------------------------------------------------- wiring
 
 
@@ -366,8 +365,8 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
 
     import pandas as pd
 
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.services.ops_report import _linked_collections_missing
 
     recoded = tmp_path / "recoded"
@@ -401,8 +400,8 @@ def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path)
 
     import pandas as pd
 
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.services.ops_report import (
         _dataset_collection_ids,
         _leftover_tag_entries,

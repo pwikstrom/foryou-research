@@ -53,6 +53,7 @@ def _now():
 
 def _local_tz():
     from zoneinfo import ZoneInfo
+
     from fyp.core.fyp_config import fyp_cf
 
     try:
@@ -802,6 +803,7 @@ def collect_status(hours_back: int = 24) -> dict:
 
     try:
         import requests
+
         from web_interface.mail_utils import _site
 
         app_url = str(_site().get("app_url", "") or "").strip()
@@ -819,8 +821,9 @@ def collect_status(hours_back: int = 24) -> dict:
         check(sec, "Public site", "red", f"UNREACHABLE: {e}")
 
     try:
-        import requests
         from importlib.metadata import version as pkg_version
+
+        import requests
 
         installed = pkg_version("yt-dlp")
         latest = requests.get(
@@ -1037,8 +1040,8 @@ def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -
         The ``study_refresh__<name>`` keys with no matching definition.
     """
     if study_defs is None:
-        from fyp.core.fyp_config import fyp_cf
         from fyp.analysis.studies import init_study_defs
+        from fyp.core.fyp_config import fyp_cf
 
         init_study_defs()
         study_defs = fyp_cf.get("study_defs") or {}

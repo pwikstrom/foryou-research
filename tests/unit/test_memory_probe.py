@@ -42,8 +42,8 @@ def test_mem_probe_logs_even_on_exception():
 
 
 def test_organize_datasets_aliases_point_at_shared_impl():
-    from fyp.core import memory
     from fyp.analysis import organize_datasets as od
+    from fyp.core import memory
 
     assert od._rss_mb is memory.rss_mb
     assert od._peak_rss_mb is memory.peak_rss_mb

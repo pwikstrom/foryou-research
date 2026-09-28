@@ -7,8 +7,7 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.core.fyp_config import fyp_cf
 
-from .study_data import SECTION_ORDER, _CAT_SCALES
-
+from .study_data import _CAT_SCALES, SECTION_ORDER
 
 # --- Explorer State ---
 

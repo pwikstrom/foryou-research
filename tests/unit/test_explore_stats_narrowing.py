@@ -16,7 +16,6 @@ import pytest
 from web_interface import explorer_backend as explorer
 from web_interface.routes.api_explorer_routes import _viz_stats_col_types
 
-
 _COL_TYPES = {
     "duration": "number",
     "content_category": "category",

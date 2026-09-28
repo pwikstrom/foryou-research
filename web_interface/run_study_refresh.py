@@ -29,9 +29,9 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     import pandas as pd
 
     import fyp.core.data_io as data_io
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.pca import calculate_scaled_pca_scores
     from fyp.analysis.studies import init_study_defs, save_study_defs
+    from fyp.core.fyp_config import fyp_cf
     from web_interface import explorer_backend as explorer
     from web_interface.data_service import (
         load_schema_metadata,

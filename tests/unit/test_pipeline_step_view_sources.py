@@ -26,7 +26,6 @@ import pytest
 from web_interface.services import refresh_pipeline as rp
 from web_interface.services import worker_status as ws
 
-
 T0 = "2026-08-16T10:00:00+00:00"  # run seeded
 T1 = "2026-08-16T10:20:00+00:00"  # origin finished
 

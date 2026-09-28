@@ -22,14 +22,16 @@ from PIL import Image, ImageColor
 
 import fyp.core.data_io as data_io
 import fyp.core.media_paths as media_paths
+from fyp.annotation.recode_variables import recode_events_df, rename_columns
 from fyp.core.logging_setup import get_logger
+from fyp.core.utils import chunk_list, record_dropped_columns, start_monitor
+from fyp.scrape import connectivity, scrape_queues, scrape_versioning, scraper_alerts
 
 # Sibling imports go through the package (never the old-path shims): a
 # shim import here could bind a
 # partially-initialized shim during the boot cascade (shim-poisoning rule,
 # docs/fyp-import-graph.md).
 from fyp.scrape import scrape_contract as sc
-from fyp.scrape import connectivity, scrape_queues, scrape_versioning, scraper_alerts
 from fyp.scrape.platform_scraper import (
     SESSION_EXPIRED,
     SLIDESHOW_SECONDS_PER_IMAGE,
@@ -37,8 +39,6 @@ from fyp.scrape.platform_scraper import (
     ThrottleController,
     get_scraper,
 )
-from fyp.annotation.recode_variables import recode_events_df, rename_columns
-from fyp.core.utils import chunk_list, record_dropped_columns, start_monitor
 
 logger = get_logger(__name__)
 

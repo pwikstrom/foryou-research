@@ -15,12 +15,12 @@ import numpy as np
 import pandas as pd
 
 import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
+from fyp.core.utils import clean_url, share_method_with_count
 from fyp.ingest.base import (
     ForYouBaseCollection,
     derive_play_duration,
 )
-from fyp.core.logging_setup import get_logger
-from fyp.core.utils import clean_url, share_method_with_count
 
 logger = get_logger(__name__)
 

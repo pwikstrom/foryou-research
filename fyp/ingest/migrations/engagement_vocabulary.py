@@ -35,10 +35,10 @@ from types import SimpleNamespace
 import pandas as pd
 
 from fyp.core import activity_versioning as _activity_versioning
-from fyp.ingest.base import ForYouBaseCollection, assign_session_ids, derive_play_duration
-from fyp.ingest.tiktok import TikTokDDPCollection
 from fyp.core.logging_setup import get_logger
 from fyp.core.utils import share_method_with_count
+from fyp.ingest.base import ForYouBaseCollection, assign_session_ids, derive_play_duration
+from fyp.ingest.tiktok import TikTokDDPCollection
 
 logger = get_logger(__name__)
 

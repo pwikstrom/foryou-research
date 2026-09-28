@@ -8,12 +8,11 @@ sys.path.append(str(project_root))
 
 import pandas as pd
 
-from web_interface.task_status import TaskStatusReporter
-from fyp.ingest.base import BLOCKED_OUTCOME
-from fyp.ingest import LEDGER_SKIP_OUTCOMES
-from fyp.core.structure_sentinel import StructureSentinel, findings_digest
 from fyp.analysis.sequence_analysis import VIEWING_ACTIVITY_TYPES
-
+from fyp.core.structure_sentinel import StructureSentinel, findings_digest
+from fyp.ingest import LEDGER_SKIP_OUTCOMES
+from fyp.ingest.base import BLOCKED_OUTCOME
+from web_interface.task_status import TaskStatusReporter
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.
 # Mirrors ingest.LEDGER_SKIP_OUTCOMES — kept as a local alias because the UI

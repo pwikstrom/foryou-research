@@ -13,10 +13,10 @@ from web_interface.task_status import TaskStatusReporter
 def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh PCA / Correlations data for studies."""
     import fyp.core.data_io as data_io
-    from fyp.analysis.stats import compute_group_stats_artifact
-    from fyp.core.fyp_config import fyp_cf
     from fyp.analysis.pca import calculate_scaled_pca_scores
+    from fyp.analysis.stats import compute_group_stats_artifact
     from fyp.analysis.studies import init_study_defs
+    from fyp.core.fyp_config import fyp_cf
 
     task_args = task_args or {}
     reporter.log("Starting PCA / Correlations Refresh...")

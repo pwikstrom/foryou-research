@@ -94,8 +94,8 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         should be dispatched, or ``None`` when the work is done.
     """
     import fyp.scrape.scrape_queues as scrape_queues
-    from fyp.scrape.platform_scraper import get_scraper
     from fyp.scrape import download_video_threads, record_failed_scrapes
+    from fyp.scrape.platform_scraper import get_scraper
 
     if not task_args:
         task_args = {}

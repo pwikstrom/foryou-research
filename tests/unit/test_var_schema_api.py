@@ -33,12 +33,11 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
+from fyp.annotation import var_presentation as vp
+from fyp.annotation.recode_variables import compute_var_schema_hash
+from fyp.core.fyp_config import fyp_cf, load_var_schema
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.core.fyp_config import fyp_cf, load_var_schema
-from fyp.annotation.recode_variables import compute_var_schema_hash
-from fyp.annotation import var_presentation as vp
-
 
 PASS = 0
 FAIL = 0

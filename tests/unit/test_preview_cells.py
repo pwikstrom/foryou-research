@@ -20,7 +20,6 @@ import pytest
 from web_interface.services import preview_cache as pc
 from web_interface.services import stats_service as ss
 
-
 # ---------------------------------------------------------------------------
 # Synthetic corpus
 
@@ -381,12 +380,12 @@ def test_issues_severity_around_cap():
 
 
 def _study_client(monkeypatch, study_defs):
-    from web_interface import security
-    from web_interface.auth import User
-    from web_interface.fyp_data_hub import app
     import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
     from fyp.core.fyp_config import fyp_cf
+    from web_interface import security
+    from web_interface.auth import User
+    from web_interface.fyp_data_hub import app
 
     user = "cap_test_user"
     orig_get_user = security.user_manager.get_user
@@ -471,8 +470,8 @@ def test_save_study_grandfathers_unchanged_shaping(monkeypatch):
 
 
 def test_calculate_stats_returns_cap(monkeypatch, corpus):
-    from fyp.core.fyp_config import fyp_cf
     import web_interface.routes.management.studies as studies_mod
+    from fyp.core.fyp_config import fyp_cf
 
     cells, coll = pc._build_preview_cells()
     client = _study_client(monkeypatch, {})

@@ -11,9 +11,13 @@ import pandas as pd
 
 import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
-from fyp.scrape import scrape_contract as _scrape_contract
-from fyp.core.logging_setup import get_logger
 from fyp.annotation.machine_annotation import consolidate_and_save_refined_annotations
+from fyp.annotation.recode_variables import (
+    compute_var_schema_hash,
+    derive_australian_relevance,
+    get_grouping_factors_from_var_schema,
+)
+from fyp.core.logging_setup import get_logger
 
 # Shared memory-probe implementations (fyp.core.memory); the module-private
 # aliases keep this file's many existing call sites and the
@@ -22,13 +26,9 @@ from fyp.core.memory import df_size_mb as _df_size_mb
 from fyp.core.memory import peak_rss_mb as _peak_rss_mb
 from fyp.core.memory import rss_mb as _rss_mb
 from fyp.core.polars_ops import fast_join
-from fyp.annotation.recode_variables import (
-    compute_var_schema_hash,
-    derive_australian_relevance,
-    get_grouping_factors_from_var_schema,
-)
-from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.core.utils import parse_extra_data_tokens
+from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
+from fyp.scrape import scrape_contract as _scrape_contract
 
 logger = get_logger(__name__)
 from fyp.analysis.studies import init_study_defs
