@@ -35,13 +35,19 @@ FAIL = 0
 
 
 def _check(name: str, ok: bool, detail: str = ""):
+    """Record a check, and fail the enclosing test when it does not hold.
+
+    The counters serve the script runner (``main``); the raise is what makes
+    the check visible to pytest.
+    """
     global PASS, FAIL
     if ok:
         PASS += 1
         print(f"  PASS  {name}")
-    else:
-        FAIL += 1
-        print(f"  FAIL  {name}  {detail}")
+        return
+    FAIL += 1
+    print(f"  FAIL  {name}  {detail}")
+    raise AssertionError(f"{name}: {detail}")
 
 
 _TEST_CANDIDATE = "unittest-cand"
@@ -759,6 +765,8 @@ def main():
     for t in tests:
         try:
             t()
+        except AssertionError:
+            continue  # already counted and printed by _check
         except Exception as e:
             global FAIL
             FAIL += 1
