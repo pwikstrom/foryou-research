@@ -19,7 +19,7 @@
   - `FYP_GCS_BUCKET_NAME` (production)
   - `FLASK_DEBUG` (optional)
   - `FYP_CONFIG_PATH` (optional — use this config TOML directly instead of `__proj__.py` root discovery; the reuse hook)
-  - `FYP_LOG_LEVEL` (optional — level for `fyp.logging_setup` loggers, default INFO)
+  - `FYP_LOG_LEVEL` (optional — level for `fyp.core.logging_setup` loggers, default INFO)
   - `FYP_CONTACT_EMAIL`, `FYP_MAIL_SENDER`, `FYP_APP_URL` (optional — instance branding; override the `[site]` config section. Committed defaults are empty; prod sets these on both Cloud Run services)
   - `FYP_VERTEX_PROJECT` (optional — Vertex project when `[machine.gemini].project` is empty; falls back to `GCP_PROJECT_ID`, so prod needs nothing)
   - `K_SERVICE` (auto-set by Cloud Run — triggers GCS storage and Cloud Tasks dispatch)
@@ -62,7 +62,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 
 - **Backend**: Python 3.12, Flask 3.x, Gunicorn (production)
 - **Data**: Pandas, NumPy, PyArrow, Parquet format, NDJSON
-- **Analysis**: Scikit-learn, SciPy, Statsmodels, Seaborn
+- **Analysis**: Scikit-learn, SciPy, Statsmodels
 - **Storage**: Local filesystem (default `~/fyp_local`) or Google Cloud Storage
 - **AI/LLM**: Google Gemini (Vertex AI or Gemini API), hosted Qwen (DashScope), local Qwen/MiniCPM via MLX (optional extras)
 - **Scraping**: yt-dlp (primary), BeautifulSoup4, browser-cookie3
@@ -90,7 +90,9 @@ foryou-research/
 │   ├── __init__.py              # Import-free: docstring + __version__ only (never import submodules here)
 │   ├── core/
 │   │   ├── fyp_config.py        # Config loader; lazy get_config() + PEP 562 `fyp_cf`; root via __proj__.py sentinel or FYP_CONFIG_PATH
-│   │   ├── paths.py             # PROJECT_ROOT + PYTHON_EXEC (re-exported from fyp_config)
+│   │   ├── paths.py             # Project-root discovery (__proj__.py walk / FYP_CONFIG_PATH) + PROJECT_ROOT, PYTHON_EXEC (re-exported from fyp_config)
+│   │   ├── runtime.py           # Import-light accessors safe at module top: cf() (live config, imported as _cf), label(), is_cloud_run(), graceful_stop_requested()
+│   │   ├── gemini_client.py     # The one way to build a Google GenAI client: gemini_mode() (Vertex AI vs Gemini API key) + make_client()
 │   │   ├── data_io.py           # Unified I/O (local + GCS, parquet, JSON, ndjson); runtime register_location() + local_copy()/release_local_copy() (temp-file zip/binary reader)
 │   │   ├── types.py             # PyArrow dtype helpers and conversion
 │   │   ├── polars_ops.py        # Polars helpers for expensive pandas ops at scale
@@ -105,6 +107,8 @@ foryou-research/
 │   │   └── derived_contract.py  # Loads/validates config/derived_contract.toml; owns var_schema metadata for merge-derived columns
 │   ├── ingest/                  # Package (replaced the old fyp/ingest.py module); __init__ re-exports the old API and
 │   │   │                        #   imports all platform modules EAGERLY (class definition registers upload locations)
+│   │   ├── raw_names.py         # Generated identities for raw uploads: stored object names, collection ids, unique display ids
+│   │   ├── migrations/          # One-off rewrites of stored activity data (the testable half of scripts/migrate_*.py)
 │   │   ├── base.py              # ForYouBaseCollection ABC + ForYouCollection; parse_donor_timezone(); registered_raw_locations();
 │   │   │                        #   per-file intake stats (file_stats_this_run: true raw counts + outside_whitelist/not_parseable/
 │   │   │                        #   missing_required drop reasons) persisted via the ingestion ledger (processed_rows/deduped_rows/dropped)
@@ -120,6 +124,7 @@ foryou-research/
 │   │   ├── tiktok_dl.py         # TikTokScraper(BaseScraper) + yt-dlp helpers (download, retry, error classification, 32-bit overflow repair)
 │   │   ├── instagram_dl.py      # InstagramScraper(BaseScraper) — yt-dlp, cookie-authenticated; image posts fail permanent:no_video (phase 1)
 │   │   ├── youtube_dl.py        # YouTubeScraper(BaseScraper) — yt-dlp, 720p DASH-merge media, bot_check throttle category, EJS/deno n-challenge solver
+│   │   ├── connectivity.py      # Online probe + ConnectivityGate: network outages during a drain are waited out, never counted as item failures
 │   │   ├── scraper_alerts.py    # Persistent per-platform "scraper needs attention" alerts (cache/scraper_alerts.json; raised on permanent storms, auto-cleared on a healthy batch, surfaced on enrichment cards + System Health)
 │   │   └── scraper_cookies.py   # Per-platform cookie plumbing (secrets/{platform}_cookies.txt on GCS, /tmp cache, Chrome locally, cookie_health)
 │   ├── annotation/
@@ -145,6 +150,8 @@ foryou-research/
 │       ├── niche_detection.py   # Data-driven micro-genre ("niche") detection from annotation text
 │       ├── video_map.py         # Cluster video embeddings into niches + 2D semantic map (+ video_map_meta.json provenance; term-based niche naming when Gemini is absent). Also emits the two per-video **percentiles** `typicality_pct` / `niche_isolation_pct`, joined into every study frame by `organize_datasets._join_niche_columns` as numeric measures (so they reach the Correlations tab as group means per collection-day). Percentiles, not the raw cosine/PCA distances, because those scales drift with every rebuild. Both are NULL for videos not yet in the map, and the PCA build drops rows with any null feature — so an out-of-date map silently shrinks the correlations frame for **every** variable (logged as a warning at merge time; fix by refreshing embeddings + the video map BEFORE recoding studies)
 │       ├── session_profile.py   # Within-session begin→end profiling
+│       ├── session_explorer.py  # Sessions tab build: session index + focused-episode ("binge") segmentation
+│       ├── entropy_metrics.py   # Entropy/dispersion measures computed directly on dense embeddings
 │       ├── sequence_analysis.py # Sequence-windowing analysis (dwell→next-window lift)
 │       ├── sequence_model.py    # Stage-B predictive modelling for sequence analysis
 │       ├── timeline_analysis.py # Timeline metrics (linreg, anomalies, breaks, volatility)
@@ -153,10 +160,13 @@ foryou-research/
 │       └── studies.py           # Study definitions
 ├── web_interface/
 │   ├── fyp_data_hub.py          # Flask app entry point (port 5002)
-│   ├── data_service.py          # Study cache, PCA computation
-│   ├── auth.py                  # Authentication, @admin_required decorator
+│   ├── data_service.py          # Re-export facade over services/ (StudyCache lives in services/study_data.py, PCA/sequence caches in services/analysis_data.py)
+│   ├── auth.py                  # Authentication, user/role managers, role_required / admin_required
 │   ├── security.py              # Login manager, user manager
-│   ├── permissions.py           # Tab + sub-page permission catalog and Flask decorator
+│   ├── permissions.py           # Tab + sub-page permission catalog and the @permission_required route decorator
+│   ├── admin_notes.py           # Admin's log: free-text notes an admin attaches to a user account ({username}_notes.json in "users")
+│   ├── email_verification.py    # Signup email verification: signed, time-limited links + the effective policy
+│   ├── static_assets.py         # asset_url(): content-hashed URLs for static JS/CSS (no ?v= to bump)
 │   ├── seo.py                   # Canonical host/link, robots.txt, sitemap.xml, JSON-LD for the public pages
 │   ├── citation.py              # Copy-ready citation built from CITATION.cff (shown on every page)
 │   ├── collection_accounts.py   # Collection ↔ user-account links (user_id in collections_tags.json): set/unlink/orphan + AIO auto-link
@@ -168,7 +178,10 @@ foryou-research/
 │   │                            #   CAS writes + per-key flusher thread. Shared by both execution modes and
 │   │                            #   every admin; read by GET /api/logs/<name>
 │   ├── task_status.py           # GCS/local status reporters, heartbeat, cancellation
-│   ├── worker_runner.py         # Shared CLI entrypoint for the run_*.py workers (argparse + reporter + fail wrapper)
+│   ├── task_failures.py         # Durable background-task failure ledger (task_failures.json in "cache")
+│   ├── drain_lease.py           # Cross-instance heartbeat lease for local scrape-queue drains
+│   ├── worker_registry.py       # WORKERS: the one table of background workers (script, Cloud Tasks deadline, retry safety, launch surfaces)
+│   ├── worker_runner.py         # Shared CLI entrypoint (argparse + reporter + fail wrapper) used by most run_*.py workers' __main__
 │   ├── semantic_trajectory.py   # Collection-trajectory overlay computation for Semantic Space
 │   ├── explorer_backend.py      # Data explorer backend logic
 │   ├── slack_service.py         # Slack integration
@@ -193,12 +206,17 @@ foryou-research/
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
 │   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup (Cloud Task)
+│   ├── run_enrichment_supervisor.py  # One tick of the automatic per-collection enrichment loop: plans and dispatches at most one step
 │   ├── run_ops_report.py        # Daily ops report: assemble + email (Cloud Task; deliberately NOT queue-retry-safe — a retry would re-send the email)
 │   ├── services/                # Backend logic extracted from routes: study_data, timeline_service,
 │   │                            #   analysis_data, user_variables, stats_service, correlations_service,
 │   │                            #   preview_cache, worker_status, system_health,
 │   │                            #   my_collections_service, participant_studies, participant_enrichment,
 │   │                            #   collection_coverage (shared scraped/annotated coverage arithmetic),
+│   │                            #   collection_enrichment (per-collection enrichment plan ledger + slice cutter),
+│   │                            #   enrichment_journal (durable high-level enrichment history),
+│   │                            #   refresh_pipeline (refresh-run dependency registry, run record, planner),
+│   │                            #   downstream_refresh (dispatch the downstream refresh pipeline from an impact),
 │   │                            #   ops_report (daily ops report content),
 │   │                            #   methods_note (per-study methods/provenance note — {study}_methods.json in
 │   │                            #   "cache", written by BOTH study-refresh workers on every refresh incl.
@@ -250,14 +268,16 @@ foryou-research/
 │       ├── semantic_space.js    # Semantic Space tab
 │       ├── sessions.js          # Sessions tab (session explorer + episode inspector)
 │       ├── study_state.js       # Shared study-state helper
+│       ├── filter_group_ui.js / filter_value_search.js  # Shared Explore + Video Analysis filter-panel widgets
 │       ├── style.css            # Main stylesheet
 │       └── js/
+│       │   ├── core/dom_utils.js     # DOM helpers shared by every app script (loaded first, from base.html)
 │       │   ├── data_management.js
 │       │   ├── variable_prefs.js     # Per-user "Customize variables" panels (gear buttons; deltas in user.settings.variable_prefs)
 │       │   ├── admin_var_schema.js   # Var-schema admin viewer (metadata read-only; prio checkboxes save to /api/manage/presentation)
 │       │   ├── admin_tab.js / my_stuff_tab.js  # Former inline template scripts (extracted verbatim)
 │       │   └── admin_ab_eval.js / admin_contract_editor.js / admin_annotation_versions.js / admin_human_eval.js / human_coding.js
-├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + conftest.py + _storage_guard.py (debug/ is gitignored)
+├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + conftest.py + _storage_guard.py + _web.py (Flask test-client helpers; debug/ is gitignored)
 ├── tmp/                         # Temporary test/debug data
 ├── scripts/                     # verify.sh gate, gen_route_inventory.py, make_video_grid_hero.py, migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)
@@ -275,7 +295,8 @@ foryou-research/
 - **`fyp/core/types.py`** (importable as `fyp.types`): PyArrow-aware dtype conversion helpers. Use these for dtype handling.
 - **`web_interface/`**: Contains the Flask app routes and templates.
 - **`web_interface/task_status.py`**: Status reporting framework. `GCSStatusReporter` for Cloud Tasks (writes to GCS with heartbeat), `LocalStatusReporter` for subprocess mode (stdout). Instantiate the one matching the execution environment (Cloud Tasks dispatch uses `GCSStatusReporter`; `__main__` subprocess mode uses `LocalStatusReporter`).
-- **`web_interface/process_manager.py`**: Process lifecycle. `CLOUD_TASK_ELIGIBLE` set controls which processes use Cloud Tasks. `start_process()` auto-selects Cloud Tasks vs subprocess based on `K_SERVICE` env var.
+- **`web_interface/worker_registry.py`**: `WORKERS`, the one table of background workers — each worker's script, Cloud Tasks dispatch deadline, retry safety and launch surfaces are declared there once, and the other registries (`process_manager.CLOUD_TASK_ELIGIBLE`, `process_routes.TASK_FUNCTIONS`, the script paths) are derived from it. Guard: `tests/unit/test_worker_registry.py`.
+- **`web_interface/process_manager.py`**: Process lifecycle. `start_process()` auto-selects Cloud Tasks vs subprocess based on the `K_SERVICE` env var, for the workers in `CLOUD_TASK_ELIGIBLE` (derived from `worker_registry.WORKERS`).
 
 ---
 
@@ -441,10 +462,10 @@ See *Scrapers: Base Class + Declarative Contract* below.
 ## Key Patterns & Conventions
 
 ### Project Root Discovery
-`__proj__.py` is an empty sentinel file. `fyp_config.py` walks up the directory tree looking for it to locate the project root — this makes imports work regardless of working directory.
+`__proj__.py` is an empty sentinel file. `fyp/core/paths.py` walks up the directory tree from the working directory looking for it to locate the project root (unless `FYP_CONFIG_PATH` points at a config TOML directly) — this makes imports work regardless of working directory.
 
-### Import-Cycle Rule (fyp_config auto-initializes at import)
-`fyp/fyp_config.py` runs `initialize()` + `load_var_schema()` at MODULE IMPORT. Never add a module-level `from fyp.fyp_config import fyp_cf` (or `import fyp.data_io`) to modules that the load-time contract overlays call into (`data_io`, the three `*_versioning` modules, `var_presentation`) — a partially-initialized module mid-cycle once made the overlays silently drop legacy metadata and the schema hash drift per-instance. Use function-level `_cf()` / `_data_io()` accessors (see those modules); `tests/unit/test_import_cycle_hash.py` guards this.
+### Import-Cycle Rule (fyp_config boots lazily and re-enters itself)
+`fyp/core/fyp_config.py` initializes on first access to `fyp_cf` (PEP 562 module `__getattr__`) or `get_config()`, not at import. That first access runs `initialize()` → `_connect_to_google()` → `load_var_schema()` and publishes the in-progress dict before the last two steps, which call into `data_io`, the three `*_versioning` modules and `var_presentation`; those modules re-enter the config. Never add a module-level `from fyp.core.fyp_config import fyp_cf` (or `import fyp.core.data_io`) to them — the import would observe a partially-built config, and the contract overlays would silently drop legacy metadata and the schema hash would drift per-instance. Use the function-level accessors instead: `fyp.core.runtime.cf` (imported as `_cf`) and the modules' local `_data_io()` helpers. `import fyp.ingest` boots config by design (collection classes register their raw-upload locations at class definition). Guards: `tests/unit/test_import_cycle_hash.py` and `tests/unit/test_lazy_config_boot.py`.
 
 ### Data I/O Abstraction
 `fyp/core/data_io.py` abstracts local vs. GCS storage. Use named locations (`"cache"`, `"recoded"`, `"users"`) rather than raw paths. Toggle `use_gcs_*` flags in config to switch backends. Locations can also be registered **at runtime** via `data_io.register_location(name, abs_path)` (must live under `paths.local_data`; idempotent; auto-derives the `gcs_paths` entry in GCS mode) — this is how collection classes self-register their raw-upload directory without a static `fyp_config` edit. For reading a stored object as a local file (e.g. unzipping a donation), `data_io.local_copy(location, filename)` returns a local path (downloading from GCS to the temp dir when needed) and `data_io.release_local_copy(path)` cleans up the temp copy afterwards (a no-op for a real local path).
@@ -462,7 +483,7 @@ See *Scrapers: Base Class + Declarative Contract* below.
 
 **The activity vocabulary.** `fyp/core/utils.py` owns it: `VIEWING_ACTIVITY_TYPES` (`play`, `observe`, `ad_play`), `ENGAGEMENT_TYPES` (`fave` = a like, `save` = a bookmark, `comment`, `share` incl. reposts), `STANDALONE_ACTIVITY_TYPES` (`follow`, `followed_by`, `search`, `login`, `post`), their union `KNOWN_ACTIVITY_TYPES`, and the UI label map `ENGAGEMENT_LABELS` (Like / Save / Comment / Share). Every ingester declares the subset it emits in `emitted_activity_types`; `tests/unit/test_ingest_activity_vocabulary.py` checks the declaration against the class's section maps, and `process()` writes a ledger note on any file whose rows fall outside it. What each platform's export calls these: TikTok `ItemFavoriteList` → `fave`, `FavoriteVideoList` → `save`, `ShareHistoryList` (`share:<method>`) and `RepostList` (`share:repost`) → `share`, `Following` → `follow`; Instagram liked / saved posts → `fave` / `save`, comments → `comment`; YouTube Liked videos / Favorites videos → `fave` / `save`, comments → `comment`. TikTok bookmarks were stored as `fave` until 2026-09; `scripts/migrate_engagement_vocabulary.py` retags stored data (see [docs/extending.md](docs/extending.md) §4 for the rules a new platform follows).
 
-**Engagement→play linking (`extra_data`).** `derive_play_duration()` (shared, platform-agnostic) folds engagement activities (fave/save/comment/share — never follow, which names no item) into a play row's `extra_data` as comma-separated `"<atype>[:context]"` tokens — first via chronological same-item adjacency runs (which also attribute dwell), then via a **same-item nearest-play fallback** for engagement that is not adjacent to any play (e.g. an IG like whose only logged view of that item is days earlier — IG's impression streams log a view once per item). Only `extra_data` is affected by the fallback; `play_duration` stays strictly adjacency-based. This folded token is the **only** engagement signal that survives into studies (which filter to play/observe rows) — see `data_service.py` / `explorer_backend.py`. **Every inferred link is named on its row** (`link_method`, a base activity-contract column since 2026-09): a lead play carries `adjacent`, `nearest_play` or `adjacent,nearest_play`; a TikTok comment whose video id came from the 180 s forward fill carries `ffill_180s`; everything else is null. The contract description documents the inference, the column is what lets an analysis exclude it.
+**Engagement→play linking (`extra_data`).** `derive_play_duration()` (shared, platform-agnostic) folds engagement activities (fave/save/comment/share — never follow, which names no item) into a play row's `extra_data` as comma-separated `"<atype>[:context]"` tokens — first via chronological same-item adjacency runs (which also attribute dwell), then via a **same-item nearest-play fallback** for engagement that is not adjacent to any play (e.g. an IG like whose only logged view of that item is days earlier — IG's impression streams log a view once per item). Only `extra_data` is affected by the fallback; `play_duration` stays strictly adjacency-based. This folded token is the **only** engagement signal that survives into studies (which filter to play/observe rows) — see `explorer_backend.py` (`parse_extra_data_tokens` from `fyp/core/utils.py`). **Every inferred link is named on its row** (`link_method`, a base activity-contract column since 2026-09): a lead play carries `adjacent`, `nearest_play` or `adjacent,nearest_play`; a TikTok comment whose video id came from the 180 s forward fill carries `ffill_180s`; everything else is null. The contract description documents the inference, the column is what lets an analysis exclude it.
 
 **Enrichment seed (donated item metadata).** A subclass populates `seed_*` scratch columns (`seed_desc`/`seed_author_id`/`seed_author_name`/`seed_create_time`) in `load_single_raw`; `process()`'s column filter drops them from the activity rows, but `save_enrichment_seed()` persists them separately as a per-platform `{source_platform}_{data_source}_enrichment_seed.parquet` in the **canonical scrape-base schema** (`config/scrape_contract.toml`), keyed on `(source_platform, item_id)` with `scrape_status="donated"` and a `scrape_contract_version` stamp. It merges across ingest runs (existing rows survive; a captioned row wins a key collision over a caption-less duplicate). A later scrape/consolidation can use the seed as a lowest-precedence fallback for items that can't be scraped. It is a no-op for platforms that populate no seed columns (e.g. TikTok). Consolidation merges the seeds as a **lowest-precedence fallback**: `fyp.scrape._merge_enrichment_seeds` anti-joins donated rows against real scrape rows on `(source_platform, item_id)` and appends the rest with `scraped_ok=False`/`video_downloaded=False`, so unscraped (or permanently unfetchable) items surface their donated caption/author in Explore while staying scrape-eligible; a later real scrape supersedes the donated row on the next consolidation, and seed-file row counts participate in consolidation change detection. (Donated-seed rows carry `video_downloaded=False`, so they are never annotation-eligible until really scraped.)
 
@@ -485,7 +506,7 @@ See *Scrapers: Base Class + Declarative Contract* below.
 **Pre-scraper merge safety (`organize_datasets.new_merge`).** A freshly-ingested platform has activity rows but no scrape/annotation enrichment yet. `new_merge` now **always** emits the enrichment-status and derived columns for both branches: `_ensure_enrichment_status_columns` guarantees `scraped_ok` / `annotated_ok` / `annotated_fail` / `video_downloaded` (False-filled when absent) and `_add_merge_calculated_columns` guarantees `days_since_created` / `plays_per_day` / `scraped_fail` / `completion_rate` (NA/False-defaulted when their inputs are absent) — so Explore / Video Analysis, which gate on these flags, render a clean empty result instead of erroring on a missing column. Relatedly, `update_enrichment_status`'s item-id-length sanity filter is now **per `source_platform`** (modal id-length computed within each platform group): a single global modal length would drop every shorter-id platform's items (TikTok ~19 digits vs Instagram/YouTube ~11 chars). It falls back to the global modal when `source_platform` is absent.
 
 ### Scrapers: Base Class + Declarative Contract
-The scraper mirrors the collection-ingestion design in `fyp/ingest/`. `fyp/scrape/platform_scraper.py` defines `BaseScraper` (an ABC with an `__init_subclass__` auto-registry and a `get_scraper(platform)` factory) plus the shared, platform-agnostic derivations (per-K engagement rates, `plays_per_day`, column standardization). `fyp/tiktok_dl.py` holds `TikTokScraper(BaseScraper)` (yt-dlp/pyktok); `fyp/instagram_dl.py` and `fyp/youtube_dl.py` hold the Instagram and YouTube scrapers (both yt-dlp, authenticated via `fyp/scraper_cookies.py` — per-platform `secrets/{platform}_cookies.txt` on GCS with a 6h /tmp cache, Chrome-profile cookies in local dev, and a `cookie_health(platform, session_cookie=...)` probe that degrades to file-age status when the session cookie has no expiry row, e.g. YouTube's `__Secure-3PSID`). `fyp/scrape/scrape.py` is platform-agnostic orchestration (threading, queue, consolidation) and calls the active scraper through the base interface.
+The scraper mirrors the collection-ingestion design in `fyp/ingest/`. `fyp/scrape/platform_scraper.py` defines `BaseScraper` (an ABC with an `__init_subclass__` auto-registry and a `get_scraper(platform)` factory) plus the shared, platform-agnostic derivations (per-K engagement rates, `plays_per_day`, column standardization). `fyp/scrape/tiktok_dl.py` holds `TikTokScraper(BaseScraper)` (yt-dlp; the older PykTok-fork backend is retired, though the row schema it defined is kept); `fyp/scrape/instagram_dl.py` and `fyp/scrape/youtube_dl.py` hold the Instagram and YouTube scrapers (both yt-dlp, authenticated via `fyp/scrape/scraper_cookies.py` — per-platform `secrets/{platform}_cookies.txt` on GCS with a 6h /tmp cache, Chrome-profile cookies in local dev, and a `cookie_health(platform, session_cookie=...)` probe that degrades to file-age status when the session cookie has no expiry row, e.g. YouTube's `__Secure-3PSID`). `fyp/scrape/scrape.py` is platform-agnostic orchestration (threading, queue, consolidation) and calls the active scraper through the base interface.
 
 **Media duration cap (all platforms).** `BaseScraper.media_duration_cap()` reads the optional `[misc] max_duration_for_download_<platform>` config key, falling back to the global `max_duration_for_download` (300s); each `fetch()` calls `should_download_media(duration)` between its metadata and media phases. Skipping for length is not an error — the metadata row is saved with `scrape_status="ok"` and `video_downloaded=False`. Most YouTube watch-history items are long-form and deliberately stay metadata-only; Shorts/clips get media (720p-capped DASH merge). YouTube format extraction needs the n-challenge solver: `yt-dlp-ejs` (requirements.txt) plus a JS runtime (deno in the Docker base image; node works locally) — metadata extraction is solver-independent via `ignore_no_formats_error`. Instagram image-only posts fail `permanent:no_video` in phase 1 (no carousel support; the donated seed compensates), and Instagram's ambiguous "rate-limit reached or login required" is kept transient so throttled items stay queued. YouTube's bot wall is a distinct `bot_check` category in `_THROTTLE_CATEGORIES` (shrinks concurrency). YouTube media streams from datacenter IPs additionally require proof-of-origin tokens: the **bgutil PO-token provider** is integrated in script mode (`bgutil-ytdlp-pot-provider` pip plugin in requirements.txt + the matching provider script built with Node 22 in `Dockerfile.base` at `/opt/bgutil-ytdlp-pot-provider/server`, env `BGUTIL_POT_SERVER_HOME`, wired via `youtube_dl._pot_extractor_args()`; a no-op locally where the script is absent). Note: even with PO tokens, a flagged/rotated cookie session can still hit the bot wall — re-export cookies from a closed incognito session if downloads stall.
 
@@ -502,9 +523,9 @@ A new platform (Instagram Reels, YouTube Shorts, …) is **one subclass** implem
 - A storm raises a **persistent scraper alert** (`fyp/scrape/scraper_alerts.py`, `cache/scraper_alerts.json`, CAS via `data_io.update_json`): the Scrape page shows a red banner + failing health chip on that platform's scraper card and the Admin → System Information health panel shows a banner, until the next healthy batch auto-clears it or an admin dismisses it (POST `/api/manage/enrichment/scraper_alert/dismiss`). The failed-scrapes record stores each item's failure category so storms are diagnosable after the fact. It stores retryable failures too (a timeout, a storm-aborted batch); only an item whose **latest** record is final (`permanent:*`, or a legacy bare id) counts as failed — `load_failed_scrapes()` filters, and that list is what `scrape_fail` in `enrichment_status.parquet`, the enrichment plan's skip and the coverage bar's "failed for good" read. Until 2026-09-25 every recorded id counted, so a timed-out item was skipped by the plan for good.
 - The Scrape page's **"Retry missing media"** checkbox re-queues items that are `scraped_ok` but `video_downloaded=False` and within the platform's duration cap (unknown durations pass).
 
-**Per-platform queues & workers.** Each platform has its own scrape queue `to_scrape_<platform>.json` (owned by `fyp/scrape_queues.py`; the legacy single `to_scrape.json` auto-migrates into the default platform's queue on first read) drained by its own `queue_scraper_<platform>` process. The platform rides in `task_args` and is carried through self-chaining; `process_manager.SCRAPER_PROCESS_NAMES` derives the process set from the contract's registered platforms. Every scraped row is stamped with `source_platform` (a `scope="base"` contract field with no var_schema metadata — the **activity** contract owns that var_schema row); it is backfilled to the default platform for pre-column history at consolidation, and the activity↔enrichment merge is composite on `(source_platform, item_id)`.
+**Per-platform queues & workers.** Each platform has its own scrape queue `to_scrape_<platform>.json` (owned by `fyp/scrape/scrape_queues.py`; the legacy single `to_scrape.json` auto-migrates into the default platform's queue on first read) drained by its own `queue_scraper_<platform>` process. The platform rides in `task_args` and is carried through self-chaining; `process_manager.SCRAPER_PROCESS_NAMES` derives the process set from the contract's registered platforms. Every scraped row is stamped with `source_platform` (a `scope="base"` contract field with no var_schema metadata — the **activity** contract owns that var_schema row); it is backfilled to the default platform for pre-column history at consolidation, and the activity↔enrichment merge is composite on `(source_platform, item_id)`.
 
-**Media layout.** New downloads write to `{gcs_media_prefix}/{platform}/{item_id}.mp4`; readers (viewer streaming, Gemini upload) resolve via `fyp/media_paths.resolve_media()` — the row's `storage_link` first, then the platform subpath, then the legacy flat `{item_id}.mp4` path. Existing flat TikTok media is **not** migrated; it keeps working via the fallback. `ThrottleController` lives on `platform_scraper` (generic; TikTok caps concurrency at 6 and reports cookie health via the `health_check` hook).
+**Media layout.** New downloads write to `{gcs_media_prefix}/{platform}/{item_id}.mp4`; readers (viewer streaming, Gemini upload) resolve via `fyp/core/media_paths.py` `resolve_media()` — the row's `storage_link` first, then the platform subpath, then the legacy flat `{item_id}.mp4` path. Existing flat TikTok media is **not** migrated; it keeps working via the fallback. `ThrottleController` lives on `platform_scraper` (generic; TikTok caps concurrency at 6 and reports cookie health via the `health_check` hook).
 
 **Annotation backends.** Machine annotation is pluggable: `fyp/annotation/backends/` holds an `AnnotationBackend` ABC (auto-registry, `get_backend()`/`active_backend_name()`); the **raw-row dict** is the interface boundary — flatten/refine/versioning are backend-agnostic. The authoring checklist for a new backend is `docs/extending.md`. The four implementations:
 
@@ -558,24 +579,25 @@ See docs/installation.md#enabling-local-embeddings.
 - Engagement per-K ratios and `plays_per_day` are derived at **scrape time**; legacy on-disk scrape parquets are migrated at consolidation by `_coalesce_retired_columns` (retired platform-specific columns → generic base fields per `scrape_contract.RETIRED_TO_GENERIC`; a coalesce, never a rename — several sources share one target) followed by `_canonicalize_legacy_scrape` (legacy base-name renames + rate re-derivation). The retired columns' `web_*_prio` surface flags migrate to their generic successors automatically inside `var_presentation.load_presentation()`.
 
 ### Parquet & PyArrow
-Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified before storage. Surrogate characters are escaped. Use `fyp/types.py` helpers for dtype conversion.
+Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified before storage. Surrogate characters are escaped. Use `fyp/core/types.py` helpers for dtype conversion.
 
 ### Thread Safety
-`StudyCache` in `data_service.py` uses double-checked locking — be careful when modifying cache logic.
+`StudyCache` in `web_interface/services/study_data.py` (re-exported by `data_service.py`) uses double-checked locking — be careful when modifying cache logic.
 
 ### Frontend
 Single-page app with tab navigation controlled by `main.js`. All data endpoints return JSON; JS handles filtering and rendering. No bundler — JS files are served as-is from `static/`. **Per-user variable preferences**: each user can include/exclude variables per surface (filter / viz / detail-panel / timeline) via My Stuff → Preferences → Variable customizations (panels fed by the study-independent `GET /api/user/variable-catalog`) — stored as deltas in `user.settings.variable_prefs`, composed as `(global ∪ include) − exclude` (`static/js/variable_prefs.js` client-side; timelines AND the Explore filter-stats endpoint compose server-side — `/api/explore/filter` computes distribution stats only for the user's effective viz set).
 
 ### Role-Based Access
-Use `@admin_required` decorator from `web_interface/auth.py`. User data lives in JSON files under `{local_data}/users/`.
+Gate a route with `@permission_required(<key>)` from `web_interface/permissions.py`, using a key from its `PERMISSION_CATALOG` (admins pass every check). It already sends an unauthenticated request to the login flow, so do not stack `@login_required` on top of it. `auth.admin_required` / `auth.role_required` remain for the few admin-only endpoints that have no catalog key. User data lives in JSON files under `{local_data}/users/`.
 
 ### Background Jobs & Cloud Tasks
 On Cloud Run, eligible background processes run as **Google Cloud Tasks** dispatched to the `fyp-task-runner` service. Locally, they run as subprocesses. The toggle is automatic via `K_SERVICE` env var.
 
 **Architecture:**
-- `process_manager.py` — `CLOUD_TASK_ELIGIBLE` set defines which processes use Cloud Tasks. `start_process()` dispatches via `_dispatch_cloud_task()` on Cloud Run, falls back to subprocess locally.
+- `worker_registry.py` — `WORKERS` declares every worker once (name, `run_*.py` module, Cloud Tasks dispatch deadline, retry safety, launch surfaces); the per-module tables below are derived from it.
+- `process_manager.py` — `CLOUD_TASK_ELIGIBLE` (derived from `WORKERS`) defines which processes use Cloud Tasks. `start_process()` dispatches via `_dispatch_cloud_task()` on Cloud Run, falls back to subprocess locally.
 - `task_status.py` — `GCSStatusReporter` writes progress/data to GCS (`task_status/*.json`). Has a background heartbeat thread (30s interval) for stale detection. `LocalStatusReporter` prints `::PROGRESS::`/`::DATA::` to stdout for subprocess mode.
-- `process_routes.py` — `internal_bp` blueprint receives Cloud Tasks HTTP requests at `/internal/run-task/<name>`. `TASK_FUNCTIONS` registry maps names to worker functions. `_run_task_with_stats()` handles execution, stats, and chaining.
+- `process_routes.py` — `internal_bp` blueprint receives Cloud Tasks HTTP requests at `/internal/run-task/<name>`. `TASK_FUNCTIONS` maps names to worker functions (filled from `worker_registry.load_task_functions()`). `_run_task_with_stats()` handles execution, stats, and chaining.
 - Each `run_*.py` worker has a `run_<name>(reporter, task_args)` function for Cloud Tasks and a `__main__` block for local subprocess mode.
 - **Subprocess mode pins the child's project root** (`process_manager.worker_env()`): the spawned worker gets `FYP_CONFIG_PATH` set to the config TOML the server itself loaded, plus `PROJECT_ROOT` prepended to `PYTHONPATH`. Without both, the child rediscovers its own root — `fyp.core.paths` walks up from the working directory for `__proj__.py`, and `import fyp` can be answered by the venv's editable install pointing at a *different* checkout — so it can load another `config.local.toml` and therefore another data store than its parent. That is exactly what happened on 2026-08-28: workers spawned from a worktree during a local test read and pruned the production scrape queue while the server was on the local store. Guarded by `tests/unit/test_worker_spawn_env.py`.
 

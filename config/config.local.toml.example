@@ -4,7 +4,7 @@
 # (and checks your environment). This template is the manual alternative.
 #
 # Values here are deep-merged OVER the committed config/config.toml at load
-# time (fyp/fyp_config.py initialize()), so you only list the keys you want
+# time (fyp/core/fyp_config.py initialize()), so you only list the keys you want
 # to override. Any section/key from config.toml is valid here.
 #
 # NOTE: a fresh checkout already runs with NO overlay at all — the committed

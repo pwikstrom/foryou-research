@@ -3,14 +3,14 @@
 # `config/annotation_contract.toml` plays for the Gemini annotator.
 #
 # From this file:
-#   * the scraper base class (`fyp/platform_scraper.py`) reads its base
+#   * the scraper base class (`fyp/scrape/platform_scraper.py`) reads its base
 #     (scope="base") and per-platform (scope="platform") field sets + PyArrow
 #     dtypes — the `REQUIRED_COLUMNS` / `additional_columns` analogue from
-#     `fyp/ingest.py`;
-#   * `fyp/fyp_config.py` overlays role / scale / display_name / description /
+#     `fyp/ingest/base.py`;
+#   * `fyp/core/fyp_config.py` overlays role / scale / display_name / description /
 #     section onto the matching `var_schema` rows (so `var_schema.csv` stops
 #     owning that metadata), and injects any scrape columns missing from the CSV;
-#   * `fyp/recode_variables.py` folds a digest of the field set into the
+#   * `fyp/annotation/recode_variables.py` folds a digest of the field set into the
 #     var_schema hash so a contract edit invalidates cached study parquets.
 #
 # Per-field keys (everything except `name` + `scope` + `dtype` is optional):
@@ -425,7 +425,7 @@ description = "Whether the item's media object was downloaded and stored (every 
 # _RAW_TO_CANONICAL (ig_like_count → fave_count, ig_comment_count →
 # comment_count, ig_author_handle → author_handle). Instagram exposes no
 # share/save counts, so those base counts (and rates) stay NA. Registering the
-# platform is done in fyp/instagram_dl.py; the retired ig_* contract fields
+# platform is done in fyp/scrape/instagram_dl.py; the retired ig_* contract fields
 # live on as read-only "legacy" rows via the sv_ registry snapshots.
 # ===========================================================================
 

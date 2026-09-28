@@ -142,7 +142,7 @@ ingest module's import-time load deliberately **degrade instead of crashing
 boot** — the overlay becomes a no-op (with a warning), so the app comes up but
 the contract's columns are missing or stale and the first scrape/annotation
 fails loudly. Either way the practical check is the same: boot the app locally
-(config loads and synthesizes the schema at import) or run
+(the first config access loads it and synthesizes the schema) or run
 `scripts/verify.sh`, whose unit tests load and validate every baked contract.
 
 `FYP_BAKED_CONTRACTS_ONLY=1` makes the annotation loader ignore any

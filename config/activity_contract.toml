@@ -1,17 +1,17 @@
 # Declarative activity contract — the single source for the canonical,
 # platform-agnostic ACTIVITY schema (the donation/engagement stream ingested by
-# fyp/ingest.py). It plays the same role for ingestion that
+# fyp/ingest/). It plays the same role for ingestion that
 # `config/scrape_contract.toml` plays for the scraper and
 # `config/annotation_contract.toml` plays for the Gemini annotator.
 #
 # From this file:
-#   * fyp/ingest.py reads its required columns + PyArrow dtypes (the hardcoded
+#   * fyp/ingest/base.py reads its required columns + PyArrow dtypes (the hardcoded
 #     REQUIRED_COLUMNS / additional_columns analogue) and the required-core set
 #     that drives the per-row hard-drop integrity gate;
-#   * fyp/fyp_config.py overlays role / scale / display_name / description /
+#   * fyp/core/fyp_config.py overlays role / scale / display_name / description /
 #     section onto the matching var_schema rows (and injects any missing ones);
-#   * fyp/recode_variables.py folds a digest of the field set into the var_schema
-#     hash so a contract edit invalidates cached study parquets.
+#   * fyp/annotation/recode_variables.py folds a digest of the field set into
+#     the var_schema hash so a contract edit invalidates cached study parquets.
 #
 # Per-field keys (everything except `name` + `scope` + `dtype` + `section` is optional):
 #   name        — canonical stored column name

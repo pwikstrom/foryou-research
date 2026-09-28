@@ -39,11 +39,13 @@ The same codebase runs in three modes; almost all code is mode-agnostic:
 
 Two abstractions make this work:
 
-- **`fyp/data_io.py`** — all file I/O goes through named locations
+- **`fyp/core/data_io.py`** — all file I/O goes through named locations
   (`"cache"`, `"recoded"`, `"users"`, ...) that resolve to local paths or GCS
   objects depending on config. Never open raw paths.
 - **`web_interface/process_manager.py` + `task_status.py`** — every
-  background job is a `run_<name>(reporter, task_args)` function. Locally it
+  background job is a `run_<name>(reporter, task_args)` function, declared
+  once in `web_interface/worker_registry.py` (`WORKERS`: script, Cloud Tasks
+  deadline, retry safety, launch surfaces). Locally it
   runs as a subprocess whose stdout is parsed for `::PROGRESS::`/`::DATA::`
   markers (`LocalStatusReporter`); on Cloud Run it runs as a Cloud Task
   reporting to GCS status files with a heartbeat (`GCSStatusReporter`).
@@ -61,10 +63,11 @@ Hard-won robustness around that job framework, all mode-agnostic:
 - **Explicit dispatch deadlines** — Cloud Tasks' default HTTP deadline is
   shorter than a heavy batch link, and a timed-out attempt *keeps running*
   while the retry starts a concurrent duplicate chain. Every self-chaining
-  refresh therefore carries an explicit 1800 s deadline, including the
-  *initial* dispatch from `process_manager` (a worker's own
-  `_DISPATCH_DEADLINE` only governs the links it dispatches itself;
-  `tests/unit/test_dispatch_deadlines.py` pins the table).
+  refresh therefore carries an explicit 1800 s deadline, declared once per
+  worker in `web_interface/worker_registry.py` (`WORKERS`) and read through
+  `worker_registry.deadline_for()` by every dispatch — the *initial* one from
+  `process_manager` and each link a worker chains
+  (`tests/unit/test_dispatch_deadlines.py` pins the table).
 - **Single-flight leases** — `embeddings_refresh` claims a CAS-guarded lease
   file so a Cloud Tasks redelivery can never run two appenders against the
   embedding shard store at once (a duplicate chain once wrote twin shards);

@@ -2,7 +2,7 @@
 #
 # This file is the UI-servable transcription of the explanatory comments in
 # config/annotation_contract.toml — the editor renders these as per-panel help
-# and per-input tooltips (fyp.annotation_contract.contract_help). Keep it in
+# and per-input tooltips (fyp.annotation.annotation_contract.contract_help). Keep it in
 # lockstep with that file's comments: it is the authoritative documentation of
 # how the contract works once a contract is form-edited (tomlkit preserves
 # comments on untouched tables, but a regenerated table loses them).

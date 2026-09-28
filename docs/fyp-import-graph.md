@@ -12,11 +12,11 @@ generated data, not documentation; produce a current one with
 
 | Subpackage | `__init__` behavior | Modules |
 |---|---|---|
-| `fyp/core/` | inert (docstring only) | `paths` (new), `fyp_config`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `media_paths`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel` |
-| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | split of `ingest.py` only: `base`, `tiktok`, `instagram`, `youtube` |
-| `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning` |
-| `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words` |
-| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `video_map`, `niche_detection`, `session_profile`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
+| `fyp/core/` | inert (docstring only) | `paths` (new), `fyp_config`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `media_paths`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel`; added later: `memory`, `runtime`, `gemini_client` |
+| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | split of `ingest.py`: `base`, `tiktok`, `instagram`, `youtube`; added later: `raw_names`, `migrations/` |
+| `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`; added later: `scraper_alerts`, `connectivity` |
+| `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`; added later: `backends/` |
+| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `video_map`, `niche_detection`, `session_profile`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations`; added later: `embedding_store`, `entropy_metrics`, `session_explorer`, `embedding_backends/` |
 
 Every old path (`fyp/<module>.py`) remains as a back-compat shim for code
 outside this repository. First-party code imports only the canonical paths:
@@ -24,13 +24,20 @@ ruff's banned-api rule (`TID251`, listed in `pyproject.toml`) rejects the flat
 ones, and `tests/unit/test_subpackage_shims.py` keeps the shims themselves
 working.
 
-**Modules added after the restructure** (born inside a subpackage, no shim needed):
-`fyp/core/memory.py` (RSS/peak probes), `fyp/scrape/scraper_alerts.py`,
-`fyp/annotation/backends/` and `fyp/analysis/embedding_backends/` (backend
-registries), `fyp/analysis/embedding_store.py` (dense random-access sidecar),
+**Modules added after the restructure** (marked "added later" in the table)
+were born inside a subpackage and have no flat shim: `fyp/core/memory.py`
+(RSS/peak probes), `fyp/core/runtime.py` (import-light accessors: `cf`,
+`label`, `is_cloud_run`, `graceful_stop_requested`),
+`fyp/core/gemini_client.py` (shared Google GenAI client construction),
+`fyp/ingest/raw_names.py` (generated raw-upload names and collection ids),
+`fyp/ingest/migrations/` (one-off rewrites of stored activity data, driven by
+`scripts/migrate_*.py`), `fyp/scrape/scraper_alerts.py` (persistent
+per-platform scraper alerts), `fyp/scrape/connectivity.py` (the scrapers'
+online probe and batch gate), `fyp/annotation/backends/` and
+`fyp/analysis/embedding_backends/` (backend registries),
+`fyp/analysis/embedding_store.py` (dense random-access sidecar), and
 `fyp/analysis/session_explorer.py` and `fyp/analysis/entropy_metrics.py`
-(Sessions tab build). The matrix below is the restructure snapshot and does not
-include them.
+(Sessions tab build).
 
 ## Back-compat mechanism
 
@@ -65,8 +72,10 @@ re-exports the old module surface and forwards stragglers via a module
    other module must stay lazy (pinned by
    `tests/unit/test_lazy_config_boot.py`). Importing any submodule of a
    package executes the package `__init__` first — so a module placed inside
-   `fyp/ingest/` would boot config on import. Therefore `fyp/ingest/`
-   contains **only** the split of `ingest.py` itself, and
+   `fyp/ingest/` boots config on import. Therefore `fyp/ingest/` holds
+   **only** ingest code whose callers already run with config booted — the
+   split of `ingest.py` itself, `raw_names` (imported by `base` and the
+   upload routes) and `migrations/` (run from `scripts/migrate_*.py`) — and
    `organize_datasets`, `donations` (→ `analysis/`), `structure_sentinel`,
    `activity_contract`, `activity_versioning` (→ `core/`) live elsewhere.
 2. **Mid-boot rule.** `fyp_config.load_var_schema` imports the contract and
@@ -92,7 +101,8 @@ re-exports the old module surface and forwards stragglers via a module
    are relative** (`from . import scrape_contract as sc`), which routes the
    cascade through the package directly and never back through a mid-flight
    shim. Cross-package old-path imports are safe: the underlying module
-   graph is acyclic at module level (see matrix), so no shim can be
+   graph is acyclic at module level (`python scripts/gen_import_graph.py`
+   prints it), so no shim can be
    re-entered while partial. `tests/unit/test_subpackage_shims.py` probes
    exactly this failure mode in fresh interpreters.
 4. **Scrape `__init__` eagerness is minimal.** It imports only `.scrape`
@@ -104,7 +114,7 @@ re-exports the old module surface and forwards stragglers via a module
 
 ## machine_annotation: moved whole (seam analysis for a future split)
 
-`machine_annotation.py` (~2.2k lines) has a clean internal DAG —
+`machine_annotation.py` (one of the largest modules) has a clean internal DAG —
 orchestration (`annotate_from_video_id_list`, `queue_annotation_loop`) →
 {calls (`initialize_machine`, `call_machine*`, `_generate_with_retry`),
 parse (`flatten_*`, `fuzzy_load_of_json_from_string`,

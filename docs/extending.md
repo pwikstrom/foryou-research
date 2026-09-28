@@ -19,8 +19,8 @@ this repository; ruff rejects them here (see [architecture.md](architecture.md)
 
 The registry design means no orchestration edits: per-platform scrape
 queues (`to_scrape_<platform>.json`), the derived worker processes
-(`web_interface/process_manager.py` builds one `queue_scraper_<platform>`
-process per platform in the contract's platform list), media
+(`web_interface/worker_registry.py` declares one `queue_scraper_<platform>`
+worker per platform in the contract's platform list), media
 subdirectories, and the scrape version registry
 (`fyp/scrape/scrape_versioning.py` — the platform set is part of the `sv_`
 version identity, so a new platform forks a new scrape version
@@ -169,8 +169,8 @@ schema lacks, add platform-scoped fields to
 ### 6. UI
 
 `web_interface/templates/tabs/dm/scrape.html` holds the one hardcoded
-platform list in the templates: the `platform_display` Jinja map (~line
-35) that turns keys into display names ("tiktok" → "TikTok"). Without an
+platform list in the templates: the `platform_display` Jinja map (near the
+top of the file) that turns keys into display names ("tiktok" → "TikTok"). Without an
 entry the new platform's card on Data Pipeline → Scrape falls back to
 `|capitalize`. Every other UI surface derives from the contract and
 registries.
@@ -308,8 +308,8 @@ Constraints to know about:
   dispatch `queue_annotator` / `queue_annotator_batch` as a Cloud Task
   when the active backend has `cloud_run_capable = False`, with a message
   telling the admin to switch backends or run locally.
-- **The legacy inline Gemini path.** `fyp/annotation/machine_annotation.py`
-  (~line 556) dispatches per-backend but keeps the historical Gemini path
+- **The legacy inline Gemini path.** `call_machine_threads()` in
+  `fyp/annotation/machine_annotation.py` dispatches per-backend but keeps the historical Gemini path
   inline (`backend is None` for the plain `gemini` selection). Gemini
   *variants* ride the generic backend branch while still hitting the
   Gemini API — worth knowing when reading dispatch code, though a new

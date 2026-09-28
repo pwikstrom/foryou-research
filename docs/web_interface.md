@@ -9,7 +9,7 @@ background worker scripts. The full endpoint list is in
 `fyp_data_hub.py` is an app factory (`create_app`). It registers 13
 blueprints from `web_interface/routes/` — 12 unconditionally, plus the
 CSRF-exempt `internal_bp` only on the task-runner service or outside Cloud
-Run (`fyp_data_hub.py:298`):
+Run (see `create_app` in `fyp_data_hub.py`):
 
 | Blueprint file | Serves |
 |---|---|
@@ -39,28 +39,37 @@ and slice cutter behind the automatic enrichment loop, and the daily
 `ops_report.py`;
 `data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
-`worker_runner.py` (shared CLI entrypoint for the `run_*.py` workers —
-currently 22; `run_logs.py` is not a worker),
+`worker_registry.py` (`WORKERS`, the one table of the `run_*.py` background
+workers — `run_logs.py` is not a worker), `worker_runner.py` (the shared
+`__main__` CLI entrypoint — argparse, reporter, fail wrapper — used by most
+workers; `run_embeddings_refresh`, `run_timelines_refresh`,
+`run_queue_annotator`, `run_queue_annotator_batch` and `run_queue_scraper`
+hand-roll their own `__main__`),
 `admin_settings.py`, `activity_log.py`.
 
 ## Auth & permissions
 
 Flask-Login over a JSON-file user store (`security.py`, `auth.py`), with a
 tab/sub-page permission catalog in `permissions.py`. Route guards:
-`@login_required`, `@permission_required("...")`, `@admin_required`. CSRF is
+`@permission_required("...")` (from `permissions.py`; it already sends an
+unauthenticated request to the login flow, so it is never stacked with
+`@login_required`), `@login_required` alone for any-signed-in-user routes, and
+`auth.admin_required` for a few admin-only endpoints. CSRF is
 globally enabled (Flask-WTF); only the OIDC-authenticated internal task
 blueprint is exempt. `WTF_CSRF_TIME_LIMIT = None` is deliberate (long-open
 research sessions).
 
 Three built-in roles are seeded at boot: `admin` (`"*"`), `viewer` (the
-analysis tabs + personal My-stuff pages), and the read-only `student` (S4:
-same minus Semantic Space and minus `feature.annotation_votes` — the key
-gating both vote endpoints; the boot migration grant-alls it to existing
-roles but skip-lists `student`). Per-study sharing is the study definition's
-`USER_ACCESS` list (role names / usernames / `'all'`); since S4 an
-empty/missing list means **shared with nobody** on every surface, and a
-boot-time migration (`fyp.studies.migrate_user_access_defaults`, serving
-processes only) backfilled explicit grants into pre-flip studies.
+analysis tabs + personal My-stuff pages), and the read-only `student`
+teaching role (`permissions.STUDENT_PERMISSIONS`: the viewer set minus
+Semantic Space, Sessions and `feature.annotation_votes` — the key gating both
+vote endpoints; the boot migration grant-alls it to existing roles but
+skip-lists `student`). Per-study sharing is the study definition's
+`USER_ACCESS` list (role names / usernames / `'all'`); an empty/missing list
+means **shared with nobody** on every surface (it once meant shared with
+everyone), and a boot-time migration
+(`fyp.analysis.studies.migrate_user_access_defaults`, serving processes only)
+backfilled explicit grants into studies created before that change.
 
 Participants who own donated collections additionally get an auto-managed
 study pair — `__me__{username}` ("Just Me", their own collections,
@@ -104,7 +113,7 @@ linked. `web_interface/collection_accounts.py` owns the format
 the AIO donor-data → account move (`link_aio_collections`, run by the
 ingest worker after `save_processed` and by the one-off migration
 `migrate_existing_collections`), and the rule that the AIO demographic
-fields (`fyp.donations.AIO_DEMOGRAPHIC_FIELDS`) are stripped by every
+fields (`fyp.analysis.donations.AIO_DEMOGRAPHIC_FIELDS`) are stripped by every
 writer of the collections metadata parquet. Pickers:
 `GET /api/manage/accounts`; the link is set via the upload route
 (`user_id` form field) and `POST /api/manage/collection/save_annotation`.
@@ -121,9 +130,16 @@ Each `run_<name>.py` script is dual-mode:
   `process_manager.py` parses from stdout — **do not break this contract**;
   see CONTRIBUTING.md invariant #2).
 
+Everything the two modes need to know about a worker — its name, script,
+Cloud Tasks dispatch deadline, whether the queue may retry it, and which
+launch surfaces offer it — is declared once, in `WORKERS` in
+`web_interface/worker_registry.py`; `process_manager.CLOUD_TASK_ELIGIBLE`,
+`process_routes.TASK_FUNCTIONS` / `QUEUE_RETRY_SAFE` and the script paths are
+derived from it (guard: `tests/unit/test_worker_registry.py`). A new worker is
+one `run_<name>.py` module plus one `WORKERS` entry.
+
 `process_manager.start_process()` picks Cloud Tasks vs subprocess
-automatically (`K_SERVICE` env). The `CLOUD_TASK_ELIGIBLE` set controls
-which processes may run as Cloud Tasks. Long-running queue workers
+automatically (`K_SERVICE` env). Long-running queue workers
 (annotator, scrapers) self-chain: one batch per task, returning
 `{"chain": True, "next_task_args": ...}`. A task whose GCS heartbeat is
 older than 600 s is treated as dead.
@@ -265,8 +281,11 @@ newly invited users, which also links into the public `/thehub` page
 
 ## Conventions & known warts
 
-- Error responses are uniformly `{"error": "..."}` with an appropriate 4xx.
-  Success envelopes are historically inconsistent (bare payload,
+- Error responses are mostly `{"error": "..."}` with an appropriate 4xx; a
+  minority of endpoints (in `auth_routes.py`, `process_routes.py`,
+  `my_collections_routes.py` and the `management/` submodules) answer
+  `{"status": "error", "message": "..."}` instead (mostly the 409
+  "already running" refusals of process starts). Success envelopes are historically inconsistent (bare payload,
   `{"success": true}`, `{"ok": true}`, `{"status": "success"}`) — match the
   file you are editing; a unification is planned but is a breaking change
   for the JS.
@@ -276,8 +295,9 @@ newly invited users, which also links into the public `/thehub` page
   scripts in `static/js/` (`admin_tab.js`, `my_stuff_tab.js`, ...). Add new
   admin functionality in those locations rather than in the shims.
 - Still-deferred frontend work: decomposing `static/js/data_management.js`
-  (~9.4 k lines), removing inline `onclick=` handlers, and hex-color/token
-  cleanup — see the plan notes before attempting; the inline handlers pin
-  functions to `window`.
+  (by far the largest script), removing inline `onclick=` handlers, and
+  hex-color/token cleanup. The inline handlers pin functions to `window`, so
+  a handler's function cannot be moved into a module scope or renamed
+  without updating every template that calls it.
 - Both Cloud Run services share `process_stats.json` on GCS — always
   `load_process_stats()` before read/write.

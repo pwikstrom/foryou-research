@@ -1,6 +1,6 @@
 # Declarative derived contract — owns the var_schema metadata for columns that no
 # scraper / annotator / ingest step directly emits: the enrichment columns COMPUTED
-# AT MERGE TIME in fyp/organize_datasets.py:new_merge() (days_since_created /
+# AT MERGE TIME in fyp/analysis/organize_datasets.py:new_merge() (days_since_created /
 # completion_rate / scraped_fail), the embeddings-derived niche columns (niche /
 # niche_name), the recode fan-out of the scrape-owned `desc` (desc_hashtags /
 # desc_raw), and the per-item enrichment status flags (scraped_ok / annotated_ok /

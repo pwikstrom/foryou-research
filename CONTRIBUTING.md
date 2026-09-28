@@ -91,12 +91,19 @@ The authoritative style rules live in `DEVELOPING.md` §"Coding Style". Highligh
 
 These are load-bearing conventions; each has a guard, but know them up front:
 
-1. **The config import cycle.** `fyp/core/fyp_config.py` runs `initialize()` +
-   `load_var_schema()` at module import. Modules that the load-time contract
-   overlays call into (`data_io`, the three `*_versioning` modules,
-   `var_presentation`) must NOT import `fyp_cf` (or `fyp.data_io`) at module
-   level — they use function-level `_cf()` / `_data_io()` accessors. Guard:
-   `tests/unit/test_import_cycle_hash.py`.
+1. **The config import cycle.** Config loads lazily: the first access to
+   `fyp_cf` (a PEP 562 module attribute of `fyp/core/fyp_config.py`) or to
+   `get_config()` runs `initialize()` → `_connect_to_google()` →
+   `load_var_schema()`, and publishes the in-progress dict before the last two
+   steps. Those steps call into `data_io`, the three `*_versioning` modules
+   and `var_presentation`, which re-enter the config. Those modules must NOT
+   import `fyp_cf` (or `fyp.core.data_io`) at module level — a module-level
+   import would observe a partially-built config. They use function-level
+   accessors instead: `fyp.core.runtime.cf` (imported as `_cf`) and local
+   `_data_io()` helpers. `import fyp.ingest` boots config by design (platform
+   classes register their upload locations at class definition). Guards:
+   `tests/unit/test_import_cycle_hash.py` and
+   `tests/unit/test_lazy_config_boot.py`.
 2. **The worker stdout contract.** In subprocess mode,
    `web_interface/process_manager.py` parses worker stdout line-by-line for
    `::PROGRESS::` / `::DATA::` markers emitted by `LocalStatusReporter`

@@ -235,8 +235,8 @@ production has one, a fresh cloud deployment must add its own, e.g.
 `gsutil lifecycle set <rules.json> gs://<bucket>`.
 
 Regression protection: `tests/golden/` replays saved raw Gemini responses
-through the whole parse/flatten/repair pipeline — run it whenever you touch
-annotation code.
+through the whole parse/flatten/repair pipeline — run it
+(`python tests/golden/run_safety_net.py`) whenever you touch annotation code.
 
 ## 4. Consolidation & recoding (`scrape.py`, `organize_datasets.py`, `recode_variables.py`)
 
@@ -265,7 +265,9 @@ them against the current seed files. A weekly shadow verification
 the tail of a normal run) dry-runs the full rebuild and compares all three
 artifacts per item; a mismatch is recorded in the task-failure ledger and
 auto-promotes the full rebuild. Golden equality tests:
-`tests/golden/test_incremental_consolidation.py`.
+`tests/golden/test_incremental_consolidation.py`, run by
+`tests/golden/run_safety_net.py` (and so by `scripts/verify.sh` and CI) —
+plain `pytest` collects only `tests/unit/`.
 
 **Scrape → annotate handoff for participant first batches.** A
 participant's prioritised first batch is queued to the *scrape* queue only,
