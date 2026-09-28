@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 
 import fyp.analysis.organize_datasets as od
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 
 
 @pytest.fixture

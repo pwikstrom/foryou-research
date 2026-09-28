@@ -160,7 +160,7 @@ def test_read_all_task_statuses_single_listing(monkeypatch):
             _FakeBlob("cache/task_status/notes.txt"),
         ]
     )
-    import fyp.fyp_config
+    import fyp.core.fyp_config
 
     # Setting a real attribute shadows the module __getattr__ that lazily
     # serves fyp_cf; monkeypatch removes it again afterwards.

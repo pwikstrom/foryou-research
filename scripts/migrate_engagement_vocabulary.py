@@ -50,7 +50,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 def _storage_mode() -> tuple[bool, str]:
     """Return ``(is_gcs, description)`` for the resolved data storage."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     use_gcs = bool(fyp_cf.get("data_io", {}).get("use_gcs_for_data"))
     if use_gcs:
@@ -82,9 +82,9 @@ def main(argv=None) -> int:
 
     import pandas as pd
 
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from fyp.ingest.migrations import engagement_vocabulary as mig
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     filename = f"{COLLECTIONS_LABEL}_recoded.parquet"
     if not data_io.exists(storage_location="recoded", filename=filename):

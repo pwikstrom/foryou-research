@@ -2,7 +2,7 @@
 
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 
 LOC = "cache"
 
@@ -12,7 +12,7 @@ LOC = "cache"
 @pytest.fixture
 def local_cache(tmp_path, monkeypatch):
     """Point the 'cache' location at a temp dir (local mode)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     monkeypatch.setitem(fyp_cf["paths"], LOC, str(tmp_path))
     monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_cache", False)

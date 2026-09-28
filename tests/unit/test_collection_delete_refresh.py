@@ -34,8 +34,8 @@ def test_reconciliation_runs_before_the_refresh_dispatch():
 
 
 def test_study_refresh_of_a_vanished_study_is_a_noop(monkeypatch):
-    import fyp.studies as studies
-    from fyp.fyp_config import fyp_cf
+    import fyp.analysis.studies as studies
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.run_study_refresh import run_study_refresh
 
     monkeypatch.setattr(studies, "init_study_defs", lambda: None)

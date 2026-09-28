@@ -28,9 +28,9 @@ sys.path.insert(0, str(project_root))
 
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.fyp_config import fyp_cf, load_var_schema
-from fyp import annotation_contract as ac
-from fyp import data_io
+from fyp.core.fyp_config import fyp_cf, load_var_schema
+from fyp.annotation import annotation_contract as ac
+from fyp.core import data_io
 
 PASS = 0
 FAIL = 0

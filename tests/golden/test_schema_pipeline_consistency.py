@@ -43,8 +43,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import FIXTURE_DIR, fyp_cf
 
-import fyp.annotation_versioning as annotation_versioning
-import fyp.recode_variables as rv
+import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.annotation.recode_variables as rv
 
 COUPLING_BASELINE = FIXTURE_DIR / "coupling_baseline.json"
 
@@ -92,7 +92,7 @@ def schema_gemini_sourced() -> set[str]:
     live data state, absent on a fresh checkout / CI, not prompt↔schema
     coupling.
     """
-    import fyp.annotation_contract as ac
+    import fyp.annotation.annotation_contract as ac
 
     current_columns = set(ac.contract_column_metadata(ac.load_contract()).keys())
     return current_columns & schema_variable_names()

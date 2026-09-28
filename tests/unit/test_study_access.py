@@ -16,7 +16,7 @@ _TEST_USER = "__access_test_user__"
 @pytest.fixture
 def study_defs(monkeypatch):
     """Install a synthetic study_defs dict and neutralise storage checks."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.services import user_variables
 
     defs = {
@@ -98,7 +98,7 @@ def test_migration_backfills_only_unshared_studies(monkeypatch):
         "malformed": {"USER_ACCESS": "all"},
     }
     saved = {}
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     monkeypatch.setattr(studies, "save_study_defs", lambda: saved.update(done=True))
 
@@ -121,7 +121,7 @@ def test_save_study_rejects_empty_collections(monkeypatch):
     from web_interface.fyp_data_hub import app
     import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     orig_get_user = security.user_manager.get_user
 

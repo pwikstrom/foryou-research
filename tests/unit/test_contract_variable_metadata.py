@@ -44,12 +44,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 import pytest
 
-import fyp.annotation_contract as ac
-import fyp.annotation_versioning as av
-import fyp.recode_variables as rv
-from fyp import var_presentation as vp
-from fyp.annotation_schema import flatten_structured
-from fyp.fyp_config import (
+import fyp.annotation.annotation_contract as ac
+import fyp.annotation.annotation_versioning as av
+import fyp.annotation.recode_variables as rv
+from fyp.annotation import var_presentation as vp
+from fyp.annotation.annotation_schema import flatten_structured
+from fyp.core.fyp_config import (
     VAR_SCHEMA_COLUMNS,
     _apply_contract_variable_metadata,
     fyp_cf,

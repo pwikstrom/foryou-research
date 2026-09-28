@@ -406,7 +406,7 @@ def test_health_check_reports_the_session_cookies(monkeypatch):
 
 
 def test_media_info_counts_wrapper_still_gated(monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     payload = {"items": [{"media_type": 1, "like_count": 321, "comment_count": 12}]}
     called = []

@@ -12,7 +12,7 @@ the slice again.
 
 import time
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from web_interface import run_embeddings_refresh as rer
 
 
@@ -135,7 +135,7 @@ def test_worker_skips_when_another_run_holds_the_lease(monkeypatch):
     def _boom(**kw):
         raise AssertionError("embed_pending must not run on a lost claim")
 
-    import fyp.embeddings as embeddings_mod
+    import fyp.analysis.embeddings as embeddings_mod
     monkeypatch.setattr(embeddings_mod, "embed_pending", _boom)
     reporter = _Reporter()
     result = rer.run_embeddings_refresh(reporter=reporter, task_args={})

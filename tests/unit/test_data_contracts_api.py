@@ -9,7 +9,8 @@ state is required.
 
 import pytest
 
-from fyp import activity_versioning, scrape_versioning
+from fyp.core import activity_versioning
+from fyp.scrape import scrape_versioning
 
 _TEST_ADMIN = "__data_contracts_test_admin__"
 _TEST_PLAIN = "__data_contracts_plain_user__"

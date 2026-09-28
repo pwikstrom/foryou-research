@@ -106,7 +106,7 @@ def test_contract_numeric_transforms_covers_heavy_tailed_features():
 
 
 def test_contract_validators_reject_unknown_transform():
-    from fyp import derived_contract as dc
+    from fyp.core import derived_contract as dc
 
     contract = dc.load_contract()
     contract["fields"][0]["transform"] = "sqrt"
@@ -119,7 +119,7 @@ def test_contract_validators_reject_unknown_transform():
 
 
 def test_promoted_roles_reach_var_schema():
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     vs = fyp_cf["var_schema"].set_index("variable_name")
     assert vs.at["political_score", "role"] == "measure"

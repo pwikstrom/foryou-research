@@ -22,7 +22,7 @@ _TEST_ADMIN = "__default_study_test_admin__"
 def study_defs(monkeypatch):
     """Synthetic study defs with nothing shared with the test user's role."""
     import fyp.analysis.studies as fyp_studies
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.services import user_variables
 
     defs = {
@@ -133,7 +133,7 @@ def test_my_studies_without_a_default_denies_unshared(study_defs, viewer_client,
 @pytest.fixture
 def admin_client(monkeypatch):
     """Admin test client with the admin settings file snapshotted/restored."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from web_interface import admin_settings, security
     from web_interface.auth import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app

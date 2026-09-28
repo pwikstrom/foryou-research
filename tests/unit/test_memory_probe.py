@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from fyp.memory import df_size_mb, mem_probe, peak_rss_mb, rss_mb
+from fyp.core.memory import df_size_mb, mem_probe, peak_rss_mb, rss_mb
 
 
 def test_rss_helpers_return_plausible_values():
@@ -59,20 +59,9 @@ def test_mem_probe_logs_even_on_exception():
 
 
 def test_organize_datasets_aliases_point_at_shared_impl():
-    from fyp import memory
+    from fyp.core import memory
     from fyp.analysis import organize_datasets as od
 
     assert od._rss_mb is memory.rss_mb
     assert od._peak_rss_mb is memory.peak_rss_mb
     assert od._df_size_mb is memory.df_size_mb
-
-
-
-
-
-
-def test_flat_shim_is_same_module():
-    import fyp.core.memory
-    import fyp.memory
-
-    assert fyp.memory is fyp.core.memory

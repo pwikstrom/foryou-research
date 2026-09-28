@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from fyp.embeddings import decode_embeddings, decode_embeddings_arrow
+from fyp.analysis.embeddings import decode_embeddings, decode_embeddings_arrow
 
 
 

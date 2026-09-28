@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 # Import config first so it initializes in local mode, before any test
 # temporarily sets K_SERVICE.
-import fyp.fyp_config  # noqa: F401
-from fyp import scraper_cookies
+import fyp.core.fyp_config  # noqa: F401
+from fyp.scrape import scraper_cookies
 
 
 def _netscape_file(rows: list[tuple[str, int]]) -> str:

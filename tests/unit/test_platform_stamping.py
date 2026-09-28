@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-from fyp import scrape_contract as sc
-from fyp.platform_scraper import get_scraper
+from fyp.scrape import scrape_contract as sc
+from fyp.scrape.platform_scraper import get_scraper
 
 
 def main() -> int:

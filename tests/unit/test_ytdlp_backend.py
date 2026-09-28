@@ -12,7 +12,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fyp.tiktok_dl import _DEFAULTS, _info_to_row, save_tiktok
+from fyp.scrape.tiktok_dl import _DEFAULTS, _info_to_row, save_tiktok
 
 
 def test_info_to_row_with_mock_data():

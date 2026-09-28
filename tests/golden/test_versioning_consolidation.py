@@ -34,10 +34,10 @@ import pandas as pd
 from _harness import pinned_var_schema
 from test_structured_refinement_path import _structured_response
 
-import fyp.annotation_versioning as av
-import fyp.data_io as data_io
-import fyp.machine_annotation as ma
-from fyp.fyp_config import fyp_cf
+import fyp.annotation.annotation_versioning as av
+import fyp.core.data_io as data_io
+import fyp.annotation.machine_annotation as ma
+from fyp.core.fyp_config import fyp_cf
 
 _ARCHIVE_FN = f"{ma.MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
 
@@ -174,7 +174,7 @@ def test_rebuild_active_from_archive_reflects_promotion() -> None:
 
 
 def test_study_pin_resolver_uses_pinned_version() -> None:
-    import fyp.organize_datasets as od
+    import fyp.analysis.organize_datasets as od
 
     active_df = pd.DataFrame(
         {"item_id": ["i1", "i2", "i3"], "annotation_version": ["v1", "v1", "v2"], "val": ["x", "y", "z"]}

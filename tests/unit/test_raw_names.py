@@ -17,7 +17,7 @@ from fyp.ingest import raw_names
 @pytest.fixture
 def local_raw(tmp_path, monkeypatch):
     """A local 'ddp_raw' + 'archive' + 'recoded' trio under a temp dir."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     for loc in ("ddp_raw", "archive", "recoded"):
         d = tmp_path / loc
@@ -101,8 +101,8 @@ def test_known_collection_ids_reads_every_store(local_raw):
 
     import pandas as pd
 
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     meta = pd.DataFrame({"n": [1]}, index=pd.Index(["in_dataset"], name="collection_id"))
     meta.to_parquet(local_raw / "recoded" / f"{COLLECTIONS_LABEL}_metadata.parquet")
@@ -173,8 +173,8 @@ def test_unique_display_label_suffixes_and_reserves():
 def test_known_display_keys_covers_labels_bare_ids_and_pending_uploads(local_raw):
     import json
 
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     (local_raw / "recoded" / f"{COLLECTIONS_LABEL}_tags.json").write_text(json.dumps({
         "tiktok_ddp_a": {"display_collection_id": "Donor A"},

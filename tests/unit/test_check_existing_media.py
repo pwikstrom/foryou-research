@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import fyp.scrape as scrape
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 
 
 def main() -> int:

@@ -11,14 +11,14 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import session_explorer as se
 
 
 @pytest.fixture
 def storage(tmp_path, monkeypatch):
     """Local tmp cache/recoded storage locations."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     for loc in ("recoded", "cache"):
         d = tmp_path / loc
@@ -193,7 +193,7 @@ def test_publish_skips_plays_for_a_pre_upgrade_run(storage):
 
 
 def _write_activity_file(plays):
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     df = plays.rename(columns={"_ts": "local_timestamp"}).copy()
     df["local_timestamp"] = df["local_timestamp"].astype(str)

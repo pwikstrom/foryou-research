@@ -158,7 +158,7 @@ def test_snapshot_name_is_filesystem_safe():
 
 def test_default_loader_falls_back_to_every_tiktok_raw_location(monkeypatch):
     """AIO-fetched exports are stored with data_source='ddp' but live in aio_raw."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     seen = []
     monkeypatch.setattr(data_io, "exists",

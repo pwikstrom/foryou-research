@@ -5,7 +5,7 @@ identity for Gemini must not move when backend support is added, or every
 existing annotation row would appear to belong to a different version.
 """
 
-import fyp.annotation_versioning as av
+import fyp.annotation.annotation_versioning as av
 
 _GEN_PARAMS = {
     "use_structured_output": True,

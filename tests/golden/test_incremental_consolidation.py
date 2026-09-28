@@ -29,11 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
 
 import pandas as pd
 
-import fyp.annotation_versioning as av
-import fyp.data_io as data_io
-import fyp.machine_annotation as ma
-import fyp.organize_datasets as od
-from fyp.fyp_config import fyp_cf
+import fyp.annotation.annotation_versioning as av
+import fyp.core.data_io as data_io
+import fyp.annotation.machine_annotation as ma
+import fyp.analysis.organize_datasets as od
+from fyp.core.fyp_config import fyp_cf
 from fyp.scrape import scrape as sc_mod
 from fyp.scrape.scrape import consolidate_and_save_scrape_data
 

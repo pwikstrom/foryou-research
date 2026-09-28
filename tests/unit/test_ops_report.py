@@ -7,7 +7,7 @@ import pytest
 
 def test_ops_report_registered_everywhere():
     """The classic four-places registration must be complete."""
-    from fyp.fyp_config import OPS_REPORT_SCRIPT
+    from fyp.core.fyp_config import OPS_REPORT_SCRIPT
     from web_interface import process_manager
     from web_interface.routes import process_routes
 
@@ -274,7 +274,7 @@ def test_ops_report_routes_require_permission(client, monkeypatch):
 
 
 def test_ops_report_meta_and_html_for_admin(client, monkeypatch):
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     stored = {
         "ops_report/latest.json": {
@@ -307,7 +307,7 @@ def test_ops_report_meta_and_html_for_admin(client, monkeypatch):
 
 
 def test_ops_report_html_404_when_missing(client, monkeypatch):
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     monkeypatch.setattr(data_io, "load_text",
                         lambda storage_location="", filename="", **kw: None)
     _login(client, _TEST_ADMIN)
@@ -325,8 +325,8 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
 
     import pandas as pd
 
-    from fyp.fyp_config import fyp_cf
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from web_interface.services.ops_report import _linked_collections_missing
 
     recoded = tmp_path / "recoded"
@@ -361,8 +361,8 @@ def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path)
 
     import pandas as pd
 
-    from fyp.fyp_config import fyp_cf
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from web_interface.services.ops_report import (
         _dataset_collection_ids, _leftover_tag_entries, _linked_collections_missing)
 

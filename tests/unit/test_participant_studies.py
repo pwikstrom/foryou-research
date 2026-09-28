@@ -17,7 +17,7 @@ _OTHER = "someone-else@example.org"
 @pytest.fixture
 def svc(monkeypatch):
     """participant_studies wired to an in-memory defs dict + ownership map."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     import web_interface.collection_accounts as accounts
     import web_interface.services.participant_studies as ps
 
@@ -175,7 +175,7 @@ def test_migration_skips_system_studies(monkeypatch):
 
 
 def test_default_study_picker_excludes_system_studies(monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     import fyp.analysis.studies as fyp_studies
     from web_interface import admin_settings
 
@@ -198,7 +198,7 @@ def test_default_study_picker_excludes_system_studies(monkeypatch):
 def participant_defs(monkeypatch):
     """Defs with a default study and one participant's pair; storage faked so
     the base and Just Me parquets 'exist' and the composed study is listable."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface import admin_settings
     from web_interface.services import user_variables
 
@@ -406,7 +406,7 @@ def test_save_study_defs_drops_derived_presentation_keys(monkeypatch):
     copy is cleaned: ``run_study_refresh`` sets ``STUDY_NAME`` on the shared
     definition and keeps using it after the save.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     import fyp.analysis.studies as studies
 
     defs = {

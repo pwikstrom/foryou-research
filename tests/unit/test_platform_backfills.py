@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 
 from fyp import ingest
-from fyp.organize_datasets import _add_merge_calculated_columns, _backfill_source_platform
+from fyp.analysis.organize_datasets import _add_merge_calculated_columns, _backfill_source_platform
 
 
 def test_merge_guard_fills_default_platform():

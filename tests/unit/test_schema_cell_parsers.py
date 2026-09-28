@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.recode_variables as rv
+import fyp.annotation.recode_variables as rv
 
 # ---------------------------------------------------------------------------
 # parse_accepted_labels

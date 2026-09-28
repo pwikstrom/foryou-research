@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 from sklearn.cluster import MiniBatchKMeans
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import video_map as vm
 
 

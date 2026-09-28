@@ -25,10 +25,10 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-from fyp import ab_eval
-from fyp import annotation_contract as ac
-from fyp import annotation_schema as sch
-from fyp import data_io
+from fyp.annotation import ab_eval
+from fyp.annotation import annotation_contract as ac
+from fyp.annotation import annotation_schema as sch
+from fyp.core import data_io
 
 PASS = 0
 FAIL = 0

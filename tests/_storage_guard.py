@@ -26,7 +26,7 @@ def assert_local_storage() -> None:
             "(including test fixture writes) would hit the live GCS bucket. "
             "Unset it (close the drain shell) and re-run."
         )
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     data_io_cf = get_config().get("data_io", {})
     gcs_flags = sorted(k for k, v in data_io_cf.items()

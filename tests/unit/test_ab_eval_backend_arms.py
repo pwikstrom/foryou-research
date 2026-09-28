@@ -9,10 +9,10 @@ import json
 
 import pytest
 
-import fyp.ab_eval as ab_eval
-import fyp.annotation_contract as ac
-import fyp.data_io as data_io
-from fyp.fyp_config import get_config
+import fyp.annotation.ab_eval as ab_eval
+import fyp.annotation.annotation_contract as ac
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import get_config
 
 
 

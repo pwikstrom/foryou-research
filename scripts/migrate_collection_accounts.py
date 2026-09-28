@@ -40,7 +40,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 def _storage_mode() -> tuple[bool, str]:
     """Return ``(is_gcs, description)`` for the resolved data storage."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     use_gcs = bool(fyp_cf.get("data_io", {}).get("use_gcs_for_data"))
     if use_gcs:

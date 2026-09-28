@@ -174,7 +174,7 @@ def test_enrichment_never_mutates_the_cached_metadata_types(monkeypatch, _clear_
 
 
 def test_explorer_metadata_parsed_once_per_mtime(monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()

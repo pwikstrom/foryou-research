@@ -268,7 +268,7 @@ def test_session_floors_come_from_the_admin_store_in_endpoint_units(monkeypatch)
 def test_committed_config_seeds_the_session_floors():
     """The seed keys must exist in config.toml, or a fresh deploy silently
     falls back to the code defaults instead of the documented values."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.admin_settings import SESSION_FLOOR_KEYS
 
     cfg = fyp_cf.get("sessions", {})
@@ -555,7 +555,7 @@ def test_all_scope_is_ignored_for_non_admins(client, patched_routes, monkeypatch
 
 def test_study_date_window_matches_the_builder_convention():
     """The helper the sessions scoping is built on, against its own contract."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.services.study_data import get_study_date_window
 
     defs = fyp_cf.setdefault("study_defs", {})

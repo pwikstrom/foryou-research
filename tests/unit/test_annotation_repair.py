@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import fyp.machine_annotation as ma
+import fyp.annotation.machine_annotation as ma
 
 # ---------------------------------------------------------------------------
 # _compress_embedded_repeats

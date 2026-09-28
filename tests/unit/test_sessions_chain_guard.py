@@ -12,7 +12,7 @@ anti-partial-publish guard. Two defences:
   retried link's second execution stops instead of forking the chain.
 """
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from web_interface import run_sessions_refresh as rsr
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-import fyp.machine_annotation as machine_annotation
+import fyp.annotation.machine_annotation as machine_annotation
 from web_interface.fyp_data_hub import _debug_enabled
 
 

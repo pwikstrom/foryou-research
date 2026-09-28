@@ -12,12 +12,13 @@ from os.path import abspath, dirname, join
 
 sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 
-from fyp import fyp_config
+from fyp.core import fyp_config
 
 fyp_config.initialize()
 
-from fyp import data_io, pca
-from fyp.recode_variables import (
+from fyp.core import data_io
+from fyp.analysis import pca
+from fyp.annotation.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
 )

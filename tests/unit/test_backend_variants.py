@@ -13,10 +13,10 @@ real variants never leak into assertions.
 import pytest
 
 import fyp.annotation.backends as backends
-import fyp.annotation_versioning as av
+import fyp.annotation.annotation_versioning as av
 from fyp.annotation.backends import settings as backend_settings
 from fyp.annotation.backends import variants
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 
 
@@ -238,7 +238,7 @@ def test_selection_pricing_precedence(variant_config, monkeypatch):
 
 
 def test_runner_for_arm_merges_gemini_variant_overrides(variant_config):
-    from fyp import ab_eval
+    from fyp.annotation import ab_eval
 
     variant_config({"gemini": {"gemini_35": {"model": "gemini-3.5-flash",
                                              "temperature": 0.3}}})
@@ -258,7 +258,7 @@ def test_runner_for_arm_merges_gemini_variant_overrides(variant_config):
 
 
 def test_runner_for_arm_variant_of_hosted_backend(variant_config):
-    from fyp import ab_eval
+    from fyp.annotation import ab_eval
 
     variant_config({"qwen_api": {"qwen_next": {"model_id": "qwen4-omni"}}})
     runner = ab_eval._runner_for_arm({"backend": "qwen_next"})

@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.annotation_versioning as av
+import fyp.annotation.annotation_versioning as av
 
 PROMPT_A = "Analyze the video. Step 1: extract a transcript."
 PROMPT_B = "Analyze the video. Step 1: extract a transcript (revised wording)."

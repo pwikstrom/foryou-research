@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fyp import pca as pca_mod
-from fyp.pca import (
+from fyp.analysis import pca as pca_mod
+from fyp.analysis.pca import (
     transform_categories_to_components_and_diversity,
     transform_category_column_to_counts_df,
 )

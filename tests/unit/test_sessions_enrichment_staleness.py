@@ -15,7 +15,7 @@ worker's setup link end to end: given per-collection records that match
 exactly, a moved embedding store or annotation corpus must still rebuild.
 """
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, session_explorer
 from web_interface import run_sessions_refresh as rsr
 

@@ -15,10 +15,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import fyp.fyp_config  # noqa: F401
-from fyp.fyp_config import fyp_cf
+import fyp.core.fyp_config  # noqa: F401
+from fyp.core.fyp_config import fyp_cf
 import pandas as pd
-import fyp.organize_datasets as od
+import fyp.analysis.organize_datasets as od
 
 
 def _run_capture(with_impact: bool):

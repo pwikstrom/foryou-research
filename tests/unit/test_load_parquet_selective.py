@@ -14,12 +14,12 @@ sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 import pandas as pd
 import pytest
 
-from fyp import fyp_config
+from fyp.core import fyp_config
 
 fyp_config.initialize()
 
-from fyp import data_io
-from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.core import data_io
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 
 def _expect(cond, msg):

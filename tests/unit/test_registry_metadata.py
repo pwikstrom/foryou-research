@@ -24,17 +24,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import fyp.fyp_config as fyp_cf_mod
+import fyp.core.fyp_config as fyp_cf_mod
 
 fyp_cf_mod.initialize(verbose=False)
 
-from fyp import (  # noqa: E402
-    activity_contract,
-    annotation_versioning,
-    registry_metadata as rm,
-    scrape_contract,
-    scrape_versioning,
-)
+from fyp.annotation import annotation_versioning  # noqa: E402
+from fyp.core import activity_contract  # noqa: E402
+from fyp.core import registry_metadata as rm  # noqa: E402
+from fyp.scrape import scrape_contract, scrape_versioning  # noqa: E402
 
 REG = {
     "versions": {

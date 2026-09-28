@@ -160,7 +160,7 @@ def notices(monkeypatch):
 
 def _refine_echo_ingested(monkeypatch, fake_batch, fail_ids=()):
     """Refine returns exactly what the fake batch last ingested (ok unless listed)."""
-    import fyp.machine_annotation as ma
+    import fyp.annotation.machine_annotation as ma
 
     def _refine(raw_json_filename, verbose=False):
         ids = fake_batch.last_ingested_ids or []

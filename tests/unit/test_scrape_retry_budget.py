@@ -168,7 +168,7 @@ def _run_cloud_batch(io, threads_fn, recorded):
          patch.object(fyp_scrape, "download_video_threads", threads_fn), \
          patch.object(fyp_scrape, "record_failed_scrapes",
                       lambda items, **kw: recorded.append(items)), \
-         patch("fyp.platform_scraper.get_scraper",
+         patch("fyp.scrape.platform_scraper.get_scraper",
                lambda platform: _HealthyScraper()):
         result = run_queue_scraper(reporter, {"platform": "tiktok"})
     return result, reporter

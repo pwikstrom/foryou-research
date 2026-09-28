@@ -349,7 +349,7 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
 
 def test_pca_cache_invalidates_on_mtime_change(monkeypatch):
     """get_pca_df must reload when the parquet's mtime changes on disk."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from web_interface.services import analysis_data
 
     state = {"mtime": 100.0, "loads": 0}
@@ -574,7 +574,7 @@ def test_matrix_payload_v2_fields(client, monkeypatch):
 
 
 def test_status_payload_staleness(monkeypatch):
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     from web_interface.services.correlations_service import build_status_payload
 

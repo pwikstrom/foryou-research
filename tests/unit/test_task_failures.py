@@ -11,7 +11,7 @@ import pytest
 @pytest.fixture
 def ledger(monkeypatch):
     """Serve the ledger file from memory; every other file behaves normally."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from web_interface import task_failures
 
     store: dict = {"entries": None}
@@ -147,7 +147,7 @@ def test_unacknowledged_dead_excludes_retrying(ledger):
 
 def test_record_never_raises(monkeypatch):
     """Bookkeeping must never turn a task failure into a crash."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from web_interface import task_failures
 
     def _boom(*a, **kw):

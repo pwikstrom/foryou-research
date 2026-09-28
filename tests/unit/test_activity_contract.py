@@ -5,7 +5,7 @@ Cost-free, no network: exercises the declarative contract
 platform / derived accessors, and the var_schema overlay payload.
 """
 
-from fyp import activity_contract as ac
+from fyp.core import activity_contract as ac
 
 _EXPECTED_REQUIRED_COLUMNS = {
     "item_id", "activity_type", "utc_timestamp", "collection_id", "data_source",

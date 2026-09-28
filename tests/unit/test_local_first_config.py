@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-import fyp.fyp_config as fyp_config
+import fyp.core.fyp_config as fyp_config
 
 ROOT = Path(__file__).resolve().parents[2]
 

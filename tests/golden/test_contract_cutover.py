@@ -32,10 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
 
 import pandas as pd
 
-import fyp.data_io as data_io
-import fyp.machine_annotation as ma
-import fyp.recode_variables as rv
-from fyp.fyp_config import fyp_cf
+import fyp.core.data_io as data_io
+import fyp.annotation.machine_annotation as ma
+import fyp.annotation.recode_variables as rv
+from fyp.core.fyp_config import fyp_cf
 
 _ARCHIVE_FN = f"{ma.MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
 _AV_NEW = "av_f6a7915e6141"

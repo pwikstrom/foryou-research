@@ -43,7 +43,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-import fyp.data_io as data_io  # noqa: E402
+import fyp.core.data_io as data_io  # noqa: E402
 
 # Bookkeeping file that lives beside the donor files in every raw location
 # (fyp/ingest/base.py) - not a donation.

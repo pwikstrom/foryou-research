@@ -25,8 +25,8 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-import fyp.recode_variables as rv
-from fyp.fyp_config import fyp_cf
+import fyp.annotation.recode_variables as rv
+from fyp.core.fyp_config import fyp_cf
 
 SAMPLE_SERIES = {
     "string": pd.Series(

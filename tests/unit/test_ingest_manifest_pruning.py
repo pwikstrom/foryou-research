@@ -25,7 +25,7 @@ def probe(tmp_path, monkeypatch):
     """A concrete sub-collection over a local raw dir + a local recoded dir.
     load_single_raw raises, so any test that survives a load proves the file
     was never opened."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     raw_dir = tmp_path / RAW
     raw_dir.mkdir()

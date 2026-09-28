@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-import fyp.data_io as data_io
-from fyp import structure_sentinel
+import fyp.core.data_io as data_io
+from fyp.core import structure_sentinel
 from fyp.ingest import get_main_collection
 
 

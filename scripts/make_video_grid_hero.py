@@ -388,7 +388,7 @@ def load_media_source(bucket_override: str | None, prefix_override: str | None):
         prefix = prefix_override or "media"
         return (client.bucket(bucket_override), True, f"gs://{bucket_override}/{prefix}", prefix)
 
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     data_io = fyp_cf["data_io"]
     if data_io["use_gcs_for_media"]:

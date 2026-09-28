@@ -5,7 +5,7 @@ import numpy as np
 import fyp.analysis.embedding_backends as embedding_backends
 from fyp.analysis.embedding_backends import qwen_api as eq
 from fyp.analysis.embedding_backends.gemini import _gemini_cf
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 
 def test_qwen_api_backend_registers():

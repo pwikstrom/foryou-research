@@ -10,7 +10,7 @@ overrides) — the route must reject the retired machine_* keys.
 
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.annotation.backends import settings as backend_settings
 
 _TEST_ADMIN = "__settings_test_admin__"
@@ -118,7 +118,7 @@ def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
     The admin page edits these fields; if it showed DEFAULTS while the Sessions
     tab applied the config seed, the two would silently disagree.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.admin_settings import SESSION_FLOOR_KEYS
 
     cfg = fyp_cf.get("sessions", {})

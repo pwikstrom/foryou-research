@@ -25,9 +25,9 @@ sys.path.insert(0, str(project_root))
 
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.fyp_config import fyp_cf, load_var_schema
-from fyp import annotation_contract as ac
-from fyp import data_io
+from fyp.core.fyp_config import fyp_cf, load_var_schema
+from fyp.annotation import annotation_contract as ac
+from fyp.core import data_io
 
 PASS = 0
 FAIL = 0
@@ -224,7 +224,7 @@ def test_preview_endpoint(client):
     contract = tomllib.loads(ac._read_baked_text())
     res = client.post("/api/manage/annotation-contract/preview", json={"contract": contract})
     body = res.get_json() or {}
-    from fyp import annotation_schema as sch
+    from fyp.annotation import annotation_schema as sch
     ok = (res.status_code == 200 and body.get("valid") is True
           and body.get("prompt") == sch.build_prompt(contract)
           and body.get("schema") == sch.get_annotation_json_schema(contract))

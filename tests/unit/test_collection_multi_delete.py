@@ -53,7 +53,7 @@ def test_request_ids_empty_when_nothing_supplied():
 
 @pytest.fixture
 def study_defs(monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.routes.management import collections as collections_mod
 
     defs = {

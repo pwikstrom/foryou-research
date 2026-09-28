@@ -16,7 +16,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fyp import sequence_analysis as sa
+from fyp.analysis import sequence_analysis as sa
 
 
 REAL_STUDY = "ABC Verify 2026"
@@ -188,7 +188,7 @@ def test_eligibility_gate_on_dwell_coverage():
 def test_real_study_smoke():
     """Run the full pipeline on a cached study if available; else skip."""
     try:
-        from fyp import data_io, fyp_config
+        from fyp.core import data_io, fyp_config
         fyp_config.initialize()
     except Exception as exc:  # noqa: BLE001
         print(f"  [skip] config init failed: {exc}")

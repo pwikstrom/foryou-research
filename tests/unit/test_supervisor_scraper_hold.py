@@ -229,7 +229,7 @@ def test_the_cloud_batch_emits_the_attrs_key(flag, tmp_path):
          patch.object(scrape_queues, "migrate_legacy_queue", lambda platform: None), \
          patch.object(fyp_scrape, "download_video_threads", _aborted_threads(flag)), \
          patch.object(fyp_scrape, "record_failed_scrapes", lambda items, **kw: None), \
-         patch("fyp.platform_scraper.get_scraper", lambda platform: _HealthyScraper()), \
+         patch("fyp.scrape.platform_scraper.get_scraper", lambda platform: _HealthyScraper()), \
          patch("web_interface.run_queue_scraper._journal_scrape_finished",
                lambda **kw: None):
         assert run_queue_scraper(reporter, {"platform": "tiktok"}) is None

@@ -1331,7 +1331,7 @@ def assert_snapshot_storage(snapshot_root: Path) -> None:
         raise SystemExit("REFUSING: FYP_FORCE_GCS or K_SERVICE is set; this script reads snapshots only.")
     from tests._storage_guard import assert_local_storage
     assert_local_storage()
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
     cf = get_config()
     recoded = Path(cf["paths"]["recoded"]).resolve()
     if snapshot_root.resolve() not in recoded.parents:
@@ -1359,7 +1359,7 @@ class Inputs:
 
 def load_inputs() -> Inputs:
     """Load the four JSON stores through data_io and record their fingerprints."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     def load(name: str, required: bool) -> dict:
         if not data_io.exists(RECODED, name):
@@ -1413,7 +1413,7 @@ def git_head(repo_root: Path) -> str:
 
 def load_platform_frame(platform: str, columns: list[str]) -> pd.DataFrame:
     """One platform's activity rows with only the requested columns."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     return data_io.load_parquet_selective(RECODED, PARQUET_FILENAME, columns=columns,
                                           filters=[("source_platform", "==", platform)])
 
@@ -1423,7 +1423,7 @@ def load_platform_frame(platform: str, columns: list[str]) -> pd.DataFrame:
 
 def list_platforms() -> list[str]:
     """Distinct ``source_platform`` values in the activity table."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     df = data_io.load_parquet_selective(RECODED, PARQUET_FILENAME, columns=["source_platform"])
     return sorted(str(p) for p in df["source_platform"].dropna().unique())
 
@@ -1436,7 +1436,7 @@ def overlap_frame():
     import polars as pl
     import pyarrow as pa
 
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     batches = list(data_io.iter_parquet_batches(RECODED, PARQUET_FILENAME, columns=["raw_file", "utc_timestamp"]))
     if not batches:

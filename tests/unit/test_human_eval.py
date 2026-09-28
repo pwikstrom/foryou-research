@@ -27,7 +27,8 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import pytest
 
-from fyp import ab_eval, data_io, human_eval
+from fyp.annotation import ab_eval, human_eval
+from fyp.core import data_io
 
 
 def _check(name: str, ok: bool, detail: str = ""):

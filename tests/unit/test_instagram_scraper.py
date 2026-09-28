@@ -18,9 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
-import fyp.instagram_dl as instagram_dl
-from fyp.fyp_config import fyp_cf
-from fyp.instagram_dl import (
+import fyp.scrape.instagram_dl as instagram_dl
+from fyp.core.fyp_config import fyp_cf
+from fyp.scrape.instagram_dl import (
     _classify_error,
     _info_to_row,
     _parse_media_info_counts,

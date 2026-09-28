@@ -29,8 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))    # project root
 from _harness import isolated_storage, pinned_var_schema
 from test_structured_refinement_path import _structured_response
 
-import fyp.machine_annotation as ma
-import fyp.machine_annotation_batch as batch
+import fyp.annotation.machine_annotation as ma
+import fyp.annotation.machine_annotation_batch as batch
 
 _GEN = {"temperature": 1.0, "max_output_tokens": 65536, "thinking_budget": -1, "media_resolution": None}
 _SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}}

@@ -32,9 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.annotation_contract as ac
-import fyp.recode_variables as rv
-from fyp.fyp_config import _apply_contract_accepted_labels, fyp_cf
+import fyp.annotation.annotation_contract as ac
+import fyp.annotation.recode_variables as rv
+from fyp.core.fyp_config import _apply_contract_accepted_labels, fyp_cf
 
 CLOSED_TAG_FIELDS = [
     "content_category",

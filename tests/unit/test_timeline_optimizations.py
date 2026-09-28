@@ -11,7 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
-from fyp.timeline_analysis import (
+from fyp.analysis.timeline_analysis import (
     analyse_timeline,
     compute_anomalies,
     compute_break,

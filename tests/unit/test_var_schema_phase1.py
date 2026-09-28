@@ -38,11 +38,11 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-from fyp.fyp_config import (
+from fyp.core.fyp_config import (
     fyp_cf,
     reload_var_schema_if_changed,
 )
-from fyp.recode_variables import (
+from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_HASH_VERSION,
     compute_var_schema_hash,
@@ -215,7 +215,7 @@ def test_reload_var_schema_if_changed_picks_up_presentation_edit():
         SKIP += 1
         print("  SKIP  test_reload_var_schema_if_changed_picks_up_presentation_edit (GCS)")
         return
-    from fyp import var_presentation as vp
+    from fyp.annotation import var_presentation as vp
     snap = vp.load_presentation()
     try:
         reload_var_schema_if_changed()  # prime
@@ -243,7 +243,7 @@ def test_get_factors_and_features_from_var_schema_unchanged():
     """Round-trip the schema through save+reload and verify the consumer
     helper returns the same lists.  Catches accidental row drops.
     """
-    from fyp.recode_variables import (
+    from fyp.annotation.recode_variables import (
         get_factors_and_features_from_var_schema,
         get_grouping_factors_from_var_schema,
     )

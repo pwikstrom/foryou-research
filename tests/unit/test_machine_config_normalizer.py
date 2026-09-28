@@ -8,7 +8,7 @@ flat keys afterwards (single in-memory location, no split-brain).
 """
 
 from fyp.core.fyp_config import _LEGACY_GEMINI_KEYS, _normalize_machine_config
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 
 
@@ -104,7 +104,7 @@ def test_loaded_config_has_no_flat_gemini_keys():
 
 def test_descriptor_identical_for_flat_and_nested_config(monkeypatch):
     """av_ stability: relocation must not move the hash (value-derived)."""
-    import fyp.annotation_versioning as av
+    import fyp.annotation.annotation_versioning as av
 
     nested = av.active_version_descriptor(fresh=True)
 

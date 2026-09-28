@@ -51,7 +51,7 @@ def no_verification(monkeypatch):
     """Fail loudly if the expensive verification is entered."""
     calls: list[int] = []
 
-    import fyp.organize_datasets as od
+    import fyp.analysis.organize_datasets as od
 
     def _boom(*a, **k):
         calls.append(1)
@@ -94,7 +94,7 @@ def test_no_marker_means_due(monkeypatch, no_verification):
 
 def test_unreadable_marker_reads_as_due(monkeypatch):
     """The age helper never raises; a broken marker must not skip the check."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     def _boom(*a, **k):
         raise OSError("bucket unreachable")

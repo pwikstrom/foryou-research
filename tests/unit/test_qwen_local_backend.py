@@ -156,9 +156,9 @@ def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
     handle (the local_copy('media', ...) path raised KeyError in production)."""
     import os
 
-    import fyp.media_paths as media_paths
+    import fyp.core.media_paths as media_paths
     from fyp.annotation.backends import qwen_local
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     class _Blob:
         def __init__(self, name):

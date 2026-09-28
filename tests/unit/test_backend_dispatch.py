@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-import fyp.machine_annotation as ma
+import fyp.annotation.machine_annotation as ma
 from fyp.annotation.backends import settings as backend_settings
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 
@@ -70,7 +70,7 @@ def test_call_machine_threads_dispatches_to_backend(stub_backend, monkeypatch):
     def _fake_save_json(data=None, storage_location=None, filename=None, verbose=False):
         saved.update({"data": data, "loc": storage_location, "filename": filename})
 
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", _fake_save_json)
     monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered",
@@ -114,7 +114,7 @@ def test_annotation_configured_reports_backend_failure(stub_backend, monkeypatch
 
 
 def test_dry_run_makes_no_backend_calls(stub_backend, monkeypatch):
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", lambda **k: None)
     monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered",

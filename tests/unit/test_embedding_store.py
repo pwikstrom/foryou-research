@@ -11,7 +11,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
 
 MODEL = "test-embed-model"
@@ -25,7 +25,7 @@ DIM = 24
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     """Point the 'recoded' location at a temp dir (local mode)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     monkeypatch.setitem(fyp_cf["paths"], "recoded", str(tmp_path))
     monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)

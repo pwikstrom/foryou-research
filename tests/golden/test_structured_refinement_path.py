@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import isolated_storage, pinned_var_schema
 
-import fyp.machine_annotation as ma
+import fyp.annotation.machine_annotation as ma
 
 
 def _structured_response(type_of_story: str) -> dict:

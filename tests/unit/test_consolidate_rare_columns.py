@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.machine_annotation as ma
+import fyp.annotation.machine_annotation as ma
 
 
 def _mostly_failed_batch(n_total: int = 100, n_good: int = 5) -> pd.DataFrame:
@@ -75,7 +75,7 @@ def test_similar_stray_key_is_consumed_but_dissimilar_is_retained():
 
 def test_similarity_threshold_separates_real_from_unrelated():
     """The helper cleanly separates stray-variants from unrelated column names."""
-    from fyp import utils as fyp_utils
+    from fyp.core import utils as fyp_utils
 
     _, bad = fyp_utils.best_similarity_match("type_of_story", ["item_id"])
     _, good = fyp_utils.best_similarity_match("type_of_stroy", ["type_of_story"])

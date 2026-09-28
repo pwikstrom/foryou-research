@@ -40,7 +40,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 
 GOLDEN_DIR = _THIS.parent
 FIXTURE_DIR = GOLDEN_DIR / "fixtures"
@@ -57,7 +57,7 @@ def pinned_var_schema(schema_csv: Path = SCHEMA_SNAPSHOT):
     Falls back to the live schema (no swap) if the snapshot is missing, so the
     builder can run before a snapshot exists.
     """
-    from fyp.fyp_config import (
+    from fyp.core.fyp_config import (
         _apply_contract_accepted_labels,
         _apply_contract_scrape_metadata,
     )
@@ -117,7 +117,7 @@ def run_current_refinement(raw_outputs: dict, quiet: bool = True) -> pd.DataFram
     Returns:
         The refined dataframe (also written to an isolated temp parquet).
     """
-    from fyp.machine_annotation import refine_one_raw_annotation_batch
+    from fyp.annotation.machine_annotation import refine_one_raw_annotation_batch
 
     sink = io.StringIO()
     redirect = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()

@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 import pyarrow as pa
 
-from fyp import irrelevant_words as iw
-from fyp.recode_variables import recode_tokenise
+from fyp.annotation import irrelevant_words as iw
+from fyp.annotation.recode_variables import recode_tokenise
 from web_interface import run_retokenise_hashtags as worker
 
 _LIST_STR = pd.ArrowDtype(pa.list_(pa.string()))
@@ -80,7 +80,7 @@ def _run_with(files, stoplist):
     orig_load_words = iw.load_words
     iw.load_words = lambda: stoplist
     # The worker does `import fyp.data_io as data_io` internally; patch the module.
-    import fyp.data_io as real_io
+    import fyp.core.data_io as real_io
     saved = {"listdir": real_io.listdir, "load_parquet": real_io.load_parquet, "save_parquet": real_io.save_parquet}
     real_io.listdir = stub.listdir
     real_io.load_parquet = stub.load_parquet

@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fyp.video_map import _dedupe_niche_names
+from fyp.analysis.video_map import _dedupe_niche_names
 
 
 

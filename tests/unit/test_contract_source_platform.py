@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from fyp import registry_metadata
-from fyp import scrape_contract as sc
+from fyp.core import registry_metadata
+from fyp.scrape import scrape_contract as sc
 
 
 def main() -> int:
@@ -42,7 +42,7 @@ def main() -> int:
     # var_schema synthesis: exactly one source_platform row, owned by activity.
     # Ownership is contract membership (the stored ``source`` column is retired).
     from fyp.core import activity_contract as acy
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     vs = fyp_cf["var_schema"]
     rows = vs[vs["variable_name"] == "source_platform"]
     assert len(rows) == 1, f"expected exactly one var_schema row, got {len(rows)}"

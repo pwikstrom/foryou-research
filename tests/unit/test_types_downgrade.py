@@ -34,7 +34,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from fyp.types import (  # noqa: E402
+from fyp.core.types import (  # noqa: E402
     convert_dtypes_to_pyarrow,
     downgrade_arrow_type,
     downgrade_large_arrow_columns,

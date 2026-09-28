@@ -6,9 +6,9 @@ button needs the real candidate name, so ``execute_run`` persists it per arm
 (empty for live arms and pre-existing callers that don't pass it).
 """
 
-import fyp.ab_eval as ab_eval
-import fyp.annotation_contract as ac
-import fyp.data_io as data_io
+import fyp.annotation.ab_eval as ab_eval
+import fyp.annotation.annotation_contract as ac
+import fyp.core.data_io as data_io
 
 
 

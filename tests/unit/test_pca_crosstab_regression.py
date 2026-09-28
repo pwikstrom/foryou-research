@@ -42,7 +42,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from fyp.pca import transform_category_column_to_counts_df  # noqa: E402
+from fyp.analysis.pca import transform_category_column_to_counts_df  # noqa: E402
 
 
 

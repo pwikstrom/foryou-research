@@ -36,8 +36,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from fyp.polars_ops import fast_join, fast_vertical_concat
-from fyp.types import convert_dtypes_to_pyarrow
+from fyp.core.polars_ops import fast_join, fast_vertical_concat
+from fyp.core.types import convert_dtypes_to_pyarrow
 
 
 

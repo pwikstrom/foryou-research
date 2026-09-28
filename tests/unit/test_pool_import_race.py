@@ -196,23 +196,6 @@ def test_no_pool_worker_in_the_tree_imports_an_alias_shim():
     )
 
 
-def test_module_level_shim_imports_are_still_allowed():
-    """The rule is about LAZY imports; module-level ones resolve single-threaded.
-
-    machine_annotation imports several shims at module level and must keep
-    working - if this ever fails, the rule above has been over-applied.
-    """
-    tree = _parse(REPO / "fyp" / "annotation" / "machine_annotation.py")
-    top_level = {
-        alias.name
-        for node in tree.body if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    assert any(m.split(".")[-1] in SHIMS for m in top_level), (
-        "expected machine_annotation to still import shims at module level"
-    )
-
-
 @pytest.mark.parametrize("_run", range(3))
 def test_backend_annotate_one_import_shapes_survive_a_barrier(_run):
     """End-to-end: race the imports the backends actually make, 12 ways.

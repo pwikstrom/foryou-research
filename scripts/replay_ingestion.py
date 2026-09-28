@@ -1716,7 +1716,7 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
     import fyp.ingest.instagram as instagram_mod
     import fyp.ingest.tiktok as tiktok_mod
     import fyp.ingest.youtube as youtube_mod
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
     from fyp.ingest.base import ForYouCollection
     from fyp.ingest.instagram import InstagramDDPCollection
     from fyp.ingest.tiktok import TikTokAIOCollection, TikTokDDPCollection

@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import fyp.media_paths as media_paths
-from fyp.fyp_config import fyp_cf
+import fyp.core.media_paths as media_paths
+from fyp.core.fyp_config import fyp_cf
 
 
 def main() -> int:

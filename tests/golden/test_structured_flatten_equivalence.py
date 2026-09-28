@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import _normalize_cell, load_fixture
 
-import fyp.machine_annotation as ma
-from fyp.annotation_schema import (
+import fyp.annotation.machine_annotation as ma
+from fyp.annotation.annotation_schema import (
     FIELD_SPECS,
     build_response_schema,
     flatten_structured,

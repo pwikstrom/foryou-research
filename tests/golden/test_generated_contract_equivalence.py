@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import FIXTURE_DIR, fyp_cf
 
-import fyp.annotation_schema as schema
+import fyp.annotation.annotation_schema as schema
 
 FROZEN_FIELD_SPECS = FIXTURE_DIR / "field_specs.frozen.json"
 FROZEN_OPENAPI = FIXTURE_DIR / "annotation_json_schema.frozen.json"
@@ -63,7 +63,7 @@ def _load(path: Path):
 
 
 def test_contract_validates() -> None:
-    from fyp import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
     errors = ac.validate_contract(schema._CONTRACT)
     assert not errors, f"annotation_contract.toml has validation errors: {errors}"
@@ -102,7 +102,7 @@ def test_prompt_functionally_complete() -> None:
         f"extra {sorted(found - spec_names)}"
     )
 
-    from fyp import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
     enum_values = set()
     for name in schema._CONTRACT["enums"]:

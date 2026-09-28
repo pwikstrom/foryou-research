@@ -23,10 +23,10 @@ import tomllib
 
 import pytest
 
-import fyp.ab_eval as ab_eval
-import fyp.annotation_contract as ac
-import fyp.annotation_versioning as annotation_versioning
-import fyp.data_io as data_io
+import fyp.annotation.ab_eval as ab_eval
+import fyp.annotation.annotation_contract as ac
+import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
 from fyp.annotation.backends import settings as backend_settings
 from web_interface.routes.management.contracts import (
     _annotation_contract_impact,
@@ -110,7 +110,7 @@ def client(monkeypatch):
         data_io.save_text(runtime_text, storage_location=ac.RUNTIME_LOCATION,
                           filename=ac.RUNTIME_FILENAME)
     ac.refresh_runtime_contract()
-    from fyp.fyp_config import fyp_cf, load_var_schema
+    from fyp.core.fyp_config import fyp_cf, load_var_schema
 
     load_var_schema(fyp_cf, verbose=False)
     try:

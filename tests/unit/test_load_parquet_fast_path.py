@@ -11,12 +11,12 @@ sys.path.insert(0, abspath(join(dirname(__file__), '..')))
 import pandas as pd
 import pytest
 
-from fyp import fyp_config
+from fyp.core import fyp_config
 
 fyp_config.initialize()
 
-from fyp import data_io
-from fyp.types import convert_dtypes_to_pyarrow
+from fyp.core import data_io
+from fyp.core.types import convert_dtypes_to_pyarrow
 
 
 def _expect(cond, msg):
@@ -63,7 +63,7 @@ def test_speedup_on_big_file():
 @pytest.mark.requires_data  # reads live recoded/registry files from local_data
 def test_metadata_load_still_works():
     print("\n[3] load_parquet of metadata file (MultiIndex repair) still works")
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     df = data_io.load_parquet(
         storage_location='recoded',
         filename=f'{COLLECTIONS_LABEL}_metadata.parquet',

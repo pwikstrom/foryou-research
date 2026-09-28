@@ -17,9 +17,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
-from fyp import youtube_dl
-from fyp.platform_scraper import THROTTLE_CATEGORIES
-from fyp.youtube_dl import YouTubeScraper, _classify_error
+from fyp.scrape import youtube_dl
+from fyp.scrape.platform_scraper import THROTTLE_CATEGORIES
+from fyp.scrape.youtube_dl import YouTubeScraper, _classify_error
 
 
 PROD_RATE_LIMIT_MSG = (

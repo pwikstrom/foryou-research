@@ -193,7 +193,7 @@ def test_flicked_videos_are_never_members():
 def test_default_params_carries_flick_seconds_from_config():
     p = se.default_params()
     assert p["flick_seconds"] == pytest.approx(se.FLICK_SECONDS)
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     cfg = fyp_cf.get("sessions", {})
     assert "binge_flick_seconds" in cfg, \
         "config.toml [sessions] must carry binge_flick_seconds"
@@ -206,7 +206,7 @@ def test_default_params_carries_max_skip_from_config():
     p = se.default_params()
     assert p["max_skip"] == pytest.approx(se.MAX_SKIP)
     assert p["max_skip"] >= 0
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     cfg = fyp_cf.get("sessions", {})
     assert "binge_max_skip" in cfg, "config.toml [sessions] must carry binge_max_skip"
     assert int(cfg["binge_max_skip"]) == p["max_skip"]

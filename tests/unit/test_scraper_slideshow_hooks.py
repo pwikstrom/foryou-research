@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
-from fyp.platform_scraper import SLIDESHOW_SECONDS_PER_IMAGE, BaseScraper
-from fyp.tiktok_dl import _RETRYABLE, TikTokScraper
+from fyp.scrape.platform_scraper import SLIDESHOW_SECONDS_PER_IMAGE, BaseScraper
+from fyp.scrape.tiktok_dl import _RETRYABLE, TikTokScraper
 
 
 

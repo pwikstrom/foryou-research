@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 
 from fyp.scrape import connectivity, scrape
-from fyp.youtube_dl import YouTubeScraper
+from fyp.scrape.youtube_dl import YouTubeScraper
 
 STORM_THRESHOLD = 5  # small, so an unguarded outage would certainly trip it
 

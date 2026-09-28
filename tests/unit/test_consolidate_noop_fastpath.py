@@ -23,9 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
-import fyp.fyp_config
-import fyp.organize_datasets as od
-from fyp.fyp_config import fyp_cf
+import fyp.core.fyp_config
+import fyp.analysis.organize_datasets as od
+from fyp.core.fyp_config import fyp_cf
 
 
 class _Recorder:

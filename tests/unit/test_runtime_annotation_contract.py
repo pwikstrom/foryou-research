@@ -29,11 +29,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # Import (and boot) with the REAL data_io, then patch below so boot is unaffected.
-import fyp.fyp_config as cfg
-import fyp.data_io as data_io
-from fyp import annotation_contract as ac
-from fyp import annotation_schema as sch
-from fyp import annotation_versioning as av
+import fyp.core.fyp_config as cfg
+import fyp.core.data_io as data_io
+from fyp.annotation import annotation_contract as ac
+from fyp.annotation import annotation_schema as sch
+from fyp.annotation import annotation_versioning as av
 
 PARAMS = {k: None for k in av._VERSION_GEN_PARAM_KEYS}
 PARAMS["use_structured_output"] = True

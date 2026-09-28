@@ -35,9 +35,9 @@ import pandas as pd
 
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.fyp_config import fyp_cf, load_var_schema
-from fyp.recode_variables import compute_var_schema_hash
-from fyp import var_presentation as vp
+from fyp.core.fyp_config import fyp_cf, load_var_schema
+from fyp.annotation.recode_variables import compute_var_schema_hash
+from fyp.annotation import var_presentation as vp
 
 
 PASS = 0
@@ -310,7 +310,7 @@ def main():
     finally:
         _restore_auth(orig)
         # Clean any activity-log files the synthetic users created.
-        from fyp import data_io
+        from fyp.core import data_io
         for username in (_TEST_ADMIN_USERNAME, _TEST_VIEWER_USERNAME):
             fname = f"{username}_log.json"
             try:

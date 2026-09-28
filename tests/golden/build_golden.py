@@ -35,7 +35,7 @@ from _harness import (
 
 def _snapshot_schema() -> str:
     """Copy the live var_schema.csv next to the golden output; return its hash."""
-    from fyp.recode_variables import compute_var_schema_hash
+    from fyp.annotation.recode_variables import compute_var_schema_hash
 
     live = fyp_cf["var_schema"]
     SCHEMA_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)

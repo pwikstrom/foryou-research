@@ -238,7 +238,7 @@ def test_annotated_ok_ids_empty_when_no_annotations_exist(monkeypatch):
 
 
 def test_aio_aws_fetch_gate(monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from fyp.ingest.tiktok import TikTokAIOCollection
 
     features = fyp_cf.setdefault("features", {})

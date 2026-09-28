@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import fyp.machine_annotation as ma
-from fyp.fyp_config import fyp_cf
+import fyp.annotation.machine_annotation as ma
+from fyp.core.fyp_config import fyp_cf
 
 
 class _ApiError(Exception):

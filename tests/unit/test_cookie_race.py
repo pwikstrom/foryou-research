@@ -23,7 +23,7 @@ from http.cookiejar import LoadError
 
 from yt_dlp.cookies import YoutubeDLCookieJar
 
-from fyp import scraper_cookies
+from fyp.scrape import scraper_cookies
 
 
 _VALID_COOKIES = (

@@ -4,7 +4,7 @@ Cost-free, no network: exercises ``config/derived_contract.toml`` and the
 metadata / digest accessors.
 """
 
-from fyp import derived_contract as dc
+from fyp.core import derived_contract as dc
 
 _EXPECTED = {
     "days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name",

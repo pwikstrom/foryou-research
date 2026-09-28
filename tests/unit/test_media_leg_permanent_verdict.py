@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 
 from fyp.scrape import scrape, scrape_queues
-from fyp.youtube_dl import YouTubeScraper
+from fyp.scrape.youtube_dl import YouTubeScraper
 
 STORM_THRESHOLD = 5
 

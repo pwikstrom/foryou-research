@@ -15,7 +15,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, session_explorer as se
 from web_interface import run_sessions_refresh as worker
 
@@ -55,7 +55,7 @@ class FakeReporter:
 @pytest.fixture
 def corpus(tmp_path, monkeypatch):
     """Synthetic two-cluster corpus: shards + plays + video_map, local mode."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     for loc in ("recoded", "cache"):
         d = tmp_path / loc
@@ -116,7 +116,7 @@ def corpus(tmp_path, monkeypatch):
         "collection_id": "string[pyarrow]", "item_id": "string[pyarrow]",
         "local_timestamp": "string[pyarrow]", "session_id": "string[pyarrow]",
         "source_platform": "string[pyarrow]", "activity_type": "string[pyarrow]"})
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     data_io.save_parquet(df=plays, storage_location="recoded",
                          filename=f"{COLLECTIONS_LABEL}_recoded.parquet")

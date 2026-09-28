@@ -18,7 +18,7 @@ LEDGER = "ingestion_ledger.json"
 
 @pytest.fixture
 def recoded(tmp_path, monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     recoded_dir = tmp_path / "recoded"
     recoded_dir.mkdir()

@@ -13,7 +13,7 @@ import json
 import pandas as pd
 import pytest
 
-from fyp.types import (
+from fyp.core.types import (
     contains_surrogates,
     convert_dtypes_to_pyarrow,
     fix_surrogates,

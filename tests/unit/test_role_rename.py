@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.recode_variables as rv
+import fyp.annotation.recode_variables as rv
 
 
 
@@ -52,7 +52,7 @@ def test_alias_map_total_and_disjoint() -> None:
 
 def test_live_var_schema_has_only_new_roles() -> None:
     """Post-load normalization leaves no legacy role string in the live schema."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     roles = set(str(r) for r in fyp_cf["var_schema"]["role"].dropna().unique())
     legacy_seen = roles & set(rv.LEGACY_ROLE_ALIASES)
@@ -68,7 +68,7 @@ def test_live_var_schema_has_only_new_roles() -> None:
 
 def test_validators_accept_legacy_roles() -> None:
     """A contract carrying a pre-rename role string must still validate."""
-    import fyp.annotation_contract as ac
+    import fyp.annotation.annotation_contract as ac
 
     contract = ac.load_contract()
     # Force one field to the OLD vocabulary, as an old uploaded contract would.

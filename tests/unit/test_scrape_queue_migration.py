@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import os
 
-import fyp.scrape_queues as scrape_queues
+import fyp.scrape.scrape_queues as scrape_queues
 
 
 def _fake_data_io(tmp: str):

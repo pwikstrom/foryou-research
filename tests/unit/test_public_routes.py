@@ -68,7 +68,7 @@ def test_authenticated_root_renders_app_shell(app, client, monkeypatch):
 @pytest.fixture()
 def repo_url(app):
     """The configured [site] repo_url, skipping if an overlay cleared it."""
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     url = str((get_config().get("site", {}) or {}).get("repo_url", "") or "").strip()
     if not url:
@@ -84,7 +84,7 @@ def test_public_pages_link_the_issue_tracker(client, repo_url, path):
 
 def test_public_pages_drop_repo_links_when_repo_url_is_empty(client):
     """An operator who sets repo_url = "" gets no source-code links anywhere."""
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     site = get_config().setdefault("site", {})
     original = site.get("repo_url", "")

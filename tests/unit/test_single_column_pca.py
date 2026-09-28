@@ -8,7 +8,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from fyp.pca import (
+from fyp.analysis.pca import (
     pairwise_matrix_for_categorical_groups,
     transform_categories_to_components_and_diversity,
 )

@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from fyp import scrape_contract as sc
+from fyp.scrape import scrape_contract as sc
 
 
 def test_contract_platforms_and_fields():

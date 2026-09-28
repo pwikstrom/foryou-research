@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 
-import fyp.annotation_versioning as av
+import fyp.annotation.annotation_versioning as av
 
 # The same pattern annotate_from_video_id_list uses to reject corrupt lists.
 ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{5,40}")
@@ -109,7 +109,7 @@ def test_version_view_is_composite_keyed() -> None:
 # ---------------------------------------------------------------------------
 
 def test_build_request_dict_uses_explicit_file_uri() -> None:
-    from fyp.machine_annotation_batch import build_request_dict
+    from fyp.annotation.machine_annotation_batch import build_request_dict
 
     req = build_request_dict(
         "dQw4w9WgXcQ", bucket="b", media_prefix="media",
@@ -121,7 +121,7 @@ def test_build_request_dict_uses_explicit_file_uri() -> None:
 
 
 def test_build_request_dict_falls_back_to_flat_uri() -> None:
-    from fyp.machine_annotation_batch import build_request_dict
+    from fyp.annotation.machine_annotation_batch import build_request_dict
 
     req = build_request_dict(
         "7234567890123456789", bucket="b", media_prefix="media",

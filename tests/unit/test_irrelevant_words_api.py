@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import flask_login.utils as fl_utils
 
-from fyp import irrelevant_words as iw
+from fyp.annotation import irrelevant_words as iw
 from web_interface.auth import User
 
 

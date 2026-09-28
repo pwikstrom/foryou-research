@@ -7,8 +7,8 @@ engagement + plays-per-day derivations, and the registry/factory.
 
 import pandas as pd
 
-from fyp import scrape_contract as sc
-from fyp.platform_scraper import BaseScraper, get_scraper
+from fyp.scrape import scrape_contract as sc
+from fyp.scrape.platform_scraper import BaseScraper, get_scraper
 
 
 

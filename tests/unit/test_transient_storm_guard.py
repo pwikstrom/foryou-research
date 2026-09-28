@@ -27,7 +27,7 @@ import pandas as pd
 import pytest
 
 from fyp.scrape import scrape
-from fyp.youtube_dl import YouTubeScraper
+from fyp.scrape.youtube_dl import YouTubeScraper
 
 
 STORM_THRESHOLD = 5  # small test threshold, patched over the config accessor

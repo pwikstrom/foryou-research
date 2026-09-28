@@ -21,7 +21,7 @@ _ADMIN = "__upload_identity_admin__"
 @pytest.fixture
 def local_store(tmp_path, monkeypatch):
     """Every storage location the routes touch, as local temp dirs."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from fyp.ingest import raw_names
 
     dirs = {}
@@ -85,7 +85,7 @@ def _grant(monkeypatch, perms):
 
 
 def _tags(dirs):
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     p = dirs["recoded"] / f"{COLLECTIONS_LABEL}_tags.json"
     return json.loads(p.read_text()) if p.exists() else {}
 
@@ -196,7 +196,7 @@ def test_admin_per_file_upload_generates_ids_and_labels(client, monkeypatch, loc
 
 
 def test_admin_explicit_id_cannot_append_to_someone_elses_collection(client, monkeypatch, local_store):
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     (local_store["recoded"] / f"{COLLECTIONS_LABEL}_tags.json").write_text(json.dumps(
         {"theirs": {"user_id": _VIEWER, "annotation_tags": [], "hidden": False}}))
     from web_interface.services import study_data

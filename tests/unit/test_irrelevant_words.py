@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from fyp import irrelevant_words as iw
+from fyp.annotation import irrelevant_words as iw
 
 
 
@@ -211,7 +211,7 @@ def test_load_words_seeds_from_config():
 
 def test_recode_tokenise_uses_store():
     """Hashtag extraction drops squeeze/wildcard matches, keeps the rest + emoji."""
-    from fyp import recode_variables as rv
+    from fyp.annotation import recode_variables as rv
 
     original = iw.load_words
     iw.load_words = lambda: ["fyp", "foryou*", "all"]
@@ -228,7 +228,7 @@ def test_recode_tokenise_uses_store():
 
 def test_hash_unaffected_by_stoplist():
     """The stoplist is not part of the study hash — edits must not change it."""
-    from fyp.recode_variables import compute_var_schema_hash
+    from fyp.annotation.recode_variables import compute_var_schema_hash
 
     original = iw.load_words
     iw.load_words = lambda: ["fyp"]

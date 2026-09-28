@@ -37,7 +37,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
 from fyp.analysis import session_explorer as se
 

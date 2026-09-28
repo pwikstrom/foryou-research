@@ -10,14 +10,14 @@ import json
 
 import pytest
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 
 
 
 
 @pytest.fixture
 def local_locations(tmp_path, monkeypatch):
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     dirs = {}
     for loc in ("temp", "ddp_raw", "archive", "cache"):

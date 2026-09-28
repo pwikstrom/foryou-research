@@ -14,7 +14,7 @@ at all, and on a dataset where EVERY grouping factor is constant.
 import numpy as np
 import pandas as pd
 
-from fyp.pca import calculate_scaled_pca_scores
+from fyp.analysis.pca import calculate_scaled_pca_scores
 
 
 

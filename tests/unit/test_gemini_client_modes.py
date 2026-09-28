@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import fyp.core.gemini_client as gc
 from fyp.annotation.machine_annotation import annotation_configured
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 
 
 @contextmanager

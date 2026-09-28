@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.core import logging_setup
 
 

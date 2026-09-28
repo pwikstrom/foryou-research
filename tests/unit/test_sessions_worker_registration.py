@@ -19,7 +19,7 @@ def test_sessions_refresh_registered_everywhere():
 
 
 def test_sessions_refresh_script_constant():
-    from fyp.fyp_config import SESSIONS_REFRESH_SCRIPT
+    from fyp.core.fyp_config import SESSIONS_REFRESH_SCRIPT
 
     assert SESSIONS_REFRESH_SCRIPT.name == "run_sessions_refresh.py"
     assert SESSIONS_REFRESH_SCRIPT.exists()
