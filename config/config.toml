@@ -347,6 +347,10 @@ min_media_object_size = 8_000
 # Wall-clock ceiling for one batch in a LOCAL drain (Cloud Run is pinned to the
 # 1800 s Cloud Tasks request deadline regardless).
 # scraper_local_batch_deadline_seconds = 14400
+# How long a batch waits out a network outage (the machine offline — a local
+# drain's Wi-Fi dropping) before it stops the run, items queued and uncharged,
+# no scraper alert. Default 1800 locally, 120 on Cloud Run.
+# scraper_offline_max_wait_seconds = 1800
 # YouTube pacing. Every request rides one signed-in session and YouTube
 # throttles the session, not the videos: 2026-09-18 it soft-blocked after ~700
 # media pulls in 34 min (2–4 concurrent, 1.5 s delay). These keep a drain to

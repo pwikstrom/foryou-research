@@ -93,3 +93,17 @@ def _reset_perf_caches():
         routes._DETAIL_RESPONSE_CACHE.clear()
         routes._EPVMAX_CACHE.update({"key": None, "df": None})
         routes._MEAN_CACHE.update({"ts": 0.0, "model": None, "mean": None})
+
+
+@pytest.fixture(autouse=True)
+def _scrape_batches_see_the_network_up(monkeypatch):
+    """Report the machine online to every scrape batch under test.
+
+    ``download_video_threads`` probes the real network after any failed item
+    (``fyp.scrape.connectivity``). Tests fake failures on purpose; without
+    this a sandbox with no network would read them as an outage and wait it
+    out. Tests of the gate itself inject their own probe.
+    """
+    from fyp.scrape import connectivity
+
+    monkeypatch.setattr(connectivity, "probe_online", lambda *a, **k: True)

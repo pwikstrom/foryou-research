@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,7 @@ from fyp.logging_setup import get_logger
 # partially-initialized shim during the boot cascade (shim-poisoning rule,
 # docs/fyp-import-graph.md).
 from fyp.scrape import scrape_contract as sc
-from fyp.scrape import scrape_queues, scrape_versioning, scraper_alerts
+from fyp.scrape import connectivity, scrape_queues, scrape_versioning, scraper_alerts
 from fyp.scrape.platform_scraper import (
     SESSION_EXPIRED,
     SLIDESHOW_SECONDS_PER_IMAGE,
@@ -91,6 +92,9 @@ def __getattr__(name: str):
 # Consecutive throttle-category failures (across all workers) that trip the
 # batch circuit breaker in download_video_threads.
 CIRCUIT_BREAKER_THRESHOLD = 15
+# Re-runs one item may get after the network comes back mid-batch (see
+# connectivity.ConnectivityGate) — bounds a connection that keeps flapping.
+_OFFLINE_RERUNS = 3
 
 # Consecutive same-category *permanent* failures that mark the batch outcome as
 # suspect (a "permanent storm"). A broken/flagged session can make every item
@@ -1106,6 +1110,14 @@ def download_video_threads(
     # into an OOM kill; in-flight downloads finish and are saved.
     mem_stop_event = threading.Event()
     inter_delay = scraper.inter_request_delay()
+    # Network outage gate: a failed item first asks whether the MACHINE is
+    # offline (a laptop's Wi-Fi drop, 2026-09-27). If so the worker waits it
+    # out and re-runs the item, and the outage never reaches the breaker, the
+    # storm guards or the alert file — it is not the platform's fault.
+    offline_gate = connectivity.ConnectivityGate(
+        hosts=connectivity.probe_hosts(urlparse(scraper.url_template or '').hostname),
+        max_wait=connectivity.offline_max_wait())
+    offline_state = {"gave_up": False, "rerun": 0}
 
     def _breaker_track(category, corroborated: bool = False) -> None:
         with breaker_lock:
@@ -1190,12 +1202,45 @@ def download_video_threads(
                 deferred.attrs['error_detail'] = 'deferred: container memory near limit'
                 return idx, deferred
             skip_media = video in already_have_media
-            res = download_single_video(
-                video_id=video,
-                verbose=verbose,
-                save_video=not skip_media,
-                dry_run=dry_run,
-                scraper=scraper)
+
+            def _fetch():
+                return download_single_video(
+                    video_id=video,
+                    verbose=verbose,
+                    save_video=not skip_media,
+                    dry_run=dry_run,
+                    scraper=scraper)
+
+            started_at = time.monotonic()
+            res = _fetch()
+            # A failure on either leg (fetch, or media after a metadata
+            # success) may be the network rather than the item. Bounded, so a
+            # connection that flaps cannot pin one item forever.
+            for _ in range(_OFFLINE_RERUNS):
+                failed = (not isinstance(res, pd.DataFrame) or res.empty
+                          or res.attrs.get('media_error_type') is not None)
+                if not failed:
+                    break
+                verdict = offline_gate.check(abort_event, started_at)
+                if verdict == connectivity.ONLINE:
+                    break
+                if verdict == connectivity.RECOVERED:
+                    offline_state["rerun"] += 1
+                    started_at = time.monotonic()
+                    res = _fetch()
+                    continue
+                # Gave up (or another guard stopped the batch while waiting):
+                # the item is unfinished, not failed — it stays queued and is
+                # kept out of the throttle, breaker and storm accounting.
+                if offline_gate.gave_up:
+                    offline_state["gave_up"] = True
+                    abort_event.set()
+                offline = pd.DataFrame()
+                offline.attrs['error_type'] = 'batch_aborted'
+                offline.attrs['error_detail'] = 'network offline — the item was not attempted to completion'
+                if on_video_done:
+                    on_video_done(idx, False, 'batch_aborted')
+                return idx, offline
             # For items where media already exists, reflect actual storage state
             # in the metadata row — save_tiktok returns video_downloaded=False
             # when save_video=False, which is misleading for skipped items.
@@ -1356,6 +1401,18 @@ def download_video_threads(
 
         monitor_thread.join(timeout=5)
 
+    if offline_gate.outages:
+        logger.info(f"  Offline: {offline_gate.outages} outage(s), "
+                    f"{int(offline_gate.offline_seconds)}s paused; {offline_state['rerun']} "
+                    f"item(s) re-run after the connection returned.")
+        if not dry_run and not os.environ.get("K_SERVICE"):
+            # Everything below writes to the bucket (failed record, alerts,
+            # rows, then the caller's queue prune). A batch that gave up on
+            # the outage — or hit its deadline during one — must not attempt
+            # that offline: the write would time out and take the run down
+            # with its scraped rows. Cloud Run has a request deadline to meet.
+            offline_gate.hold_until_online()
+
     if throttle.total_throttle_events > 0:
         logger.info(f"  Throttle: {throttle.total_throttle_events} rate-limit events, "
               f"final concurrency: {throttle.current}")
@@ -1492,7 +1549,7 @@ def download_video_threads(
                     f"to cool down, then dismiss this alert or re-run the scraper."
                 ),
             )
-        elif results:
+        elif results and not offline_state["gave_up"]:
             scraper_alerts.clear_alert(scraper.platform, reason="healthy batch")
 
     if media_unplayable:
@@ -1529,6 +1586,7 @@ def download_video_threads(
         empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
         empty_results.attrs['session_expired'] = session_state["expired"]
         empty_results.attrs['batch_deadline_hit'] = deadline_hit
+        empty_results.attrs['offline'] = offline_state["gave_up"]
         empty_results.attrs['media_retry_ids'] = list(media_retry_ids)
         return empty_results, permanent_failed_ids, transient_failed_ids
 
@@ -1557,6 +1615,7 @@ def download_video_threads(
     results.attrs['memory_stop'] = mem_stop_event.is_set()
     results.attrs['session_expired'] = session_state["expired"]
     results.attrs['batch_deadline_hit'] = deadline_hit
+    results.attrs['offline'] = offline_state["gave_up"]
     # Ids saved metadata-only (media failed): callers charge the media-retry
     # budget with these — they are also in transient_failed_ids so the queue
     # keeps them, and in the frame so the row is saved.
@@ -1619,8 +1678,9 @@ def scraper_loop_from_list(
     all_permanent_failed = []
     all_transient_failed = []
     all_media_retry = []
-    # True when a storm / circuit-breaker abort ended the loop: those verdicts
-    # implicate the scraper, not the items, so they must not burn retry budget.
+    # True when a storm / circuit-breaker / offline abort ended the loop: those
+    # verdicts implicate the scraper (or the machine), not the items, so they
+    # must not burn retry budget.
     aborted = False
 
     if reporter is not None:
@@ -1662,6 +1722,15 @@ def scraper_loop_from_list(
         if results_from_scraper.attrs.get('batch_deadline_hit'):
             logger.warning("  Batch deadline hit — the completed rows are saved; the "
                            "unfinished items stay in the queue for the next run.")
+
+        if results_from_scraper.attrs.get('offline'):
+            logger.warning("  The network stayed offline past the wait — stopping the batch "
+                  "loop. Unfinished items stay in the queue, uncharged, and no scraper alert "
+                  "was raised; re-run the scraper once the machine is back online.")
+            aborted = True
+            if reporter is not None:
+                reporter.emit_data({"offline": True})
+            break
 
         if results_from_scraper.attrs.get('session_expired'):
             logger.warning("  The platform logged the scraper's session out — stopping the batch "

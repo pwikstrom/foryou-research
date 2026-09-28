@@ -252,7 +252,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # implicate the scraper, not the items.
     batch_aborted = any(results_df.attrs.get(k) for k in (
         'circuit_breaker_tripped', 'permanent_storm_tripped',
-        'transient_storm_tripped', 'memory_stop', 'session_expired'))
+        'transient_storm_tripped', 'memory_stop', 'session_expired', 'offline'))
     given_up: list[str] = []
     if pruned_this_batch > 0:
         scrape_queues.clear_zero_progress(platform, items_to_remove)
@@ -317,6 +317,15 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         return None
 
     # ---- Check whether to chain ----
+    if results_df.attrs.get('offline'):
+        reporter.log(
+            "The network stayed offline past the wait. Stopping the chain; "
+            "unfinished items stay queued, uncharged, and no scraper alert was "
+            "raised. Re-run the scraper once the machine is back online."
+        )
+        reporter.emit_data({"offline": True})
+        return _finish("stopped — the network was offline")
+
     if results_df.attrs.get('session_expired'):
         reporter.log(
             f"The platform logged the {platform} scraper's session out. Stopping the "

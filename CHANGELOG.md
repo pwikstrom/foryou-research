@@ -181,6 +181,18 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A scraper waits out a network outage instead of calling it a broken
+  platform.** Instagram and YouTube are scraped from the local install, and
+  when the machine's network dropped for a few minutes every item failed the
+  same retryable way: the transient-storm guard stopped the run and tried to
+  raise a scraper alert, which would have held that platform's enrichment
+  until someone dismissed it. A failed item now first checks whether the
+  machine is online. If it is not, the batch pauses until the connection
+  returns and re-runs the items that failed meanwhile; the outage counts
+  against no guard, retry budget or alert. An outage longer than
+  `[misc] scraper_offline_max_wait_seconds` (default 30 min) stops the run
+  cleanly, with the items still queued and no alert.
+
 - **The nearest-play fallback no longer links engagement from before the
   watch history.** A TikTok export's like and bookmark lists reach years
   further back than its watch history, so an engagement older than the
