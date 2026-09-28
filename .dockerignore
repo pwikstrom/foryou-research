@@ -173,3 +173,7 @@ tmp/
 .claude/
 *.docx
 SESSION_PROFILE_ENTROPY_DISCREPANCY.md
+
+# Machine-local config overlay — never bake into the image (mirrors .gcloudignore)
+config/config.local.toml
+config/config.local.toml.bak
