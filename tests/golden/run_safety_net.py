@@ -5,9 +5,14 @@ of the machine-annotation refinement / recode code:
 
   * test_refinement_golden          — refined output matches the frozen golden
   * test_schema_pipeline_consistency — the four sources of truth stay in lockstep
+  * test_incremental_consolidation   — the incremental fold equals a full rebuild
   * test_recode_series_branches      — Series/scalar parity of every recode_func
     (existing test under tests/unit, included here because it covers the same
     refinement surface)
+
+Every ``tests/golden/test_*.py`` must be listed in ``MODULES``: pytest does not
+collect this directory, so an unlisted file never runs
+(guard: ``tests/unit/test_golden_runner_coverage.py``).
 
 No Gemini API calls; runs entirely on saved fixtures.
 
@@ -42,6 +47,7 @@ MODULES = [
     GOLDEN_DIR / "test_contract_cutover.py",
     GOLDEN_DIR / "test_batch_annotation.py",
     GOLDEN_DIR / "test_batch_worker.py",
+    GOLDEN_DIR / "test_incremental_consolidation.py",
     PROJECT_ROOT / "tests" / "unit" / "test_recode_series_branches.py",
     PROJECT_ROOT / "tests" / "unit" / "test_annotation_repair.py",
     PROJECT_ROOT / "tests" / "unit" / "test_schema_cell_parsers.py",
