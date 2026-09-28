@@ -2,7 +2,6 @@
 
 import pandas as pd
 from flask import jsonify, request
-from flask_login import login_required
 
 from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
@@ -190,7 +189,6 @@ def _contract_locked_map(df, sets: dict | None = None) -> dict:
 
 @management_bp.route("/api/manage/schema", methods=["GET"])
 @permission_required("tab.admin.schema")
-@login_required
 def get_schema():
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
@@ -250,7 +248,6 @@ def get_schema():
 
 @management_bp.route("/api/manage/schema/validate", methods=["POST"])
 @permission_required("tab.admin.schema")
-@login_required
 def validate_schema_endpoint():
     """Retired: metadata is contract-owned; only presentation flags are editable."""
     return jsonify(
@@ -264,7 +261,6 @@ def validate_schema_endpoint():
 
 @management_bp.route("/api/manage/schema", methods=["POST"])
 @permission_required("tab.admin.schema")
-@login_required
 def save_schema_endpoint():
     """Retired: metadata is contract-owned; only presentation flags are editable."""
     return jsonify(
@@ -278,7 +274,6 @@ def save_schema_endpoint():
 
 @management_bp.route("/api/manage/presentation", methods=["POST"])
 @permission_required("tab.admin.schema")
-@login_required
 def save_presentation_endpoint():
     """Persist the global web-surface membership flags (the admin defaults).
 

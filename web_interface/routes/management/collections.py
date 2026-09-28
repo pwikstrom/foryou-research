@@ -2,7 +2,6 @@
 
 import pandas as pd
 from flask import jsonify, request
-from flask_login import login_required
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import (
@@ -126,7 +125,6 @@ def _requested_collection_ids(source) -> list[str]:
 
 @management_bp.route("/api/manage/collections/affected_studies", methods=["GET"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def affected_studies_for_collection():
     """Return the studies that reference the given collection_id(s). Used by the
     delete-collection confirmation dialog to show what will be refreshed.
@@ -139,7 +137,6 @@ def affected_studies_for_collection():
 
 @management_bp.route("/api/manage/collections/delete", methods=["POST"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def delete_collection():
     """Dispatch a collection_delete Cloud Task. The actual delete (which loads
     and rewrites the 1+ GB collections_recoded.parquet) runs on the task-runner
@@ -182,7 +179,6 @@ def delete_collection():
 
 @management_bp.route("/api/manage/collections/coverage", methods=["GET"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def collections_coverage():
     """Scraped/annotated coverage for every collection, for the table's column.
 
@@ -202,7 +198,6 @@ def collections_coverage():
 
 @management_bp.route("/api/manage/collections", methods=["GET"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def list_collections():
 
     if True:  # try:
@@ -316,7 +311,6 @@ def list_collections():
 
 @management_bp.route("/api/manage/collection/save_annotation", methods=["POST"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def save_collection_annotation():
     data = request.json
     if not data:
@@ -422,7 +416,6 @@ def save_collection_annotation():
 
 @management_bp.route("/api/manage/accounts", methods=["GET"])
 @permission_required("tab.data_management.ingestion", "tab.data_management.edit_collections")
-@login_required
 def list_accounts():
     """Lightweight account list for the "link collection to account" pickers
     (upload modal, Edit Collections). No profile data — just enough to pick.
@@ -463,7 +456,6 @@ def _deferred_refresh_view() -> dict:
 
 @management_bp.route("/api/manage/collections/<collection_id>/enrichment", methods=["GET"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def get_collection_enrichment(collection_id):
     """The collection's automatic-enrichment plan + live progress, for the modal."""
     from ... import admin_settings
@@ -499,7 +491,6 @@ def get_collection_enrichment(collection_id):
 
 @management_bp.route("/api/manage/collections/<collection_id>/enrichment", methods=["POST"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def save_collection_enrichment(collection_id):
     """Arm, pause, resume or reconfigure a collection's enrichment plan.
 
@@ -730,7 +721,6 @@ def _journal_plan_save(
     "/api/manage/collections/<collection_id>/enrichment/queue_preview", methods=["GET"]
 )
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def preview_collection_enrichment_queues(collection_id):
     """What the shared queues hold right now, split by whose work it is.
 
@@ -857,7 +847,6 @@ def preview_collection_enrichment_queues(collection_id):
 
 @management_bp.route("/api/manage/collections/<collection_id>/enrichment/tick", methods=["POST"])
 @permission_required("tab.data_management.edit_collections")
-@login_required
 def tick_collection_enrichment(collection_id):
     """Run one supervisor cycle now, serving only this collection.
 

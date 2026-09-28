@@ -5,7 +5,7 @@ import traceback
 from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 import fyp.core.data_io as data_io
 import web_interface.auth as auth
@@ -42,7 +42,6 @@ explorer_bp = Blueprint("explorer_bp", __name__)
 
 
 @explorer_bp.route("/api/studies/defined", methods=["GET"])
-@login_required
 @permission_required(
     "tab.explore", "tab.timelines", "tab.video_analysis", "tab.correlations", "tab.semantic_space"
 )

@@ -78,7 +78,6 @@ def _is_admin() -> bool:
 
 @human_eval_bp.route("/api/manage/human-eval/runs", methods=["GET"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def list_human_eval_runs():
     """Finished A/B runs, each flagged with the human tasks it already has."""
     try:
@@ -98,7 +97,6 @@ def list_human_eval_runs():
 
 @human_eval_bp.route("/api/manage/human-eval/runs/<run_id>/variables", methods=["GET"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def get_human_eval_variables(run_id):
     """The variables of a finished run a human task can cover."""
     try:
@@ -109,7 +107,6 @@ def get_human_eval_variables(run_id):
 
 @human_eval_bp.route("/api/manage/human-eval/users", methods=["GET"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def list_human_eval_users():
     """Thin roster for the coder picker: approved users' names and roles."""
     try:
@@ -126,7 +123,6 @@ def list_human_eval_users():
 
 @human_eval_bp.route("/api/manage/human-eval/tasks", methods=["GET"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def list_human_eval_tasks():
     """The global human-task index."""
     try:
@@ -137,7 +133,6 @@ def list_human_eval_tasks():
 
 @human_eval_bp.route("/api/manage/human-eval/tasks", methods=["POST"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def create_human_eval_task():
     """Create a human task on a finished run.
 
@@ -176,7 +171,6 @@ def create_human_eval_task():
 
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>", methods=["GET"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def get_human_eval_task(run_id, task_type):
     """One task's definition plus derived per-coder progress."""
     try:
@@ -198,7 +192,6 @@ def get_human_eval_task(run_id, task_type):
 
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>", methods=["DELETE"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def delete_human_eval_task(run_id, task_type):
     """Delete a task with its coder files and results."""
     try:
@@ -219,7 +212,6 @@ def delete_human_eval_task(run_id, task_type):
 
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/coders", methods=["POST"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def add_human_eval_coders(run_id, task_type):
     """Invite additional coders. Body: ``{coders: [...]}``."""
     payload = request.get_json(silent=True) or {}
@@ -247,7 +239,6 @@ def add_human_eval_coders(run_id, task_type):
 
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/notify", methods=["POST"])
 @permission_required("tab.admin.human_eval")
-@login_required
 def resend_human_eval_invite(run_id, task_type):
     """(Re)send one coder's invitation email synchronously. Body: ``{username}``.
 
@@ -294,7 +285,6 @@ def resend_human_eval_invite(run_id, task_type):
     "/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute", methods=["POST"]
 )
 @permission_required("tab.admin.human_eval")
-@login_required
 def recompute_human_eval_results(run_id, task_type):
     """Recompute a task's ICR metrics from the submitted codings."""
     try:

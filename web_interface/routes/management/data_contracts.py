@@ -11,7 +11,6 @@ runtime (unlike the annotation contract).
 from pathlib import Path
 
 from flask import Response, jsonify
-from flask_login import login_required
 
 from fyp.core import activity_contract, activity_versioning, derived_contract
 from fyp.core.fyp_config import PROJECT_ROOT
@@ -51,7 +50,6 @@ def _active_version(kind: str) -> dict | None:
 
 @management_bp.route("/api/manage/data-contracts/<kind>", methods=["GET"])
 @permission_required("tab.admin.data_contracts")
-@login_required
 def get_data_contract(kind):
     """Parsed contract payload: meta, full field list, active version."""
     if kind not in _KINDS:
@@ -96,7 +94,6 @@ def get_data_contract(kind):
 
 @management_bp.route("/api/manage/data-contracts/<kind>/raw", methods=["GET"])
 @permission_required("tab.admin.data_contracts")
-@login_required
 def get_data_contract_raw(kind):
     """The contract's raw TOML text, for the in-page viewer."""
     if kind not in _KINDS:
@@ -111,7 +108,6 @@ def get_data_contract_raw(kind):
 
 @management_bp.route("/api/manage/data-contracts/<kind>/download", methods=["GET"])
 @permission_required("tab.admin.data_contracts")
-@login_required
 def download_data_contract(kind):
     """Download the contract TOML as an attachment."""
     if kind not in _KINDS:
@@ -131,7 +127,6 @@ def download_data_contract(kind):
 
 @management_bp.route("/api/manage/data-contracts/<kind>/versions", methods=["GET"])
 @permission_required("tab.admin.data_contracts")
-@login_required
 def list_data_contract_versions(kind):
     """Version-history summaries for a registry-backed contract."""
     if kind not in _KINDS:
@@ -160,7 +155,6 @@ def list_data_contract_versions(kind):
 
 @management_bp.route("/api/manage/data-contracts/<kind>/versions/<version>", methods=["GET"])
 @permission_required("tab.admin.data_contracts")
-@login_required
 def get_data_contract_version(kind, version):
     """Full registry record for one version (incl. the field-digest snapshot)."""
     if kind not in _KINDS:

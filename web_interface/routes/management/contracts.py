@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 
 from flask import jsonify, request
-from flask_login import login_required
 from werkzeug.utils import secure_filename
 
 import fyp.annotation.annotation_versioning as annotation_versioning
@@ -60,7 +59,6 @@ def _annotation_counts_by_version() -> dict | None:
 
 @management_bp.route("/api/manage/annotation-versions", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def list_annotation_versions():
     """List recorded annotation versions plus the active and preferred ones.
 
@@ -83,7 +81,6 @@ def list_annotation_versions():
 
 @management_bp.route("/api/manage/annotation-versions/<version>", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def get_annotation_version(version):
     """Return one version's full record, including its prompt + schema snapshot."""
     try:
@@ -133,7 +130,6 @@ def get_annotation_version(version):
 
 @management_bp.route("/api/manage/annotation-versions/promote", methods=["POST"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def promote_annotation_version():
     """Make a version PREFERRED and rebuild the global preferred dataset.
 
@@ -350,7 +346,6 @@ def _backend_target_info(target: str | None) -> dict:
 
 @management_bp.route("/api/manage/annotation-contract", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def get_annotation_contract():
     """Return the effective-contract status for the admin card."""
     try:
@@ -370,7 +365,6 @@ def get_annotation_contract():
 
 @management_bp.route("/api/manage/annotation-contract/download", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def download_annotation_contract():
     """Download the effective contract (runtime file if present, else baked)."""
     try:
@@ -390,7 +384,6 @@ def download_annotation_contract():
 
 @management_bp.route("/api/manage/annotation-contract/parsed", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def get_annotation_contract_parsed():
     """Return the effective contract as a parsed dict, for form-editor hydration.
 
@@ -430,7 +423,6 @@ def get_annotation_contract_parsed():
 
 @management_bp.route("/api/manage/annotation-contract/rendered", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def rendered_annotation_contract():
     """Render the LIVE contract's generated prompt + response schema.
 
@@ -462,7 +454,6 @@ def rendered_annotation_contract():
 
 @management_bp.route("/api/manage/annotation-contract/preview", methods=["POST"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def preview_annotation_contract():
     """Render a candidate contract's prompt + response schema, without side effects.
 
@@ -496,7 +487,6 @@ def preview_annotation_contract():
 
 @management_bp.route("/api/manage/annotation-contract", methods=["POST"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def upload_annotation_contract():
     """Validate + (optionally confirm) an uploaded annotation contract.
 
@@ -699,7 +689,6 @@ def upload_annotation_contract():
 
 @management_bp.route("/api/manage/annotation-contract/revert", methods=["POST"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
-@login_required
 def revert_annotation_contract():
     """Revert to the baked contract by archiving + removing the runtime file."""
     global fyp_cf

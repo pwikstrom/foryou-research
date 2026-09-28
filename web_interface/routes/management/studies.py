@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 from flask import jsonify, request
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
@@ -110,7 +110,6 @@ def _retarget_default_study(old_name: str, new_name: str) -> None:
 
 
 @management_bp.route("/api/manage/studies", methods=["GET"])
-@login_required
 @permission_required("tab.data_management.studies", "tab.my_stuff.my_studies")
 def list_studies():
     # Always reload from disk/GCS to pick up changes made by the task-runner service
@@ -159,7 +158,6 @@ def list_studies():
 
 
 @management_bp.route("/api/manage/studies/<study>/set_viz", methods=["GET"])
-@login_required
 @permission_required("tab.data_management.studies", "tab.my_stuff.my_studies")
 def study_set_viz(study):
     """Enrichment mosaic for ONE saved study, for the read-only My Studies modal.
@@ -202,7 +200,6 @@ def study_set_viz(study):
 
 
 @management_bp.route("/api/manage/studies/save", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def save_study():
     global fyp_cf
@@ -472,7 +469,6 @@ def save_study():
 
 
 @management_bp.route("/api/manage/studies/calculate_stats", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def calculate_study_stats():
     """
@@ -590,7 +586,6 @@ def calculate_study_stats():
 
 
 @management_bp.route("/api/manage/studies/prewarm_check", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def prewarm_study_check():
     """Warm the corpus preview cells ahead of the first estimate.
@@ -615,7 +610,6 @@ def prewarm_study_check():
 
 
 @management_bp.route("/api/manage/studies/daily_activities", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def daily_activities():
     """Return activities-per-day across a set of collections for the modal chart.
@@ -697,7 +691,6 @@ _STUDY_ARTIFACT_SUFFIXES = STUDY_ARTIFACT_SUFFIXES
 
 
 @management_bp.route("/api/manage/studies/rename", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def rename_study():
     """Rename a study: move its definition key and carry its cached artifacts over.
@@ -766,7 +759,6 @@ def rename_study():
 
 
 @management_bp.route("/api/manage/studies/delete", methods=["POST"])
-@login_required
 @permission_required("tab.data_management.studies")
 def delete_study():
     global fyp_cf
@@ -810,7 +802,6 @@ def delete_study():
 
 @management_bp.route("/api/manage/studies/<study>/annotation-version", methods=["POST"])
 @permission_required("tab.admin.versions")
-@login_required
 def set_study_annotation_version(study):
     """Pin (or clear) a study's annotation_version for reproducibility.
 

@@ -306,7 +306,6 @@ def api_get_tags():
 
 
 @viewer_bp.route("/api/video_analysis/tags/save", methods=["POST"])
-@login_required
 @permission_required("tab.my_stuff.video_tags")
 def api_save_tags():
     data = request.json or {}
@@ -385,7 +384,6 @@ def api_save_tags():
 
 
 @viewer_bp.route("/api/video_analysis/tags/<path:tag_name>", methods=["DELETE"])
-@login_required
 @permission_required("tab.my_stuff.video_tags")
 def api_delete_tag(tag_name):
     # Decode tag name (it might contain slashes or spaces, though path parameter handles slashes)
@@ -453,7 +451,6 @@ def api_get_votes():
 
 
 @viewer_bp.route("/api/video_analysis/vote", methods=["POST"])
-@login_required
 @permission_required("feature.annotation_votes")
 def api_save_vote():
     data = request.json or {}

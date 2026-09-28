@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 from flask import jsonify, request
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 import fyp.core.data_io as data_io
 import fyp.scrape.scrape_queues as scrape_queues
@@ -242,7 +242,6 @@ ABANDONED_RUN_SECONDS = 600
 @permission_required(
     "tab.data_management.scrape", "tab.data_management.annotation", "tab.data_management.refresh"
 )
-@login_required
 def get_enrichment_stats():
     # Only admins can see enrichment stats
     # Reload process_stats from GCS so we pick up task-runner writes, and
@@ -524,7 +523,6 @@ def get_enrichment_stats():
     "tab.data_management.annotation",
     "tab.data_management.refresh",
 )
-@login_required
 def get_enrichment_history():
     """The enrichment history, newest first — all of it, or one collection's view.
 
@@ -564,7 +562,6 @@ def get_enrichment_history():
 
 @management_bp.route("/api/manage/annotation/backends", methods=["GET"])
 @permission_required("tab.admin.backends")
-@login_required
 def get_annotation_backends():
     """Availability of every annotation backend, for the requirements panel.
 
@@ -640,7 +637,6 @@ def get_annotation_backends():
 
 @management_bp.route("/api/manage/embedding/backends", methods=["GET"])
 @permission_required("tab.admin.backends")
-@login_required
 def get_embedding_backends():
     """Availability of every embedding backend, for the requirements panel.
 
@@ -688,7 +684,6 @@ def get_embedding_backends():
 
 @management_bp.route("/api/manage/enrichment/empty_queue/<queue_type>", methods=["POST"])
 @permission_required("tab.data_management.scrape", "tab.data_management.annotation")
-@login_required
 def empty_enrichment_queue(queue_type):
     try:
         if queue_type == "scrape":
@@ -757,7 +752,6 @@ def empty_enrichment_queue(queue_type):
 
 @management_bp.route("/api/manage/enrichment/scraper_alert/dismiss", methods=["POST"])
 @permission_required("tab.data_management.scrape")
-@login_required
 def dismiss_scraper_alert():
     """Dismiss a platform's scraper alert ({"platform": ...} in the body).
 
@@ -775,7 +769,6 @@ def dismiss_scraper_alert():
 
 @management_bp.route("/api/manage/enrichment/queue_voted", methods=["POST"])
 @permission_required("tab.data_management.scrape", "tab.data_management.annotation")
-@login_required
 def queue_voted_videos():
     try:
         from web_interface.security import user_manager
@@ -954,7 +947,6 @@ def queue_voted_videos():
 
 @management_bp.route("/api/manage/enrichment/calculate_to_scrape", methods=["POST"])
 @permission_required("tab.data_management.scrape")
-@login_required
 def calculate_to_scrape():
     data = request.json or {}
     study_name = data.get("study_name")
@@ -1232,7 +1224,6 @@ def _parse_selection_date(value: str) -> int:
 
 @management_bp.route("/api/manage/enrichment/annotation_versions", methods=["GET"])
 @permission_required("tab.data_management.annotation")
-@login_required
 def enrichment_annotation_versions():
     """List annotation versions for the Annotation page's selection dropdown.
 
@@ -1261,7 +1252,6 @@ def enrichment_annotation_versions():
 
 @management_bp.route("/api/manage/enrichment/calculate_to_annotate", methods=["POST"])
 @permission_required("tab.data_management.annotation")
-@login_required
 def calculate_to_annotate():
     data = request.json or {}
     study_name = data.get("study_name")
@@ -1526,7 +1516,6 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 
 @management_bp.route("/api/manage/enrichment/consolidate", methods=["POST"])
 @permission_required("tab.data_management.refresh")
-@login_required
 def api_consolidate_enrichment():
 
     if _is_worker_running("consolidate_enrichment"):
@@ -1640,7 +1629,6 @@ def api_consolidate_enrichment():
 
 @management_bp.route("/api/manage/enrichment/consolidate/disarm", methods=["POST"])
 @permission_required("tab.data_management.refresh")
-@login_required
 def api_consolidate_disarm():
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
@@ -1655,7 +1643,6 @@ def api_consolidate_disarm():
 
 @management_bp.route("/api/manage/enrichment/refresh-downstream", methods=["POST"])
 @permission_required("tab.data_management.refresh")
-@login_required
 def api_refresh_downstream():
     """Start a refresh run for the stored consolidation impact.
 
@@ -1684,7 +1671,6 @@ def api_refresh_downstream():
 
 @management_bp.route("/api/manage/refresh/staleness", methods=["GET"])
 @permission_required("tab.data_management.refresh", "tab.admin.versions")
-@login_required
 def api_refresh_staleness():
     """Check which downstream processes are stale relative to the last consolidation impact.
 

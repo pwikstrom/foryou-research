@@ -4,7 +4,6 @@ import json
 import os
 
 from flask import jsonify, request
-from flask_login import login_required
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import (
@@ -49,7 +48,6 @@ def _aws_credentials_available() -> bool:
 
 @management_bp.route("/api/manage/ingestion/sources", methods=["GET"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def get_ingestion_sources():
     try:
         main_collection = get_main_collection(verbose=False)
@@ -106,7 +104,6 @@ def get_ingestion_sources():
 
 @management_bp.route("/api/manage/ingestion/fetch_aio", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
 
@@ -136,7 +133,6 @@ def fetch_aio_data():
 
 @management_bp.route("/api/manage/ingestion/upload", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def upload_ingestion_file():
     """Upload one or more raw files with optional collection_id and tags metadata.
 
@@ -359,7 +355,6 @@ def upload_ingestion_file():
 
 @management_bp.route("/api/manage/refresh-collection-metadata", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def refresh_collection_metadata():
     """Regenerate _metadata.parquet from scratch using all events."""
 
@@ -375,7 +370,6 @@ def refresh_collection_metadata():
 
 @management_bp.route("/api/manage/ingestion/refresh", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def refresh_ingestion_collection():
 
     success, msg = start_process(
@@ -393,7 +387,6 @@ def refresh_ingestion_collection():
 
 @management_bp.route("/api/manage/ingestion/ledger", methods=["GET"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def get_ingestion_ledger():
     """The persistent per-file ingestion ledger (newest first).
 
@@ -422,7 +415,6 @@ def get_ingestion_ledger():
 
 @management_bp.route("/api/manage/ingestion/ledger/unskip", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def unskip_ingestion_ledger_entry():
     """Drop a single filename from the ingestion ledger so it will be
     re-scanned on the next ingestion run. The raw file on disk is left
@@ -460,7 +452,6 @@ def unskip_ingestion_ledger_entry():
 
 @management_bp.route("/api/manage/ingestion/structure/warnings", methods=["GET"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def structure_warnings():
     """List structure-drift verdicts awaiting review (quarantined + warned files)."""
     from fyp.core import structure_sentinel
@@ -480,7 +471,6 @@ def structure_warnings():
 
 @management_bp.route("/api/manage/ingestion/structure/approve", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def structure_approve():
     """Approve a quarantined file: fold its structure into the learned baseline
     and drop its ledger entry so the next ingestion run ingests it.
@@ -526,7 +516,6 @@ def structure_approve():
 
 @management_bp.route("/api/manage/ingestion/structure/reject", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def structure_reject():
     """Reject a quarantined file: mark it manually excluded so it never ingests."""
     from fyp.core import structure_sentinel
@@ -581,7 +570,6 @@ def structure_reject():
 
 @management_bp.route("/api/manage/ingestion/clear_pending", methods=["POST"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def clear_pending_uploads():
     """Drop every pending upload across every registered ingester: delete each
     file from its raw_path storage and reset its manifest to an empty dict.
@@ -721,7 +709,6 @@ def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | Non
 
 @management_bp.route("/api/manage/ingestion/metadata", methods=["GET"])
 @permission_required("tab.data_management.ingestion")
-@login_required
 def get_ingestion_metadata():
     """Return existing collection IDs and all unique tags for the upload modal."""
 
