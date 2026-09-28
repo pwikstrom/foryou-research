@@ -23,7 +23,7 @@ from fyp.annotation.backends.qwen_support import (
     hf_cache_root,
     model_snapshot_present,
 )
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 # Peak unified-memory observed in the 20-video pilot for the 4-bit 9B model.
 _OBSERVED_PEAK_GB = 8

@@ -406,7 +406,7 @@ class BaseScraper(ABC):
         falling back to the global ``max_duration_for_download``. Metadata is
         always scraped regardless — the cap only gates the media phase.
         """
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
         misc = fyp_cf["misc"]
         return int(misc.get(f"max_duration_for_download_{self.platform}",
                             misc["max_duration_for_download"]))

@@ -29,8 +29,8 @@ import json
 from pathlib import Path
 
 # Cycle-safe: fyp.scrape_contract imports only stdlib (never fyp_config/data_io).
-from fyp.logging_setup import get_logger
-from fyp.scrape_contract import RETIRED_TO_GENERIC
+from fyp.core.logging_setup import get_logger
+from fyp.scrape.scrape_contract import RETIRED_TO_GENERIC
 
 logger = get_logger(__name__)
 
@@ -57,7 +57,7 @@ class PresentationConflict(Exception):
 
 def _data_io():
     """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 

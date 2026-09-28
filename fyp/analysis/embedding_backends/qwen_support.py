@@ -16,7 +16,7 @@ import os
 
 from fyp.annotation.backends.base import BackendAvailability
 from fyp.annotation.backends.qwen_support import hf_cache_root, model_snapshot_present
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 _MODEL_DISK_GB = 3
 

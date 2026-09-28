@@ -18,7 +18,7 @@ release it becomes a no-op (assumed fixed upstream; re-validate on upgrade).
 Call it BEFORE ``mlx_vlm.load``.
 """
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

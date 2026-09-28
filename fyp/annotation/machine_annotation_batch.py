@@ -29,18 +29,18 @@ import os
 
 import google.genai
 
-import fyp.annotation_versioning as annotation_versioning
-import fyp.data_io as data_io
-import fyp.media_paths as media_paths
-from fyp.annotation_schema import build_response_schema
-from fyp.machine_annotation import initialize_machine, platform_map_for
+import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
+import fyp.core.media_paths as media_paths
+from fyp.annotation.annotation_schema import build_response_schema
+from fyp.annotation.machine_annotation import initialize_machine, platform_map_for
 
 
 
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -49,7 +49,7 @@ def _cf():
 
 def _machine_annotations_label() -> str:
     """Lazy accessor for the config-derived machine-annotations label."""
-    from fyp.machine_annotation import MACHINE_ANNOTATIONS_LABEL
+    from fyp.annotation.machine_annotation import MACHINE_ANNOTATIONS_LABEL
 
     return MACHINE_ANNOTATIONS_LABEL
 

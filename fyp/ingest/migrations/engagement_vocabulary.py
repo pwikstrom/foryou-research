@@ -34,11 +34,11 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from fyp import activity_versioning as _activity_versioning
+from fyp.core import activity_versioning as _activity_versioning
 from fyp.ingest.base import ForYouBaseCollection, assign_session_ids, derive_play_duration
 from fyp.ingest.tiktok import TikTokDDPCollection
-from fyp.logging_setup import get_logger
-from fyp.utils import share_method_with_count
+from fyp.core.logging_setup import get_logger
+from fyp.core.utils import share_method_with_count
 
 logger = get_logger(__name__)
 
@@ -56,7 +56,7 @@ def default_raw_loader(data_source: str, raw_file: str):
     the DDP parser and the stored value followed it), so the lookup tries the
     location the source names first and then every other TikTok raw folder.
     """
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     first = _TIKTOK_RAW_LOCATIONS.get(str(data_source))
     locations = ([first] if first else []) + [loc for loc in _TIKTOK_RAW_LOCATIONS.values() if loc != first]

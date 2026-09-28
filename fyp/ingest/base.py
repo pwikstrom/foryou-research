@@ -18,23 +18,23 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
-from fyp import activity_contract as _activity_contract
-from fyp import activity_versioning as _activity_versioning
-from fyp import scrape_contract as _scrape_contract
-from fyp import scrape_versioning as _scrape_versioning
-from fyp import structure_sentinel as _structure_sentinel
-from fyp.donations import (
+from fyp.core import activity_contract as _activity_contract
+from fyp.core import activity_versioning as _activity_versioning
+from fyp.scrape import scrape_contract as _scrape_contract
+from fyp.scrape import scrape_versioning as _scrape_versioning
+from fyp.core import structure_sentinel as _structure_sentinel
+from fyp.analysis.donations import (
     demographic_metadata_columns,
     generate_collection_metadata,
     strip_demographic_columns,
 )
-from fyp.logging_setup import get_logger
-from fyp.polars_ops import fast_vertical_concat
-from fyp.recode_variables import infer_timezone_offset
-from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, RECEIVED_ACTIVITY_TYPES, share_method_base
+from fyp.core.logging_setup import get_logger
+from fyp.core.polars_ops import fast_vertical_concat
+from fyp.annotation.recode_variables import infer_timezone_offset
+from fyp.core.types import convert_dtypes_to_pyarrow
+from fyp.core.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, RECEIVED_ACTIVITY_TYPES, share_method_base
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -52,7 +52,7 @@ def _cf():
 
 def _collections_label() -> str:
     """Lazy accessor for the config-derived collections label."""
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     return COLLECTIONS_LABEL
 

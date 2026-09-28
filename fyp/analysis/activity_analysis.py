@@ -1,7 +1,7 @@
 
 import pandas as pd
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

@@ -34,8 +34,8 @@ import re
 import secrets
 from datetime import datetime, timezone
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -123,7 +123,7 @@ def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
         raw_paths: The raw storage locations whose manifests to read. Defaults
             to the registered ingestion classes' raw paths.
     """
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     ids: set[str] = set()
 
@@ -204,7 +204,7 @@ def known_display_keys(known_ids: set[str] | None = None,
         known_ids: A pre-loaded :func:`known_collection_ids` result.
         raw_paths: The raw locations whose manifests to read.
     """
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     ids = known_ids if known_ids is not None else known_collection_ids(raw_paths)
     keys: set[str] = {display_key(cid) for cid in ids}

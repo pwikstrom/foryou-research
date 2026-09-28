@@ -118,7 +118,7 @@ def active_backend_name() -> str:
     """
     from fyp.annotation.backends import variants
     from fyp.annotation.backends.settings import get_annotation_backend
-    from fyp.logging_setup import get_logger
+    from fyp.core.logging_setup import get_logger
 
     name = get_annotation_backend()
     if name in BACKEND_IDS:

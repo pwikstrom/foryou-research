@@ -14,15 +14,15 @@ import re
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.ingest.base import (
     ForYouBaseCollection,
     _config_timezone_offset,
     derive_play_duration,
     parse_donor_timezone,
 )
-from fyp.logging_setup import get_logger
-from fyp.utils import read_zip_members
+from fyp.core.logging_setup import get_logger
+from fyp.core.utils import read_zip_members
 
 logger = get_logger(__name__)
 

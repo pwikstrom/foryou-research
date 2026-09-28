@@ -21,8 +21,8 @@ import pyarrow as pa
 import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
-from fyp.types import convert_dtypes_to_pyarrow
-from fyp.logging_setup import get_logger
+from fyp.core.types import convert_dtypes_to_pyarrow
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -36,7 +36,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

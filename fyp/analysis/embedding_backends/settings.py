@@ -8,7 +8,7 @@ two sides cannot drift. The filename constant is shared with the annotation
 settings read side for the same reason.
 """
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.annotation.backends.settings import SETTINGS_FILENAME
 
 EMBEDDING_BACKEND_KEY = "embedding_backend"

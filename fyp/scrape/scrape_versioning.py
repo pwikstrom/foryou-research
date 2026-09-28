@@ -29,7 +29,7 @@ import pandas as pd
 # Sibling import goes through the package (never the old-path shim) — see
 # the shim-poisoning rule in docs/fyp-import-graph.md.
 from fyp.scrape import scrape_contract as sc
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 
 def _data_io():
     """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 
@@ -226,7 +226,7 @@ def register_version(descriptor: dict | None = None, created_at: str | None = No
     if created_at is None:
         created_at = _dt.datetime.now().isoformat(timespec="seconds")
 
-    from fyp import registry_metadata as rm
+    from fyp.core import registry_metadata as rm
 
     registry = load_registry()
     updated = _register_into(
@@ -277,7 +277,7 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     read-only (badged "legacy") instead of degrading into an editable orphan.
     """
     try:
-        from fyp import registry_metadata as rm
+        from fyp.core import registry_metadata as rm
 
         return rm.union_field_metadata(load_registry(), versions_to_include)
     except Exception as e:

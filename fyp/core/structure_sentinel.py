@@ -47,9 +47,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from fyp import data_io
-from fyp.logging_setup import get_logger
-from fyp.utils import read_zip_members
+from fyp.core import data_io
+from fyp.core.logging_setup import get_logger
+from fyp.core.utils import read_zip_members
 
 logger = get_logger(__name__)
 

@@ -32,7 +32,7 @@ import os
 
 import pandas as pd
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -47,7 +47,7 @@ logger = get_logger(__name__)
 
 def _data_io():
     """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 
@@ -56,7 +56,7 @@ def _data_io():
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -189,7 +189,7 @@ def active_prompt_text() -> str:
     Returns:
         The prompt text the model is (or would be) sent.
     """
-    from fyp.annotation_schema import build_prompt
+    from fyp.annotation.annotation_schema import build_prompt
 
     return build_prompt()
 
@@ -245,7 +245,7 @@ def active_version_descriptor(fresh: bool = False) -> dict:
     # leaves every [machine] config key unchanged) still busts the descriptor
     # cache — otherwise a long-lived process would keep stamping the old av_.
     try:
-        from fyp import annotation_contract as _ac
+        from fyp.annotation import annotation_contract as _ac
 
         contract_etag = _ac.contract_etag()
     except Exception:
@@ -277,7 +277,7 @@ def active_version_descriptor(fresh: bool = False) -> dict:
         return _DESCRIPTOR_CACHE["descriptor"]
 
     prompt_text = _read_prompt_text()
-    from fyp.annotation_schema import get_annotation_json_schema
+    from fyp.annotation.annotation_schema import get_annotation_json_schema
 
     schema_json = get_annotation_json_schema()
     if backend is None:
@@ -307,7 +307,7 @@ def active_version_descriptor(fresh: bool = False) -> dict:
     # it is what the Versions page's "Make current" restore needs (the contract
     # cannot be reconstructed from the generated prompt).
     try:
-        from fyp import annotation_contract as _ac
+        from fyp.annotation import annotation_contract as _ac
 
         contract_text = _ac.effective_contract_text()
     except Exception:
@@ -352,8 +352,8 @@ def _snapshot_field_metadata() -> dict:
     contract stops emitting keeps its metadata (and stays contract-owned) via the
     version that defined it. Never raises.
     """
-    from fyp import annotation_contract as ac
-    from fyp import registry_metadata as rm
+    from fyp.annotation import annotation_contract as ac
+    from fyp.core import registry_metadata as rm
 
     return rm.snapshot_field_metadata(ac)
 
@@ -613,7 +613,7 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
         in_data = versions_in_data()
         if in_data is not None:
             versions_to_include = in_data | {active_annotation_version()}
-    from fyp import registry_metadata as rm
+    from fyp.core import registry_metadata as rm
 
     return rm.union_field_metadata(registry, versions_to_include)
 
@@ -730,7 +730,7 @@ def _harvest_orphan_metadata() -> dict:
     ``v0_legacy`` backfill can take ownership. Never raises.
     """
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         owned = set(ac.contract_column_metadata(ac.load_contract()))
         out: dict = {}
@@ -792,7 +792,7 @@ def backfill_legacy_metadata(orphan_metadata: dict | None = None) -> dict:
 if __name__ == "__main__":
     import json as _json
 
-    import fyp.fyp_config as _fc
+    import fyp.core.fyp_config as _fc
 
     _fc.initialize()
     _reg = backfill_legacy_metadata()

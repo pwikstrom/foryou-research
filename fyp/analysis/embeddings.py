@@ -32,9 +32,9 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis.embedding_backends import active_backend_name, get_backend
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

@@ -21,7 +21,7 @@ from google.genai.types import EmbedContentConfig
 
 import fyp.core.gemini_client as gemini_client
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 # Concurrency / batching for the Vertex embedding calls.
 _EMBED_BATCH = 20

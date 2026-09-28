@@ -43,9 +43,9 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 import fyp.core.gemini_client as gemini_client
-import fyp.data_io as data_io
-import fyp.embeddings as embeddings
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+import fyp.analysis.embeddings as embeddings
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -54,7 +54,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

@@ -624,9 +624,9 @@ def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str 
             default) to read it fresh — which is what change detection needs.
     """
     try:
-        from fyp import var_presentation as vp
-        from fyp import annotation_contract as ac
-        import fyp.data_io as data_io
+        from fyp.annotation import var_presentation as vp
+        from fyp.annotation import annotation_contract as ac
+        import fyp.core.data_io as data_io
 
         # ``presentation`` is passed in by load_var_schema, which has just read
         # the store — recomputing the etag from the in-hand payload saves a
@@ -700,7 +700,7 @@ def _apply_contract_accepted_labels(cf) -> None:
     if "accepted_labels" not in vs.columns:
         vs["accepted_labels"] = pd.NA
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         contract = ac.load_contract()
     except Exception:
@@ -752,7 +752,7 @@ def _apply_contract_variable_metadata(cf) -> None:
         if col not in vs.columns:
             vs[col] = pd.NA
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         meta = ac.contract_column_metadata(ac.load_contract())
     except Exception:
@@ -763,7 +763,7 @@ def _apply_contract_variable_metadata(cf) -> None:
     # ``australian_relevance``) stay contract-owned/read-only instead of degrading
     # into editable orphans. Current-contract metadata always wins.
     try:
-        from fyp import annotation_versioning as av
+        from fyp.annotation import annotation_versioning as av
 
         legacy_meta = {k: v for k, v in av.union_field_metadata().items() if k not in meta}
     except Exception as e:
@@ -831,7 +831,7 @@ def _apply_contract_scrape_metadata(cf) -> None:
         if col not in vs.columns:
             vs[col] = pd.NA
     try:
-        from fyp import scrape_contract as sc
+        from fyp.scrape import scrape_contract as sc
 
         contract = sc.load_contract()
         meta = sc.contract_column_metadata(contract)
@@ -841,7 +841,7 @@ def _apply_contract_scrape_metadata(cf) -> None:
     # per-version metadata snapshots) so a field a future contract stops
     # emitting stays contract-owned/read-only. Current contract wins.
     try:
-        from fyp import scrape_versioning as sv
+        from fyp.scrape import scrape_versioning as sv
 
         meta = {**{k: v for k, v in sv.union_field_metadata().items() if k not in meta}, **meta}
     except Exception as e:
@@ -954,7 +954,7 @@ def _apply_contract_activity_metadata(cf) -> None:
     from ``var_schema.csv`` today). Degrades to a no-op if the contract cannot load.
     """
     try:
-        from fyp import activity_contract as acy
+        from fyp.core import activity_contract as acy
 
         contract = acy.load_contract()
         meta = acy.contract_column_metadata(contract)
@@ -963,7 +963,7 @@ def _apply_contract_activity_metadata(cf) -> None:
     # Union in fields owned by PAST activity-contract versions (registry
     # snapshots); current contract wins — mirrors the scrape/annotation overlays.
     try:
-        from fyp import activity_versioning as av_act
+        from fyp.core import activity_versioning as av_act
 
         meta = {**{k: v for k, v in av_act.union_field_metadata().items() if k not in meta}, **meta}
     except Exception as e:
@@ -981,7 +981,7 @@ def _apply_contract_derived_metadata(cf) -> None:
     ``var_schema.csv`` today, so the produced column gains its metadata).
     """
     try:
-        from fyp import derived_contract as dc
+        from fyp.core import derived_contract as dc
 
         contract = dc.load_contract()
         meta = dc.contract_column_metadata(contract)
@@ -1017,8 +1017,8 @@ def load_var_schema(cf, verbose=False):
     legacy CSV path produced after its overlays, so the study hash is unchanged
     by the retirement.
     """
-    from fyp import var_presentation as vp
-    from fyp import annotation_contract as ac
+    from fyp.annotation import var_presentation as vp
+    from fyp.annotation import annotation_contract as ac
 
     # 0. Refresh the runtime annotation-contract snapshot BEFORE the overlays, so
     #    every load_contract() call below (and the accepted_labels overlay) sees
@@ -1058,7 +1058,7 @@ def load_var_schema(cf, verbose=False):
     # means downstream matchers only ever see the new values.
     if "role" in cf["var_schema"].columns:
         try:
-            from fyp.recode_variables import normalize_role
+            from fyp.annotation.recode_variables import normalize_role
             cf["var_schema"]["role"] = cf["var_schema"]["role"].map(
                 lambda r: normalize_role(r) if pd.notna(r) else r
             )

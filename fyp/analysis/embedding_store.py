@@ -41,9 +41,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embeddings
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

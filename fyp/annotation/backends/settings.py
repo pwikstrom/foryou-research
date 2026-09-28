@@ -7,7 +7,7 @@ The key names defined here are imported by the web layer's validation, so the
 two sides cannot drift.
 """
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 
 # Must match web_interface.admin_settings.SETTINGS_FILENAME (web imports the
 # admin-settings machinery; fyp only reads the same file via data_io).

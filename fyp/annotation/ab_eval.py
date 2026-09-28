@@ -39,10 +39,10 @@ from datetime import UTC, datetime
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp import annotation_contract as ac
-from fyp import annotation_schema as sch
-from fyp.types import convert_dtypes_to_pyarrow
+import fyp.core.data_io as data_io
+from fyp.annotation import annotation_contract as ac
+from fyp.annotation import annotation_schema as sch
+from fyp.core.types import convert_dtypes_to_pyarrow
 
 # NOTE: fyp.machine_annotation, fyp.recode_variables and google.genai are
 # imported lazily inside the functions that need them — they are heavy imports
@@ -51,7 +51,7 @@ from fyp.types import convert_dtypes_to_pyarrow
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -998,8 +998,8 @@ def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFr
     ``clean_up_machine_annotations`` → flags → pyarrow), entirely in memory —
     nothing is saved. Drifts *with* production by construction.
     """
-    import fyp.machine_annotation as ma
-    from fyp.recode_variables import recode_events_df, rename_columns
+    import fyp.annotation.machine_annotation as ma
+    from fyp.annotation.recode_variables import recode_events_df, rename_columns
 
     df = pd.DataFrame(records)
     sink = io.StringIO()
@@ -1650,7 +1650,7 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         ValueError: bad arms / oversized eval set / invalid arm contract.
         RunCancelled: when cancelled mid-run (manifest marked ``cancelled``).
     """
-    from fyp.machine_annotation import platform_map_for
+    from fyp.annotation.machine_annotation import platform_map_for
 
     ensure_locations()
     if not arms or len(arms) < 1:

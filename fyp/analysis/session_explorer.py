@@ -50,10 +50,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pa_compute
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, entropy_metrics
-from fyp.logging_setup import get_logger
-from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.logging_setup import get_logger
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 logger = get_logger(__name__)
 
@@ -177,7 +177,7 @@ def resolve_workers(requested=None) -> int:
         to one fewer than the machine's cores.
     """
     if requested is None:
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
 
         cfg = fyp_cf.get("sessions", {})
         requested = cfg.get("workers", "auto") if isinstance(cfg, dict) else "auto"
@@ -425,7 +425,7 @@ def default_params() -> dict:
     module constants (the study-locked values) for keys the config omits.
     Per-run ``task_args`` overrides still take precedence over both.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     cfg = fyp_cf.get("sessions", {})
     if not isinstance(cfg, dict):
@@ -524,7 +524,7 @@ def vector_cache_enabled() -> bool:
     lookups on the web service) never use the cache — they fetch a handful
     of rows and must not pull 1.9 GB into the web instance's memory.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     cfg = fyp_cf.get("sessions", {})
     value = cfg.get("vector_cache", True) if isinstance(cfg, dict) else True
@@ -1093,7 +1093,7 @@ _SCOPE_MAX_ITEMS = 50_000
 def rebaseline_fraction() -> float:
     """``[sessions] rebaseline_fraction`` — appended-vector share that forces a
     full rebuild (re-centres every collection on the current corpus mean)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     cfg = fyp_cf.get("sessions", {})
     value = (cfg.get("rebaseline_fraction", REBASELINE_FRACTION_DEFAULT)

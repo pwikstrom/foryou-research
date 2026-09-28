@@ -25,7 +25,7 @@ logs that the patch was skipped. Call it BEFORE ``mlx_vlm.load``.
 
 import numpy as np
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

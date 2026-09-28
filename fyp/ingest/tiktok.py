@@ -14,13 +14,13 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.ingest.base import (
     ForYouBaseCollection,
     derive_play_duration,
 )
-from fyp.logging_setup import get_logger
-from fyp.utils import clean_url, share_method_with_count
+from fyp.core.logging_setup import get_logger
+from fyp.core.utils import clean_url, share_method_with_count
 
 logger = get_logger(__name__)
 
@@ -575,7 +575,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
         belong to an unrelated account — stays quiet. The manual "Fetch AIO"
         button in Data Management is unaffected.
         """
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
 
         configured = fyp_cf.get("features", {}).get("aio_aws_fetch")
         if configured is not None:
@@ -586,7 +586,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
     def load_raw(self, skip_these_raw_files: list[str] = [],
                  held_for_review: set[str] | None = None):
         """Fetch recent donations and participant metadata from AWS, then load files."""
-        from fyp.donations import (
+        from fyp.analysis.donations import (
             get_donation_metadata_from_aio_aws,
             get_recent_data_donations_from_aio_aws,
         )

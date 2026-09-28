@@ -22,29 +22,29 @@ import google.genai
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
-import fyp.media_paths as media_paths
-import fyp.scrape_queues as scrape_queues
-import fyp.utils as fyp_utils
-import fyp.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
+import fyp.core.media_paths as media_paths
+import fyp.scrape.scrape_queues as scrape_queues
+import fyp.core.utils as fyp_utils
+import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.gemini_client as gemini_client
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
-from fyp.annotation_schema import (
+from fyp.annotation.annotation_schema import (
     build_response_schema,
     flatten_structured,
 )
-from fyp.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
-from fyp.types import convert_dtypes_to_pyarrow, scrub_surrogates_nested
-from fyp.utils import start_monitor
+from fyp.annotation.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
+from fyp.core.types import convert_dtypes_to_pyarrow, scrub_surrogates_nested
+from fyp.core.utils import start_monitor
 
 logger = get_logger(__name__)
 
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -2439,7 +2439,7 @@ def queue_annotation_loop(
     cancellation_check=None,
 ):
 
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     target_cache_file = "to_annotate.json"
     
     if not data_io.exists(storage_location="cache", filename=target_cache_file):

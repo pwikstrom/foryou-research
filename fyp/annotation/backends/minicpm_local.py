@@ -32,8 +32,8 @@ from fyp.annotation.backends.qwen_local import (
     _probe_duration,
     _sample_frames,
 )
-from fyp.fyp_config import get_config
-from fyp.logging_setup import get_logger
+from fyp.core.fyp_config import get_config
+from fyp.core.logging_setup import get_logger
 
 try:
     import mlx_vlm

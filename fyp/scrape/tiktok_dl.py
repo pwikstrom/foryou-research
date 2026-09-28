@@ -19,7 +19,7 @@ import yt_dlp
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 from fyp.scrape import scraper_cookies
 from fyp.scrape.platform_scraper import (  # noqa: F401
     _THROTTLE_CATEGORIES,
@@ -503,7 +503,7 @@ _DL_MAX_RETRIES = 2
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

@@ -10,29 +10,29 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 
-import fyp.annotation_versioning as annotation_versioning
-import fyp.data_io as data_io
-from fyp import scrape_contract as _scrape_contract
-from fyp.logging_setup import get_logger
-from fyp.machine_annotation import consolidate_and_save_refined_annotations
+import fyp.annotation.annotation_versioning as annotation_versioning
+import fyp.core.data_io as data_io
+from fyp.scrape import scrape_contract as _scrape_contract
+from fyp.core.logging_setup import get_logger
+from fyp.annotation.machine_annotation import consolidate_and_save_refined_annotations
 
 # Shared memory-probe implementations (fyp.core.memory); the module-private
 # aliases keep this file's many existing call sites and the
 # [RECODE][MEM]/[ENRICH PATCH][MEM] log lines unchanged.
-from fyp.memory import df_size_mb as _df_size_mb
-from fyp.memory import peak_rss_mb as _peak_rss_mb
-from fyp.memory import rss_mb as _rss_mb
-from fyp.polars_ops import fast_join
-from fyp.recode_variables import (
+from fyp.core.memory import df_size_mb as _df_size_mb
+from fyp.core.memory import peak_rss_mb as _peak_rss_mb
+from fyp.core.memory import rss_mb as _rss_mb
+from fyp.core.polars_ops import fast_join
+from fyp.annotation.recode_variables import (
     compute_var_schema_hash,
     derive_australian_relevance,
     get_grouping_factors_from_var_schema,
 )
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
-from fyp.utils import parse_extra_data_tokens
+from fyp.core.utils import parse_extra_data_tokens
 
 logger = get_logger(__name__)
-from fyp.studies import init_study_defs
+from fyp.analysis.studies import init_study_defs
 
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
@@ -76,7 +76,7 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

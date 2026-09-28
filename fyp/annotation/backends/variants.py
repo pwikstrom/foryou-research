@@ -29,7 +29,7 @@ with a warning, never allowed to break config load or backend selection.
 import re
 from dataclasses import dataclass, field
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -83,7 +83,7 @@ def declared_variants() -> dict:
         Mapping of variant name to spec, in backend then declaration order.
     """
     from fyp.annotation.backends import BACKEND_IDS
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     machine = get_config()["machine"]
     out: dict = {}
@@ -196,7 +196,7 @@ def selection_pricing(selection: str) -> dict | None:
     Returns:
         The price entry, or ``None`` when nothing is declared.
     """
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     spec = resolve(selection)
     if spec.pricing is not None:

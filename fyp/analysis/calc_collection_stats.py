@@ -1,8 +1,8 @@
 
 import pandas as pd
 
-from fyp.activity_analysis import analyze_activity_peak
-from fyp.logging_setup import get_logger
+from fyp.analysis.activity_analysis import analyze_activity_peak
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

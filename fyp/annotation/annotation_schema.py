@@ -20,7 +20,7 @@ A single ordered description of the Gemini output contract lives in the TOML
 
 import google.genai.types as gt
 
-from fyp import annotation_contract as _ac
+from fyp.annotation import annotation_contract as _ac
 
 # The declarative contract is now loaded LAZILY and can change at runtime (an
 # admin can upload a new one — see fyp.annotation_contract). ``_specs`` memoizes

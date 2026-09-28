@@ -12,7 +12,7 @@ untouched.
 
 import fyp.core.gemini_client as gemini_client
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 
 
@@ -82,7 +82,7 @@ class GeminiBackend(AnnotationBackend):
         """Issue a ~1-token generation call; return a check row."""
         import google.genai
 
-        import fyp.machine_annotation as machine_annotation
+        import fyp.annotation.machine_annotation as machine_annotation
 
         machine_annotation.initialize_machine()
         client = get_config()["machine"]["gemini"].get("client")

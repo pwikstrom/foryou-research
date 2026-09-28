@@ -16,10 +16,10 @@ from pathlib import Path
 import boto3
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.calc_collection_stats import generate_personas
-from fyp.logging_setup import get_logger
-from fyp.recode_variables import *
+import fyp.core.data_io as data_io
+from fyp.analysis.calc_collection_stats import generate_personas
+from fyp.core.logging_setup import get_logger
+from fyp.annotation.recode_variables import *
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -37,7 +37,7 @@ def _cf():
 
 def _collections_label() -> str:
     """Lazy accessor for the config-derived collections label."""
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     return COLLECTIONS_LABEL
 

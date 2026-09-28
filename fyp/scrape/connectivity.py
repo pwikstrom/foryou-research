@@ -33,7 +33,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -59,7 +59,7 @@ GAVE_UP = "gave_up"        # offline past the wait (or the batch was stopped)
 def probe_hosts(platform_host: str | None = None) -> tuple[str, ...]:
     """Return the hosts the probe tries, platform host first."""
     try:
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
         configured = fyp_cf["misc"].get("connectivity_probe_host") or _DEFAULT_PROBE_HOST
     except Exception:
         configured = _DEFAULT_PROBE_HOST
@@ -85,7 +85,7 @@ def offline_max_wait() -> int:
     """Seconds a batch waits out an outage (``[misc] scraper_offline_max_wait_seconds``)."""
     default = _DEFAULT_MAX_WAIT_CLOUD_RUN if os.environ.get("K_SERVICE") else _DEFAULT_MAX_WAIT_LOCAL
     try:
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
         return int(fyp_cf["misc"].get("scraper_offline_max_wait_seconds", default))
     except Exception:
         return default

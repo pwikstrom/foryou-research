@@ -19,8 +19,8 @@ import threading
 import numpy as np
 
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
-from fyp.fyp_config import get_config
-from fyp.logging_setup import get_logger
+from fyp.core.fyp_config import get_config
+from fyp.core.logging_setup import get_logger
 
 try:
     from sentence_transformers import SentenceTransformer

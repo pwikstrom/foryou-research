@@ -7,8 +7,8 @@ Date:
 """
 
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

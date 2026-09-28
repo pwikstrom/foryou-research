@@ -26,7 +26,7 @@ _RESOLVE_CACHE_MAX = 512
 
 def _cf():
     """Lazy fyp_config accessor (avoids the fyp_config import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -37,7 +37,7 @@ def _cf():
 
 def _registered_platforms() -> list[str]:
     """Lazy list of platforms registered in the scrape contract."""
-    import fyp.scrape_queues as scrape_queues
+    import fyp.scrape.scrape_queues as scrape_queues
 
     return scrape_queues.registered_platforms()
 

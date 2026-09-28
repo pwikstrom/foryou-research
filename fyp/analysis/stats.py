@@ -39,8 +39,8 @@ import pandas as pd
 from scipy import stats as scipy_stats
 from statsmodels.stats.multitest import multipletests
 
-from fyp.logging_setup import get_logger
-from fyp.recode_variables import get_vars_by_role
+from fyp.core.logging_setup import get_logger
+from fyp.annotation.recode_variables import get_vars_by_role
 
 logger = get_logger(__name__)
 
@@ -66,7 +66,7 @@ ETA2_THRESHOLDS = (0.01, 0.06, 0.14)
 
 def _cf():
     """Lazy fyp_config accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

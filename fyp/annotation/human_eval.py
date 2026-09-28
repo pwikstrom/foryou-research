@@ -37,10 +37,10 @@ from datetime import UTC, datetime
 import numpy as np
 import pandas as pd
 
-import fyp.ab_eval as ab
-import fyp.data_io as data_io
-from fyp import annotation_contract as ac
-from fyp.logging_setup import get_logger
+import fyp.annotation.ab_eval as ab
+import fyp.core.data_io as data_io
+from fyp.annotation import annotation_contract as ac
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -49,7 +49,7 @@ logger = get_logger(__name__)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

@@ -28,7 +28,7 @@ import tomllib
 from pathlib import Path
 
 import fyp
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -78,7 +78,7 @@ _SNAPSHOT: dict = {"loaded": False}
 
 def _data_io():
     """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 
@@ -790,7 +790,7 @@ def validate_contract(contract: dict) -> list[str]:
     # var_schema role/scale vocabularies live in recode_variables; import lazily so
     # this module never pulls in fyp_config (which recode_variables imports) at load.
     try:
-        from fyp.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        from fyp.annotation.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
         # Legacy role strings stay valid: older uploaded runtime contracts /
         # registry snapshots still carry them (normalized at var_schema load).
         valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)

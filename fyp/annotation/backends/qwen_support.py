@@ -17,7 +17,7 @@ import shutil
 import sys
 
 from fyp.annotation.backends.base import BackendAvailability
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 
 # Peak unified-memory observed in the 20-video pilot for the 4-bit 30B-A3B.
 _OBSERVED_PEAK_GB = 23

@@ -79,7 +79,7 @@ _PLATFORM_EXPORT_DOMAINS = {
 
 def _cf():
     """Lazy config accessor — keeps this module import-cycle safe."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     return fyp_cf
 
 

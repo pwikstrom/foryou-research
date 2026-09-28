@@ -130,7 +130,7 @@ class AnnotationBackend(ABC):
             .model`` behind any variant override, so the default suits it;
             local backends override).
         """
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
 
         return self.overrides.get("model", get_config()["machine"]["gemini"]["model"])
 
@@ -146,7 +146,7 @@ class AnnotationBackend(ABC):
             ``{use_structured_output, temperature, thinking_budget,
             media_resolution, max_output_tokens}``.
         """
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
 
         machine = {**get_config()["machine"]["gemini"], **self.overrides}
         return {key: machine.get(key) for key in

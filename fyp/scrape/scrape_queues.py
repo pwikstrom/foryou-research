@@ -12,7 +12,7 @@ Queue contents are plain lists of item-id strings; deduplication preserves
 first-seen order.
 """
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ QUEUE_LOCATION = "cache"
 
 def _data_io():
     """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 

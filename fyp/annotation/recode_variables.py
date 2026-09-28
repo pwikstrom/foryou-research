@@ -12,17 +12,17 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from fyp import irrelevant_words
-from fyp.logging_setup import get_logger
-from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import record_dropped_columns
+from fyp.annotation import irrelevant_words
+from fyp.core.logging_setup import get_logger
+from fyp.core.types import convert_dtypes_to_pyarrow
+from fyp.core.utils import record_dropped_columns
 
 logger = get_logger(__name__)
 
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 
@@ -314,7 +314,7 @@ def build_field_normalization(var_schema_indexed: pd.DataFrame) -> dict[str, dic
         ``{variable_name: {"mapper": dict, "ignore_strings": list}}``.
     """
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         contract = ac.load_contract()
         enum_fields = ac.enum_field_names(contract)
@@ -393,7 +393,7 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
     has_scale = "scale" in var_schema_indexed.columns
     has_skip = "skip_recode" in var_schema_indexed.columns
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         contract = ac.load_contract()
         ranges = ac.contract_numeric_ranges(contract)
@@ -536,7 +536,7 @@ def compute_var_schema_hash() -> str:
     # parquets the same way an annotation-contract edit does via norm_payload.
     scrape_payload = b""
     try:
-        from fyp import scrape_contract as sc
+        from fyp.scrape import scrape_contract as sc
 
         scrape_payload = json.dumps(
             sc.contract_field_digest(sc.load_contract()), sort_keys=True
@@ -549,7 +549,7 @@ def compute_var_schema_hash() -> str:
     # parquets the same way a scrape/annotation contract edit does.
     activity_payload = b""
     try:
-        from fyp import activity_contract as acy
+        from fyp.core import activity_contract as acy
 
         activity_payload = json.dumps(
             acy.contract_field_digest(acy.load_contract()), sort_keys=True
@@ -558,7 +558,7 @@ def compute_var_schema_hash() -> str:
         pass
     derived_payload = b""
     try:
-        from fyp import derived_contract as dc
+        from fyp.core import derived_contract as dc
 
         derived_payload = json.dumps(
             dc.contract_field_digest(dc.load_contract()), sort_keys=True
@@ -576,8 +576,8 @@ def compute_var_schema_hash() -> str:
     # would otherwise trigger a surprise full rebuild.
     legacy_ann_payload = b""
     try:
-        from fyp import annotation_contract as anc
-        from fyp import annotation_versioning as av
+        from fyp.annotation import annotation_contract as anc
+        from fyp.annotation import annotation_versioning as av
 
         current_ann = set(anc.contract_column_metadata(anc.load_contract()).keys())
         legacy_ann_payload = json.dumps(
@@ -588,8 +588,8 @@ def compute_var_schema_hash() -> str:
         pass
     legacy_scrape_payload = b""
     try:
-        from fyp import scrape_contract as scc
-        from fyp import scrape_versioning as sv
+        from fyp.scrape import scrape_contract as scc
+        from fyp.scrape import scrape_versioning as sv
 
         current_scrape = set(scc.contract_column_metadata(scc.load_contract()).keys())
         legacy_scrape_payload = json.dumps(
@@ -600,8 +600,8 @@ def compute_var_schema_hash() -> str:
         pass
     legacy_activity_payload = b""
     try:
-        from fyp import activity_contract as acc
-        from fyp import activity_versioning as av_act
+        from fyp.core import activity_contract as acc
+        from fyp.core import activity_versioning as av_act
 
         current_activity = set(acc.contract_column_metadata(acc.load_contract()).keys())
         legacy_activity_payload = json.dumps(
@@ -1203,7 +1203,7 @@ def recode_events_df(
     # Contract-declared 0-N ranges for bounded numeric fields, so recode_numeric
     # can normalise them to 0-1 without a per-field parser.
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         _contract = ac.load_contract()
         _ranges = ac.contract_numeric_ranges(_contract)

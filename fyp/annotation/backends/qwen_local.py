@@ -27,8 +27,8 @@ import tempfile
 import threading
 
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
-from fyp.fyp_config import get_config
-from fyp.logging_setup import get_logger
+from fyp.core.fyp_config import get_config
+from fyp.core.logging_setup import get_logger
 
 try:
     import mlx_vlm

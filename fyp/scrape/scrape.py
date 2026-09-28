@@ -22,9 +22,9 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageColor
 
-import fyp.data_io as data_io
-import fyp.media_paths as media_paths
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+import fyp.core.media_paths as media_paths
+from fyp.core.logging_setup import get_logger
 
 # Sibling imports go through the package (never the old-path shims): a
 # shim import here could bind a
@@ -39,15 +39,15 @@ from fyp.scrape.platform_scraper import (
     ThrottleController,
     get_scraper,
 )
-from fyp.recode_variables import recode_events_df, rename_columns
-from fyp.utils import chunk_list, record_dropped_columns, start_monitor
+from fyp.annotation.recode_variables import recode_events_df, rename_columns
+from fyp.core.utils import chunk_list, record_dropped_columns, start_monitor
 
 logger = get_logger(__name__)
 
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

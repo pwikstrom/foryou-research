@@ -17,8 +17,8 @@ never break or block scraping itself.
 
 from datetime import UTC, datetime
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
