@@ -140,5 +140,9 @@ def main() -> None:
     print("\nAll assertions passed.")
 
 
+def test_content_category_recoding():
+    main()
+
+
 if __name__ == "__main__":
     main()

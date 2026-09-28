@@ -6,6 +6,8 @@ the point of loading and let it run end-to-end against a real cached study to
 prove no critical column was dropped from the projection.
 """
 import sys
+
+import pytest
 from os.path import abspath, dirname, join
 
 sys.path.insert(0, abspath(join(dirname(__file__), '..')))
@@ -82,6 +84,11 @@ def main():
                 print(f"         result[{i}] shape={r.shape}")
 
     print("\n[OK] PCA selective-load smoke test passed.")
+
+
+@pytest.mark.requires_data
+def test_pca_selective_load():
+    main()
 
 
 if __name__ == '__main__':

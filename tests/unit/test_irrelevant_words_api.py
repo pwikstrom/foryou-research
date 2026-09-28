@@ -131,5 +131,9 @@ def run():
 
 
 
+def test_irrelevant_words_api():
+    run()
+
+
 if __name__ == "__main__":
     run()

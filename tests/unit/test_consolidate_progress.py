@@ -31,6 +31,7 @@ def _run_capture(with_impact: bool):
         "status": od.update_enrichment_status,
         "load": od.data_io.load_parquet,
         "marker": od._status_inputs_unchanged,
+        "study_defs": fyp_cf.get("study_defs"),
     }
     # Pin the no-op fast path off so this test always exercises the full
     # 15/40/65/85/95 sequence regardless of what markers exist on disk.
@@ -59,6 +60,7 @@ def _run_capture(with_impact: bool):
         od.update_enrichment_status = orig["status"]
         od.data_io.load_parquet = orig["load"]
         od._status_inputs_unchanged = orig["marker"]
+        fyp_cf["study_defs"] = orig["study_defs"]
     return percents
 
 
@@ -100,6 +102,10 @@ def main():
             print(f"  - {f}")
         sys.exit(1)
     print("All consolidate-progress checks passed.")
+
+
+def test_consolidate_progress():
+    main()
 
 
 if __name__ == "__main__":

@@ -71,5 +71,9 @@ def main() -> int:
             fyp_cf['data_io']['use_gcs_for_media'] = original_use_gcs
 
 
+def test_check_existing_media():
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())

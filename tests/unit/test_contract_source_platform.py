@@ -39,15 +39,23 @@ def main() -> int:
     assert "source_platform" not in snapshot
     assert len(snapshot) > 0, "snapshot should still carry the metadata-owning fields"
 
-    # var_schema synthesis: exactly one source_platform row, owned by activity
+    # var_schema synthesis: exactly one source_platform row, owned by activity.
+    # Ownership is contract membership (the stored ``source`` column is retired).
+    from fyp.core import activity_contract as acy
     from fyp.fyp_config import fyp_cf
     vs = fyp_cf["var_schema"]
     rows = vs[vs["variable_name"] == "source_platform"]
     assert len(rows) == 1, f"expected exactly one var_schema row, got {len(rows)}"
-    assert rows.iloc[0]["source"] == "activity", rows.iloc[0]["source"]
+    assert "source_platform" in acy.contract_column_metadata(acy.load_contract()), (
+        "the activity contract must own the source_platform var_schema row"
+    )
 
     print("OK — scrape-contract source_platform semantics pinned")
     return 0
+
+
+def test_contract_source_platform():
+    assert main() == 0
 
 
 if __name__ == "__main__":

@@ -84,5 +84,9 @@ def main() -> int:
             fyp_cf['data_io']['use_gcs_for_media'] = original_use_gcs
 
 
+def test_media_path_resolution():
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())
