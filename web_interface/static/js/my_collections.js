@@ -434,8 +434,8 @@
         const persona = b.persona || {};
         const axes = persona.axes || {};
         const presentAxes = Object.keys(AXIS_LABELS).filter(a => axes[a] && axes[a].score != null);
-        // The moniker is the card's own headline, so the line it used to share
-        // the card with ("The five scores behind it") drops to a caption.
+        // The moniker is the card's own headline, so the line that shares
+        // the card with it ("The five scores behind it") is a caption.
         const moniker = persona.statement
             ? `<p style="font-size: var(--text-h3); font-weight: var(--weight-bold); line-height: var(--leading-tight); margin: 0 0 2px 0;">${escapeHtml(persona.statement)}</p>`
             : '';
@@ -553,8 +553,7 @@
                 '460px'));
         }
 
-        // (The signature-emoji card was removed 2026-08-24; the bundle still
-        // carries b.emoji for potential future use.)
+        // The bundle also carries b.emoji, which no card renders.
 
         // --- Stat strip
         if (b.stats) {

@@ -104,7 +104,7 @@ window.timelines = {
         }
         this._renderEngagementDropdown();
         this._wireEngagementToggle();
-        // No study selection anymore, load all valid collections directly
+        // Timelines has no study selection: load all valid collections directly
         this.loadDonations();
     },
 
@@ -566,9 +566,8 @@ window.timelines = {
             }
         }
 
-        // The participant info tooltip that used to live next to the collection
-        // dropdown is gone; the only thing still read from pe_data is the first
-        // activity date, which the "exclude before first activity" filter needs.
+        // The only thing read from pe_data is the first activity date, which
+        // the "exclude before first activity" filter needs.
         let pe_collection = null;
         if (window.pe_data && window.pe_data.length > 0) {
             pe_collection = window.pe_data.find(d => d.collection_id === collectionId);
@@ -602,7 +601,6 @@ window.timelines = {
                 return;
             }
 
-            //console.log("TIMELINE DEBUG: Received Data", data);
             this.timelineData = data;
             this._adoptEngagementTypes(data);
 
@@ -615,9 +613,7 @@ window.timelines = {
     },
 
     renderTimelineCharts: function () {
-        //console.log("TIMELINE DEBUG: renderTimelineCharts called");
         if (!this.timelineData) {
-            //console.log("TIMELINE DEBUG: No timelineData available");
             return;
         }
 
@@ -652,8 +648,6 @@ window.timelines = {
         this._axisDates = dates;
         this._axisLabels = (data.date_labels || data.dates || []).slice(startIdx);
 
-        //console.log("TIMELINE DEBUG: Dates length", dates.length);
-        //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
 
         // Collect all plotIds for zoom sync
         const allPlotIds = [];
@@ -1012,9 +1006,6 @@ window.timelines = {
                       tooltip: 'Labels whose share declined steadily over this window.' },
                     { key: 'spikes',   label: '◎ Spikes',      bg: 'var(--trend-spikes-bg)',   color: 'var(--color-save)',        border: 'var(--trend-spikes-border)',
                       tooltip: 'Labels with one or more sharp single-day surges that stand out against their usual level.' },
-                    // Hidden: users find these chips confusing — restore when needed
-                    // { key: 'breaks',   label: '⋮ Breaks',      bg: 'var(--trend-breaks-bg)',   color: 'var(--color-info)',        border: 'var(--trend-breaks-border)' },
-                    // { key: 'volatile', label: '~ Volatile',    bg: 'var(--trend-volatile-bg)', color: 'var(--color-purple)',      border: 'var(--trend-volatile-border)' },
                 ];
 
                 // 'Interesting' (key 'all') is the default state and is always available.
@@ -1908,89 +1899,6 @@ window.timelines = {
                 const overlayTraces = [];
                 const shapes = [];
 
-                // Hidden: Evenness curve — users find it confusing; restore when needed
-                // // --- Entropy / Evenness band ---
-                // // Compute Shannon evenness at each time point using a fixed N
-                // // (total distinct categories across the whole series) so the
-                // // denominator is stable and days with fewer categories present
-                // // correctly score lower.
-                // const entropyVals = [];
-                // const slicedCountsForEntropy = startIdx > 0 ? varData.counts.slice(startIdx) : varData.counts;
-                //
-                // // Fixed N: count all distinct categories across the sliced series
-                // const allCatsInSeries = new Set();
-                // for (const dayBucket of slicedCountsForEntropy) {
-                //     for (const k of Object.keys(dayBucket || {})) {
-                //         if ((dayBucket[k] || 0) > 0) allCatsInSeries.add(k);
-                //     }
-                // }
-                // const fixedN = allCatsInSeries.size;
-                // const fixedMaxH = fixedN > 1 ? Math.log(fixedN) : 1;
-                //
-                // for (let ti = 0; ti < slicedCountsForEntropy.length; ti++) {
-                //     const dayBucket = slicedCountsForEntropy[ti] || {};
-                //     const total = Object.values(dayBucket).reduce((s, v) => s + (v || 0), 0);
-                //     if (total === 0) {
-                //         entropyVals.push(null);
-                //         continue;
-                //     }
-                //     let H = 0;
-                //     for (const v of Object.values(dayBucket)) {
-                //         const p = (v || 0) / total;
-                //         if (p > 0) H -= p * Math.log(p);
-                //     }
-                //     entropyVals.push(H / fixedMaxH);
-                // }
-                //
-                // // Heavy independent centred smoothing (14-period) — entropy is
-                // // about the structural diversity trend, not daily fluctuations.
-                // // Null-aware: skip no-data days in the averaging window.
-                // const entropySmoothing = Math.max(14, this.timelineState.smoothing || 1);
-                // const entropyHalf = Math.floor(entropySmoothing / 2);
-                // const smoothedEntropy = entropyVals.map((_, i) => {
-                //     const start = Math.max(0, i - entropyHalf);
-                //     const end = Math.min(entropyVals.length, i + entropyHalf + 1);
-                //     let sum = 0, count = 0;
-                //     for (let j = start; j < end; j++) {
-                //         if (entropyVals[j] !== null) { sum += entropyVals[j]; count++; }
-                //     }
-                //     return count > 0 ? sum / count : null;
-                // });
-                //
-                // // Min-max normalised mapping so the evenness band uses the
-                // // full chart height, making variation clearly visible.
-                // const validEntropy = smoothedEntropy.filter(e => e !== null);
-                // const eMin = validEntropy.length > 0 ? Math.min(...validEntropy) : 0;
-                // const eMax = validEntropy.length > 0 ? Math.max(...validEntropy) : 1;
-                // const eSpan = eMax - eMin || 1;
-                //
-                // const yRange = chartWrapper._catYRange || [0, 100];
-                // const scaledEntropy = smoothedEntropy.map(e => {
-                //     if (e === null) return null;
-                //     return yRange[0] + ((e - eMin) / eSpan) * (yRange[1] - yRange[0]);
-                // });
-                //
-                // // Build hover text with actual evenness values
-                // const entropyHoverText = smoothedEntropy.map((e, i) => {
-                //     const dateLabel = (data.date_labels || dates)[startIdx + i] || xVals[i];
-                //     return `<b>Distribution Evenness</b><br>` +
-                //            `Period: ${dateLabel}<br>` +
-                //            `Evenness: ${(e * 100).toFixed(1)}%<br>` +
-                //            `<span class="text-sm" style="color:var(--color-text-tertiary);">Range: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%</span>`;
-                // });
-                //
-                // overlayTraces.push({
-                //     x: xVals,
-                //     y: scaledEntropy,
-                //     type: 'scatter',
-                //     mode: 'lines',
-                //     line: { width: 12, shape: 'spline', color: getCSSVar('--chart-overlay-line') },
-                //     name: 'Evenness',
-                //     showlegend: false,
-                //     text: entropyHoverText,
-                //     hoverinfo: 'text',
-                //     hovertemplate: '%{text}<extra></extra>'
-                // });
                 const cats = analysisData.categories || [];
                 const selectedSet = new Set(this.timelineState.categoricalSelections[varName] || []);
 
@@ -2069,23 +1977,9 @@ window.timelines = {
                             });
                         }
                     }
-
-                    // Hidden: structural break vertical line — restore with "breaks" chip when needed
-                    // const adjBreakIdx = catData.break ? catData.break.index - startIdx : -1;
-                    // if (catData.break && Math.abs(catData.break.delta) > 4 && adjBreakIdx > 0 && adjBreakIdx < xVals.length) {
-                    //     shapes.push({
-                    //         type: 'line',
-                    //         x0: xVals[adjBreakIdx],
-                    //         x1: xVals[adjBreakIdx],
-                    //         y0: 0,
-                    //         y1: 1,
-                    //         yref: 'paper',
-                    //         line: { color: catColor, width: 1.5, dash: 'dot' },
-                    //     });
-                    // }
                 });
 
-                // Add overlay traces, shapes, and evenness annotation
+                // Add overlay traces and shapes
                 if (overlayTraces.length > 0) {
                     Plotly.addTraces(plotId, overlayTraces);
                 }
@@ -2093,17 +1987,6 @@ window.timelines = {
                 if (shapes.length > 0) {
                     relayoutUpdates.shapes = shapes;
                 }
-                // Hidden: evenness annotation — restore with evenness curve when needed
-                // if (validEntropy.length > 0) {
-                //     relayoutUpdates.annotations = [{
-                //         text: `Evenness: ${(eMin * 100).toFixed(1)}% – ${(eMax * 100).toFixed(1)}%`,
-                //         xref: 'paper', yref: 'paper',
-                //         x: 0, y: 1.02,
-                //         xanchor: 'left', yanchor: 'bottom',
-                //         showarrow: false,
-                //         font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--chart-annotation-text') }
-                //     }];
-                // }
                 if (Object.keys(relayoutUpdates).length > 0) {
                     Plotly.relayout(plotId, relayoutUpdates);
                 }
@@ -2179,7 +2062,7 @@ window.timelines = {
                         // anomalies, so the frontend only has to render
                         // whatever survived.
 
-                        // 1. Trend
+                        // Trend
                         if (catData.trend && Math.abs(catData.trend.total_change) > 0) {
                             isStable = false;
                             const isRising = catData.trend.total_change > 0;
@@ -2192,23 +2075,7 @@ window.timelines = {
                             }
                         }
 
-                        // Hidden: "Step change" badge — restore with "breaks" chip when needed
-                        // if (catData.break && Math.abs(catData.break.delta) > breakThreshCat) {
-                        //     isStable = false;
-                        //     headerRow.innerHTML += makeBadge('⋮ Step change', 'var(--trend-breaks-bg)', 'var(--color-info)', 'var(--trend-breaks-border)');
-                        //     let bDate = "the period";
-                        //     const bIdx = catData.break.index;
-                        //     if (data.date_labels && bIdx >= 0 && bIdx < data.date_labels.length) {
-                        //          bDate = data.date_labels[bIdx];
-                        //     } else if (data.dates && bIdx >= 0 && bIdx < data.dates.length) {
-                        //          bDate = data.dates[bIdx];
-                        //     }
-                        //     const dir = catData.break.delta > 0 ? "jumped" : "dropped";
-                        //     const sign = catData.break.delta > 0 ? "+" : "";
-                        //     bullets.push(`Step change around ${bDate}: share ${dir} from ~${catData.break.mean_before}% to ~${catData.break.mean_after}% (${sign}${catData.break.delta} pp).`);
-                        // }
-
-                        // 3. Anomalies
+                        // Anomalies
                         if (catData.anomalies && catData.anomalies.length > 0) {
                             isStable = false;
                             headerRow.innerHTML += makeBadge(`◎ ${catData.anomalies.length} spike(s)`, 'var(--trend-spikes-bg)', 'var(--color-save)', 'var(--trend-spikes-border)');
@@ -2230,14 +2097,7 @@ window.timelines = {
                             });
                         }
 
-                        // Hidden: "Volatile" badge — restore with "volatile" chip when needed
-                        // if (catData.volatility && catData.volatility.std > volThreshCat) {
-                        //     isStable = false;
-                        //     headerRow.innerHTML += makeBadge('~ Volatile', 'var(--trend-volatile-bg)', 'var(--color-purple)', 'var(--trend-volatile-border)');
-                        //     bullets.push(`High variation — standard dev ${catData.volatility.std} pp around mean of ${catData.volatility.mean}%.`);
-                        // }
-
-                        // 5. Stable
+                        // Stable
                         if (isStable) {
                             headerRow.innerHTML += makeBadge('— Stable', 'var(--trend-stable-bg)', 'var(--color-text-tertiary)', 'var(--color-border-strong)');
                             let m = catData.volatility ? catData.volatility.mean : "?";

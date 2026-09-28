@@ -730,16 +730,11 @@ function populateForm(row, study) {
         // below, USER_ACCESS is a checkbox group, not a scalar input).
         if (field === 'stats') return;
 
-        // Handle Lists/JSON (Except USER_ACCESS which is now checkboxes)
+        // Handle Lists/JSON (USER_ACCESS is a checkbox group, handled elsewhere)
         if (field === 'SELECTED_COLLECTIONS') {
-            // Find the collection selector in this row
-            // The row input[data-field="SELECTED_COLLECTIONS"] is now the HIDDEN one.
-            // renderCollectionSelector needs the container.
-            // Structure: input[hidden] is sibling of div.collection-selector
-
-            // Wait, input iteration loop finds the HIDDEN input.
-            // We can set its value (for reference) AND render the list.
-
+            // input[data-field="SELECTED_COLLECTIONS"] is a hidden input, a
+            // sibling of div.collection-selector. Store the list on it and
+            // render the checklist into the selector's container.
             const selectorDiv = input.parentElement.querySelector('.collection-selector');
             if (selectorDiv) {
                 const container = selectorDiv.querySelector('.collection-checklist-container');
@@ -750,7 +745,7 @@ function populateForm(row, study) {
                 // Render Checklist
                 renderCollectionSelector(container, selectedList, readOnly);
             } else {
-                // Fallback (should not happen if HTML updated)
+                // Fallback for a row without the collection selector markup
                 if (Array.isArray(value)) {
                     input.value = JSON.stringify(value, null, 2);
                 } else {
@@ -919,14 +914,12 @@ function collectFormData(row) {
         // Parse Types
         if (field === 'SELECTED_COLLECTIONS') {
             try {
-                // For the new UI, the input.value is already a clean JSON string set by updateCollectionSelection.
-                // But let's be robust.
+                // updateCollectionSelection writes a clean JSON array into the
+                // hidden input; single quotes are normalised defensively in
+                // case the value was set some other way.
                 if (value && value.trim()) {
-                    // It should be stringified array. 
-                    // replace not strictly needed if set programmatically, but safe.
                     let safeVal = value.replace(/'/g, '"');
 
-                    // If it's the Hidden Input, it holds the full array from check boxes.
                     data[field] = JSON.parse(safeVal);
                 } else {
                     data[field] = [];
@@ -963,10 +956,8 @@ function collectFormData(row) {
         const checkboxes = group.querySelectorAll('input[type="checkbox"]:checked');
         const selectedValues = Array.from(checkboxes).map(cb => cb.value);
 
-        // Special Logic: If all options are checked, save as ["all"]? 
-        // Or just save list. User prompt: "If the user checks all roles." -> maybe implies behaviour.
-        // I'll stick to saving the list of roles to be explicit, unless "all" matches everything.
-        // Actually, let's check if all available boxes are checked.
+        // Every box checked is saved as ["all"]; otherwise the explicit list
+        // of checked roles.
         const allCheckboxes = group.querySelectorAll('input[type="checkbox"]');
         if (checkboxes.length === allCheckboxes.length && allCheckboxes.length > 0) {
             data[field] = ["all"];
@@ -3603,10 +3594,10 @@ function applyRefreshCardState(data) {
 }
 
 // ── Start dialog ────────────────────────────────────────────────────────────
-// A card start no longer runs one worker: it plans that worker plus everything
+// A card start does not run one worker: it plans that worker plus everything
 // downstream of it. So every start goes through one dialog that states what is
-// about to run, roughly how long that has taken before, and carries the options
-// that used to sit as loose checkboxes beside three of the buttons.
+// about to run, roughly how long that has taken before, and carries the run's
+// options.
 
 const REFRESH_START_OPTIONS = {
     consolidate_enrichment: [
@@ -4229,9 +4220,9 @@ function applyConsolidateButtonState(data) {
     btn.classList.add('action-btn');
     btn.classList.remove('btn-running', 'btn-armed-pulse');
 
-    // The button no longer knows whether this run will be a forced rebuild —
+    // The button does not know whether this run will be a forced rebuild —
     // that is chosen in the start dialog, which is also where the "needs every
-    // worker idle" warning belongs now. So the button only reflects what is
+    // worker idle" warning belongs. So the button only reflects what is
     // true regardless of the choice.
     if (pipelineActive) {
         btn.disabled = true;
@@ -4276,10 +4267,10 @@ function pollConsolidationStatus(originStep) {
     if (warningEl) warningEl.style.display = 'none';
 
     // Clear the previous run's summary for the duration of this one. The step
-    // list below is the live narration now — this line used to echo the active
-    // worker's message with a "Stage i/N" prefix counted over the dispatch
-    // TREE's depth, which matched neither the step list nor anything the user
-    // could act on. It is repopulated from the fresh stats when the run ends.
+    // list below is the live narration; this line does not echo the active
+    // worker's message, whose "Stage i/N" prefix is counted over the dispatch
+    // TREE's depth and matches neither the step list nor anything the user
+    // can act on. It is repopulated from the fresh stats when the run ends.
     if (statusEl) statusEl.innerHTML = '';
 
     const interval = setInterval(() => {
@@ -6056,7 +6047,7 @@ const _ENRICHMENT_STATE_LABELS = {
     running: 'Running',
     paused: 'Paused',
     // "Idle", not "Complete": done means the current target is met, and a
-    // higher target can always put it back to work (2026-08-31 feedback).
+    // higher target can always put it back to work.
     done: 'Idle',
     blocked: 'Needs attention',
 };
@@ -7128,7 +7119,7 @@ function dmEnrichHide() {
 
 // tone: 'error' | 'ok' | anything else = neutral progress text. Confirmations
 // get the success colour — the span sits after the buttons, and in its neutral
-// grey a "Settings saved." was routinely missed (reported 2026-08-31).
+// grey a "Settings saved." is easily missed.
 function dmEnrichMsg(text, tone = '') {
     const el = document.getElementById('dm-enrich-msg');
     if (!el) return;
@@ -7195,7 +7186,7 @@ const DM_ENRICH_ACTIVITY_LABELS = {
 const DM_ENRICH_AUTO_CYCLE_CAP = 2000;
 
 function dmEnrichEffectiveCycleItems() {
-    // Always automatic (the manual knob went on 2026-09-09): the supervisor
+    // Always automatic (there is no manual cycle-size setting): the supervisor
     // sizes each cycle as min(target headroom, one annotation job), and the
     // readout's cycle count uses the same rule on the panel's figures.
     const target = dmEnrichTargetValue || 0;
@@ -7682,9 +7673,8 @@ function dmEnrichTickTooltip(armed, state, progress) {
 // dashed lines track settings live: the spread's per-day cap and the
 // min_day_items analysis floor.
 function dmEnrichChartShapes() {
-    // Just the analysis floor. The day-cap line it once had was dropped as
-    // noise (2026-08-31 feedback) — the red estimate line already shows the
-    // cap's effect where it matters.
+    // Just the analysis floor. No day-cap line: it would be noise, since the
+    // red estimate line already shows the cap's effect where it matters.
     const floor = dmEnrichProgressCache.min_day_items || 10;
     return [{
         type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: floor, y1: floor,
@@ -8147,8 +8137,8 @@ function dmEnrichRender(data) {
     if (data.timing) dmEnrichTiming = data.timing;
 
     // The status strip (bottom of the panel, above the buttons): the plan's
-    // state, then the live activity. Everything else the line once narrated
-    // is visible on the bar or lives in the tooltips (2026-08-31 feedback).
+    // state, then the live activity. Everything else is visible on the bar
+    // or lives in the tooltips.
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) {
         const act = data.activity || {};
@@ -8188,9 +8178,9 @@ function dmEnrichRender(data) {
     }
 
     // Above the chart: the collection's size, and how much of it is already
-    // analysable. Both are live figures, so both sit on the line — the ready-day
-    // count used to hide inside the (i), where a number that moves every cycle
-    // is exactly the wrong thing to keep. The tooltip explains; the line reports.
+    // analysable. Both are live figures, so both sit on the line rather than
+    // inside the (i), where a number that moves every cycle is exactly the
+    // wrong thing to keep. The tooltip explains; the line reports.
     const progEl = document.getElementById('dm-enrich-progress');
     const videos = progress.unique_items || 0;
     if (progEl) {
@@ -8267,7 +8257,7 @@ function dmEnrichRenderRun(progress) {
     const total = progress.unique_items || 0;
     // A finished run is history: its meter reads the target it ended with
     // and the count it ended at, not the target the operator is now moving
-    // to prepare the next run (it used to slide with the slider).
+    // to prepare the next run (so it does not slide with the slider).
     const finished = dmEnrichState === 'done'
         && progress.run_end_target != null && progress.run_end_annotated != null;
     const target = finished ? progress.run_end_target : (progress.annotation_target || 0);
@@ -8320,12 +8310,12 @@ function dmEnrichRenderRun(progress) {
     }
 
     // How far back through the person's history each half of the cycle has
-    // walked — the other half of "how far has it come", and previously buried
-    // in the chart's tooltip.
+    // walked — the other half of "how far has it come", shown on the panel
+    // rather than only in the chart's tooltip.
     const cursors = document.getElementById('dm-enrich-run-cursors');
     if (cursors) {
-        // Only the halves that have moved: a plan with no deep-dive share
-        // used to read "Deep dive has worked back to —".
+        // Only the halves that have moved, so a plan with no deep-dive share
+        // never reads "Deep dive has worked back to —".
         const walked = [];
         if (progress.b_cursor) walked.push(`Deep dive has worked back to ${progress.b_cursor}`);
         if (progress.a_cursor) {
@@ -8361,7 +8351,7 @@ function dmEnrichButtonsRefresh() {
         // after the re-arm has reset both cursors and moved the run's
         // starting line for no work. Name the actual next step instead —
         // the word "again" only warns, it does not tell the operator what
-        // to do, and it did not stop them clicking (2026-09-09).
+        // to do, and it does not stop the click.
         const stuck = dmEnrichState === 'done' && armTarget > 0 && floor >= armTarget;
         armBtn.disabled = stuck;
         armBtn.textContent = running ? 'Pause'
@@ -8513,7 +8503,7 @@ function dmEnrichScheduleRefresh(data) {
 
 // Blank every data-bearing element before a load: the panel is shared by all
 // collections, so without this the modal opens showing the PREVIOUS
-// collection's charts for the seconds the fetch takes (reported 2026-08-31).
+// collection's charts for the seconds the fetch takes.
 function dmEnrichResetPanel() {
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) statusEl.textContent = '';
@@ -8714,11 +8704,11 @@ function dmEnrichPollTick(cid, prevStart, attempt = 0) {
 // ---- Queue-aware confirmation before a cycle starts ----------------------
 // The scrape queue is one file per platform and the annotation queue one file
 // for everyone; the loop drains whatever is in them before it can do its own
-// work. On 2026-09-04 that was 4,696 videos another study had queued the day
-// before — the plan's whole first hour, with nothing saying so. Before Arm /
-// Resume / Run a cycle now, ask the server what the queues hold and, when any
-// of it is not this collection's, show it and let the operator choose: drain
-// it first (the default) or empty it now.
+// work. A backlog another study queued (a few thousand videos) can take a
+// plan's whole first hour, with nothing saying so. Before Arm / Resume / Run
+// a cycle, ask the server what the queues hold and, when any of it is not
+// this collection's, show it and let the operator choose: drain it first
+// (the default) or empty it now.
 let _dmEnrichQueueResolver = null;
 
 function _dmEnrichForeignCount(preview) {
@@ -9013,8 +9003,8 @@ async function _dmEnrichTickAfterGate(cid) {
     // Settings first: a cycle run by hand must use what the panel shows, not
     // what the plan held before the operator's last edit finished its debounce.
     await dmEnrichAutoSaveFlush();
-    // A manual cycle drains the shared queues exactly like an automatic one
-    // (2026-09-04's hour of someone else's backlog started on this button).
+    // A manual cycle drains the shared queues exactly like an automatic one,
+    // so it gets the same queue check.
     const gate = await dmEnrichQueueGate('Run a cycle');
     if (!gate || gate.choice === null) { dmEnrichMsg('Cancelled — nothing started.'); return; }
     if (gate.choice === 'empty') await _dmEnrichEmptyTicked(gate.preview);

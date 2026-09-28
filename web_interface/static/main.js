@@ -728,10 +728,9 @@ async function startProcess(name, extraBody = {}) {
     return started;
 }
 
-// Rebuild the Semantic Space niche map, and re-segment the session index. Both
-// used to read a checkbox sitting beside their button and confirm inline; the
-// option now lives in the start dialog, alongside the list of what the run sets
-// off. Kept as named functions because the card buttons reference them by name
+// Rebuild the Semantic Space niche map, and re-segment the session index. The
+// rebuild option lives in the start dialog, alongside the list of what the run
+// sets off. Kept as named functions because the card buttons reference them by name
 // (data-start-handler), which setStatus re-applies on every poll.
 function rebuildNicheMap() {
     openRefreshStartModal('video_map_refresh');
@@ -1219,7 +1218,6 @@ async function updateStatus() {
         setStatus('downloader', data.downloader);
         setStatus('monitor', data.monitor);
         setStatus('annotator', data.annotator);
-        //setStatus('create_subsets', data.create_subsets);
         scraperProcessNames().forEach(n => setStatus(n, data[n]));
         setStatus('queue_annotator', data.queue_annotator);
         setStatus('queue_annotator_batch', data.queue_annotator_batch);
@@ -1703,10 +1701,9 @@ function formatETA(seconds) {
 
 
 
-// Tail whichever log the modal is showing. This used to iterate a hardcoded
-// list of process names, so the six cards missing from it (pca_refresh,
-// embeddings_refresh, sessions_refresh, video_map_refresh,
-// consolidate_enrichment) rendered a snapshot on open and then froze.
+// Tail whichever log the modal is showing, whatever its process name. A
+// hardcoded list of names would leave every card missing from it rendering a
+// snapshot on open and then freezing.
 async function updateLogs() {
     if (!_activeLogModal) return;
     // A finished run is immutable, so once we have caught up there is nothing
@@ -1812,7 +1809,7 @@ function openTab(evt, tabName) {
 
             if (typeof playViewerVideo === 'function') {
                 // Check User Settings for Autostart
-                // If undefined, default to false (as requested "default unchecked")
+                // If undefined, default to false (autostart is off by default)
                 if (window.userSettings && window.userSettings.video_autostart) {
                     playViewerVideo();
                 }
@@ -2305,10 +2302,7 @@ async function fetchStudyFiles(studyName) {
 
         order.forEach(category => {
             if (files[category]) {
-                // Make category name nicer?
-                // e.g. HALF_BAKED -> Half Baked
-                // But keeping it consistent with the keys is fine too, or simple title case.
-                // Let's just use the key for now or a map.
+                // Human-readable label per category key; unknown keys show as-is.
                 const labelMap = {
                     "HALF_BAKED": "Half-Baked Datasets",
                     "UNIQUE": "Unique Subsets",

@@ -250,16 +250,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // Search Input Listener
         const searchInput = document.getElementById('viewer-search-input');
         if (searchInput) {
-            // Note: Unlike explorer, we might not auto-apply on input change if it's too heavy?
-            // "applyViewerFilters" is manual. So we just update state.
-            // But user might expect search to be live?
-            // Explorer is live (debounced). Viewer requires "Apply". 
-            // Let's stick to "Apply" paradigm for Viewer to match existing UI flow, OR make it live?
-            // User did not specify. Explorer was live (auto updateStats).
-            // Viewer has explicit "Apply Filters" button (line 27 html).
-            // So we should just update the state, and let user click Apply.
-            // OR we can make it auto-apply.
-            // Given "Add it to the video viewer filter as well", and Viewer has explicit Apply, simply updating state is safest.
+            // Unlike Explore (live, debounced), the viewer applies filters only
+            // on its explicit "Apply Filters" button (applyViewerFilters), so
+            // typing just updates the state.
 
             searchInput.addEventListener('input', (e) => {
                 viewerData.searchQuery = e.target.value;
@@ -1621,7 +1614,7 @@ function renderMetadata(item) {
                 // Only shared
                 styleColor = 'var(--color-info)';
                 styleWeightClass = 'font-normal'; // Or bold? Let's keep normal but colored to distinguish from mine
-                // Count total other tags?
+                // Total tag count across other users
                 let otherTagCount = 0;
                 Object.values(sharedData).forEach(u => {
                     if (u.tags) otherTagCount += u.tags.length;

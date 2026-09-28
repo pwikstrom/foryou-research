@@ -1302,7 +1302,7 @@
         const human = st.currentRun.human || {};
 
         // Consolidated "About this run" panel — run identity plus the one
-        // how-to-read note, gathered from what used to be scattered across the
+        // how-to-read note, in one place rather than scattered across the
         // top line, the metrics summary, and the human-input section.
         const statusColor = manifest.status === "complete" ? "var(--color-success)"
             : manifest.status === "failed" ? "var(--color-danger)" : "var(--color-warning)";
@@ -1615,8 +1615,8 @@
         return html;
     }
 
-    // Runs made before the 2026-07 metric fix stored a summary without per-kind
-    // column counts (and classified `text` fields as categorical). Back-fill the
+    // Older runs stored a summary without per-kind column counts (and
+    // classified `text` fields as categorical). Back-fill the
     // counts so the tiles still render, and flag the run as stale.
     function _isLegacyReport(comp) {
         return (comp.summary || {}).n_enum_columns === undefined;

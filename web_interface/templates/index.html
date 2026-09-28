@@ -268,10 +268,10 @@
 
 <!-- Generic app dialog: the pretty replacement for native alert()/confirm().
      Driven by showAppAlert() / showAppConfirm() in main.js. -->
-<!-- Start a refresh step: the options that used to sit beside each card's
-     button, next to what the run will actually set off and what that has cost
-     before. Every start goes through here, because a card start no longer runs
-     one worker — it plans the whole cascade. -->
+<!-- Start a refresh step: the run's options, next to what the run will
+     actually set off and what that has cost before. Every start goes through
+     here, because a card start does not run one worker — it plans the whole
+     cascade. -->
 <div id="refresh-start-overlay" class="stop-confirm-overlay">
     <div class="stop-confirm-card" style="max-width: 520px;">
         <p id="refresh-start-title" class="text-sm font-bold" style="margin: 0 0 4px 0;"></p>

@@ -828,6 +828,8 @@ button {
     color: var(--btn-danger-text);
 }
 
+/* ── Collection and studies tables, ingest card, upload modal, tag chips,
+   account badges ── */
 .collection-table {
     min-width: 100%;
     width: max-content;
@@ -971,6 +973,8 @@ button {
     background: var(--color-bg-hover);
 }
 
+/* ── Attention states: pending-action and armed pulses, sidebar stale dot ── */
+
 /* Action is needed (e.g. new enrichment data awaiting Consolidate & Refresh):
    a strong amber pulse so the state is unmissable at a glance. */
 @keyframes stale-pulse-glow {
@@ -1025,12 +1029,12 @@ button {
     opacity: 0.92;
 }
 
-/* Consolidate → downstream refresh pipeline step list (Data Management →
-   Enrichment). Status is conveyed by a coloured dot; all colours are semantic
-   tokens so both themes resolve. */
-/* Dataset Assembly worker cards: one full-width column, in pipeline order. The
-   cards used to share rows in a wrapping flex row, which made the dispatch
-   order read as a grid and left the progress bars at arbitrary widths. */
+/* ── Refresh pipeline (Dataset Assembly): worker cards, Gantt timeline,
+   start dialog ── */
+
+/* Dataset Assembly worker cards: one full-width column, in pipeline order, so
+   the dispatch order does not read as a grid and the progress bars share one
+   width. */
 .refresh-card-stack {
     display: flex;
     flex-direction: column;
@@ -1355,6 +1359,8 @@ span.gantt-run { cursor: default; }
     .gantt-axis { grid-template-columns: 3.4rem 1.3rem 7rem minmax(0, 1fr) 4.5rem; }
 }
 
+/* ── Scraper cards: cookie-status pills, alert and setup banners ── */
+
 /* Per-platform cookie-status pill on the enrichment scraper cards. A colored dot
    + short label; the full message/age/expiry rides in the .meta-tooltip. Colors
    come from semantic tokens so both light and dark themes are covered. */
@@ -1438,6 +1444,8 @@ span.gantt-run { cursor: default; }
     line-height: var(--leading-normal);
 }
 
+/* ── Buttons (continued): action buttons, segmented toggles, discreet /
+   compact / row-state buttons, row badges ── */
 .action-btn {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);
@@ -2758,7 +2766,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
-   Collections Tab Styles (moved from inline)
+   Collection detail layout, stats table, percentile strips
    ============================================================ */
 
 .pe-edit-activity-section {
@@ -2870,7 +2878,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
-   Timelines Tab Styles (moved from inline)
+   Hover effects: Timelines chips and toggles, Video Analysis side panel
    ============================================================ */
 
 /* Timelines — hover effects for interactive elements */
@@ -2919,7 +2927,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
-   Video Analysis Tab Styles (moved from inline)
+   Video Analysis Tab Styles
    ============================================================ */
 
 /* When nav-controls wraps to its own row, expand to full width so buttons centre */
@@ -3024,7 +3032,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
-   Data Management Styles (moved from inline)
+   Data Management: Define Study form rows
    ============================================================ */
 
 .form-group-row {
@@ -3519,6 +3527,11 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     }
 }
 
+
+/* ============================================================
+   Filter panels, Explore / Correlations layout, drill-down popup,
+   stop / log modals, scrollbars
+   ============================================================ */
 
 /* ── Filter panels (Explore / Video Analysis) ──
    Two collapsible levels: a section (schema section, e.g. "Content") holding
@@ -4237,6 +4250,8 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     opacity: 1;
     text-decoration: underline;
 }
+
+/* ── Scrollbars ── */
 
 /* Cross-browser thin, discreet scrollbars (matches macOS overlay feel on Windows/Linux) */
 * {
@@ -8137,9 +8152,9 @@ body:has(.public-page) {
     line-height: 1;
 }
 
-/* A display ID two collections answer to. Writes have been unique-checked
-   since 2026-09-09, so this only marks older data - loud enough to find in a
-   long table, quiet enough not to read as an error. */
+/* A display ID two collections answer to. Writes are unique-checked, so this
+   only marks data written before that check existed - loud enough to find in
+   a long table, quiet enough not to read as an error. */
 .dm-dup-display-id {
     display: inline-block;
     padding: 1px 6px;

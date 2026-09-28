@@ -7,8 +7,8 @@
     {# Title, description, canonical link and social card all come from
        web_interface/seo.py via the inject_seo context processor. Pages set
        nothing themselves — a new public page is one entry in seo.PUBLIC_PAGES.
-       Before 2026-08 this title was hardcoded and identical on all seven public
-       pages, which is a duplicate-content signal in its own right. #}
+       Each public page gets its own title: one title shared by every public
+       page is a duplicate-content signal in its own right. #}
     <title>{{ seo.title | default('For You Data Hub', true) }}</title>
     {% if seo.description %}
     <meta name="description" content="{{ seo.description }}">

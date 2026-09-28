@@ -872,15 +872,11 @@ function renderStatsV2(stats1, stats2) {
         : metadata.viz_priority;
     let colsToRender = [];
 
-    // Use stats1 keys as base. If stats2 has more keys?
-    // Ideally use metadata keys, but fallback to stats keys
-
-    // We should compute union of keys from stats1 and stats2 in case
-    // filtering somehow removed a column entirely? (Unlikely)
-    // Safe bet: use stats1 keys
+    // Columns come from stats1's keys (stats2 is assumed to share them),
+    // ordered by the viz priority when one is set.
     const keys1 = stats1 ? Object.keys(stats1) : [];
 
-    // (The per-tab viz gear moved to My Stuff -> Preferences.)
+    // The viz priority is set in My Stuff -> Preferences.
     if (priority && priority.length > 0) {
         colsToRender = priority.filter(c => keys1.includes(c));
     } else {
