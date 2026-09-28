@@ -2,7 +2,7 @@
 
 This guide walks through a complete local installation on a new machine,
 starting with no data and no credentials. The short version lives in the
-[README Quickstart](../README.md#quickstart-local-development); this page
+[README Quickstart](../README.md#quickstart); this page
 covers the details, the optional pieces, and what to expect on first run.
 
 ## What works with zero credentials
@@ -43,6 +43,15 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 pip install -e .
 ```
+
+The editable install (`pip install -e .`) is recommended but never
+required: the app also runs from a plain checkout (cwd imports and the
+workers' `sys.path` bootstrap keep working, and the Docker image installs
+nothing from `pyproject.toml`). Reusing `fyp` inside *another* project needs
+a config file — either a project root containing `__proj__.py` and
+`config/config.toml`, or the `FYP_CONFIG_PATH` environment variable pointing
+at a config TOML directly; configuration loads lazily, on first use rather
+than at import (see [configuration.md](configuration.md)).
 
 The base dependency set covers everything hosted — optional services
 (Gemini, hosted Qwen, GCS, Slack) are enabled by configuration, not by extra
@@ -611,7 +620,8 @@ supported. If you are new to Google Cloud, the one-time setup is:
 If the connection fails (no ADC, no access), the app logs the error and
 falls back to local storage rather than crashing. Nothing else in GCP is
 required for local use — Cloud Run/Cloud Tasks only matter for the
-production deployment described in `DEVELOPING.md`.
+production deployment described in
+[DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment).
 
 **Daily ops report.** `python web_interface/run_ops_report.py` builds an
 operational health report (supports `--hours-back` and `--no-email`); the
@@ -693,6 +703,9 @@ fresh install links somewhere useful. Override it with `[site] repo_url` /
 `FYP_REPO_URL` if you maintain a fork and want reports to reach you, or set it
 to an empty string to remove every source-code link from the site.
 
-All environment variables are listed in [.env.example](../.env.example);
-production/Cloud Run deployment is covered in `DEVELOPING.md` and
+Every environment variable is documented in
+[configuration.md](configuration.md#environment-variables), and
+[.env.example](../.env.example) is a template for a `.env` file;
+production/Cloud Run deployment is covered in
+[DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment) and
 [architecture.md](architecture.md).

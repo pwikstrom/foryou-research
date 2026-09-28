@@ -12,17 +12,17 @@ configuration loads lazily — importing `fyp` submodules does not touch it
 the variable schema. That load calls back into several low-level modules,
 which is why they read the config through the function-level accessor
 `fyp.core.runtime.cf` rather than importing `fyp_cf` at module level — see
-the import-cycle rule in `CONTRIBUTING.md`.
+the import-cycle rule in [CONTRIBUTING.md](../CONTRIBUTING.md#invariants-you-must-not-break).
 
 ## config/config.toml sections
 
 | Section | Purpose | Keys you'll actually touch |
 |---|---|---|
-| `[machine]` | Annotation backends | One `[machine.<backend>]` block per backend (Gemini's is `[machine.gemini]`: `vertexai` — **Vertex AI (default) or the plain Gemini API**; `project`; model, params, `pricing`), variants at `[machine.<backend>.variants.<name>]`. Backend-agnostic keys sit on the top-level `[machine]` table: `max_duration_for_annotation`, plus `est_input_tokens_per_annotation` / `est_output_tokens_per_annotation` (per-item token estimates feeding the pre-queue cost display). Legacy flat `[machine]` keys are hoisted at load. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `[machine]` | Annotation backends | One `[machine.<backend>]` block per backend (Gemini's is `[machine.gemini]`: `vertexai` — **Vertex AI (default) or the plain Gemini API**; `project`; model, params, `pricing`), variants at `[machine.<backend>.variants.<name>]`. Backend-agnostic keys sit on the top-level `[machine]` table: `max_duration_for_annotation`, plus `est_input_tokens_per_annotation` / `est_output_tokens_per_annotation` (per-item token estimates feeding the pre-queue cost display). Legacy flat `[machine]` Gemini keys and a flat `[machine.variants]` table are hoisted into the nested layout at load (`fyp_config._normalize_machine_config`); code never reads the flat keys. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `[embedding]` | Embedding backends (semantic space) | One `[embedding.<backend>]` block per backend: `[embedding.gemini]` (default; `model_id`/`dim`/`location`/`task_type` — the model is upgradeable by config edit, no variant system), `[embedding.qwen_api]` (hosted DashScope text embeddings), `[embedding.qwen_local]` (sentence-transformers, `local_embeddings` extra). The active backend is chosen in Admin → Backends, not here |
 | `[site]` | instance branding | contact email, mail sender, app URL — overridable via `FYP_CONTACT_EMAIL`/`FYP_MAIL_SENDER`/`FYP_APP_URL` env vars (committed defaults are empty). `app_url` has a second role beyond email links: it is the **canonical origin for SEO** — the canonical `<link>`, the sitemap, the JSON-LD and the `www.`→apex redirect all derive from it (`web_interface/seo.py`). Pointing it at the raw `*.run.app` host de-indexes the real domain; leaving it empty falls back to the request host and disables the redirect. Also `participant_placeholder_domain` (default `"foryouresearch.net"`, env `FYP_PARTICIPANT_PLACEHOLDER_DOMAIN`) — the domain of the fake `p-N@<domain>` addresses given to placeholder participant accounts; `ops_report_email` — recipient of the daily ops report (read in `web_interface/services/ops_report.py`, falls back to `mail_sender`; this key exists only in code, not in the committed `config.toml`); plus `repo_url` (`FYP_REPO_URL`), the source repository the public pages link to for bug reports, the installation guide and the licence — committed default is the canonical repo, set it empty to drop those links |
 | `[paths]` | local storage roots | `local_data` — **set this to a writable directory on your machine**; everything (cache, recoded, users, media) lives under it locally |
-| `[misc]` | runtime behavior | `TIME_ZONE` (display/log timestamps), `local_mode`, the media download duration cap (`max_duration_for_download[_<platform>]`; the annotation cap `max_duration_for_annotation` lives under `[machine]`), `min_media_object_size` (bytes; a stored media file smaller than this counts as missing), `ig_fetch_view_counts` (Instagram count supplementation kill switch), and optional overrides that are absent from the committed file unless noted: `connectivity_probe_host` (default `connectivitycheck.gstatic.com` — the host probed before connecting to GCS at config load and, with the platform's own host, by the scrapers' network-outage gate); the scraper storm-guard thresholds `scraper_permanent_storm_threshold` (default 15) / `scraper_transient_storm_threshold` (default 25) — consecutive identical failures before a batch aborts and raises a scraper alert; `scraper_offline_max_wait_seconds` (default 1800 locally, 120 on Cloud Run) — how long a batch waits out a network outage before stopping without an alert; `scraper_local_batch_deadline_seconds` (default 14400 — the wall-clock ceiling of one batch in a local drain; Cloud Run is fixed at 1800); `scraper_memory_stop_fraction` (default 0.60 — share of the container memory limit at which a batch stops launching downloads and defers the rest to the queue); YouTube pacing `scraper_youtube_max_concurrency` (default 2) / `scraper_youtube_inter_request_delay` (default 5.0 s) / `scraper_youtube_max_batch_size` (default 250, 0 = no cap); `scraper_instagram_auth_interval` (default 20 s between logged-in Instagram requests); `max_media_download_bytes` (default 1 GiB — the TikTok scraper's per-download ceiling); `slideshow_max_dimension` (default 1000 px — longest edge of a photo-post slideshow) |
+| `[misc]` | runtime behavior | `TIME_ZONE` (display/log timestamps; committed value `Australia/Brisbane`), `local_mode`, the media download duration cap (`max_duration_for_download[_<platform>]`; the annotation cap `max_duration_for_annotation` lives under `[machine]`), `min_media_object_size` (bytes; a stored media file smaller than this counts as missing), `ig_fetch_view_counts` (Instagram count supplementation kill switch), and optional overrides that are absent from the committed file unless noted: `connectivity_probe_host` (default `connectivitycheck.gstatic.com` — the host probed before connecting to GCS at config load and, with the platform's own host, by the scrapers' network-outage gate); the scraper storm-guard thresholds `scraper_permanent_storm_threshold` (default 15) / `scraper_transient_storm_threshold` (default 25) — consecutive identical failures before a batch aborts and raises a scraper alert; `scraper_offline_max_wait_seconds` (default 1800 locally, 120 on Cloud Run) — how long a batch waits out a network outage before stopping without an alert; `scraper_local_batch_deadline_seconds` (default 14400 — the wall-clock ceiling of one batch in a local drain; Cloud Run is fixed at 1800); `scraper_memory_stop_fraction` (default 0.60 — share of the container memory limit at which a batch stops launching downloads and defers the rest to the queue); YouTube pacing `scraper_youtube_max_concurrency` (default 2) / `scraper_youtube_inter_request_delay` (default 5.0 s) / `scraper_youtube_max_batch_size` (default 250, 0 = no cap); `scraper_instagram_auth_interval` (default 20 s between logged-in Instagram requests); `max_media_download_bytes` (default 1 GiB — the TikTok scraper's per-download ceiling); `slideshow_max_dimension` (default 1000 px — longest edge of a photo-post slideshow) |
 | `[sessions]` | viewing-session identification + Sessions tab | `session_gap_s` (inter-activity gap that closes a session at ingest); binge segmentation (`binge_cut`/`binge_mem`/`binge_min_videos`/`binge_max_skip`/`binge_flick_seconds`/`binge_min_minutes` — baked in at build; changing them needs a sessions_refresh); low-entropy windows (`window_n`/`max_windows`); the refresh worker's `workers` (forked process pool for per-session segmentation, `"auto"` = one per core less one; never changes the rows), `vector_cache` (cache the dense embedding parts whole on the task-runner instance) and `rebaseline_fraction` (share of vectors appended since the last full build beyond which a scoped enrichment refresh becomes a full one, default 0.05); `context_plays`; query-time knobs `drift_p` and `trend_min_videos`; and the session-list floors `min_session_plays`/`min_session_minutes`/`min_session_coverage_pct` — **seed values only**: Admin → Site Settings → "Sessions tab list floors" overrides them at runtime per key |
 | `[studies]` | study size guardrail | `max_activities` (default 500000) — hard cap on the number of activities a single study may contain, enforced both in the study modal and server-side on save (`web_interface/routes/management/studies.py`); `web_interface/services/stats_service.py` falls back to its built-in `LARGE_STUDY_THRESHOLD` when the section is absent (configs predating it) |
 | `[correlations]` | Correlations tab | PCA-component offering (`min_variance_pct`, `max_components_per_variable`), `max_scatter_points`, `factor_value_limit`, `correlation_method`, `minimum_group_size`, `interpretation_cutoff`, `permanova_permutations`, `independence_warning_collections`, `max_regression_series` |
@@ -30,7 +30,7 @@ the import-cycle rule in `CONTRIBUTING.md`.
 | `[features]` | feature toggles | rarely changed |
 | `[data_io]` | storage backend | GCS bucket name, `use_gcs_*` per-location toggles |
 | `[viz]` | dashboard visuals | palette etc. |
-| `[labels]` | content categories | category lists, generic mapper, `IRRELEVANT_WORDS` (seed for the admin-editable hashtag stoplist) |
+| `[labels]` | content categories | category lists, generic mapper, `IRRELEVANT_WORDS` — the seed for the admin-editable hashtag stoplist (`irrelevant_words.json` in the `users` location, managed by `fyp/annotation/irrelevant_words.py`, edited under Admin → Hashtag Stoplist; squeeze and trailing-`*` prefix matching, applied at recode time, never hash-affecting) |
 
 **Don't edit the committed file for machine-local values.** Copy
 `config/config.local.toml.example` to `config/config.local.toml` (gitignored)
@@ -95,13 +95,15 @@ what a contract change costs operationally — is [contracts.md](contracts.md).
 | `FLASK_SECRET_KEY` | Flask session secret (falls back to a dev key locally) |
 | `FYP_GCS_BUCKET_NAME` | GCS bucket (production) |
 | `K_SERVICE` | Set automatically by Cloud Run — switches storage to GCS and job dispatch to Cloud Tasks |
-| `FYP_FORCE_GCS` | Force ALL storage to the prod GCS bucket from a local process (e.g. the local scrape-queue drain runbook in `DEVELOPING.md`); refuses to fall back to local storage if the GCS connection fails |
+| `K_REVISION` | Set automatically by Cloud Run; shown as the revision on Admin → System Information |
+| `PORT` | Port of the development server started by `python web_interface/fyp_data_hub.py` (default 5002); on Cloud Run it is set by the platform and Gunicorn binds to it |
+| `FYP_FORCE_GCS` | Force ALL storage to the prod GCS bucket from a local process (e.g. the [local scrape-queue drain runbook](../DEVELOPING.md#local-scrape-queue-drain-against-prod-gcs-residential-ip)); refuses to fall back to local storage if the GCS connection fails |
 | `FYP_CONFIG_PATH` | Path to a config TOML to use directly, instead of discovering `config/config.toml` via the `__proj__.py` project-root sentinel — the hook for reusing `fyp` inside another project |
 | `FYP_BAKED_CONTRACTS_ONLY` | Ignore any runtime-uploaded annotation contract; use the committed one |
 | `FYP_LOG_LEVEL` | Log level for `fyp` modules (`DEBUG`/`INFO`/`WARNING`/`ERROR`; default `INFO`). Logging goes to stdout with a bare message format, so subprocess-worker UI log lines are byte-identical to the pre-logging `print()` output |
 | `FLASK_DEBUG` | Optional Flask debug toggle |
-| `FYP_VERTEX_PROJECT` | Vertex AI project override for Gemini. When `[machine.gemini].project` is empty the app falls back to this, then to `GCP_PROJECT_ID` |
-| `FYP_CONTACT_EMAIL`, `FYP_MAIL_SENDER`, `FYP_APP_URL`, `FYP_REPO_URL` | Env overrides of the `[site]` branding keys (contact email, outbound-mail sender, public instance URL, source-repository URL) — the deployed services set these; locally use `config.local.toml`. `FYP_APP_URL` also sets the canonical SEO origin (see the `[site]` row above) — never point it at the raw `*.run.app` host |
+| `FYP_VERTEX_PROJECT` | Vertex AI project override for Gemini. When `[machine.gemini].project` is empty the app falls back to this, then to `GCP_PROJECT_ID` (so a Cloud Run deployment needs neither) |
+| `FYP_CONTACT_EMAIL`, `FYP_MAIL_SENDER`, `FYP_APP_URL`, `FYP_REPO_URL` | Env overrides of the `[site]` branding keys (contact email, outbound-mail sender, public instance URL, source-repository URL). Committed defaults are empty (except `repo_url`); the deployed services set these on both Cloud Run services; locally use `config.local.toml`. `FYP_APP_URL` also sets the canonical SEO origin (see the `[site]` row above) — never point it at the raw `*.run.app` host |
 | `FYP_PARTICIPANT_PLACEHOLDER_DOMAIN` | Env override of `[site] participant_placeholder_domain` — the domain used for placeholder `p-N@<domain>` participant account addresses |
 | `MAIL_PASSWORD` | SMTP password for outbound mail. Mail no-ops unless BOTH the sender and this are set |
 | `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` | Optional Slack integration for feedback/notifications; the feature is hidden while unset |
@@ -118,18 +120,41 @@ what a contract change costs operationally — is [contracts.md](contracts.md).
 `fyp/core/data_io.py` maps named locations to directories under `local_data`
 locally, or to GCS prefixes in cloud mode (`use_gcs_*` toggles / `K_SERVICE`).
 Code must always use location names — `load_parquet("recoded", ...)` — never
-absolute paths. Locations can also be registered at runtime
-(`data_io.register_location`), which is how platform ingestion classes
-self-register their raw-upload directories.
+absolute paths. Toggling the `use_gcs_*` flags switches a location's
+backend. Locations can also be registered at runtime with
+`data_io.register_location(name, abs_path)` — the path must live under
+`paths.local_data`; the call is idempotent and derives the `gcs_paths` entry
+in GCS mode — which is how platform ingestion classes self-register their
+raw-upload directories without a `fyp_config` edit. To read a stored object
+as a local file (e.g. unzipping a donation), `data_io.local_copy(location,
+filename)` returns a local path (downloading from GCS to the temp dir when
+needed) and `data_io.release_local_copy(path)` removes the temporary copy
+afterwards (a no-op for a real local path).
 
 Only `local_data` (and `local_media`) come from config; every location
 below it is a fixed string in `fyp/core/fyp_config.py` or an ingestion
-class's `raw_path`. The raw-upload layout under `activity_data/` is
-therefore not configurable and is inconsistently named for historical
-reasons: the TikTok folders are keyed by source (`ddp/ddp_raw`,
-`aio/aio_raw`, `zeeschuimer/zeeschuimer_raw`) while Instagram and YouTube
-are keyed by platform (`instagram/instagram_raw`, `youtube/youtube_raw`).
-See DEVELOPING.md ("Raw-folder naming is inconsistent") before renaming.
+class's `raw_path`.
+
+**Raw-upload folders.** Raw uploads land in one folder per ingestion class
+under `activity_data/`, and the names follow two conventions. The TikTok
+folders are keyed by *source*; Instagram and YouTube by *platform*:
+
+| Folder | Ingestion class | Holds |
+|---|---|---|
+| `ddp/ddp_raw` | `TikTokDDPCollection` | TikTok data-download exports uploaded by donors or admins |
+| `aio/aio_raw` | `TikTokAIOCollection` | the same export format, fetched from AIO |
+| `zeeschuimer/zeeschuimer_raw` | `TikTokZeeschuimerCollection` | browser-captured TikTok feeds |
+| `instagram/instagram_raw` | `InstagramDDPCollection` | Instagram exports |
+| `youtube/youtube_raw` | `YouTubeDDPCollection` | Google Takeout YouTube exports |
+
+A class self-registers `activity_data/{source_platform}/{raw_path}`, so a new
+platform follows the platform-keyed convention. The TikTok keys are static
+entries in `fyp_config.py`, and `register_location()` never overrides an
+existing key, so the convention does not apply to them. None of this is
+configurable, and a rename would be a data migration (ledger, withdrawal and
+sentinel `raw_path` keys, `data_io.APPEND_ONLY_LOCATIONS`, tests, bucket
+objects), not a config change (see
+[decision 0020](decisions/0020-raw-upload-folder-names.md)).
 
 **Cloud mode housekeeping.** `machine_annotations_batch_input/` and
 `machine_annotations_batch_output/` grow without bound (see

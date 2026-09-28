@@ -51,66 +51,28 @@ The Hub currently supports the three largest short-video platforms, but it is es
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
 | `tests/` | `unit/` (pytest suite) and `golden/` (cost-free annotation regression suite) — both run by CI |
 | `scripts/` | Setup, verification (`verify.sh`), and doc generators |
-| `docs/` | Documentation: architecture, configuration, web layer, pipeline |
+| `docs/` | Documentation (listed [below](#documentation)), including the [decision log](docs/decisions/README.md) |
 
-`DEVELOPING.md` is the maintainer guide: environment, coding style, module
-layout, key patterns, and deployment. It is the most detailed single
-reference in the repository and the best starting point for contributors.
+[DEVELOPING.md](DEVELOPING.md) is the developer guide — setup, coding style,
+tests, the project tree and deployment — and the starting point for
+contributors.
 
 ## Quickstart
-You can take the Hub for a spin straight away by requesting a user account at <https://www.tinyurl.com/foryoudatahub>. If you prefer to have your own installation, you can run the server both on your local computer and on Google Cloud. This quickstart explains how to make a local installation.
 
-Make sure you have Python 3.12 (matches the production runtime), plus `ffmpeg` and
-`node` or `deno` if you run the scrapers.
+You can take the Hub for a spin straight away by requesting a user account at
+<https://www.tinyurl.com/foryoudatahub>. To run your own installation locally
+(Python 3.12; `ffmpeg` and `node` or `deno` if you run the scrapers):
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt    # runtime pins + pytest/ruff/pre-commit
-pip install -e .                       # recommended: editable install of the fyp package
-
-python scripts/setup.py                # interactive setup wizard → config/config.local.toml
-
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt && pip install -e .
+python scripts/setup.py                # setup wizard → config/config.local.toml
 python web_interface/fyp_data_hub.py   # → http://localhost:5002
 ```
 
-Your first boot after installation prints a one-time random password for the default
-`admin@admin.net` account — copy it from the console and change it after
-logging in. Data storage defaults to `~/fyp_local` on the local disk; the
-wizard can point it elsewhere, or move data, media and cache into a GCS
-bucket (each one independently), and enable Gemini. (Manual alternative to
-the wizard: `cp config/config.local.toml.example config/config.local.toml`
-and edit it.) The full walkthrough — prerequisites per platform, optional
-services, first data upload — is in
-[docs/installation.md](docs/installation.md). Environment variables (Gemini
-key, GCS bucket, ...) are documented in `.env.example`; a `.env` file at the
-project root is loaded automatically at startup. The wizard can also install
-the dependencies for you (`--install`), and `python scripts/setup.py
---verify` live-checks the configured services afterwards. Installed without
-Gemini and want annotation later? See
-[Enabling Gemini later](docs/installation.md#enabling-gemini-later) — no
-reinstall needed and your data is untouched.
-
-The editable install is recommended but never required — the app also runs
-from a plain checkout (cwd imports and the workers' `sys.path` bootstrap keep
-working, and the Docker image installs nothing from `pyproject.toml`). Note
-that reusing `fyp` in *another* project requires a config file: either a
-project root containing `__proj__.py` and `config/config.toml`, or the
-`FYP_CONFIG_PATH` environment variable pointing at a config TOML directly.
-Configuration loads lazily, on first use rather than at import.
-
-Background workers run as plain subprocesses locally (started from the web
-UI's Data Pipeline tab, or manually):
-
-```bash
-python web_interface/run_queue_annotator.py
-python web_interface/run_queue_scraper.py --platform tiktok
-```
-
-The Instagram and YouTube scrapers have to be run this way, from a
-residential connection: both platforms wall off Cloud Run's datacenter IPs
-whatever cookies are attached, so the deployed services decline to scrape
-them and leave those queues to a local install.
+The first boot prints a one-time password for `admin@admin.net`. The full
+walkthrough — prerequisites, optional services, first data, enabling
+annotation — is [docs/installation.md](docs/installation.md).
 
 ## Verification
 
@@ -132,24 +94,26 @@ Production runs on Google Cloud Run as two services sharing one Docker
 image: `fyp-data-hub` (web) and `fyp-task-runner` (background Cloud Tasks).
 Storage is Google Cloud Storage; locally it is the filesystem — both behind
 the same `fyp/core/data_io.py` abstraction. Build/deploy commands and the
-base-image/app-image split are documented in `DEVELOPING.md` §"Running the
-Project" and [docs/architecture.md](docs/architecture.md).
+base-image/app-image split are documented in
+[DEVELOPING.md](DEVELOPING.md#cloud-run-deployment) and
+[docs/architecture.md](docs/architecture.md).
 
 ## Documentation
 
-- [docs/installation.md](docs/installation.md) — installing from scratch: prerequisites, setup wizard, first run
-- [docs/architecture.md](docs/architecture.md) — system overview, key design patterns
-- [docs/configuration.md](docs/configuration.md) — config.toml sections, contracts, environment variables
-- [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
+- [docs/installation.md](docs/installation.md) — installing from scratch: prerequisites, setup wizard, first run, optional services
 - [docs/user-guide.md](docs/user-guide.md) — the web app, tab by tab, for researchers and students
-- [docs/contracts.md](docs/contracts.md) — the contract system: authoring, validation, versioning, runtime editing
-- [docs/extending.md](docs/extending.md) — adding a platform, an annotation backend, or an embedding backend
-- [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
-- [docs/routes.md](docs/routes.md) — generated HTTP endpoint inventory
 - [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
-- [docs/annotation-ab-findings.md](docs/annotation-ab-findings.md) — A/B evidence behind the shipped annotation generation settings (historical)
 - [docs/ethics_and_data_handling.md](docs/ethics_and_data_handling.md) — consent, data handling, and the ethics posture of the software
-- [DEVELOPING.md](DEVELOPING.md) — the maintainer guide: environment, module layout, key patterns, deployment
+- [docs/architecture.md](docs/architecture.md) — system overview: how the pieces fit, execution modes, key design patterns
+- [docs/fyp-import-graph.md](docs/fyp-import-graph.md) — `fyp/` package layout: module placement and import rules
+- [docs/configuration.md](docs/configuration.md) — config.toml sections, environment variables, storage locations
+- [docs/contracts.md](docs/contracts.md) — the contract system: authoring, validation, versioning, runtime editing
+- [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → consolidation → analysis, stage by stage
+- [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, background workers, frontend
+- [docs/routes.md](docs/routes.md) — generated HTTP endpoint inventory
+- [docs/extending.md](docs/extending.md) — adding a platform, an annotation backend, or an embedding backend
+- [docs/decisions/README.md](docs/decisions/README.md) — the decision log: dated records of why the Hub works the way it does
+- [DEVELOPING.md](DEVELOPING.md) — the developer guide: setup, coding style, tests, project tree, deployment
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities
 - [CHANGELOG.md](CHANGELOG.md) — release history

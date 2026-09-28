@@ -22,7 +22,7 @@ Run (see `create_app` in `fyp_data_hub.py`):
 | `api_correlations_routes.py` | Correlations tab |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
 | `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences) |
-| `management/` (package; `management_routes.py` is a compatibility shim) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
+| `management/` (package; `management_routes.py` is a compatibility shim) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, data contracts, A/B evaluation, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` |
 
@@ -35,8 +35,11 @@ note builder `methods_note.py`, and the participant surface:
 `participant_enrichment.py`, plus `collection_coverage.py` — the shared
 scraped/annotated-coverage arithmetic, so the participant and admin
 coverage figures cannot drift — `collection_enrichment.py`, the plan ledger
-and slice cutter behind the automatic enrichment loop, and the daily
-`ops_report.py`;
+and slice cutter behind the automatic enrichment loop,
+`enrichment_journal.py` (the durable enrichment history),
+`refresh_pipeline.py` (the refresh-run dependency registry, run record and
+planner), `downstream_refresh.py` (dispatches the downstream refresh pipeline
+from a consolidation's impact), and the daily `ops_report.py`;
 `data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
 `worker_registry.py` (`WORKERS`, the one table of the `run_*.py` background
@@ -49,12 +52,15 @@ hand-roll their own `__main__`),
 
 ## Auth & permissions
 
-Flask-Login over a JSON-file user store (`security.py`, `auth.py`), with a
-tab/sub-page permission catalog in `permissions.py`. Route guards:
-`@permission_required("...")` (from `permissions.py`; it already sends an
-unauthenticated request to the login flow, so it is never stacked with
-`@login_required`), `@login_required` alone for any-signed-in-user routes, and
-`auth.admin_required` for a few admin-only endpoints. CSRF is
+Flask-Login over a JSON-file user store (`security.py`, `auth.py`; user
+records are JSON files under `{local_data}/users/`), with a tab/sub-page
+permission catalog in `permissions.py`. Route guards:
+`@permission_required("<key>")` with a key from `PERMISSION_CATALOG` (admins
+pass every check; it already sends an unauthenticated request to the login
+flow, so it is never stacked with `@login_required`), `@login_required` alone
+for any-signed-in-user routes, and `auth.admin_required` /
+`auth.role_required` for the few admin-only endpoints that have no catalog
+key. CSRF is
 globally enabled (Flask-WTF); only the OIDC-authenticated internal task
 blueprint is exempt. `WTF_CSRF_TIME_LIMIT = None` is deliberate (long-open
 research sessions).
@@ -65,11 +71,12 @@ teaching role (`permissions.STUDENT_PERMISSIONS`: the viewer set minus
 Semantic Space, Sessions and `feature.annotation_votes` — the key gating both
 vote endpoints; the boot migration grant-alls it to existing roles but
 skip-lists `student`). Per-study sharing is the study definition's
-`USER_ACCESS` list (role names / usernames / `'all'`); an empty/missing list
-means **shared with nobody** on every surface (it once meant shared with
-everyone), and a boot-time migration
+`USER_ACCESS` list (role names / usernames / `'all'`); an empty or missing
+list means **shared with nobody** on every surface, so sharing is always an
+explicit grant. A boot-time migration
 (`fyp.analysis.studies.migrate_user_access_defaults`, serving processes only)
-backfilled explicit grants into studies created before that change.
+backfills explicit grants into studies from before that rule (see
+[decision 0007](decisions/0007-empty-study-access-means-nobody.md)).
 
 Participants who own donated collections additionally get an auto-managed
 study pair — `__me__{username}` ("Just Me", their own collections,
@@ -120,11 +127,18 @@ writer of the collections metadata parquet. Pickers:
 
 ## Background workers
 
+Background jobs run the same code in two modes. On Cloud Run, eligible
+processes run as **Google Cloud Tasks** dispatched to the `fyp-task-runner`
+service; locally (and for anything not Cloud-Task-eligible) they run as
+subprocesses. The switch is automatic, on the `K_SERVICE` environment
+variable.
+
 Each `run_<name>.py` script is dual-mode:
 
 - a `run_<name>(reporter, task_args)` function invoked by Cloud Tasks via
   `process_routes.TASK_FUNCTIONS` (reporter = `GCSStatusReporter`, which
-  writes status JSON to GCS with a 30 s heartbeat), and
+  writes progress and data to GCS status files, `task_status/*.json`, with a
+  background heartbeat thread every 30 s), and
 - a `__main__` block for local subprocess mode (reporter =
   `LocalStatusReporter`, which prints `::PROGRESS::` / `::DATA::` lines that
   `process_manager.py` parses from stdout — **do not break this contract**;
@@ -138,29 +152,93 @@ launch surfaces offer it — is declared once, in `WORKERS` in
 derived from it (guard: `tests/unit/test_worker_registry.py`). A new worker is
 one `run_<name>.py` module plus one `WORKERS` entry.
 
-`process_manager.start_process()` picks Cloud Tasks vs subprocess
-automatically (`K_SERVICE` env). Long-running queue workers
-(annotator, scrapers) self-chain: one batch per task, returning
-`{"chain": True, "next_task_args": ...}`. A task whose GCS heartbeat is
-older than 600 s is treated as dead.
+**Dispatch.** `process_manager.start_process()` picks the mode: on Cloud Run
+it dispatches through `_dispatch_cloud_task()`, locally it spawns a
+subprocess. Cloud Tasks deliver to the CSRF-exempt `internal_bp` blueprint at
+`/internal/run-task/<name>`, where `_run_task_with_stats()` handles
+execution, stats and chaining.
 
-One deliberate exception to the retry model: `ops_report`
-(`run_ops_report.py`, the daily ops report) is NOT queue-retry-safe — a
-queue retry would re-send the report email — so a failed run goes straight
-to the task-failures ledger instead of being retried.
+- **Subprocess mode pins the child's project root**
+  (`process_manager.worker_env()`): the spawned worker gets `FYP_CONFIG_PATH`
+  set to the config TOML the server itself loaded, plus `PROJECT_ROOT`
+  prepended to `PYTHONPATH`. Without both, the child rediscovers its own root
+  — `fyp.core.paths` walks up from the working directory for `__proj__.py`,
+  and `import fyp` can be answered by the venv's editable install pointing at
+  a *different* checkout — and can load another `config.local.toml`, and so
+  another data store, than its parent (see
+  [decision 0012](decisions/0012-spawned-workers-pin-project-root.md); guard:
+  `tests/unit/test_worker_spawn_env.py`).
+- **Explicit dispatch deadlines.** Cloud Tasks' default HTTP deadline is
+  shorter than a heavy batch link, and a timed-out attempt *keeps running*
+  while the retry starts a concurrent duplicate chain. Every self-chaining
+  refresh therefore carries an explicit 1800 s deadline, declared once per
+  worker in `WORKERS` and read through `worker_registry.deadline_for()` by
+  every dispatch — the *initial* one from `process_manager` and each link a
+  worker chains (see [decision 0008](decisions/0008-explicit-dispatch-deadlines.md);
+  `tests/unit/test_dispatch_deadlines.py` pins the table).
+- **Single-flight leases.** `embeddings_refresh` claims a CAS-guarded lease
+  file so a Cloud Tasks redelivery can never run two appenders against the
+  embedding shard store at once; the store readers additionally dedupe on
+  item id, last occurrence wins (see
+  [decision 0009](decisions/0009-embeddings-single-flight-lease.md)).
 
-The reported `last_run_duration` spans the **whole** run of a self-chaining
-task, not just its final link: `process_routes._chain_run_start()` measures
-from the first link's start (carried through the chain), and `api_status`
-forwards the queued/failed GCS states so the UI reflects them.
+**Self-chaining.** Long-running workers (the annotator, the scrapers, the
+heavy refreshes) process one batch per Cloud Task and return
+`{"chain": True, "next_task_args": ...}` to dispatch the next; each link
+inherits the GCS status via `reporter.resume()`. A task whose GCS heartbeat
+is older than 600 s is treated as dead by the UI and by `start_process()`.
 
-Every run also lands in a **durable per-process log** (`run_logs.py`): a ring
-of the last 10 runs per process (`proc_logs/<status_key>.json` in the
-`"cache"` location), each run timestamped line-by-line and opened with a
-`Started by <user>` banner. Both execution modes write it (CAS writes + a
-per-key flusher thread), so logs survive restarts and are shared across
-admins; `GET /api/logs/<name>` serves them to the log modal, and
-`POST /api/logs/clear/<name>` empties a process's ring.
+**Retries.** The Cloud Tasks queue (`fyp-background-tasks`) allows up to four
+attempts with backoff, but retry is **app-controlled**: only the idempotent
+refreshes in `process_routes.QUEUE_RETRY_SAFE` answer a failure with 503 (and
+are retried); every other task answers 200 and its failure is terminal. All
+failures land in the task-failures ledger (`cache/task_failures.json`,
+`web_interface/task_failures.py`) — the dead-letter record, surfaced on
+Admin → System Information. Queue setup: `scripts/configure_task_queue.sh`
+(see [DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment)).
+
+**Status and logs.** The reported `last_run_duration` spans the **whole** run
+of a self-chaining task, not just its final link:
+`process_routes._chain_run_start()` measures from the first link's start
+(carried through `task_args`), and `api_status` forwards the queued/failed GCS
+states so the UI's status lights (one green/blue/amber/red vocabulary, see
+*Process UI* below) reflect them. Every run also lands in a **durable
+per-process log** (`run_logs.py`, not a worker): a ring of the last 10 runs
+per process (`proc_logs/<status_key>.json` in the `"cache"` location), each
+run timestamped line by line (once, in `append()`) and opened with a
+`Started by <user>` banner. Both execution modes and both Cloud Run services
+write the same document (CAS writes + a per-key flusher thread), so logs
+survive restarts and are visible from either service and to every admin; log
+bookkeeping never raises into the task. `GET /api/logs/<name>` serves them to
+the log modal, and `POST /api/logs/clear/<name>` empties a process's ring.
+
+**Cross-service state.** Both Cloud Run services share `process_stats.json`
+on GCS; always call `load_process_stats()` before reading or writing it, so
+one service never clobbers the other's data.
+
+Two workers are notable for how they deviate:
+
+- **`enrichment_supervisor`** — the automatic per-collection enrichment loop
+  (`run_enrichment_supervisor.py` + `services/collection_enrichment.py`; the
+  loop's rules are in [pipeline.md](pipeline.md#automatic-per-collection-enrichment)).
+  It is deliberately a *conductor*, not an executor: the scrape queues, the
+  annotation queue, the queue workers and the consolidation pipeline are
+  global singletons, so each short tick starts at most one of them and
+  returns rather than doing the work itself. It never self-chains, which
+  keeps it clear of the dispatch-deadline trap; progress comes from three
+  idempotent triggers (a terminal worker completion, the end of a
+  consolidation, and an hourly Cloud Scheduler heartbeat). Every tick
+  re-reads the world and defers while any enrichment or pipeline step is
+  running. What it and the workers do is written to the **enrichment
+  history** (`services/enrichment_journal.py`, a bounded ring in
+  `cache/enrichment_journal.json`), shown on Dataset Assembly and, per
+  collection, in the Edit Collections panel.
+- **`ops_report`** — the daily operational health report (`run_ops_report.py`
+  + `services/ops_report.py`): checks across the whole system, an AI-written
+  assessment, and an emailed copy; artifacts land under `cache/ops_report/`.
+  It is the one worker that is deliberately **not** queue-retry-safe — a
+  queue retry would re-send the email — so a failed run goes straight to the
+  task-failures ledger instead of being retried.
 
 ## Frontend
 
@@ -186,8 +264,8 @@ Collections modal so the participant and admin persona views cannot drift.
 Styling is entirely token-driven (`static/style.css`): semantic CSS custom
 properties, a 7-step type scale, utility classes, and both dark
 (`:root`) and light (`[data-theme="light"]`) themes. Never hardcode
-colors/fonts/sizes in templates or JS — see `DEVELOPING.md` §"Frontend Styling
-Rules" for the full rules.
+colors/fonts/sizes in templates or JS — see
+[DEVELOPING.md](../DEVELOPING.md#frontend-styling-rules) for the full rules.
 
 Filter dropdowns for categorical/list variables show the top-200
 most-frequent values (single-occurrence values are dropped entirely at
@@ -203,37 +281,39 @@ searchable column (`explorer_backend.search_columns` derives the set, and
 the filter/ids endpoints project the frame to it instead of loading full
 width) with one string cast per column per request.
 
-**Process UI (Data Pipeline → Dataset Assembly).** The worker cards live in the
-`templates/tabs/dm/` partials (`refresh.html` and friends); a card is inert
-until `main.js`'s poll loop calls `setStatus()` for its process name — new
-workers (e.g. `sessions_refresh`) must be wired there. Every card carries a
-`card_info()` ⓘ tooltip (one Jinja macro; the tooltip text doubles as the
-accessible name). Status lights use the unified `--status-*` tokens in
-`style.css`: green = running, blue = idle/stopped, amber = warn, red =
-error/failed.
+### Process UI (Data Pipeline → Dataset Assembly)
+
+The worker cards live in the `templates/tabs/dm/` partials (`refresh.html` and
+friends); a card is inert until `main.js`'s poll loop calls `setStatus()` for
+its process name — new workers (e.g. `sessions_refresh`) must be wired there.
+Every card carries a `card_info()` ⓘ tooltip (one Jinja macro; the tooltip
+text doubles as the accessible name). Status lights use the unified
+`--status-*` tokens in `style.css`: green = running, blue = idle/stopped,
+amber = warn, red = error/failed.
+
+### Refresh runs
 
 Starting **any** of these cards starts a *refresh run*: the steps that read
-what it writes follow it automatically. The graph and the rules live in
-`services/refresh_pipeline.py` — one registry replacing the four literals that
-used to be kept in sync by comment, plus the predicates that decide, at each
-completion, whether the next step has anything to do. A step is dispatched only
-when an upstream step reports that something actually changed (embeddings
-written, videos that moved niche, study datasets rebuilt); the rule is to prune
-only on a positive statement of no change, so a missing signal always runs. The
-run is recorded in `process_stats["refresh_pipeline"]` and drawn as a
-wall-clock Gantt above the cards, with a header naming its origin, and each
-skipped step stating why. Only one run happens at a time: the other cards grey
-out while one is in flight and `/api/start` refuses with 423.
+what it writes follow it automatically. The graph and the rules live in one
+registry, `services/refresh_pipeline.py`, together with the predicates that
+decide, at each completion, whether the next step has anything to do. A step
+is dispatched only when an upstream step reports that something actually
+changed (embeddings written, videos that moved niche, study datasets rebuilt);
+the rule is to prune only on a positive statement of no change, so a missing
+signal always runs. The run is recorded in `process_stats["refresh_pipeline"]`
+and drawn as a wall-clock Gantt above the cards, with a header naming its
+origin, and each skipped step stating why. Only one run happens at a time: the
+other cards grey out while one is in flight and `/api/start` refuses with 423.
 
 The Consolidate card is one origin among several. Its start dialog carries
 "Refresh caches afterwards" plus "Force full rebuild"; its own summary line
 still reports the outcome of a run it started. **Scope:** a run is planned for
 exactly what the consolidation touched — its affected studies and collections
 are the scope of recode, metadata, correlations and timelines, and that scope
-wins even when the semantic map moved videos between niches. (Widening to
-every study whenever the map moved was tried and reverted: a warm-started
-rebuild moves a couple of percent of the corpus on almost every run, so it
-turned every run into a full refresh.) The only unscoped run is one started
+wins even when the semantic map moved videos between niches, because a
+warm-started rebuild moves a couple of percent of the corpus on almost every
+run and widening would turn every run into a full refresh (see [decision
+0014](decisions/0014-refresh-runs.md)). The only unscoped run is one started
 from the Semantic Map card, which never consolidated and so has no impact to
 scope by. Each step records the scope it was actually dispatched with and why;
 hovering its bar shows it, and a pending map-dependent step states the
@@ -245,8 +325,7 @@ computes and reports its impact, and that impact stays on the card offering
 enrichment supervisor: the deferred-impact ledger records whose debt it is
 (`from_plan`), the supervisor's own consolidations are tagged `plan_deferred`,
 and its finalize spends only those — see the enrichment loop in
-`pipeline.md`. Before this distinction existed the supervisor spent a manual
-deferral 3.5 minutes after it was created, with no browser poll watching.
+[pipeline.md](pipeline.md#automatic-per-collection-enrichment).
 
 **Liveness.** The hub's abandoned-run sweep closes a run only when nothing is
 running, nothing has completed, and no dispatched step is still awaiting
@@ -260,19 +339,26 @@ every 30 s while open, so a run the server starts on its own is noticed.
 `sessions_refresh` is also chained after every study save, which is a private
 chain rather than a run and stays out of the chart.
 
-**Study modal.** The edit-study modal's footer groups
-Delete | Rename | Duplicate: delete and rename have their own endpoints
-(`POST /api/manage/studies/delete` / `.../rename` — rename moves the study's
-cached artifacts in place, no rebuild), while duplicate is client-side
-(`data_management.js duplicateStudy()` saves a copy under a suggested unique
-name). The study date window has per-end controls — date inputs, −/+ day
-steppers, and draggable chart edge handles over the daily-activities chart
-(`POST /api/manage/studies/daily_activities` serves the full-span series so
-the user can pick a window).
+### Study modal and per-user preferences
 
-Per-user variable preferences (which variables show on each surface) are
-composed client-side by `static/js/variable_prefs.js` as
-`(global ∪ include) − exclude` deltas stored in the user's settings. The
+The edit-study modal's footer groups Delete | Rename | Duplicate: delete and
+rename have their own endpoints (`POST /api/manage/studies/delete` /
+`.../rename` — rename moves the study's cached artifacts in place, no
+rebuild), while duplicate is client-side (`data_management.js
+duplicateStudy()` saves a copy under a suggested unique name). The study date
+window has per-end controls — date inputs, −/+ day steppers, and draggable
+chart edge handles over the daily-activities chart (`POST
+/api/manage/studies/daily_activities` serves the full-span series so the user
+can pick a window).
+
+**Per-user variable preferences.** Each user can include or exclude
+variables per surface (filter / viz / detail panel / timeline) via My stuff →
+Preferences → Variable customizations (panels fed by the study-independent
+`GET /api/user/variable-catalog`). The choices are stored as deltas in
+`user.settings.variable_prefs` and composed as `(global ∪ include) − exclude`
+— client-side by `static/js/variable_prefs.js`, and server-side for the
+Timelines tab and the Explore filter-stats endpoint (`/api/explore/filter`
+computes distribution stats only for the user's effective viz set). The
 same free-form settings merge (`POST /api/user/settings`) backs other
 per-user UI state, e.g. the Home tab's dismissible "Getting started" panel
 (`getting_started_dismissed`) — the permission-keyed first-run surface for
@@ -299,5 +385,3 @@ newly invited users, which also links into the public `/thehub` page
   hex-color/token cleanup. The inline handlers pin functions to `window`, so
   a handler's function cannot be moved into a module scope or renamed
   without updating every template that calls it.
-- Both Cloud Run services share `process_stats.json` on GCS — always
-  `load_process_stats()` before read/write.

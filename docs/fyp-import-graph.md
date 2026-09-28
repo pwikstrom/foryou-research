@@ -1,33 +1,33 @@
-# fyp/ subpackage restructure — import graph & module assignment
+# `fyp/` package layout — module placement and import rules
 
-This document records the import-dependency analysis behind the restructure
-of the flat `fyp/` package into domain subpackages, and the reasoning for
-each module's assignment. The **placement rules** below are load-bearing —
-they explain constraints that still govern where new modules may live (see
-also the invariants in `CONTRIBUTING.md`). The raw import matrix is
-generated data, not documentation; produce a current one with
-`python scripts/gen_import_graph.py` (see the end of this file).
+`fyp/` is organized into five subpackages. This document maps each module to
+its subpackage and states the **placement rules** that govern where a new
+module may live (see also the invariants in
+[CONTRIBUTING.md](../CONTRIBUTING.md#invariants-you-must-not-break)). The
+import-dependency analysis behind the layout, and the history of the
+restructure, are in [decision 0002](decisions/0002-fyp-subpackage-restructure.md).
+The raw import matrix is generated data, not documentation; produce a current
+one with `python scripts/gen_import_graph.py` (see the end of this file).
 
-## Final module → subpackage assignment
+## Module → subpackage assignment
 
 | Subpackage | `__init__` behavior | Modules |
 |---|---|---|
-| `fyp/core/` | inert (docstring only) | `paths` (new), `fyp_config`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `media_paths`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel`; added later: `memory`, `runtime`, `gemini_client` |
-| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | split of `ingest.py`: `base`, `tiktok`, `instagram`, `youtube`; added later: `raw_names`, `migrations/` |
-| `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`; added later: `scraper_alerts`, `connectivity` |
-| `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`; added later: `backends/` |
-| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `video_map`, `niche_detection`, `session_profile`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations`; added later: `embedding_store`, `entropy_metrics`, `session_explorer`, `embedding_backends/` |
+| `fyp/core/` | inert (docstring only) | `paths`, `fyp_config`, `runtime`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `memory`, `media_paths`, `gemini_client`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel` |
+| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | `base`, `tiktok`, `instagram`, `youtube`, `raw_names`, `migrations/` |
+| `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`, `scraper_alerts`, `connectivity` |
+| `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`, `backends/` |
+| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `niche_detection`, `session_profile`, `session_explorer`, `entropy_metrics`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
 
-Every old path (`fyp/<module>.py`) remains as a back-compat shim for code
-outside this repository. First-party code imports only the canonical paths:
-ruff's banned-api rule (`TID251`, listed in `pyproject.toml`) rejects the flat
-ones, and `tests/unit/test_subpackage_shims.py` keeps the shims themselves
-working.
-
-**Modules added after the restructure** (marked "added later" in the table)
-were born inside a subpackage and have no flat shim: `fyp/core/memory.py`
-(RSS/peak probes), `fyp/core/runtime.py` (import-light accessors: `cf`,
-`label`, `is_cloud_run`, `graceful_stop_requested`),
+Most modules also keep an old flat path (`fyp/<module>.py`) as a
+back-compat shim for code outside this repository. First-party code imports
+only the canonical paths: ruff's banned-api rule (`TID251`, listed in
+`pyproject.toml`) rejects the flat ones, and
+`tests/unit/test_subpackage_shims.py` keeps the shims themselves working.
+These modules have **no** flat shim and exist only at their subpackage path:
+`fyp/core/paths.py` (project-root discovery), `fyp/core/memory.py` (RSS/peak
+probes), `fyp/core/runtime.py` (import-light
+accessors: `cf`, `label`, `is_cloud_run`, `graceful_stop_requested`),
 `fyp/core/gemini_client.py` (shared Google GenAI client construction),
 `fyp/ingest/raw_names.py` (generated raw-upload names and collection ids),
 `fyp/ingest/migrations/` (one-off rewrites of stored activity data, driven by
@@ -65,7 +65,7 @@ binding.
 re-exports the old module surface and forwards stragglers via a module
 `__getattr__`.
 
-## Placement rules (why the layout deviates from the first sketch)
+## Placement rules
 
 1. **Boot rule.** `import fyp.ingest` triggers the config boot *by design*
    (collection `__init_subclass__` → `data_io.register_location()`); every
@@ -74,10 +74,11 @@ re-exports the old module surface and forwards stragglers via a module
    package executes the package `__init__` first — so a module placed inside
    `fyp/ingest/` boots config on import. Therefore `fyp/ingest/` holds
    **only** ingest code whose callers already run with config booted — the
-   split of `ingest.py` itself, `raw_names` (imported by `base` and the
-   upload routes) and `migrations/` (run from `scripts/migrate_*.py`) — and
-   `organize_datasets`, `donations` (→ `analysis/`), `structure_sentinel`,
-   `activity_contract`, `activity_versioning` (→ `core/`) live elsewhere.
+   collection classes, `raw_names` (imported by `base` and the upload
+   routes) and `migrations/` (run from `scripts/migrate_*.py`) — while
+   ingest-adjacent modules such as `organize_datasets`, `donations`
+   (→ `analysis/`), `structure_sentinel`, `activity_contract` and
+   `activity_versioning` (→ `core/`) live elsewhere.
 2. **Mid-boot rule.** `fyp_config.load_var_schema` imports the contract and
    versioning modules *during* the boot it may itself be running inside
    (`data_io`, `var_presentation`, `annotation_contract`,
@@ -93,9 +94,9 @@ re-exports the old module surface and forwards stragglers via a module
    CPython's circular-import fallback — permanently. Concretely:
    `from fyp.scrape_contract import …` (e.g. from `var_presentation` during
    boot) starts the `fyp/scrape_contract.py` shim → triggers
-   `fyp/scrape/__init__` → `scrape.py` / `platform_scraper.py`, which used
-   to do `from fyp import scrape_contract as sc` → `sc` would be bound to
-   the empty shim; every later `sc.load_contract()` dies at runtime while
+   `fyp/scrape/__init__` → `scrape.py` / `platform_scraper.py`; if those
+   did `from fyp import scrape_contract as sc`, `sc` would be bound to the
+   empty shim; every later `sc.load_contract()` dies at runtime while
    import, boot, and the hash tripwire all pass. **Therefore all
    same-package sibling imports inside `fyp/scrape/*` (and `fyp/ingest/*`)
    are relative** (`from . import scrape_contract as sc`), which routes the
@@ -112,43 +113,24 @@ re-exports the old module surface and forwards stragglers via a module
    Scrapers keep loading lazily via
    `platform_scraper._ensure_scrapers_imported()`.
 
-## machine_annotation: moved whole (seam analysis for a future split)
+## Known seams
 
-`machine_annotation.py` (one of the largest modules) has a clean internal DAG —
-orchestration (`annotate_from_video_id_list`, `queue_annotation_loop`) →
-{calls (`initialize_machine`, `call_machine*`, `_generate_with_retry`),
-parse (`flatten_*`, `fuzzy_load_of_json_from_string`,
-`consolidate_rare_columns_from_gemini_output`), refine
-(`refine_one_raw_annotation_batch`, `clean_up_machine_annotations`,
-`remove_repetitions_from_transcripts`)}; refine → parse; no mutable module
-state (the Gemini client lives in the config dict). A 4-way split is
-structurally feasible, **but** ~18 test files plus the golden harness reach
-and patch `ma._*` private names on the module object; a facade split would
-silently break those patch targets (functions in submodules resolve their
-own globals, not the facade's). Zero behavior gain, real regression risk —
-so the restructure moves the module whole. A future split should relocate the test
-patch targets in the same change.
-
-## Scraper helpers: what was (not) deduplicated
-
-- `_empty_fail` — byte-identical in all three `*_dl.py`; hoistable.
-- `_cleanup_temp_files` — identical except the parameter name
-  (`video_id` vs `item_id`); hoistable.
-- `_info_to_row` — **genuinely platform-specific** (TikTok builds the full
-  `_DEFAULTS` schema with dtype casts; Instagram/YouTube emit small raw
-  frames with different signatures, later renamed by `map_to_canonical`).
-  Not hoisted; do not force-share it.
-
-No production or test code imports the first two, so the hoist is cosmetic
-and deferred out of the mechanical move commits.
+- **`machine_annotation.py` stays one module.** Its internal structure
+  would split cleanly (orchestration → calls / parse / refine), but ~18 test
+  files plus the golden harness patch `ma._*` private names on the module
+  object, and a facade split would silently break those patch targets. A
+  split must relocate the test patch targets in the same change.
+- **Scraper helpers.** `_info_to_row` is genuinely platform-specific (TikTok
+  builds the full `_DEFAULTS` schema with dtype casts; Instagram and YouTube
+  emit small raw frames later renamed by `map_to_canonical`) — do not
+  force-share it. `_empty_fail` (byte-identical in the three `*_dl.py`
+  modules) and `_cleanup_temp_files` (identical except the parameter name)
+  are hoistable; nothing imports either from outside its module.
 
 ## The import matrix
 
-Earlier revisions of this document embedded the full generated import matrix
-(internal `fyp → fyp` adjacency plus external importers per module). It was a
-point-in-time snapshot of the restructure and had drifted badly — the
-post-restructure modules listed above were never part of it — so it has been
-removed rather than left to mislead. Generate a current one on demand:
+The internal `fyp → fyp` adjacency and the external importers of each module
+are generated on demand rather than kept here, so they cannot drift:
 
 ```bash
 python scripts/gen_import_graph.py

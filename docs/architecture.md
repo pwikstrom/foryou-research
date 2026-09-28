@@ -1,8 +1,9 @@
 # Architecture
 
 High-level map of The For You Data Hub for someone reading the code for the
-first time. The exhaustive reference (every module, every convention) is
-`DEVELOPING.md` at the repo root; this document explains how the pieces fit.
+first time: how the pieces fit. Each subsystem's details live in its own
+document (linked below); the module-by-module project tree and the developer
+workflow are in [DEVELOPING.md](../DEVELOPING.md).
 
 ## The system in one paragraph
 
@@ -52,51 +53,10 @@ Two abstractions make this work:
   Long jobs self-chain: one batch per task, returning
   `{"chain": True, "next_task_args": ...}`.
 
-Hard-won robustness around that job framework, all mode-agnostic:
-
-- **Durable run logs** (`web_interface/run_logs.py`) — the last 10 runs per
-  process persist as `proc_logs/<key>.json` in `cache` (compare-and-swap
-  writes, per-key flusher thread), with per-line timestamps and a
-  "Started by <user>" banner. Both execution modes and both Cloud Run
-  services write to the same document, so a log survives restarts and is
-  visible from either service; log bookkeeping never raises into the task.
-- **Explicit dispatch deadlines** — Cloud Tasks' default HTTP deadline is
-  shorter than a heavy batch link, and a timed-out attempt *keeps running*
-  while the retry starts a concurrent duplicate chain. Every self-chaining
-  refresh therefore carries an explicit 1800 s deadline, declared once per
-  worker in `web_interface/worker_registry.py` (`WORKERS`) and read through
-  `worker_registry.deadline_for()` by every dispatch — the *initial* one from
-  `process_manager` and each link a worker chains
-  (`tests/unit/test_dispatch_deadlines.py` pins the table).
-- **Single-flight leases** — `embeddings_refresh` claims a CAS-guarded lease
-  file so a Cloud Tasks redelivery can never run two appenders against the
-  embedding shard store at once (a duplicate chain once wrote twin shards);
-  the store readers additionally dedupe on item id, last occurrence wins.
-- **Chain-aware status** — `last_run_duration` spans the whole self-chain
-  (the run start rides through `task_args`), not just the final link, and
-  the UI's status lights use one unified green/blue/amber/red vocabulary
-  fed by the GCS status files (queued/failed states included).
-- **The `enrichment_supervisor` worker** — the automatic per-collection
-  enrichment loop (`web_interface/run_enrichment_supervisor.py` +
-  `services/collection_enrichment.py`). Deliberately a *conductor*, not an
-  executor: the scrape queues, the annotation queue, the queue workers and
-  the consolidation pipeline are global singletons, so each short tick
-  starts at most one of them and returns rather than doing the work itself.
-  It never self-chains, which is what keeps it clear of the dispatch-deadline
-  trap above; progress instead comes from three idempotent triggers (a
-  terminal worker completion, the end of a consolidation, and an hourly
-  Cloud Scheduler heartbeat). Every tick re-reads the world and defers while
-  any enrichment or pipeline step is running. What it and the workers do is
-  written to the **enrichment history** (`services/enrichment_journal.py`,
-  a bounded ring in `cache/enrichment_journal.json`) — the one durable,
-  high-level record of how a cycle unfolded, shown on Dataset Assembly and,
-  per collection, in the Edit Collections panel.
-- **The `ops_report` worker** — a daily operational health report
-  (`web_interface/run_ops_report.py` + `services/ops_report.py`): checks
-  across the whole system, an AI-written assessment, and an emailed copy;
-  artifacts land under `cache/ops_report/`. It is the one worker that is
-  deliberately **not** queue-retry-safe — a retry would re-send the email,
-  so a failed run goes straight to the task-failures ledger instead.
+The job framework — worker registry, dispatch deadlines, retry model,
+single-flight leases, durable run logs, chain-aware status, and the
+`enrichment_supervisor` and `ops_report` workers — is described in
+[web_interface.md](web_interface.md#background-workers).
 
 **Packaging / reuse.** `fyp` is an installable package (`pip install -e .` is
 the recommended dev setup; see `pyproject.toml`), but installation is never
@@ -144,7 +104,8 @@ zero orchestration edits:
   `process_single()`. Registration also self-registers the platform's
   raw-upload storage location (`activity_data/<platform>/<raw_path>`; the
   three TikTok classes predate the convention and use source-keyed
-  `ddp/`, `aio/`, `zeeschuimer/` folders — see DEVELOPING.md).
+  `ddp/`, `aio/`, `zeeschuimer/` folders — see
+  [configuration.md](configuration.md#storage-locations)).
 - **Scraping**: `BaseScraper` (`fyp/scrape/platform_scraper.py`) with
   `get_scraper(platform)` factory. Subclasses implement five hooks
   (`item_url`, `fetch`, `map_to_canonical`, `classify_error`,
@@ -159,21 +120,12 @@ noted, never flagged); parse failures leave files pending for retry rather
 than discarding;
 and the **ingestion ledger** records every file's per-run outcome with row
 counts and a drop-reason breakdown, surfaced as a permanent per-file intake
-report in the UI. On the scraping side, batch-level guards stop a broken
-session from churning the queue: a **circuit breaker** (consecutive
-rate-limit/bot-check outcomes) plus twin **storm guards** — N consecutive
-identical *permanent* classifications (a flagged session mis-reporting live
-items as removed) or identical *transient* ones (a bot wall failing every
-item retryably) abort the batch, stop self-chaining, and raise a persistent
-per-platform scraper alert, which holds the enrichment supervisor off that
-platform until it clears; the failed-scrapes record stores each item's
-failure category so storms are diagnosable after the fact. Because those
-guards read a homogeneous run as a broken session, and a queue of nothing but
-retries is homogeneous by construction, a scraper can mark a verdict
-**corroborated** by per-item evidence — it then neither extends nor resets a
-storm run and is pruned even when the guard trips (see
-[pipeline.md](pipeline.md)). On the analysis
-side, every study refresh writes a
+report in the UI. On the scraping side, batch-level guards (a circuit
+breaker and two storm guards) stop a broken session from churning the queue:
+they abort the batch, stop self-chaining, and raise a persistent per-platform
+scraper alert that holds the enrichment supervisor off that platform until it
+clears (see [pipeline.md](pipeline.md#failure-verdicts-and-batch-guards)).
+On the analysis side, every study refresh writes a
 **methods/provenance note** (`{study}_methods.json`) summarising filters,
 counts, and the contract/model versions behind the data — see
 [pipeline.md](pipeline.md).
@@ -195,25 +147,11 @@ Two additions keep the heavy analysis paths O(batch) rather than O(corpus):
 - **Sessions subsystem**. `fyp/analysis/session_profile.py` and
   `sequence_analysis.py` do the profiling; `web_interface/run_sessions_refresh.py`
   is a self-chaining Cloud Task that segments a few collections per link
-  against the sidecar, writes per-link shards, and folds them into the
-  Sessions-tab artifacts (session index, binge episodes, low-entropy
-  windows, and a `sessions_plays.parquet` detail fast path) on the final
-  link. The build is **study-window-scoped** (only collections in ≥1 study,
-  within the padded union of their studies' date windows) and
-  **incremental**: `stale_only` rebuilds just the collections whose windows
-  or in-window play counts changed, merging their rows into the artifacts.
-  Enrichment staleness is **scoped** where it can be proven local
-  (`session_explorer.enrichment_change_scope`): the embedding shards are
-  append-only, so when every shard the previous build recorded is still
-  present byte-identical, the vectors past its count and the annotation rows
-  past its `inference_ts` watermark name exactly the items that changed, and
-  only the collections holding them are re-segmented. A rewritten or missing
-  shard, a build that predates the recorded shard set or watermark, or more
-  than `[sessions] rebaseline_fraction` (5 %) of vectors appended since the
-  last full build falls back to the full rebuild, which resets the baseline.
-  The chain pins one corpus-mean fingerprint at link 0
-  and restarts (bounded) if the shard store moves mid-run. A sessions
-  refresh is chained automatically after every study save. Read side:
+  against the sidecar and folds per-link shards into the Sessions-tab
+  artifacts on the final link. The build is scoped to the collections and
+  date windows studies use, and is incremental — including after enrichment
+  changes, which re-segment only the collections they touch (details:
+  [pipeline.md](pipeline.md#sessions-refresh)). Read side:
   `routes/api_sessions_routes.py`, `templates/tabs/sessions.html`,
   `static/sessions.js`.
 
@@ -250,7 +188,8 @@ token system in `static/style.css`. See
 One Docker image, two Cloud Run services (`fyp-data-hub` web,
 `fyp-task-runner` jobs). The image is layered: `Dockerfile.base` (deps —
 rebuild only when `requirements.txt` changes) and `Dockerfile` (app code,
-~1 min build). Exact commands: `DEVELOPING.md` §"Cloud Run Deployment".
+~1 min build). Exact commands:
+[DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment).
 
 ## Package layout
 
@@ -260,17 +199,16 @@ in detail in [fyp-import-graph.md](fyp-import-graph.md). The old flat paths
 (`fyp/data_io.py`, `fyp/pca.py`, ...) remain importable as alias shims (same
 module objects) for code outside this repository. **Code in this repository
 imports only the canonical `fyp.<subpackage>.<module>` paths**, enforced by
-ruff's banned-api rule (`TID251` in `pyproject.toml`). The reason is
-concrete: two threads resolving cold shims concurrently can receive a
-partially-initialized module (CPython's per-module-lock deadlock breaker),
-which silently dropped collections from prod timelines batches.
+ruff's banned-api rule (`TID251` in `pyproject.toml`), because two threads
+resolving cold shims concurrently can receive a partially-initialized module
+(CPython's per-module-lock deadlock breaker).
 `tests/unit/test_pool_import_race.py` sweeps every thread-pool body as a
-second guard.
+second guard (see [decision 0010](decisions/0010-canonical-imports-only.md)).
 
 ## Where to start reading
 
 1. `fyp/core/fyp_config.py` — config + var_schema synthesis (and the
-   import-cycle rule documented in `CONTRIBUTING.md`)
+   import-cycle rule documented in [CONTRIBUTING.md](../CONTRIBUTING.md#invariants-you-must-not-break))
 2. `fyp/core/data_io.py` — the storage abstraction everything uses
 3. `fyp/ingest/base.py` — the base collection, plus one platform subclass
    (e.g. `fyp/ingest/instagram.py`)

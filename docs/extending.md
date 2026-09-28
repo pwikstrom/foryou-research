@@ -7,7 +7,9 @@ embedding backend. All three follow the same registry design described in
 auto-registry, so most of the work is one subclass plus declarative config.
 The contract files that drive the schemas are documented in
 [contracts.md](contracts.md); configuration keys in
-[configuration.md](configuration.md); module conventions in `DEVELOPING.md`.
+[configuration.md](configuration.md); how each pipeline stage runs in
+[pipeline.md](pipeline.md); the project tree and coding conventions in
+[DEVELOPING.md](../DEVELOPING.md).
 
 One rule applies everywhere: cite and import the canonical subpackage paths
 (`fyp/scrape/platform_scraper.py`, `fyp/annotation/backends/`, ...), never
@@ -25,8 +27,7 @@ subdirectories, and the scrape version registry
 (`fyp/scrape/scrape_versioning.py` — the platform set is part of the `sv_`
 version identity, so a new platform forks a new scrape version
 automatically) all derive from the contract and the registries. What does
-need touching is longer than the three-line summary in
-[pipeline.md](pipeline.md); here is the full checklist.
+need touching is this checklist.
 
 ### 1. Scraper subclass
 
@@ -54,7 +55,10 @@ the five abstract methods:
 - `repair_counts(df)` — fix platform count quirks (e.g. 32-bit overflow)
   before rates are derived; return `df` unchanged if counts are clean.
 
-Optional overrides, all with working defaults: `throttle_limits`
+Optional overrides, all with working defaults: `residential_ip_only`
+(set `True` when the platform walls off datacenter IPs whatever cookies are
+attached; Cloud Run then declines to run its queue and a local install
+drains it), `throttle_limits`
 (per-batch concurrency bounds), `inter_request_delay` (per-worker pacing
 for session-level rate limits), `max_batch_size` (cap on one drain's batch
 when a single session is the scarce resource), `health_check` (pre-batch auth/quota
@@ -99,7 +103,8 @@ Create `fyp/ingest/<platform>.py` subclassing `ForYouBaseCollection`
 (`fyp/ingest/base.py`). Class attributes: `source_platform`, `raw_path`
 (registration also self-registers the raw-upload storage location as
 `activity_data/<source_platform>/<raw_path>`; the older TikTok classes
-predate this convention and keep source-keyed folders — see DEVELOPING.md),
+predate this convention and keep source-keyed folders — see
+[configuration.md](configuration.md#storage-locations)),
 `platform_url_template`, and the upload-filter classmethods
 `accepted_upload_suffixes` / `zip_member_suffixes`. Implement the two
 hooks `load_single_raw(filename)` and `process_single(df)`; the base owns

@@ -72,7 +72,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
 # Raw folder, platform and data source per upload route. The TikTok folders
-# are keyed by source, the later platforms by platform (see DEVELOPING.md).
+# are keyed by source, the later platforms by platform (see "Storage locations"
+# in docs/configuration.md).
 ROUTES = {
     "ddp": {"group": "ddp", "folder": "ddp_raw", "platform": "tiktok", "source": "ddp"},
     "aio": {"group": "aio", "folder": "aio_raw", "platform": "tiktok", "source": "aio"},

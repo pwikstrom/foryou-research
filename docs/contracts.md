@@ -105,8 +105,14 @@ field is a stored column:
 | `per_k_of` | Scrape only: marks an engagement-rate field's absolute-count denominator (paired with the `[perk]` table) |
 
 The derived contract uses the same keys minus `scope`/`platform`/`required`
-(all its fields are derived by definition), plus `skip_recode` and the
+(all its fields are derived by definition), plus the
 `transform = "log1p"` pre-aggregation hint.
+
+**`skip_recode`.** Every contract owns each field's `skip_recode` flag, which
+short-circuits the recode plan for columns produced elsewhere. The default
+depends on the contract — annotation: `false`; scrape and activity: the
+field's `derived` flag; derived: `true` — and any field may override it
+explicitly.
 
 ## Validation
 
@@ -191,12 +197,24 @@ the vocabulary is used verbatim in the UI:
 
 - **active** — the version the *next* annotation will be stamped with. Never
   stored: derived live from the effective contract, the selected backend, and
-  the generation parameters. Uploading a contract changes the active version
-  immediately.
+  the generation parameters (`active_annotation_version()` /
+  `active_version_descriptor()`). Uploading a contract changes the active
+  version immediately.
 - **preferred** — the version studies *read* when an item was annotated under
-  several. Stored in the registry and changed only by an explicit promote
-  (Admin → Versions, `promote_version()`), so in-flight analyses never shift
-  underfoot.
+  several. Stored in the registry's `preferred` key and changed only by an
+  explicit promote (Admin → Versions, `promote_version()`,
+  `POST /api/manage/annotation-versions/promote`; readers use
+  `get_preferred_version()`, `select_preferred_view()` and
+  `rebuild_preferred_annotations_from_archive()`), so in-flight analyses never
+  shift underfoot.
+
+The Versions page labels them "Activate" / "Active" and "Prefer" /
+"Preferred"; "current" and "live" are not used for either. Older registries
+stored the preferred version under the key `active`; `load_registry()`
+migrates it on read (the scrape and activity registries likewise), and the
+ab_eval arm value `source: "live"` survives as a frozen wire value in stored
+run manifests, displayed as "active contract" (see
+[decision 0006](decisions/0006-active-and-preferred-annotation-versions.md)).
 
 The intended lifecycle is therefore: upload contract → new annotations accrue
 under the new `av_` version → inspect/compare → promote → analysis follows.
@@ -250,6 +268,13 @@ var_schema is retired. The order is fixed:
    fields) → scrape → activity → derived — then rebuild `accepted_labels`
    from the annotation contract's enums;
 4. fill the four `web_*_prio` columns from the presentation store.
+
+The admin schema editor (Admin → Variable Visibility) is read-only for
+metadata: it shows each field's computed `origin` (which contract or registry
+owns it) in place of the retired `source` column — stored `source` strings in
+legacy registry snapshots survive only as a read-only skip fallback — and only
+the on/off surface checkboxes save (`POST /api/manage/presentation`,
+etag-guarded, never hash-affecting).
 
 A source fingerprint (contract files + presentation store + registries) is
 stored alongside; `reload_var_schema_if_changed()` compares it at every Cloud

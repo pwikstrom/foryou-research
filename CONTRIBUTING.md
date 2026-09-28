@@ -49,32 +49,29 @@ working days for a reply.
    ```
 
 4. PRs should be independently deployable — production deploys straight from
-   `main` (Cloud Run, see `DEVELOPING.md`).
+   `main` (Cloud Run, see [DEVELOPING.md](DEVELOPING.md#cloud-run-deployment)).
 
 ## Tests
 
-- `pytest` runs `tests/unit/` (configured in `pyproject.toml`). Markers:
-  - `requires_data` — needs local/production data files not in a fresh checkout
-  - `requires_gcs` — needs live GCS/GCP credentials
-  - `slow` — long-running
-  - `stale` — the designated bucket for tests known-broken against current
-    contracts/data shapes (currently empty; not a regression signal)
-  The checkout-only gate is `pytest -m "not requires_data and not requires_gcs and not slow and not stale"`.
-- Nine legacy test files cannot currently be collected at all and are listed
-  (with reasons) in `tests/unit/conftest.py::collect_ignore` — converting one
-  to proper pytest style and removing its entry is a welcome contribution.
-- `tests/golden/` is the annotation safety net: it replays saved raw Gemini
-  responses through the full pipeline, so it is free and offline. Run it with
-  `python tests/golden/run_safety_net.py`. If you touch annotation code, this
-  is your regression suite (see `tests/golden/README.md`).
+The test layout, markers, guard tests and the golden annotation safety net are
+described in [DEVELOPING.md](DEVELOPING.md#tests). In short:
+
+- `pytest` runs `tests/unit/`; the gate excludes the `requires_data`,
+  `requires_gcs`, `slow` and `stale` markers.
+- If you touch annotation code, also run the golden safety net:
+  `python tests/golden/run_safety_net.py` (free and offline).
 - New tests go in `tests/unit/`. Throwaway debug scripts belong in
   `tests/debug/` and one-off maintenance scripts in `scripts/adhoc/`; both
   are gitignored, because such code tends to accumulate real collection ids,
   bucket names and donation filenames.
+- Three self-runner integration scripts are excluded from collection
+  (`tests/unit/conftest.py::collect_ignore`); converting one to pytest style
+  and removing its entry is a welcome contribution.
 
 ## Coding style
 
-The authoritative style rules live in `DEVELOPING.md` §"Coding Style". Highlights:
+The authoritative style rules live in
+[DEVELOPING.md](DEVELOPING.md#coding-style). Highlights:
 
 - Python type hints in signatures; Google-style docstrings; imports at the
   top of the file; f-strings; PyArrow dtypes for DataFrames.
