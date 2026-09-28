@@ -332,16 +332,14 @@ foryou-research/
 │       ├── donations.py         # Donation-level data handling (AIO/AWS fetch, collection metadata)
 │       ├── calc_collection_stats.py  # Donation-level statistics
 │       ├── activity_analysis.py # Activity-based analysis
+│       ├── experimental/        # Research analyses the app does not use: niche_detection, session_profile, sequence_model
 │       ├── embeddings.py        # Dense embeddings for annotated videos (model-scoped shard store)
 │       ├── embedding_store.py   # Random-access dense sidecar over the shards (float16 parts, id index, corpus mean)
 │       ├── embedding_backends/  # EmbeddingBackend ABC + registry: gemini / qwen_api / qwen_local
-│       ├── niche_detection.py   # Data-driven micro-genre ("niche") detection from annotation text
 │       ├── video_map.py         # Niche clustering + 2D semantic map + per-video typicality/isolation percentiles
-│       ├── session_profile.py   # Within-session begin→end profiling
 │       ├── session_explorer.py  # Sessions tab build: session index + binge-episode segmentation
 │       ├── entropy_metrics.py   # Entropy/dispersion measures on dense embeddings
 │       ├── sequence_analysis.py # Sequence-windowing analysis (dwell→next-window lift)
-│       ├── sequence_model.py    # Stage-B predictive modelling for sequence analysis
 │       ├── timeline_analysis.py # Timeline metrics (linreg, anomalies, breaks, volatility)
 │       ├── pca.py               # Distance metrics, PCA helpers
 │       ├── stats.py             # ANOVA, PERMANOVA helpers

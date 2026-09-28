@@ -460,11 +460,6 @@ def default_params() -> dict:
     }
 
 
-def _corpus_mean_filename(model: str) -> str:
-    """Return the per-model corpus-mean cache filename (filesystem-safe)."""
-    return embedding_store.corpus_mean_filename(model)
-
-
 def save_corpus_mean(model: str, mean: np.ndarray, count: int) -> None:
     """Persist the corpus mean for ``model`` (delegates to embedding_store).
 

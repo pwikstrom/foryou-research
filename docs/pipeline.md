@@ -1020,11 +1020,12 @@ exception: they store no artifacts of their own and are assembled at read
 time from the default study plus the user's data, and SYSTEM study
 definitions are excluded from all-studies sweeps.
 On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
-(`stats.py`), timeline metrics (`timeline_analysis.py`), within-session
-profiling (`session_profile.py`), sequence windowing/modelling
-(`sequence_analysis.py`, `sequence_model.py`), dense semantic embeddings +
-niche detection + 2D map (`embeddings.py`, `niche_detection.py`,
-`video_map.py`). The session boundaries themselves are stamped at ingest:
+(`stats.py`), timeline metrics (`timeline_analysis.py`), session and
+binge-episode segmentation (`session_explorer.py`), sequence windowing
+(`sequence_analysis.py`), dense semantic embeddings + niche clustering + 2D
+map (`embeddings.py`, `video_map.py`). Research analyses the app does not use
+(text-based niche detection, within-session profiling, predictive sequence
+modelling) live in `fyp/analysis/experimental/`. The session boundaries themselves are stamped at ingest:
 `session_id` is set on every activity row (`fyp/ingest/base.py`
 `assign_session_ids`, a `[sessions] session_gap_s` = 900 s gap rule on
 `utc_timestamp` alone), which is what lets the enrichment planner sample

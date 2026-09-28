@@ -110,21 +110,6 @@ def load_scrape_queue(platform: str) -> list[str]:
     return _dedup(items)
 
 
-def save_scrape_queue(platform: str, items: list[str]) -> None:
-    """Persist one platform's queue (deduplicated, order-preserving).
-
-    Args:
-        platform: Platform whose queue to save.
-        items: Item ids to store.
-    """
-    data_io = _data_io()
-    data_io.save_json(
-        data=_dedup(items),
-        storage_location=QUEUE_LOCATION,
-        filename=queue_filename(platform),
-    )
-
-
 def append_to_scrape_queue(platform: str, items: list[str]) -> int:
     """Append items to one platform's queue.
 

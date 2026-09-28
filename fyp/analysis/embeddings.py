@@ -211,16 +211,6 @@ DOC_VARIANTS = {
 }
 
 
-def variant_store_model(model: str, variant: str) -> str:
-    """The shard-store ``model`` key for a document variant.
-
-    ``v1`` is the live document and keeps the bare model id (its shards ARE
-    the live store); any other variant is suffixed so the model-scoped store
-    treats it as a separate corpus.
-    """
-    return model if variant == "v1" else f"{model}+doc{variant}"
-
-
 def build_documents(df: pd.DataFrame, variant: str = "v1") -> pd.Series:
     """Build labelled embedding documents for every row of ``df``.
 

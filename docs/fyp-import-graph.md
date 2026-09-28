@@ -17,7 +17,8 @@ one with `python scripts/gen_import_graph.py` (see the end of this file).
 | `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | `base`, `tiktok`, `instagram`, `youtube`, `raw_names`, `migrations/` |
 | `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`, `scraper_alerts`, `connectivity` |
 | `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`, `backends/` |
-| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `niche_detection`, `session_profile`, `session_explorer`, `entropy_metrics`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
+| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `session_explorer`, `entropy_metrics`, `sequence_analysis`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
+| `fyp/analysis/experimental/` | inert | research analyses the app does not import: `niche_detection`, `session_profile`, `sequence_model` (their flat shims still resolve) |
 
 Most modules also keep an old flat path (`fyp/<module>.py`) as a
 back-compat shim for code outside this repository. First-party code imports

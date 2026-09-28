@@ -65,19 +65,6 @@ def __getattr__(name: str):
 # *********************************************************************************************************
 
 
-def invalidate_caches():
-    """Drop the cached Gemini client and generation config.
-
-    Both rebuild lazily on next use. Call after any runtime change to
-    ``[machine]`` values (the cached ``GenerateContentConfig`` bakes in
-    temperature / max_output_tokens / media_resolution / thinking_budget, and
-    the client bakes in the credential mode). The version descriptor cache in
-    :mod:`fyp.annotation.annotation_versioning` self-invalidates via its config signature.
-    """
-    _gcf()["structured_generation_config"] = None
-    _gcf()["client"] = None
-
-
 def initialize_machine():
 
     if _gcf().get("client", None) is not None:

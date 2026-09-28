@@ -2449,14 +2449,6 @@ class ForYouCollection(ForYouBaseCollection):
 
         self.prune_manifests()
 
-    def refresh_collection(self):
-        self.load_processed()
-        self.load_raw()
-        self.process()
-        self.migrate_sub_collections()
-        self.add_local_time_features()
-        self.save_processed()
-
 
 @functools.lru_cache(maxsize=1)
 def _config_timezone_offset() -> float:
