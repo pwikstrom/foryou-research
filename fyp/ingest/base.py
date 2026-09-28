@@ -148,7 +148,7 @@ except Exception:
         "data_source": "string[pyarrow]",
         "activity_type": "string[pyarrow]",
         "utc_timestamp": "timestamp[ns][pyarrow]",
-        "tz_offset": "int64[pyarrow]",
+        "tz_offset": "double[pyarrow]",
         "item_id": "string[pyarrow]",
         "ts_added_to_dataset": "timestamp[ns][pyarrow]",
         "extra_data": "string[pyarrow]",
@@ -1644,6 +1644,9 @@ class ForYouBaseCollection(ABC):
         df["local_week"] = df["local_week"].convert_dtypes(dtype_backend="pyarrow")
 
         local_hour = ts.dt.hour.astype("uint8[pyarrow]")
+        # The activity contract declares local_hour; until 2026-09-25 it was
+        # computed here only to derive the day segment and never stored.
+        df["local_hour"] = local_hour
 
         df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(dtype_backend="pyarrow")
 

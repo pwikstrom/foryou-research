@@ -36,7 +36,7 @@ def test_required_columns() -> None:
     req = ac.required_columns(contract)
     assert set(req) == _EXPECTED_REQUIRED_COLUMNS, set(req) ^ _EXPECTED_REQUIRED_COLUMNS
     assert req["utc_timestamp"] == "timestamp[ns][pyarrow]"
-    assert req["tz_offset"] == "int64[pyarrow]"
+    assert req["tz_offset"] == "double[pyarrow]"
     assert req["play_duration"] == "int64[pyarrow]"
     # derived fields are NOT ingested required columns
     for absent in ("session_id", "local_hour", "activity_contract_version"):

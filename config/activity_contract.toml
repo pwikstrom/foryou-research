@@ -120,11 +120,11 @@ description = "How an engagement event was linked to this row, so inferred links
 name = "tz_offset"
 scope = "base"
 skip_recode = true
-dtype = "int64[pyarrow]"
+dtype = "double[pyarrow]"
 section = "Activity"
 scale = "numeric"
 display_name = "Timezone offset"
-description = "The user's UTC offset (hours) at the time of the activity."
+description = "The user's UTC offset in hours at the time of the activity, fractional where the zone is (9.5 for Adelaide). From the time zone the participant supplied, per row with daylight saving applied, or else inferred once per file from the daily rhythm of the activity."
 required = true
 
 [[fields]]

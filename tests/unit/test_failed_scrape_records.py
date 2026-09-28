@@ -309,3 +309,48 @@ if __name__ == "__main__":
     test_storm_verdict_never_reaches_the_record()
     test_all_failed_batch_still_writes_the_record()
     print("All failed-scrape record tests passed.")
+
+
+
+
+
+def test_retryable_failures_do_not_read_as_failed():
+    """Only final failures (and legacy bare ids) feed scrape_fail."""
+    files = {f"{LABEL}_1.json": [
+        "111",
+        {"item_id": "222", "category": "permanent:removed"},
+        {"item_id": "333", "category": "transient:timeout"},
+        {"item_id": "444", "category": "transient:batch_aborted"},
+    ]}
+
+    ids, _ = _load(dict(files))
+    assert set(ids) == {"111", "222"}, ids
+
+    detail, _ = _load(dict(files), detail=True)
+    assert detail["333"] == "transient:timeout", detail
+    print("PASS: retryable failures do not read as failed")
+
+
+
+
+def test_latest_record_wins_whatever_the_listing_order():
+    """A retryable failure after a final one makes the item eligible again, and
+    a final one after a retryable one fails it — decided by the file names'
+    time order, not by the order the store lists them in."""
+    older = f"{LABEL}_20260901000000000000.json"
+    newer = f"{LABEL}_20260902000000000000.json"
+    retried = {
+        newer: [{"item_id": "111", "category": "transient:timeout"}],
+        older: [{"item_id": "111", "category": "permanent:ip_blocked"}],
+    }
+    gave_up = {
+        newer: [{"item_id": "111", "category": "permanent:retry_exhausted"}],
+        older: [{"item_id": "111", "category": "transient:timeout"}],
+    }
+
+    ids, _ = _load(dict(retried))
+    assert ids == [], ids
+    ids, _ = _load(dict(gave_up))
+    assert ids == ["111"], ids
+    print("PASS: latest record wins whatever the listing order")
+

@@ -245,6 +245,16 @@ def fix_complex_types(some_iterable, verbose=False):
 
 
 
+def is_arrow_date(dtype) -> bool:
+    """Whether ``dtype`` is an Arrow date (``date32``/``date64``).
+
+    pandas' ``convert_dtypes(dtype_backend="pyarrow")`` turns these into
+    ``timestamp[ms]``, so every converter here leaves them as they are.
+    """
+    return isinstance(dtype, pd.ArrowDtype) and pa.types.is_date(dtype.pyarrow_dtype)
+
+
+
 def convert_index_dtype_pyarrow(an_index):
 
     # Handle MultiIndex recursively
@@ -259,8 +269,8 @@ def convert_index_dtype_pyarrow(an_index):
     # Convert to Series to access convert_dtypes
     s = pd.Series(an_index)
 
-    # Attempt optimistic pyarrow conversion
-    s_pa = s.convert_dtypes(dtype_backend="pyarrow")
+    # Attempt optimistic pyarrow conversion (an Arrow date is kept as a date)
+    s_pa = s if is_arrow_date(s.dtype) else s.convert_dtypes(dtype_backend="pyarrow")
     
     # Reconstruct Index preserving name
     new_index = pd.Index(s_pa)
@@ -294,6 +304,13 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
 
     df = df_in.copy()
 
+    # pandas' convert_dtypes turns an Arrow date32 column into timestamp[ms],
+    # so a date (the activity contract's local_date) would be stored as a
+    # timestamp. Set Arrow date columns aside and put them back afterwards.
+    date_cols = {}
+    if df.columns.is_unique:
+        date_cols = {c: df[c] for c in df.columns if is_arrow_date(df[c].dtype)}
+
     # ---------------------------------------------------------
     # 1. OPTIMISTIC BATCH CONVERSION
     # ---------------------------------------------------------
@@ -307,6 +324,8 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
     except Exception as e:
         if verbose:
             logger.warning(f"    [PYARROW dtypes] Batch conversion failed ({e}). Falling back to column-wise checks.")
+    for col, original in date_cols.items():
+        df[col] = original
 
     # ---------------------------------------------------------
     # 2. IDENTIFY AND FIX PROBLEMATIC COLUMNS

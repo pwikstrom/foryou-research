@@ -2789,7 +2789,9 @@ def _load_failed_scrape_records(
     if verbose:
         logger.info("Loading failed scrapes...")
 
-    failed_scrapes_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(_failed_scrapes_label())]
+    # Oldest first, so that when an item has several records the latest wins
+    # (the file names carry the time they were written).
+    failed_scrapes_files = sorted(gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(_failed_scrapes_label()))
 
     records: dict[str, str | None] = {}
     for fn in failed_scrapes_files:
@@ -2823,12 +2825,41 @@ def _load_failed_scrape_records(
 
 
 
+def _is_final_failure(category: str | None) -> bool:
+    """Whether a recorded failure category means the scraper has given up.
+
+    A record written before categories were stored carries none; it was only
+    ever read as a final failure, so it still is.
+    """
+    return category is None or str(category).startswith("permanent")
+
+
+
+
+
 def load_failed_scrapes(
     verbose = False,
     super_verbose = False):
-    # Load list of failed scraped attempts.
+    """Item ids whose most recent recorded fetch failure is final.
 
-    return list(_load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose))
+    The record also stores failures the scraper will retry (a timeout, a batch
+    aborted by a storm guard, a rate limit), so that one kind of failure can be
+    singled out later. Those items stay in the scrape queue and must not read
+    as failed: this list feeds ``scrape_fail`` in the status table, which the
+    enrichment plan and the scrape-queue builder skip and the coverage bar
+    counts as failed for good. When an item has several records the latest
+    wins, so a retryable failure after an earlier final one makes the item
+    eligible again.
+
+    Args:
+        verbose: Log progress.
+        super_verbose: Log each file name as it is read.
+
+    Returns:
+        The failed item ids, as strings.
+    """
+    records = _load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose)
+    return [item_id for item_id, category in records.items() if _is_final_failure(category)]
 
 
 

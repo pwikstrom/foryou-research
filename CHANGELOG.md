@@ -193,6 +193,32 @@ public version. Entries below describe the Hub as it stands at that release.
   `[misc] scraper_offline_max_wait_seconds` (default 30 min) stops the run
   cleanly, with the items still queued and no alert.
 
+- **The activity table now matches its contract.** Replaying all three
+  platforms' exports against the activity contract found three mismatches.
+  `local_hour` was declared but never stored (it was computed only to derive
+  the day segment); it is stored now. `local_date` was declared a date but
+  stored as a millisecond timestamp, because pandas' `convert_dtypes` widens
+  Arrow dates and `save_parquet`, `fast_join`/`fast_vertical_concat` and the
+  index converter all run through it; the three converters now leave Arrow
+  dates alone (`fyp.core.types.is_arrow_date`). And `tz_offset` was declared
+  `int64` while the pipeline stored fractional hours (9.5 for Adelaide, and
+  per-row offsets from a supplied zone); the contract now declares
+  `double[pyarrow]`. The dtype change is a new activity-contract version and
+  changes the var_schema hash, so cached studies rebuild in full once.
+
+- **A retryable scrape failure no longer counts as failed for good.** The
+  failed-scrapes record stores every failure with its category, retryable
+  ones included, and every recorded id used to set `scrape_fail` in the
+  enrichment status table. So an item that timed out, or sat in a batch a
+  storm guard aborted, was skipped by the enrichment plan and the study
+  scrape-queue builder for good and shown as failed for good on the coverage
+  bar, even after it was later scraped. `load_failed_scrapes()` now returns
+  only items whose latest record is final (`permanent:*`, or a legacy id
+  without a category), and reads the record files oldest first so the latest
+  record is the one that counts. In the production record of 2026-09-24,
+  2,726 of 118,622 entries were retryable; 2,665 of those items had since
+  been scraped.
+
 - **The nearest-play fallback no longer links engagement from before the
   watch history.** A TikTok export's like and bookmark lists reach years
   further back than its watch history, so an engagement older than the

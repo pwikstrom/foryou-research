@@ -315,3 +315,13 @@ def test_refuses_gcs(tmp_path):
 ])
 def test_stamp_from_name(name, expected):
     assert rp.stamp_from_name(name) == expected
+
+
+
+
+def test_same_arrow_type_matches_contract_strings():
+    assert rp.same_arrow_type(pd.Series(["a"], dtype="string[pyarrow]").dtype, "string[pyarrow]")
+    assert rp.same_arrow_type(pd.Series([1.5], dtype="double[pyarrow]").dtype, "double[pyarrow]")
+    assert not rp.same_arrow_type(pd.Series([1.5], dtype="double[pyarrow]").dtype, "int64[pyarrow]")
+    dates = pd.Series(pd.to_datetime(["2026-09-01"])).dt.date.astype("date32[pyarrow]")
+    assert rp.same_arrow_type(dates.dtype, "date32[pyarrow]")

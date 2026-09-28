@@ -204,7 +204,8 @@ def _load_activities(collection_ids: list[str]) -> pd.DataFrame | None:
     if df is None or df.empty:
         return None
     df["local_timestamp"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
-    # local_hour is contract-derived but not persisted in the master parquet.
+    # local_hour is persisted since 2026-09-25; recomputed here so tables
+    # saved before then work too.
     df["local_hour"] = df["local_timestamp"].dt.hour
     return df
 

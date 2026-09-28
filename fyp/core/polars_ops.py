@@ -36,7 +36,7 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 
-from fyp.types import downgrade_series_if_large
+from fyp.types import downgrade_series_if_large, is_arrow_date
 from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -97,7 +97,8 @@ def _safe_convert_dtypes_pyarrow(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         series = df[col]
         try:
-            converted = series.convert_dtypes(dtype_backend="pyarrow")
+            # pandas would turn an Arrow date into timestamp[ms]; keep it.
+            converted = series if is_arrow_date(series.dtype) else series.convert_dtypes(dtype_backend="pyarrow")
         except Exception:
             # Known-failure path: all-null nested-type columns. The
             # original series is already pyarrow-backed and functionally

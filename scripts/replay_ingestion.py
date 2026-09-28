@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Replay the TikTok export corpus through today's ingestion, one donation at a time.
+"""Replay the donated export corpus through today's ingestion, one donation at a time.
 
 The ingestion ledger only counts rows for files ingested since it existed, so
 the attrition of most of the corpus is unknown. This script re-ingests every
-raw TikTok export in a DOWNLOADED SNAPSHOT, in the order the files were
-donated, into an empty scratch store, and records for every step:
+raw export in a DOWNLOADED SNAPSHOT (TikTok exports from both routes, and the
+Instagram and YouTube exports), in the order the files were donated, into an
+empty scratch store, and records for every step:
 
 - intake: records read per export section, records outside the parser's
   whitelist, records the parser could not read (by kind), identical share
@@ -27,6 +28,9 @@ written outside ``--out``: the snapshot is only read, and every storage
 location resolves inside a scratch store under ``--out``. The replay runs the
 code in this checkout, so it shows what the current pipeline does with this
 donation history, not what happened when each file first arrived.
+
+A file that repeats an earlier file byte for byte (a test upload of the same
+export) is left out unless ``--keep-copies`` is given; the report counts them.
 
 Donation time, in order of precedence (the source used is recorded per file):
 the ledger's ``uploaded_at``; the UTC stamp in a generated stored name; the
@@ -67,7 +71,16 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
-ROUTE_FOLDERS = {"ddp": ("ddp", "ddp_raw"), "aio": ("aio", "aio_raw")}
+# Raw folder, platform and data source per upload route. The TikTok folders
+# are keyed by source, the later platforms by platform (see DEVELOPING.md).
+ROUTES = {
+    "ddp": {"group": "ddp", "folder": "ddp_raw", "platform": "tiktok", "source": "ddp"},
+    "aio": {"group": "aio", "folder": "aio_raw", "platform": "tiktok", "source": "aio"},
+    "instagram": {"group": "instagram", "folder": "instagram_raw", "platform": "instagram", "source": "ddp"},
+    "youtube": {"group": "youtube", "folder": "youtube_raw", "platform": "youtube", "source": "ddp"},
+}
+ROUTE_FOLDERS = {route: (r["group"], r["folder"]) for route, r in ROUTES.items()}
+PLATFORM_ORDER = ("tiktok", "instagram", "youtube")
 MANIFEST_FILENAME = "ingestion_manifest.json"
 ORDER_SOURCES = ("uploaded_at", "name_stamp", "aio_date", "table_first_added",
                  "ledger_first_seen", "last_event")
@@ -100,7 +113,7 @@ POSTCODE_ZONES = (
     ((8000, 8999), "Australia/Melbourne"), ((9000, 9999), "Australia/Brisbane"),
 )
 STEP_COLUMNS = (
-    "rank", "raw_file", "route", "order_source", "order_ts", "records", "viewing_records",
+    "rank", "raw_file", "route", "platform", "order_source", "order_ts", "records", "viewing_records",
     "outside_whitelist", "not_parseable", "share_copies_merged", "missing_required",
     "processed_rows", "within_file_duplicates", "rows_replaced_in_older_files",
     "final_rows", "outcome", "copy_of_rank", "merged_with_earlier", "merged_with_ranks", "max_overlap", "max_overlap_rank",
@@ -571,6 +584,10 @@ def link_census(df: pd.DataFrame, cap_seconds: int = PLAY_CAP_SECONDS) -> dict:
 
     first_play = ts[is_play].min() if is_play.any() else None
     by_type = {t: Counter() for t in ENGAGEMENT}
+    # The same rows split by why an unlinked row stays unlinked: anything
+    # dated before the file's first play first (the fold never looks there,
+    # whatever the row's id), then a missing id, then a video never played.
+    linkage = {t: Counter() for t in ENGAGEMENT}
     nearest_dt: list[float] = []
     nearest_by_type: dict[str, list[float]] = {t: [] for t in ENGAGEMENT}
     for i in range(n):
@@ -579,6 +596,19 @@ def link_census(df: pd.DataFrame, cap_seconds: int = PLAY_CAP_SECONDS) -> dict:
             continue
         c = by_type[t]
         c["rows"] += 1
+        before = first_play is None or ts.iat[i] < first_play
+        k = linkage[t]
+        k["rows"] += 1
+        if has_item[i] and adjacent[i]:
+            k["adjacent"] += 1
+        elif has_item[i] and plays_by_item.get(item_arr[i]) and not before:
+            k["nearest_play"] += 1
+        elif before:
+            k["before_first_play"] += 1
+        elif not has_item[i]:
+            k["no_item_id"] += 1
+        else:
+            k["video_not_played"] += 1
         if not has_item[i]:
             c["no_item_id"] += 1
         elif adjacent[i]:
@@ -656,6 +686,7 @@ def link_census(df: pd.DataFrame, cap_seconds: int = PLAY_CAP_SECONDS) -> dict:
     }
     return {
         "by_type": {t: dict(c) for t, c in by_type.items()},
+        "linkage": {t: dict(c) for t, c in linkage.items()},
         "nearest_dt_seconds": nearest_dt,
         "nearest_dt_by_type": nearest_by_type,
         "comments": {
@@ -889,8 +920,132 @@ def aggregate(steps: list[dict], census: dict[str, dict], links: dict[str, dict]
         "fill_check_on_observed_ids": {w: dict(c) for w, c in sorted(fill_check.items(), key=lambda kv: int(kv[0]))},
         "plays": dict(play_totals),
     }
+    platform_of = {s["raw_file"]: s.get("platform") for s in steps}
+    report["linking_by_platform"] = {}
+    for plat in PLATFORM_ORDER:
+        mine = [lc for name, lc in links.items() if platform_of.get(name) == plat]
+        if not mine:
+            continue
+        report["linking_by_platform"][plat] = {
+            t: dict(_sum_counters(lc["by_type"].get(t, {}) for lc in mine)) for t in ENGAGEMENT}
+        report.setdefault("linkage_by_platform", {})[plat] = {
+            t: dict(_sum_counters(lc.get("linkage", {}).get(t, {}) for lc in mine)) for t in ENGAGEMENT}
     report["order"] = order_agreement(order_rows)
     return report
+
+
+
+
+
+def _arrow_type(dtype):
+    """The Arrow type behind a pandas dtype (or a dtype string), or None."""
+    import pyarrow as pa
+
+    try:
+        dtype = pd.api.types.pandas_dtype(dtype) if isinstance(dtype, str) else dtype
+    except TypeError:
+        return None
+    if hasattr(dtype, "pyarrow_dtype"):
+        return dtype.pyarrow_dtype
+    if isinstance(dtype, pd.StringDtype):
+        return pa.string()
+    try:
+        return pa.from_numpy_dtype(dtype)
+    except (TypeError, pa.ArrowNotImplementedError):
+        return None
+
+
+
+
+
+def same_arrow_type(actual, declared: str) -> bool:
+    """Whether a column's dtype is the contract's Arrow type (string widths alike)."""
+    import pyarrow as pa
+
+    a, b = _arrow_type(actual), _arrow_type(declared)
+    if a is None or b is None:
+        return False
+    strings = (pa.string(), pa.large_string())
+    return a == b or (a in strings and b in strings)
+
+
+
+
+
+def platform_mapping(data: pd.DataFrame, steps: list[dict], contract: dict,
+                     declared: dict[str, frozenset]) -> dict:
+    """How each platform's exports landed in the unified activity table.
+
+    For every platform: files, records read and rows kept, rows by activity
+    type (and whether each type is one the platform's parser declares),
+    whether every contract column is present with the contract's type, the
+    required fields' missing values, how often each activity type names an
+    item, the share of plays with a play duration, how engagement was linked,
+    the time span, the offsets used and the contract versions stamped.
+
+    Args:
+        data: The final activity table.
+        steps: The replay's per-file records.
+        contract: The activity contract (``load_contract()``).
+        declared: ``{platform: emitted_activity_types}`` from the parser classes.
+
+    Returns:
+        ``{platform: {...}}`` in ``PLATFORM_ORDER``.
+    """
+    fields = [f for f in contract.get("fields", []) if f.get("scope") == "base"]
+    required = [f["name"] for f in fields if f.get("required")]
+    out: dict[str, dict] = {}
+    for plat in PLATFORM_ORDER:
+        mine = [s for s in steps if s.get("platform") == plat]
+        d = data[data["source_platform"].astype(str) == plat] if len(data) else data
+        if not mine and not len(d):
+            continue
+        types = d["activity_type"].astype("string").value_counts() if len(d) else pd.Series(dtype=int)
+        by_type = {}
+        for atype, n in types.items():
+            sel = d[d["activity_type"].astype("string") == atype]
+            by_type[str(atype)] = {
+                "rows": int(n),
+                "declared": str(atype) in declared.get(plat, frozenset()),
+                "with_item_id_pct": round(100 * sel["item_id"].notna().mean(), 1),
+            }
+        columns = {}
+        for f in fields:
+            name = f["name"]
+            present = name in d.columns
+            columns[name] = {"present": present, "dtype": str(d[name].dtype) if present else None,
+                             "dtype_ok": present and same_arrow_type(d[name].dtype, f.get("dtype"))}
+        plays = d[d["activity_type"].astype("string").isin(VIEWING)] if len(d) else d
+        eng = d[d["activity_type"].astype("string").isin(ENGAGEMENT)] if len(d) else d
+        utc = pd.to_datetime(d["utc_timestamp"], utc=True) if len(d) else pd.Series(dtype="datetime64[ns, UTC]")
+        out[plat] = {
+            "files": len(mine),
+            "outcomes": dict(Counter(s["outcome"] for s in mine)),
+            "records_read": sum(int(s.get("records") or 0) for s in mine),
+            "rows_kept": int(len(d)),
+            "collections": int(d["collection_id"].nunique()) if len(d) else 0,
+            "dropped": {k: sum(int(s.get(k) or 0) for s in mine)
+                        for k in ("outside_whitelist", "not_parseable", "share_copies_merged", "missing_required")},
+            "rows_by_type": by_type,
+            "undeclared_types": sorted(t for t, v in by_type.items() if not v["declared"]),
+            "contract_columns": len(columns),
+            "columns_missing": sorted(c for c, v in columns.items() if not v["present"]),
+            "columns_wrong_type": sorted(c for c, v in columns.items() if v["present"] and not v["dtype_ok"]),
+            "required_nulls": {c: int(d[c].isna().sum()) for c in required if c in d.columns},
+            "plays_with_duration_pct": round(100 * plays["play_duration"].notna().mean(), 1) if len(plays) else None,
+            "link_method": {str(k): int(v) for k, v in
+                            d["link_method"].astype("string").value_counts(dropna=True).items()} if len(d) else {},
+            "engagement_rows": int(len(eng)),
+            "sessions": int(d["session_id"].nunique()) if len(d) and "session_id" in d.columns else 0,
+            "first_utc": utc.min().isoformat() if len(d) else None,
+            "last_utc": utc.max().isoformat() if len(d) else None,
+            "tz_offsets": {str(k): int(v) for k, v in
+                           d["tz_offset"].astype("string").value_counts().items()} if len(d) else {},
+            "contract_versions": {str(k): int(v) for k, v in
+                                  d["activity_contract_version"].astype("string").value_counts().items()}
+                                 if len(d) and "activity_contract_version" in d.columns else {},
+        }
+    return out
 
 
 
@@ -1021,9 +1176,9 @@ def _pct(part: float, whole: float) -> float | None:
 
 def render_tables_md(report: dict) -> str:
     """The replay's figures as markdown tables, one section per paper table."""
-    out = ["# Replay of the TikTok export corpus", ""]
+    out = ["# Replay of the donated export corpus", ""]
     intake = report["intake"]
-    routes = [r for r in ("ddp", "aio", "all") if r in intake]
+    routes = [r for r in (*ROUTES, "all") if r in intake]
     keys = [("Files", "files"), ("Records read", "records"), ("Outside the whitelist", "outside_whitelist"),
             ("Not parseable", "not_parseable"), ("Identical shares merged", "share_copies_merged"),
             ("Missing a required field", "missing_required"), ("Too-small files", "too_small_files"),
@@ -1037,6 +1192,34 @@ def render_tables_md(report: dict) -> str:
             "Not parseable by kind (all): " + json.dumps(intake["all"]["not_parseable_by_kind"]), ""]
     t = report["table"]
     out += [f"Final table: {t['rows']:,} rows in {t['collections']:,} collections.", ""]
+    if report.get("byte_copies_left_out"):
+        out += [f"Byte-identical repeats left out: {json.dumps(report['byte_copies_left_out'])}", ""]
+    pm = report.get("platform_mapping") or {}
+    if pm:
+        plats = list(pm)
+        out += ["## Mapping to the activity table, by platform", "",
+                _md_table(["", *plats], [
+                    ["Files", *[pm[p]["files"] for p in plats]],
+                    ["Records read", *[pm[p]["records_read"] for p in plats]],
+                    ["Rows kept", *[pm[p]["rows_kept"] for p in plats]],
+                    ["Collections", *[pm[p]["collections"] for p in plats]],
+                    ["Engagement rows", *[pm[p]["engagement_rows"] for p in plats]],
+                    ["Plays with a duration (%)", *[pm[p]["plays_with_duration_pct"] for p in plats]],
+                    ["Sessions", *[pm[p]["sessions"] for p in plats]],
+                    ["Contract columns missing", *[len(pm[p]["columns_missing"]) for p in plats]],
+                    ["Columns of the wrong type", *[len(pm[p]["columns_wrong_type"]) for p in plats]],
+                    ["Required values missing", *[sum(pm[p]["required_nulls"].values()) for p in plats]],
+                    ["Undeclared activity types", *[len(pm[p]["undeclared_types"]) for p in plats]],
+                ]), ""]
+        types = sorted({a for p in plats for a in pm[p]["rows_by_type"]},
+                       key=lambda a: -sum(pm[p]["rows_by_type"].get(a, {}).get("rows", 0) for p in plats))
+        out += ["Rows by activity type (percent naming an item):", "",
+                _md_table(["type", *plats], [[a, *[
+                    (f"{pm[p]['rows_by_type'][a]['rows']:,} ({pm[p]['rows_by_type'][a]['with_item_id_pct']:.0f}%)"
+                     if a in pm[p]["rows_by_type"] else "-") for p in plats]] for a in types]), ""]
+        out += ["Link methods: " + "; ".join(f"{p}: {json.dumps(pm[p]['link_method'])}" for p in plats), "",
+                "Missing/wrong-type columns: " + "; ".join(
+                    f"{p}: {pm[p]['columns_missing']}/{pm[p]['columns_wrong_type']}" for p in plats), ""]
 
     o = report["overlap"]
     out += ["## Overlap with earlier donations", "",
@@ -1346,7 +1529,7 @@ def snapshot_inputs(snapshot: Path) -> dict:
                 country = (item.get("country") or {}).get("S")
                 zones[did] = zone_from_postcode(postcode, country)
     table = (pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-             .filter(pl.col("source_platform") == "tiktok", pl.col("data_source") != "zeeschuimer")
+             .filter(pl.col("data_source") != "zeeschuimer")
              .group_by("raw_file")
              .agg(pl.col("ts_added_to_dataset").min().alias("first_added"), pl.len().alias("rows"),
                   pl.col("collection_id").first().alias("collection_id"))
@@ -1361,11 +1544,15 @@ def snapshot_inputs(snapshot: Path) -> dict:
         "prod_cid": {r["raw_file"]: r["collection_id"] for r in rows},
         "prod_by_type": {str(k): int(v) for k, v in (
             pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-            .filter(pl.col("source_platform") == "tiktok", pl.col("data_source") != "zeeschuimer")
+            .filter(pl.col("data_source") != "zeeschuimer")
             .group_by("activity_type").len().collect().iter_rows())},
+        "prod_by_platform_type": {f"{p}:{a}": int(n) for p, a, n in (
+            pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
+            .filter(pl.col("data_source") != "zeeschuimer")
+            .group_by("source_platform", "activity_type").len().collect().iter_rows())},
         "prod_collections": int(
             pl.scan_parquet(snapshot / "recoded" / "collections_recoded.parquet")
-            .filter(pl.col("source_platform") == "tiktok", pl.col("data_source") != "zeeschuimer")
+            .filter(pl.col("data_source") != "zeeschuimer")
             .select(pl.col("collection_id").n_unique()).collect().item()),
     }
 
@@ -1374,13 +1561,13 @@ def snapshot_inputs(snapshot: Path) -> dict:
 
 
 def list_raw_files(snapshot: Path) -> list[dict]:
-    """Every raw export in the snapshot's TikTok export folders."""
+    """Every raw export in the snapshot's export folders, all platforms."""
     files = []
-    for route, (group, folder) in ROUTE_FOLDERS.items():
-        d = snapshot / "activity_data" / group / folder
+    for route, spec in ROUTES.items():
+        d = snapshot / "activity_data" / spec["group"] / spec["folder"]
         for p in sorted(d.iterdir()) if d.is_dir() else []:
             if p.is_file() and not p.name.startswith(".") and p.name != MANIFEST_FILENAME:
-                files.append({"raw_file": p.name, "route": route, "path": p})
+                files.append({"raw_file": p.name, "route": route, "platform": spec["platform"], "path": p})
     return files
 
 
@@ -1391,6 +1578,8 @@ def census_all(files: list[dict], parser_cls) -> tuple[dict[str, dict], dict[str
     """Section census of every file, read once before the replay."""
     census, errors = {}, {}
     for f in files:
+        if ROUTES[f["route"]]["platform"] != "tiktok":
+            continue  # the section census reads TikTok's JSON export; the others count via the parser
         try:
             payload = json.loads(Path(f["path"]).read_text())
             if not isinstance(payload, dict):
@@ -1457,7 +1646,7 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
         for sub in main.collections:
             quarantined.update(sub.quarantined_this_run)
 
-    frames = {sub.data_source: sub.data.copy() for sub in main.collections
+    frames = {(sub.source_platform, sub.data_source): sub.data.copy() for sub in main.collections
               if sub.state == "processed" and len(sub.data)}
     load_failed = {fn: {"error": err, "platform": s.source_platform, "source": s.data_source}
                    for s in main.collections for fn, err in s.load_failed_this_run.items()}
@@ -1524,12 +1713,17 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
         ``(steps, links, unification, main_collection)``.
     """
     import fyp.core.structure_sentinel as sentinel_mod
+    import fyp.ingest.instagram as instagram_mod
     import fyp.ingest.tiktok as tiktok_mod
+    import fyp.ingest.youtube as youtube_mod
     from fyp.fyp_config import get_config
     from fyp.ingest.base import ForYouCollection
+    from fyp.ingest.instagram import InstagramDDPCollection
     from fyp.ingest.tiktok import TikTokAIOCollection, TikTokDDPCollection
+    from fyp.ingest.youtube import YouTubeDDPCollection
 
     links: dict[str, dict] = {}
+    fold_modules = (tiktok_mod, instagram_mod, youtube_mod)
     original_fold = tiktok_mod.derive_play_duration
 
     def instrumented_fold(df, *args, **kwargs):
@@ -1541,11 +1735,12 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             links[name] = lc
         return out
 
-    tiktok_mod.derive_play_duration = instrumented_fold
+    for mod in fold_modules:
+        mod.derive_play_duration = instrumented_fold
     main = ForYouCollection(verbose=False)
     main.collections = []
-    main.register_collection_class(TikTokDDPCollection)
-    main.register_collection_class(TikTokAIOCollection)
+    for cls in (TikTokDDPCollection, TikTokAIOCollection, InstagramDDPCollection, YouTubeDDPCollection):
+        main.register_collection_class(cls)
 
     rank_of = {r["raw_file"]: r["rank"] for r in order_rows}
     copy_of = copy_of_earlier(order_rows)
@@ -1557,7 +1752,8 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
         for step_no, row in enumerate(todo, start=1):
             t0 = time.perf_counter()
             name, route = row["raw_file"], row["route"]
-            raw_dir = Path(get_config()["paths"][ROUTE_FOLDERS[route][1]])
+            platform, source = ROUTES[route]["platform"], ROUTES[route]["source"]
+            raw_dir = Path(get_config()["paths"][ROUTES[route]["folder"]])
             raw_dir.mkdir(parents=True, exist_ok=True)
             dest = raw_dir / name
             shutil.copyfile(row["path"], dest)
@@ -1570,7 +1766,7 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             (raw_dir / MANIFEST_FILENAME).write_text(json.dumps({name: entry}))
             baseline_n = None
             if use_sentinel:
-                key = sentinel_mod.baseline_key("tiktok", route, "reviewed" if led.get("client_reviewed") else None)
+                key = sentinel_mod.baseline_key(platform, source, "reviewed" if led.get("client_reviewed") else None)
                 baseline_n = int((sentinel_mod.load_baselines()["baselines"].get(key) or {}).get("n_accepted") or 0)
 
             first = _ingest_pass(main, use_sentinel)
@@ -1597,6 +1793,7 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                 "outcome": "not_seen", "processed_rows": 0, "final_rows": 0, "dropped": {},
                 "merged_with_siblings": []}
             dest.unlink(missing_ok=True)
+            (raw_dir / MANIFEST_FILENAME).write_text("{}")
 
             # The files this donation was merged with: its surviving siblings,
             # plus earlier files whose collection now points at its collection
@@ -1607,7 +1804,7 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
             absorbed = {f for f, c in pre_cids.items() if my_cid and remap.get(c) == my_cid}
             partners = sorted(set(mine.get("merged_with_siblings") or []) | absorbed)
 
-            new_frame = final["frames"].get(route, pd.DataFrame())
+            new_frame = final["frames"].get((platform, source), pd.DataFrame())
             if len(new_frame):
                 new_frame = new_frame[new_frame["raw_file"].astype(str) == name]
             if len(new_frame):
@@ -1645,9 +1842,10 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                     cal = calibrate(new_frame["utc_timestamp"], zone)
             step = {
                 "_step": step_no,
-                "rank": row["rank"], "raw_file": name, "route": route, "order_source": row["order_source"],
+                "rank": row["rank"], "raw_file": name, "route": route, "platform": platform,
+                "order_source": row["order_source"],
                 "order_ts": row["order_ts"].isoformat() if row["order_ts"] else None,
-                "records": cen["records"] if cen else 0,
+                "records": cen["records"] if cen else int(mine.get("raw_rows") or 0),
                 "viewing_records": cen["viewing_records"] if cen else 0,
                 "outside_whitelist": int(dropped.get("outside_whitelist", 0)),
                 "not_parseable": int(dropped.get("not_parseable", 0)),
@@ -1688,7 +1886,8 @@ def replay(order_rows: list[dict], census: dict[str, dict], ledger: dict[str, di
                 f"{step['records']:,} records -> {processed:,} rows, {replaced:,} superseded in older files, "
                 f"table {len(post):,} ({step['seconds']}s)")
     finally:
-        tiktok_mod.derive_play_duration = original_fold
+        for mod in fold_modules:
+            mod.derive_play_duration = original_fold
     return steps, links, unification, main
 
 
@@ -1733,6 +1932,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, help="replay only the first N files of the order")
     parser.add_argument("--compare-with", help="another replay's --out, for the order-dependence check")
     parser.add_argument("--no-sentinel", action="store_true", help="replay without the structure sentinel")
+    parser.add_argument("--keep-copies", action="store_true",
+                        help="also replay files that repeat an earlier file byte for byte (test uploads)")
     parser.add_argument("--save-table", action="store_true",
                         help="also write the final activity table to <out>/_final_table.parquet (participant data: "
                              "keep it local and delete it with the snapshot)")
@@ -1785,12 +1986,21 @@ def main(argv: list[str] | None = None) -> int:
     for f in files:
         f["sha256"] = hashlib.sha256(Path(f["path"]).read_bytes()).hexdigest()
     order_rows = donation_order(files, args.order, args.seed)
+    copies = copy_of_earlier(order_rows)
+    excluded = Counter(r["route"] for r in order_rows if r["raw_file"] in copies)
+    if not args.keep_copies and copies:
+        files = [f for f in files if f["raw_file"] not in copies]
+        order_rows = donation_order(files, args.order, args.seed)
+        log(f"left out {len(copies)} byte-identical repeat(s) of earlier files: {dict(excluded)}")
 
     t0 = time.perf_counter()
     steps, links, unification, main_collection = replay(
         order_rows, census, inputs["ledger"], args.limit, log, use_sentinel=not args.no_sentinel,
         review=args.review, zones=inputs["zones"], calibrate=ir.calibrate_one_file)
     elapsed = time.perf_counter() - t0
+    # What run_ingest_refresh does after the merge and before saving.
+    main_collection.add_local_time_features()
+    main_collection.add_session_ids()
 
     replayed = {s["raw_file"] for s in steps}
     files_seen: Counter = Counter()
@@ -1822,7 +2032,17 @@ def main(argv: list[str] | None = None) -> int:
     report["time_zone"] = tz_summary(steps)
     if len(data):
         report["sessions"] = session_census(data)
-    report["raw_files_found"] = {route: sum(1 for f in files if f["route"] == route) for route in ROUTE_FOLDERS}
+    report["raw_files_found"] = {route: sum(1 for f in files if f["route"] == route) for route in ROUTES}
+    report["byte_copies_left_out"] = {} if args.keep_copies else dict(excluded)
+    if len(data):
+        from fyp.core.activity_contract import load_contract
+        from fyp.ingest.instagram import InstagramDDPCollection
+        from fyp.ingest.tiktok import TikTokAIOCollection, TikTokDDPCollection
+        from fyp.ingest.youtube import YouTubeDDPCollection
+        declared = {"tiktok": TikTokDDPCollection.emitted_activity_types | TikTokAIOCollection.emitted_activity_types,
+                    "instagram": InstagramDDPCollection.emitted_activity_types,
+                    "youtube": YouTubeDDPCollection.emitted_activity_types}
+        report["platform_mapping"] = platform_mapping(data, steps, load_contract(), declared)
     report["production_files_without_raw"] = len(set(inputs["prod_rows"]) - {f["raw_file"] for f in files})
     if args.compare_with:
         with (Path(args.compare_with).expanduser() / "final_files.csv").open() as fh:
