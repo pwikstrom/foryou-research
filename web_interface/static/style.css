@@ -7164,6 +7164,22 @@ body:has(.public-page) {
     display: none;
 }
 
+/* WebGL-unavailable notice above the map (the dots are a WebGL trace). */
+.ss-webgl-notice {
+    padding: 8px 14px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    color: var(--color-text-primary);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-warning);
+    line-height: var(--leading-normal);
+}
+
+.ss-webgl-notice[hidden] {
+    display: none;
+}
+
 /* ── Panel layout: map column + side rail ── */
 .ss-panel {
     flex: 1;

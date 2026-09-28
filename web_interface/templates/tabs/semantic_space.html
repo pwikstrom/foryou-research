@@ -80,6 +80,19 @@
         <button id="ss-banner-action" class="action-btn text-xs" style="display: none; margin-left: auto;"></button>
     </div>
 
+    <!-- WebGL notice: the dots are a WebGL trace, the labels are SVG, so a
+         browser without WebGL shows the labels over an empty map. Shown by
+         semantic_space.js when no WebGL context can be created, or when the
+         map's context is lost mid-session. Kept apart from #ss-banner, which
+         _ssRenderBanner rewrites on every status poll. -->
+    <div id="ss-webgl-notice" class="ss-webgl-notice text-sm" role="alert" hidden>
+        <span class="font-semibold">The map's dots can't be drawn in this browser.</span>
+        <span id="ss-webgl-notice-reason"></span>
+        In Chrome, turn on <em>Settings → System → Use graphics acceleration when available</em>
+        and restart the browser; <span class="font-mono">chrome://gpu</span> shows whether WebGL is
+        available. Other pages of the Hub are not affected.
+    </div>
+
     <!-- Map on the left, a side rail on the right. The rail holds what used
          to sit above the map — the focused niche's readings and the
          collection-trajectory overlay — so neither costs the map any height.

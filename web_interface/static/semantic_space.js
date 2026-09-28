@@ -154,7 +154,49 @@ function initSemanticSpace() {
         return;
     }
     _ssLoaded = true;
+    if (!_ssWebglAvailable()) {
+        _ssShowWebglNotice('WebGL is turned off or unavailable.');
+    }
     loadSemanticSpace();
+}
+
+
+// The dots are a scattergl trace, drawn with WebGL; the niche labels are SVG
+// annotations. A browser that cannot create a WebGL context (graphics
+// acceleration off, a blocklisted GPU driver, an extension or policy blocking
+// WebGL, a VM without a GPU) therefore shows the labels over an empty map, with
+// nothing to say why. Asking a throwaway canvas for a context detects that up front.
+function _ssWebglAvailable() {
+    try {
+        const c = document.createElement('canvas');
+        return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (e) {
+        return false;
+    }
+}
+
+
+function _ssShowWebglNotice(reason) {
+    const el = document.getElementById('ss-webgl-notice');
+    if (!el) { return; }
+    const why = document.getElementById('ss-webgl-notice-reason');
+    if (why) { why.textContent = reason; }
+    el.hidden = false;
+}
+
+
+// A context that was created can still be taken away later — a GPU driver
+// reset, or the browser reclaiming contexts under memory pressure — and the dots
+// vanish the same way. Listen on each of Plotly's WebGL canvases; Plotly may
+// replace them on a re-render, so each new canvas is wired once.
+function _ssWatchWebglContext(div) {
+    div.querySelectorAll('canvas').forEach(function (cv) {
+        if (cv._ssCtxWatched) { return; }
+        cv._ssCtxWatched = true;
+        cv.addEventListener('webglcontextlost', function () {
+            _ssShowWebglNotice('The browser dropped the map\'s WebGL context. Reloading the page may bring the dots back.');
+        });
+    });
 }
 
 
@@ -1032,7 +1074,8 @@ function renderSemanticSpace() {
     // Base scatter stays trace 0; trajectory overlays (if any) are appended
     // after it, so the click/zoom/focus/legend logic above is untouched.
     Plotly.react(div, [trace].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
-        { responsive: true, displayModeBar: true, scrollZoom: true });
+        { responsive: true, displayModeBar: true, scrollZoom: true })
+        .then(() => _ssWatchWebglContext(div));
     _ssRenderLegend(mode, overlay, catColorMap);
     _ssRenderNicheInfo(focusNiche);
 
@@ -1266,7 +1309,8 @@ function _ssFlashRedraw() {
             .concat(_ssFlashAnnotations())
     });
     Plotly.react(div, [div.data[0]].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
-        { responsive: true, displayModeBar: true, scrollZoom: true });
+        { responsive: true, displayModeBar: true, scrollZoom: true })
+        .then(() => _ssWatchWebglContext(div));
 }
 
 
@@ -1872,7 +1916,8 @@ function _ssAnimFrame() {
     const layout = Object.assign({}, div.layout,
         { shapes: _ssTrajectoryShapes() });
     Plotly.react(div, [base].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
-        { responsive: true, displayModeBar: true, scrollZoom: true });
+        { responsive: true, displayModeBar: true, scrollZoom: true })
+        .then(() => _ssWatchWebglContext(div));
 }
 
 
