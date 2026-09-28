@@ -5,6 +5,7 @@ import pytest
 
 import fyp.analysis.embedding_backends as embedding_backends
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
+from tests._web import web_client
 
 _TEST_ADMIN = "__embed_gate_test_admin__"
 
@@ -72,25 +73,9 @@ def test_start_process_local_mode_unaffected(stub_embed_backend, monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
-    from web_interface.fyp_data_hub import app
+    from web_interface.auth import ROLE_ADMIN
 
-    orig_get_user = security.user_manager.get_user
-
-    def _fake_get(uid):
-        if uid == _TEST_ADMIN:
-            return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
-        return orig_get_user(uid)
-
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-
-    app.testing = True
-    app.config["WTF_CSRF_ENABLED"] = False
-    with app.test_client() as test_client:
-        with test_client.session_transaction() as sess:
-            sess["_user_id"] = _TEST_ADMIN
-            sess["_fresh"] = True
+    with web_client(monkeypatch, {_TEST_ADMIN: ROLE_ADMIN}, login_as=_TEST_ADMIN) as test_client:
         yield test_client
 
 

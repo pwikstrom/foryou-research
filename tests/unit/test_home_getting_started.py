@@ -7,6 +7,8 @@ stubbed-user approach as ``test_endpoint_gates.py``.
 
 import pytest
 
+from tests._web import login
+
 _TEST_VIEWER = "__home_test_viewer__"
 
 
@@ -40,10 +42,7 @@ def client(monkeypatch):
         yield test_client
 
 
-def _login(client, username):
-    with client.session_transaction() as sess:
-        sess["_user_id"] = username
-        sess["_fresh"] = True
+_login = login
 
 
 def _grant_permissions(monkeypatch, perms):

@@ -2,6 +2,8 @@
 
 import pytest
 
+from tests._web import login, web_client
+
 # --------------------------------------------------------------- wiring
 
 
@@ -272,31 +274,13 @@ _TEST_VIEWER = "__ops_report_test_viewer__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
-    from web_interface.fyp_data_hub import app
+    from web_interface.auth import ROLE_ADMIN
 
-    orig_get_user = security.user_manager.get_user
-
-    def _fake_get(uid):
-        if uid == _TEST_ADMIN:
-            return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
-        if uid == _TEST_VIEWER:
-            return User(username=_TEST_VIEWER, role="viewer", password_hash="", approved=True)
-        return orig_get_user(uid)
-
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-
-    app.testing = True
-    app.config["WTF_CSRF_ENABLED"] = False
-    with app.test_client() as test_client:
+    with web_client(monkeypatch, {_TEST_ADMIN: ROLE_ADMIN, _TEST_VIEWER: "viewer"}) as test_client:
         yield test_client
 
 
-def _login(client, username):
-    with client.session_transaction() as sess:
-        sess["_user_id"] = username
-        sess["_fresh"] = True
+_login = login
 
 
 def test_ops_report_routes_require_permission(client, monkeypatch):

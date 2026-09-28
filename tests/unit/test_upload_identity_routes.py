@@ -12,6 +12,8 @@ import json
 
 import pytest
 
+from tests._web import login, web_client
+
 _VIEWER = "__upload_identity_viewer__"
 _ADMIN = "__upload_identity_admin__"
 
@@ -55,30 +57,13 @@ def local_store(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, ROLE_VIEWER, User
-    from web_interface.fyp_data_hub import app
+    from web_interface.auth import ROLE_ADMIN, ROLE_VIEWER
 
-    orig_get_user = security.user_manager.get_user
-
-    def _fake_get(uid):
-        if uid == _VIEWER:
-            return User(username=_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
-        if uid == _ADMIN:
-            return User(username=_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
-        return orig_get_user(uid)
-
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    app.testing = True
-    app.config["WTF_CSRF_ENABLED"] = False
-    with app.test_client() as test_client:
+    with web_client(monkeypatch, {_VIEWER: ROLE_VIEWER, _ADMIN: ROLE_ADMIN}) as test_client:
         yield test_client
 
 
-def _login(client, username):
-    with client.session_transaction() as sess:
-        sess["_user_id"] = username
-        sess["_fresh"] = True
+_login = login
 
 
 def _grant(monkeypatch, perms):
