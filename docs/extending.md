@@ -68,8 +68,9 @@ the images your `fetch` saved.
 
 ### 2. Register the module
 
-Add the new module to the `_SCRAPER_MODULES` tuple near the top of
-`fyp/scrape/platform_scraper.py` (~line 73). This is the one hardcoded
+Add the new module, by its canonical `fyp.scrape.<platform>_dl` path, to the
+`_SCRAPER_MODULES` tuple near the top of `fyp/scrape/platform_scraper.py`.
+This is the one hardcoded
 list on the scraping side: `get_scraper()` imports these modules lazily so
 subclasses self-register without a circular import — a module not listed
 there never registers, and `get_scraper("<platform>")` raises.

@@ -83,12 +83,13 @@ def cleanup_temp_files(temp_dir: str, item_id: str) -> None:
 
 
 
-# Platform-scraper subclasses live in their own ``fyp/<platform>_dl.py`` modules
-# (unlike ingest.py, where base + subclasses share one file). They must be
-# imported for ``__init_subclass__`` to register them; ``get_scraper`` imports
-# them lazily so this module never imports a subclass at load time (which would
-# be circular — each subclass imports ``BaseScraper`` from here).
-_SCRAPER_MODULES = ("fyp.tiktok_dl", "fyp.instagram_dl", "fyp.youtube_dl")
+# Platform-scraper subclasses live in their own ``fyp/scrape/<platform>_dl.py``
+# modules. They must be imported for ``__init_subclass__`` to register them;
+# ``get_scraper`` imports them lazily so this module never imports a subclass at
+# load time (which would be circular — each subclass imports ``BaseScraper``
+# from here). Canonical paths only: ``get_scraper`` is reachable from the
+# scrape thread pool, where a lazy import through a flat alias shim can race.
+_SCRAPER_MODULES = ("fyp.scrape.tiktok_dl", "fyp.scrape.instagram_dl", "fyp.scrape.youtube_dl")
 
 
 # Seconds of slideshow video per carousel image. Shared by the orchestrator's
