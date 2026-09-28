@@ -38,7 +38,7 @@ async function runOpsReportNow() {
     try {
         const resp = await fetch('/api/admin/ops-report/run', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content') },
+            headers: { 'Content-Type': 'application/json' },
         });
         const data = await resp.json();
         if (!data.started) {

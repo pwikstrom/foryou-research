@@ -2106,12 +2106,10 @@ async function _ssRebuildMap() {
     const actionEl = document.getElementById('ss-banner-action');
     if (actionEl) { actionEl.disabled = true; actionEl.textContent = 'Starting…'; }
     try {
-        const meta = document.querySelector('meta[name="csrf-token"]');
         const res = await fetch('/api/start/video_map_refresh', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': meta ? meta.content : ''
             },
             body: '{}'
         });

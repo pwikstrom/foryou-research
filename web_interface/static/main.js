@@ -884,7 +884,7 @@ async function _armAfterQueueStart() {
     try {
         const res = await fetch('/api/manage/enrichment/consolidate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ auto_refresh: true }),
         });
         const resp = await res.json();

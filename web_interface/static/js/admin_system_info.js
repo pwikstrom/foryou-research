@@ -175,10 +175,9 @@ function _renderTaskFailures(failures) {
 
 
 function acknowledgeTaskFailure(entryId) {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     fetch('/api/system-health/task-failures/ack', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: entryId || '' })
     })
         .then(() => loadSystemHealth())
@@ -236,10 +235,9 @@ function loadSystemHealth() {
 function runSystemHealthCheck() {
     const btn = document.getElementById('run-health-check-btn');
     if (btn) btn.disabled = true;
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     fetch('/api/system-health/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
     })
         .then(() => loadSystemHealth())  // 409 (already running) just resumes polling
         .catch(() => { if (btn) btn.disabled = false; });

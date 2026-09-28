@@ -44,3 +44,17 @@ def test_shared_helpers_live_in_core():
     core = (STATIC / "js" / "core" / "dom_utils.js").read_text(encoding="utf-8")
     for name in ("escapeHtml", "showToast"):
         assert re.search(rf"^function {name}\(", core, re.M), f"{name} missing from dom_utils.js"
+
+
+def test_only_the_fetch_wrapper_sets_the_csrf_header():
+    """main.js wraps window.fetch and adds X-CSRFToken to every write request.
+
+    A hand-set header is redundant, and has hidden a cross-file dependency
+    before (main.js reading a csrfToken global declared by another script).
+    """
+    offenders = [
+        str(p.relative_to(STATIC))
+        for p in _app_scripts()
+        if p.name != "main.js" and "X-CSRFToken" in p.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"set X-CSRFToken via the main.js fetch wrapper, not by hand: {offenders}"

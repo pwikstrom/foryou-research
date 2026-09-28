@@ -1076,7 +1076,7 @@ async function saveStudy(btn, event) {
 
         fetch('/api/manage/studies/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         })
             .then(res => res.json())
@@ -1323,7 +1323,7 @@ function _runStudyEstimate(row) {
 
     fetch('/api/manage/studies/calculate_stats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
     })
         .then(res => res.json())
@@ -1373,7 +1373,7 @@ async function deleteStudy(btn, event) {
 
     fetch('/api/manage/studies/delete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ STUDY_NAME: studyName })
     })
         .then(res => res.json())
@@ -1482,7 +1482,7 @@ async function renameStudy(btn, event) {
 
     fetch('/api/manage/studies/rename', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ OLD_NAME: oldName, NEW_NAME: newName })
     })
         .then(res => res.json())
@@ -1579,7 +1579,7 @@ function _prewarmStudyCheck(selected, studyName) {
     if (!Array.isArray(selected) || selected.length === 0) return Promise.resolve(null);
     return fetch('/api/manage/studies/prewarm_check', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ SELECTED_COLLECTIONS: selected, STUDY_NAME: studyName })
     })
         .then(res => res.json())
@@ -1651,7 +1651,7 @@ function _fetchDailyChart(row) {
     _watchStudyFirstLoad(row, _prewarmStudyCheck(selected, studyName));
     fetch('/api/manage/studies/daily_activities', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ SELECTED_COLLECTIONS: selected, STUDY_NAME: studyName })
     })
         .then(r => r.json())
@@ -2550,7 +2550,6 @@ function createNewStudy() {
 }
 
 // Init
-const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
 // This file is also loaded for My-Studies-only users, who have none of the Data
 // Management permissions. Skipping the three admin bootstraps for them avoids a
@@ -2772,7 +2771,7 @@ function startCascadeRefresh(impact, btn) {
     }
     fetch('/api/manage/enrichment/refresh-downstream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: '{}',
     })
         .then(res => res.json())
@@ -2900,7 +2899,7 @@ function updateCascadeRefreshPageLock(locked) {
 function startTargetedRefresh(processName, params) {
     return fetch(`/api/start/${processName}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     })
         .then(res => res.json())
@@ -3013,10 +3012,9 @@ function renderAnnotationConfigNotice(stats) {
 }
 
 function dismissScraperAlert(platform) {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     fetch('/api/manage/enrichment/scraper_alert/dismiss', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform: platform }),
     })
         .then(res => res.json())
@@ -3127,7 +3125,7 @@ function fetchEnrichmentStats() {
                 const autoRefresh = !!data.consolidate_auto_armed_auto_refresh;
                 fetch('/api/manage/enrichment/consolidate', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ auto_refresh: autoRefresh }),
                 })
                     .then(res => res.json())
@@ -3159,7 +3157,7 @@ async function confirmQueueBuild(endpoint, payload, noun) {
     try {
         const res = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...payload, dry_run: true })
         });
         est = await res.json();
@@ -3220,7 +3218,7 @@ async function queueVideosForScraping(btnElement) {
 
     fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(scrapePayload)
     })
         .then(res => res.json())
@@ -3370,7 +3368,7 @@ async function queueVideosForAnnotation(btnElement) {
 
     fetch('/api/manage/enrichment/calculate_to_annotate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     })
         .then(res => res.json())
@@ -3444,7 +3442,7 @@ async function emptyQueue(queueType, platform) {
 
     fetch(`/api/manage/enrichment/empty_queue/${queueType}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(platform ? { platform: platform } : {})
     })
         .then(res => res.json())
@@ -4131,7 +4129,7 @@ function consolidateEnrichmentData(btn, opts) {
     if (btn.dataset.armed === '1') {
         fetch('/api/manage/enrichment/consolidate/disarm', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
         })
             .then(res => res.json())
             .then(() => {
@@ -4153,7 +4151,7 @@ function consolidateEnrichmentData(btn, opts) {
 
     fetch('/api/manage/enrichment/consolidate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     })
         .then(res => res.json())
@@ -4768,7 +4766,7 @@ async function _postStructureReview(btn, endpoint, filename, confirmMessage, don
     btn.disabled = true;
     fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: filename }),
     })
         .then(r => r.json())
@@ -4900,7 +4898,7 @@ async function clearPendingUploads(btn) {
 
     fetch('/api/manage/ingestion/clear_pending', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
     })
         .then(r => r.json())
         .then(data => {
@@ -5007,7 +5005,7 @@ function fetchAIOData(btn) {
 
     fetch('/api/manage/ingestion/fetch_aio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hours_back: hoursBack })
     })
     .then(res => res.json())
@@ -5448,7 +5446,6 @@ function submitUpload() {
 
     fetch('/api/manage/ingestion/upload', {
         method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken },
         body: formData
     })
         .then(res => res.json())
@@ -5498,7 +5495,6 @@ window.refreshIngestionCollection = function (btn) {
 
     fetch('/api/manage/ingestion/refresh', {
         method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken }
     })
         .then(res => res.json())
         .then(data => {
@@ -5610,7 +5606,6 @@ function unskipIngestionFile(btn, filename) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken,
         },
         body: JSON.stringify({ filename: filename }),
     })
@@ -6371,7 +6366,6 @@ window.refreshCollectionMetadata = function (btn) {
 
     fetch('/api/manage/refresh-collection-metadata', {
         method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken }
     })
         .then(res => res.json())
         .then(data => {
@@ -6551,7 +6545,7 @@ function _dmAutoSaveCollection() {
         .catch(() => {})
         .then(() => fetch('/api/manage/collection/save_annotation', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         }))
         .then(r => r.json())
@@ -7024,7 +7018,7 @@ function dm_saveAnnotation() {
 
         fetch('/api/manage/collection/save_annotation', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
             .then(r => r.json())
@@ -7090,7 +7084,7 @@ function dm_saveAnnotation() {
                 try {
                     const r = await fetch('/api/manage/collection/save_annotation', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
                     const data = await r.json();
@@ -8615,7 +8609,7 @@ function dmEnrichPost(payload, busyMsg, opts = {}) {
     dmEnrichMsg(busyMsg || 'Saving...');
     return fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     })
         .then(r => r.json())
@@ -8858,7 +8852,7 @@ async function _dmEnrichEmptyTicked(preview) {
         try {
             const res = await fetch(`/api/manage/enrichment/empty_queue/${type}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             }).then(r => r.json());
             if (res && res.error) dmEnrichMsg(`Could not empty the ${type} queue: ${res.error}`, true);
@@ -9031,7 +9025,7 @@ async function _dmEnrichTickAfterGate(cid) {
     dmEnrichMsg('Starting a cycle...');
     fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment/tick`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
     })
         .then(r => r.json())
@@ -9110,7 +9104,7 @@ function dm_deleteCollection() {
             }
             return fetch('/api/manage/collections/delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ collection_ids: ids })
             })
                 .then(r => r.json())
