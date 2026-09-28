@@ -45,6 +45,8 @@
     <!-- Also <head>: it stamps html.fyp-floating-tooltips, which suppresses the
          ::after tooltips, so loading it late would flash the clipped ones. -->
     <script src="{{ url_for('static', filename='js/floating_tooltip.js') }}?v=2"></script>
+    <!-- Shared DOM helpers (escapeHtml, showToast): defined once, before any body script. -->
+    <script src="{{ url_for('static', filename='js/core/dom_utils.js') }}?v=1"></script>
     {% block head %}{% endblock %}
     {% if seo.json_ld %}
     <script type="application/ld+json">{{ seo.json_ld | safe }}</script>

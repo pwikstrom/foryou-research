@@ -222,12 +222,6 @@ window.correlationsHelpHtml = function () {
 };
 
 
-function escapeHtml(s) {
-    const div = document.createElement('div');
-    div.innerText = String(s);
-    return div.innerHTML;
-}
-
 
 function renderViewToggle(views) {
     const container = document.getElementById('pca-view-toggle');

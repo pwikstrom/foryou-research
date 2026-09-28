@@ -3,11 +3,6 @@ function getCSSVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-// HTML-escape untrusted strings before inserting into innerHTML
-function escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 // Format a numeric metric for display: large values as rounded integers with
 // thousands separators, small values (e.g. per-play ratios) with 3 significant
 // digits so they don't collapse to 0.
