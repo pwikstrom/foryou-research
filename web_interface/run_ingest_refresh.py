@@ -8,8 +8,8 @@ sys.path.append(str(project_root))
 
 import pandas as pd
 
-from fyp.analysis.sequence_analysis import VIEWING_ACTIVITY_TYPES
 from fyp.core.structure_sentinel import StructureSentinel, findings_digest
+from fyp.core.utils import VIDEO_VIEW_TYPES
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
 from fyp.ingest.base import BLOCKED_OUTCOME
 from web_interface.task_status import TaskStatusReporter
@@ -219,9 +219,7 @@ def _build_per_file_summary(
         # counting 'play' alone would report every one of them as zero.
         # YouTube's 'ad_play' is deliberately left out: ad impressions are
         # filtered out of every downstream study too (organize_datasets).
-        play_rows = (
-            int(sub_df["activity_type"].isin(VIEWING_ACTIVITY_TYPES).sum()) if final_rows else 0
-        )
+        play_rows = int(sub_df["activity_type"].isin(VIDEO_VIEW_TYPES).sum()) if final_rows else 0
 
         if final_rows == 0:
             outcome = "fully_deduped"

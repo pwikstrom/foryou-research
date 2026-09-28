@@ -18,10 +18,11 @@ import pandas as pd
 
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.core import data_io
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 
-VIEW_TYPES = ["play", "observe"]
+VIEW_TYPES = VIDEO_VIEW_TYPES
 
 # Enrichment moves in worker-sized steps, not continuously, and the Edit
 # Collections table is opened repeatedly in a session — so the corpus scan is

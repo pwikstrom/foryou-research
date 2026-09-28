@@ -19,6 +19,7 @@ import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.studies import init_study_defs, is_composed_study, participant_me_name
 from fyp.core.fyp_config import fyp_cf
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from .. import explorer_backend as explorer
 
@@ -592,7 +593,7 @@ def _apply_context_filter(raw_df, verbose=False):
 
     filtered = raw_df[
         enrichment_mask
-        & (raw_df["activity_type"].isin(["play", "observe"]))
+        & (raw_df["activity_type"].isin(VIDEO_VIEW_TYPES))
         & (raw_df["item_id"].notna())
     ]
     if verbose:

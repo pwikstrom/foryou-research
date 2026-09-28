@@ -73,6 +73,7 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
 
 
 from fyp.core.runtime import cf as _cf
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 
 def _scrapes_label() -> str:
@@ -329,7 +330,7 @@ def _extract_selected_cells(recoded_df: pd.DataFrame) -> dict[str, list[str]]:
 
     df = recoded_df
     if event_type_column in df.columns:
-        df = df[df[event_type_column].isin(("play", "observe"))]
+        df = df[df[event_type_column].isin(VIDEO_VIEW_TYPES)]
     if df.empty:
         return {}
 
@@ -918,8 +919,7 @@ def simple_sample_collection_events(
     # Filter to viewing events only (play + observe). Non-viewing activity types
     # are dropped — relevant signal from them is folded into adjacent play rows
     # during ingestion (see ingest.py:1335-1407).
-    VIEWING_ACTIVITY_TYPES = ("play", "observe")
-    all_viewing_events_df = the_df[the_df[event_type_column].isin(VIEWING_ACTIVITY_TYPES)].copy()
+    all_viewing_events_df = the_df[the_df[event_type_column].isin(VIDEO_VIEW_TYPES)].copy()
     sample_frame_size = len(all_viewing_events_df)
 
     if verbose:

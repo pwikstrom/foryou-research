@@ -2,6 +2,7 @@ import pandas as pd
 
 from fyp.analysis.activity_analysis import analyze_activity_peak
 from fyp.core.logging_setup import get_logger
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = get_logger(__name__)
 
@@ -24,7 +25,7 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
 
     # 2. Filter: Start from first 'play' or 'observe' event (whichever is earliest)
     # Only events after (or including) that first event are considered relevant
-    viewing_events = df[df["activity_type"].isin(["play", "observe"])]
+    viewing_events = df[df["activity_type"].isin(VIDEO_VIEW_TYPES)]
     if not viewing_events.empty:
         first_viewing_ts = viewing_events["local_timestamp"].min()
         df = df[df["local_timestamp"] >= first_viewing_ts]
@@ -43,7 +44,7 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     # df['local_hour'] = df['local_date'].dt.hour
 
     # 4. Basic Activity Stats — count only play and observe events
-    total_events = len(df[df["activity_type"].isin(["play", "observe"])])
+    total_events = len(df[df["activity_type"].isin(VIDEO_VIEW_TYPES)])
     first_date = df["local_timestamp"].min()
     last_date = df["local_timestamp"].max()
     active_days = df["local_timestamp"].dt.date.nunique()
@@ -52,7 +53,7 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
 
     # 5. Video Consumption (Play + Observe Events)
     # 'observe' activities are treated as equivalent to 'play' for stats purposes
-    play_df = df[df["activity_type"].isin(["play", "observe"])].copy()
+    play_df = df[df["activity_type"].isin(VIDEO_VIEW_TYPES)].copy()
     # play_df['duration'] = pd.to_numeric(play_df['secondary_value'], errors='coerce')
 
     # play_duration is only populated by collection ingesters that capture watch time

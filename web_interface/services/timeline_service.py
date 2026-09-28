@@ -10,7 +10,7 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
 from fyp.core.fyp_config import fyp_cf
-from fyp.core.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES
+from fyp.core.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, VIDEO_VIEW_TYPES
 
 from .. import explorer_backend as explorer
 from .study_data import get_study_sidecar
@@ -257,7 +257,7 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
     # aggregates without distorting them. NA play_duration (run followers,
     # cap-overflow, last-in-log) is still excluded.
     valid_activity = (
-        (df["activity_type"].isin(["play", "observe"]))
+        (df["activity_type"].isin(VIDEO_VIEW_TYPES))
         if "activity_type" in df.columns
         else pd.Series(True, index=df.index)
     )

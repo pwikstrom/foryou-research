@@ -41,6 +41,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ FIRST_BATCH_SIZE = 50
 COMPLETION_MIN_SHARE = 0.5
 COMPLETION_MIN_ITEMS = 5
 
-_VIEW_TYPES = ["play", "observe"]
+_VIEW_TYPES = VIDEO_VIEW_TYPES
 
 
 def _load_ledger() -> dict:

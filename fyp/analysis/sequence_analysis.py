@@ -29,10 +29,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from fyp.core.utils import VIDEO_VIEW_TYPES
+
 # --- Tuning constants -----------------------------------------------------
 
 # Viewing activity types. Mirrors the filter in organize_datasets.py:672.
-VIEWING_ACTIVITY_TYPES = ("play", "observe")
 
 # Session boundary (seconds). Matches the 180s rule used during ingest
 # (ingest.py:1323), exposed here so window/session definition stays tunable.
@@ -202,7 +203,7 @@ def add_sequence_index(df: pd.DataFrame, session_gap_s: int = SESSION_GAP_S) -> 
         ``feed_position``, ``inter_event_gap_s``, ``session_id``,
         ``session_position`` added.
     """
-    viewing = df[df["activity_type"].isin(VIEWING_ACTIVITY_TYPES)].copy()
+    viewing = df[df["activity_type"].isin(VIDEO_VIEW_TYPES)].copy()
     if viewing.empty:
         for col in ("feed_position", "inter_event_gap_s", "session_id", "session_position"):
             viewing[col] = pd.Series(dtype="float64")

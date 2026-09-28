@@ -35,6 +35,7 @@ import fyp.analysis.video_map as video_map
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.timeline_analysis import compute_linreg
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 # Annotation scalars (denormalised into the map file) whose per-period
 # watch-time-weighted mean is tracked over time — e.g. is the donor drifting
@@ -186,7 +187,7 @@ def _load_collection_plays(
         return None, "watch_time"
 
     if "activity_type" in df.columns:
-        df = df[df["activity_type"].isin(["play", "observe"])].copy()
+        df = df[df["activity_type"].isin(VIDEO_VIEW_TYPES)].copy()
     if df.empty:
         return None, "watch_time"
 

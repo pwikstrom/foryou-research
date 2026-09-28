@@ -23,6 +23,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from .stats_service import (
     _filter_to_event_windows,
@@ -258,7 +259,7 @@ def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd
     raw = _load_collections_window(selected)
     if raw is None or raw.empty:
         return None
-    raw = raw[raw["activity_type"].isin(["play", "observe"])].copy()
+    raw = raw[raw["activity_type"].isin(VIDEO_VIEW_TYPES)].copy()
     if raw.empty:
         return None
 
@@ -572,7 +573,7 @@ def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     )
     if raw is None or raw.empty:
         return None, None
-    raw = raw[raw["activity_type"].isin(["play", "observe"])]
+    raw = raw[raw["activity_type"].isin(VIDEO_VIEW_TYPES)]
     if raw.empty:
         return None, None
 

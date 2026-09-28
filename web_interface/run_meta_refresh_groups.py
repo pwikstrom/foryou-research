@@ -7,6 +7,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from fyp.core.utils import VIDEO_VIEW_TYPES
 from web_interface.task_status import TaskStatusReporter
 
 
@@ -96,7 +97,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
                     df_explorer = df[df["scraped_ok"].fillna(False)].copy()
                 else:
                     df_explorer = df.iloc[0:0].copy()
-            df_explorer = df_explorer[df_explorer["activity_type"].isin(["play", "observe"])]
+            df_explorer = df_explorer[df_explorer["activity_type"].isin(VIDEO_VIEW_TYPES)]
             df_explorer = df_explorer[df_explorer["item_id"].notna()]
 
             reporter.log(f"  Generating metadata for {len(df_explorer)} items...")

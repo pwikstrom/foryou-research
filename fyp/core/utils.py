@@ -352,6 +352,10 @@ def start_monitor(
 # The remaining standalone types are kept for participant-facing stats and
 # never enter a study.
 VIEWING_ACTIVITY_TYPES = ("play", "observe", "ad_play")
+# Organic video views: a `play` (platform exports) or an `observe`
+# (Zeeschuimer, which never emits `play`). Excludes ad_play. Every view-based
+# count and metric (sessions, timelines, coverage, collection stats) uses this.
+VIDEO_VIEW_TYPES = ("play", "observe")
 ENGAGEMENT_TYPES = ("fave", "save", "comment", "share")
 STANDALONE_ACTIVITY_TYPES = ("follow", "followed_by", "search", "login", "post")
 KNOWN_ACTIVITY_TYPES = frozenset(

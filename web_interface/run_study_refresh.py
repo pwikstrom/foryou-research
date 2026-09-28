@@ -15,6 +15,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from fyp.core.utils import VIDEO_VIEW_TYPES
 from web_interface.task_status import TaskStatusReporter
 
 
@@ -243,7 +244,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
         df_filtered = df_recoded[
             enrichment_mask
-            & df_recoded["activity_type"].isin(["play", "observe"])
+            & df_recoded["activity_type"].isin(VIDEO_VIEW_TYPES)
             & df_recoded["item_id"].notna()
         ].copy()
 

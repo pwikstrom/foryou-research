@@ -20,6 +20,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from ..collection_accounts import collections_for_user
 from . import collection_coverage
@@ -39,7 +40,7 @@ class PendingPreviewError(Exception):
     """
 
 
-_VIEW_TYPES = ["play", "observe"]
+_VIEW_TYPES = VIDEO_VIEW_TYPES
 # Counted from the standalone engagement rows (not the folded play tokens):
 # a like-list reaches years past the watch history, and a follow has no play
 # to fold onto at all.

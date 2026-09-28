@@ -65,6 +65,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ ANNOTATE_QUEUE_FILENAME = "to_annotate.json"
 # The worker whose task-status file `last_tick` reads.
 SUPERVISOR_TASK = "enrichment_supervisor"
 
-_VIEW_TYPES = ("play", "observe")
+_VIEW_TYPES = VIDEO_VIEW_TYPES
 
 # Status columns the planner and the handoff need. A superset of
 # preview_cache's three-column projection: the planner must also skip items whose

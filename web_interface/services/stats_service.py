@@ -20,6 +20,7 @@ from fyp.analysis.organize_datasets import (
     create_study_recoded_dataset,
     parse_sample_threshold,
 )
+from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from ..process_manager import (
     load_process_stats,
@@ -184,7 +185,7 @@ def _filter_to_play_observe(df: pd.DataFrame) -> pd.DataFrame:
 
     if df is None or df.empty or "activity_type" not in df.columns:
         return df
-    return df.loc[df["activity_type"].isin(["play", "observe"])]
+    return df.loc[df["activity_type"].isin(VIDEO_VIEW_TYPES)]
 
 
 def _compute_universe_enrichment(
