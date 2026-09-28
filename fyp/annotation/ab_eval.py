@@ -42,19 +42,12 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
 from fyp.annotation import annotation_schema as sch
-from fyp.core.types import convert_dtypes_to_pyarrow
 
 # NOTE: fyp.machine_annotation, fyp.recode_variables and google.genai are
 # imported lazily inside the functions that need them — they are heavy imports
 # the candidate/eval-set CRUD endpoints should not pay for.
-
-
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
-
+from fyp.core.runtime import cf as _cf
+from fyp.core.types import convert_dtypes_to_pyarrow
 
 LOCATION = "ab_eval"  # run artifacts (isolated)
 CANDIDATES_LOCATION = "ab_candidates"  # candidate contract TOMLs (admin config)

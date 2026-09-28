@@ -11,7 +11,6 @@ much smaller Macs than the 30B Qwen model — see the thresholds below.
 """
 
 import importlib.util
-import os
 import platform
 import shutil
 import sys
@@ -24,6 +23,7 @@ from fyp.annotation.backends.qwen_support import (
     model_snapshot_present,
 )
 from fyp.core.fyp_config import get_config
+from fyp.core.runtime import is_cloud_run
 
 # Peak unified-memory observed in the 20-video pilot for the 4-bit 9B model.
 _OBSERVED_PEAK_GB = 8
@@ -66,7 +66,7 @@ def check_all(model_id: str | None = None) -> list[dict]:
 
     # Same signal as web_interface.task_status.is_cloud_run (inlined — the fyp
     # core must not import the web layer).
-    on_cloud_run = bool(os.environ.get("K_SERVICE"))
+    on_cloud_run = is_cloud_run()
     checks.append(
         {
             "name": "Local machine (not Cloud Run)",

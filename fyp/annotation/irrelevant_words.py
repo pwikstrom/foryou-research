@@ -54,11 +54,7 @@ def _data_io():
     return data_io
 
 
-def _cf():
-    """Lazy fyp_config accessor (avoids import-time config side effects)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def squeeze(s: str) -> str:

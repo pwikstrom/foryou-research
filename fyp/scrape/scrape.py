@@ -13,7 +13,6 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlparse
 
 import numpy as np
@@ -43,11 +42,7 @@ from fyp.scrape.platform_scraper import (
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _scrapes_label() -> str:
@@ -206,12 +201,7 @@ def _container_memory_fraction() -> "tuple[float, float] | None":
     return None
 
 
-def _check_graceful_stop(process_name: str) -> bool:
-    """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = (
-        Path(_cf()["paths"]["project_root"]) / "tmp" / "graceful_stop" / f"{process_name}.stop"
-    )
-    return sentinel.exists()
+from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 
 
 def _patch_moviepy_audio_reader_del() -> None:

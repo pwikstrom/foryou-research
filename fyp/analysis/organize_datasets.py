@@ -72,11 +72,7 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
         return default
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _scrapes_label() -> str:

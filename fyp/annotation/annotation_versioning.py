@@ -52,12 +52,7 @@ def _data_io():
     return data_io
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
-
+from fyp.core.runtime import cf as _cf
 
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"

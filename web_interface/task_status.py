@@ -14,7 +14,6 @@ store, but they do not own a run's identity — see ``run_logs.attach_run``.
 """
 
 import json
-import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -511,6 +510,5 @@ def stamp_task_status(
         print(f"[task_status] Failed to stamp status for {name} ({state}): {e}")
 
 
-def is_cloud_run() -> bool:
-    """Check if running on Cloud Run."""
-    return bool(os.environ.get("K_SERVICE"))
+# Re-exported: process_manager and the routes import it from here.
+from fyp.core.runtime import is_cloud_run as is_cloud_run  # noqa: E402

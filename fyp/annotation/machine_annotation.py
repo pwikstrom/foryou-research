@@ -14,7 +14,6 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import copy, deepcopy
-from pathlib import Path
 from random import random
 
 import fuzzy_json
@@ -42,11 +41,7 @@ from fyp.core.utils import start_monitor
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _gcf():
@@ -54,12 +49,7 @@ def _gcf():
     return _cf()["machine"]["gemini"]
 
 
-def _check_graceful_stop(process_name: str) -> bool:
-    """Check if a graceful stop has been requested via sentinel file."""
-    sentinel = (
-        Path(_cf()["paths"]["project_root"]) / "tmp" / "graceful_stop" / f"{process_name}.stop"
-    )
-    return sentinel.exists()
+from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 
 
 def _machine_annotations_label() -> str:

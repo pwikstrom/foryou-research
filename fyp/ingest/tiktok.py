@@ -6,7 +6,6 @@ package directly (never the old-path shims) — see the shim-poisoning rule in
 docs/fyp-import-graph.md.
 """
 
-import os
 import re
 from collections import deque
 from zoneinfo import ZoneInfo
@@ -16,6 +15,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import is_cloud_run
 from fyp.core.utils import clean_url, share_method_with_count
 from fyp.ingest.base import (
     ForYouBaseCollection,
@@ -592,7 +592,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
         configured = fyp_cf.get("features", {}).get("aio_aws_fetch")
         if configured is not None:
             return bool(configured)
-        return bool(os.environ.get("K_SERVICE"))
+        return is_cloud_run()
 
     def load_raw(
         self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None

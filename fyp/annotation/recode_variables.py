@@ -17,11 +17,7 @@ from fyp.core.utils import record_dropped_columns
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _generic_mapper() -> dict:

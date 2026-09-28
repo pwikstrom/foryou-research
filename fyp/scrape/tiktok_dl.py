@@ -521,11 +521,7 @@ _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _max_media_bytes() -> int:

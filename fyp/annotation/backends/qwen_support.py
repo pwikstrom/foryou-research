@@ -18,6 +18,7 @@ import sys
 
 from fyp.annotation.backends.base import BackendAvailability
 from fyp.core.fyp_config import get_config
+from fyp.core.runtime import is_cloud_run
 
 # Peak unified-memory observed in the 20-video pilot for the 4-bit 30B-A3B.
 _OBSERVED_PEAK_GB = 23
@@ -105,7 +106,7 @@ def check_all(model_id: str | None = None) -> list[dict]:
 
     # Same signal as web_interface.task_status.is_cloud_run (inlined — the fyp
     # core must not import the web layer).
-    on_cloud_run = bool(os.environ.get("K_SERVICE"))
+    on_cloud_run = is_cloud_run()
     checks.append(
         {
             "name": "Local machine (not Cloud Run)",

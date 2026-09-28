@@ -17,6 +17,7 @@ import os
 from fyp.annotation.backends.base import BackendAvailability
 from fyp.annotation.backends.qwen_support import hf_cache_root, model_snapshot_present
 from fyp.core.fyp_config import get_config
+from fyp.core.runtime import is_cloud_run
 
 _MODEL_DISK_GB = 3
 
@@ -78,7 +79,7 @@ def check_all(model_id: str | None = None) -> list[dict]:
 
     # Same signal as web_interface.task_status.is_cloud_run (inlined — the fyp
     # core must not import the web layer).
-    on_cloud_run = bool(os.environ.get("K_SERVICE"))
+    on_cloud_run = is_cloud_run()
     checks.append(
         {
             "name": "Local machine (not Cloud Run)",

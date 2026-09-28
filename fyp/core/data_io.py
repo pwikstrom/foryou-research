@@ -32,11 +32,7 @@ logger = get_logger(__name__)
 # schema-hash drift, pinned 2026-07-02). Keep config access function-level.
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:

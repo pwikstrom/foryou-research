@@ -71,11 +71,7 @@ _PLATFORM_EXPORT_DOMAINS = {
 }
 
 
-def _cf():
-    """Lazy config accessor — keeps this module import-cycle safe."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _local_path(platform: str) -> str:

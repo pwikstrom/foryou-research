@@ -60,11 +60,7 @@ MAX_FACTOR_LEVELS = 50
 ETA2_THRESHOLDS = (0.01, 0.06, 0.14)
 
 
-def _cf():
-    """Lazy fyp_config accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def center_within_collection(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:

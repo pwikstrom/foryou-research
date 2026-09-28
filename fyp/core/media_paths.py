@@ -24,11 +24,7 @@ _RESOLVE_CACHE_LOCK = threading.Lock()
 _RESOLVE_CACHE_MAX = 512
 
 
-def _cf():
-    """Lazy fyp_config accessor (avoids the fyp_config import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
 
 
 def _registered_platforms() -> list[str]:

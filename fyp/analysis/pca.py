@@ -28,12 +28,7 @@ from fyp.core.types import (
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
-
+from fyp.core.runtime import cf as _cf
 
 # The column the PCA frame carries for each group's video count. Structural
 # (computed per group at build time, attached after scaling so it never enters

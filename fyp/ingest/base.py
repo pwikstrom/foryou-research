@@ -43,18 +43,13 @@ from fyp.scrape import scrape_versioning as _scrape_versioning
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
+from fyp.core.runtime import cf as _cf
+from fyp.core.runtime import label
 
 
 def _collections_label() -> str:
-    """Lazy accessor for the config-derived collections label."""
-    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
-
-    return COLLECTIONS_LABEL
+    """The config-derived collections label."""
+    return label("COLLECTIONS_LABEL")
 
 
 WEEKDAY_MAPPER = {

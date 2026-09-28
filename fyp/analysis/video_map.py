@@ -50,12 +50,7 @@ from fyp.core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.core.fyp_config import fyp_cf
-
-    return fyp_cf
-
+from fyp.core.runtime import cf as _cf
 
 # Output artifacts in the "recoded" store. The meta file is separate from
 # NICHES_FILE because that JSON's consumers iterate it assuming every key is a
