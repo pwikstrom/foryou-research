@@ -29,6 +29,8 @@ from fyp.core import activity_versioning as _activity_versioning
 from fyp.core import structure_sentinel as _structure_sentinel
 from fyp.core.logging_setup import get_logger
 from fyp.core.polars_ops import fast_vertical_concat
+from fyp.core.runtime import cf as _cf
+from fyp.core.runtime import label
 from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.utils import (
     ACTIVITY_TYPE_MAP,
@@ -41,10 +43,6 @@ from fyp.scrape import scrape_contract as _scrape_contract
 from fyp.scrape import scrape_versioning as _scrape_versioning
 
 logger = get_logger(__name__)
-
-
-from fyp.core.runtime import cf as _cf
-from fyp.core.runtime import label
 
 
 def _collections_label() -> str:

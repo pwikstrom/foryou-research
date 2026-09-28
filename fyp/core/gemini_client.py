@@ -24,6 +24,7 @@ request is made, which is why the config-level check exists at all.
 import google.genai
 
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
@@ -31,9 +32,6 @@ MODE_VERTEX = "vertex"
 MODE_API_KEY = "api_key"
 
 _FALLBACK_WARNED = False
-
-
-from fyp.core.runtime import cf as _cf
 
 
 class GeminiNotConfiguredError(RuntimeError):

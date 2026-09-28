@@ -19,6 +19,7 @@ from fyp.annotation.recode_variables import (
     get_grouping_factors_from_var_schema,
 )
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 from fyp.core.types import (
     convert_dtypes_to_pyarrow,
     convert_index_dtype_pyarrow,
@@ -27,8 +28,6 @@ from fyp.core.types import (
 
 logger = get_logger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 # The column the PCA frame carries for each group's video count. Structural
 # (computed per group at build time, attached after scaling so it never enters

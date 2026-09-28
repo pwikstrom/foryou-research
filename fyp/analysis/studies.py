@@ -8,11 +8,10 @@ Date:
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 # --- Participant (system-managed) studies -----------------------------------
 #

@@ -26,6 +26,7 @@ from fyp.core.memory import df_size_mb as _df_size_mb
 from fyp.core.memory import peak_rss_mb as _peak_rss_mb
 from fyp.core.memory import rss_mb as _rss_mb
 from fyp.core.polars_ops import fast_join
+from fyp.core.runtime import cf as _cf
 from fyp.core.utils import parse_extra_data_tokens
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.scrape import scrape_contract as _scrape_contract
@@ -72,7 +73,6 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
         return default
 
 
-from fyp.core.runtime import cf as _cf
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
 

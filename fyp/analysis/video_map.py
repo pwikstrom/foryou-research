@@ -46,11 +46,10 @@ import fyp.analysis.embeddings as embeddings
 import fyp.core.data_io as data_io
 import fyp.core.gemini_client as gemini_client
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 # Output artifacts in the "recoded" store. The meta file is separate from
 # NICHES_FILE because that JSON's consumers iterate it assuming every key is a

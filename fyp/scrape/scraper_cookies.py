@@ -18,6 +18,8 @@ import threading
 import time
 from collections import defaultdict
 
+from fyp.core.runtime import cf as _cf
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,9 +71,6 @@ _PLATFORM_EXPORT_DOMAINS = {
     "instagram": ("instagram", "facebook", "fbcdn"),
     "youtube": ("youtube", "google"),
 }
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def _local_path(platform: str) -> str:

@@ -33,6 +33,7 @@ import os
 import pandas as pd
 
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
@@ -51,8 +52,6 @@ def _data_io():
 
     return data_io
 
-
-from fyp.core.runtime import cf as _cf
 
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"

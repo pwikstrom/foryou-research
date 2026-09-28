@@ -83,6 +83,45 @@ def cleanup_temp_files(temp_dir: str, item_id: str) -> None:
             pass
 
 
+# yt-dlp attempts per item, shared by every platform scraper: metadata
+# extraction, then the media download.
+META_MAX_RETRIES = 3
+DL_MAX_RETRIES = 2
+
+
+def find_downloaded_file(temp_dir: str, item_id: str) -> str | None:
+    """Locate yt-dlp's output for ``item_id`` in ``temp_dir``.
+
+    Prefers ``{item_id}.mp4``, then any ``{item_id}.*`` mp4, then any
+    ``{item_id}.*`` file (yt-dlp may pick another container).
+
+    Returns:
+        The file's path, or None when the download produced nothing.
+    """
+    downloaded = join(temp_dir, f"{item_id}.mp4")
+    if os.path.exists(downloaded):
+        return downloaded
+    candidates = glob(join(temp_dir, f"{item_id}.*"))
+    mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
+    return mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
+
+
+def store_media_file(downloaded: str, save_path: str, filename: str, stream_to_bucket) -> None:
+    """Move a finished download to its media location.
+
+    Uploads to ``{save_path}/{filename}`` in ``stream_to_bucket`` when given
+    (the temp file stays; callers clean up), otherwise renames it to
+    ``save_path/filename`` — atomic when source and target share a
+    filesystem, so a concurrent reader never sees a partial file.
+    """
+    if stream_to_bucket is not None:
+        stream_to_bucket.blob(f"{save_path}/{filename}").upload_from_filename(downloaded)
+        return
+    target = join(save_path, filename)
+    if downloaded != target:
+        os.replace(downloaded, target)
+
+
 # Platform-scraper subclasses live in their own ``fyp/scrape/<platform>_dl.py``
 # modules. They must be imported for ``__init_subclass__`` to register them;
 # ``get_scraper`` imports them lazily so this module never imports a subclass at

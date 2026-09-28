@@ -19,12 +19,11 @@ the viewer's HTTP Range requests — do not re-hit GCS.
 import os
 import threading
 
+from fyp.core.runtime import cf as _cf
+
 _RESOLVE_CACHE: dict[tuple, dict | None] = {}
 _RESOLVE_CACHE_LOCK = threading.Lock()
 _RESOLVE_CACHE_MAX = 512
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def _registered_platforms() -> list[str]:

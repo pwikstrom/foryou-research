@@ -19,12 +19,10 @@ import fyp.core.data_io as data_io
 from fyp.analysis.calc_collection_stats import generate_personas
 from fyp.annotation.recode_variables import *
 from fyp.core.logging_setup import get_logger
-
-logger = get_logger(__name__)
-
-
 from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import label
+
+logger = get_logger(__name__)
 
 
 def _collections_label() -> str:

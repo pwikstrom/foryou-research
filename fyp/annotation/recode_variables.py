@@ -11,13 +11,11 @@ import pandas as pd
 
 from fyp.annotation import irrelevant_words
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.utils import record_dropped_columns
 
 logger = get_logger(__name__)
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def _generic_mapper() -> dict:

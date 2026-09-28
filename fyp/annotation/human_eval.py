@@ -41,11 +41,10 @@ import fyp.annotation.ab_eval as ab
 import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 TASK_TYPES = ("coding", "vote")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"

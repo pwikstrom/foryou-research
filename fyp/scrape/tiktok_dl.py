@@ -6,7 +6,6 @@ Returns the same single-row DataFrame as the retired PykTok-fork backend (mypykt
 that generate_data_row() produces so downstream code is unchanged.
 """
 
-import os
 from datetime import datetime, timezone
 from glob import glob
 from os import remove
@@ -19,6 +18,7 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 from fyp.scrape import scraper_cookies
 from fyp.scrape.platform_scraper import (  # noqa: F401
     _THROTTLE_CATEGORIES,
@@ -27,6 +27,20 @@ from fyp.scrape.platform_scraper import (  # noqa: F401
     ThrottleController,
     cleanup_temp_files,
     empty_fail,
+    find_downloaded_file,
+    store_media_file,
+)
+from fyp.scrape.platform_scraper import (
+    DL_MAX_RETRIES as _DL_MAX_RETRIES,
+)
+from fyp.scrape.platform_scraper import (
+    META_MAX_RETRIES as _META_MAX_RETRIES,
+)
+from fyp.scrape.platform_scraper import (
+    cleanup_temp_files as _cleanup_temp_files,
+)
+from fyp.scrape.platform_scraper import (
+    empty_fail as _empty_fail,
 )
 
 logger = get_logger(__name__)
@@ -507,23 +521,6 @@ def _download_images(
 # -------------------------------------------------------------------------
 
 
-def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
-    """Return an empty DataFrame tagged with error classification metadata."""
-    return empty_fail(error_type, error_detail)
-
-
-def _cleanup_temp_files(temp_dir: str, video_id: str) -> None:
-    """Remove any partial download files for a video from the temp directory."""
-    cleanup_temp_files(temp_dir, video_id)
-
-
-_META_MAX_RETRIES = 3
-_DL_MAX_RETRIES = 2
-
-
-from fyp.core.runtime import cf as _cf
-
-
 def _max_media_bytes() -> int:
     """Hard ceiling on a single media download.
 
@@ -709,31 +706,11 @@ def save_tiktok(
                 with yt_dlp.YoutubeDL(dl_opts) as ydl:
                     ydl.download([video_url])
 
-                # Find the downloaded file
-                downloaded = join(temp_dir, f"{video_id}.mp4")
-                if not exists(downloaded):
-                    candidates = glob(join(temp_dir, f"{video_id}.*"))
-                    mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
-                    downloaded = (
-                        mp4_candidates[0]
-                        if mp4_candidates
-                        else (candidates[0] if candidates else None)
-                    )
+                downloaded = find_downloaded_file(temp_dir, video_id)
 
                 if downloaded and exists(downloaded):
-                    video_fn = f"{video_id}.mp4"
-
-                    if stream_to_bucket is not None:
-                        blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
-                        blob.upload_from_filename(downloaded)
-                        data_row.loc[0, "video_downloaded"] = True
-                    else:
-                        target = join(save_path, video_fn)
-                        if downloaded != target:
-                            # Atomic rename when src and dst are on the same filesystem.
-                            # Avoids partial-file reads if another thread/process touches dst.
-                            os.replace(downloaded, target)
-                        data_row.loc[0, "video_downloaded"] = True
+                    store_media_file(downloaded, save_path, f"{video_id}.mp4", stream_to_bucket)
+                    data_row.loc[0, "video_downloaded"] = True
 
                     # Clean up temp file
                     if exists(downloaded):

@@ -35,21 +35,17 @@ from fyp.annotation.annotation_schema import (
 )
 from fyp.annotation.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
+from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 from fyp.core.types import convert_dtypes_to_pyarrow, scrub_surrogates_nested
 from fyp.core.utils import start_monitor
 
 logger = get_logger(__name__)
 
 
-from fyp.core.runtime import cf as _cf
-
-
 def _gcf():
     """The ``[machine.gemini]`` config block (canonical Gemini home)."""
     return _cf()["machine"]["gemini"]
-
-
-from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 
 
 def _machine_annotations_label() -> str:

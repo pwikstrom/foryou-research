@@ -41,6 +41,7 @@ from statsmodels.stats.multitest import multipletests
 
 from fyp.annotation.recode_variables import get_vars_by_role
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
@@ -58,9 +59,6 @@ MAX_FACTOR_LEVELS = 50
 
 # Eta-squared magnitude conventions (Cohen): small/medium/large.
 ETA2_THRESHOLDS = (0.01, 0.06, 0.14)
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def center_within_collection(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:

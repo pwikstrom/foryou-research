@@ -44,12 +44,10 @@ inside mixed carousels (currently skipped).
 """
 
 import logging
-import os
 import random
 import re
 import threading
 from datetime import datetime, timezone
-from glob import glob
 from json import loads as json_loads
 from os import remove
 from os.path import exists, join
@@ -60,19 +58,30 @@ import yt_dlp
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
+from fyp.core.runtime import cf as _cf
 from fyp.scrape import scraper_cookies
+from fyp.scrape.platform_scraper import (
+    DL_MAX_RETRIES as _DL_MAX_RETRIES,
+)
+from fyp.scrape.platform_scraper import (
+    META_MAX_RETRIES as _META_MAX_RETRIES,
+)
 from fyp.scrape.platform_scraper import (
     SESSION_EXPIRED,
     SLIDESHOW_SECONDS_PER_IMAGE,
     BaseScraper,
-    cleanup_temp_files,
-    empty_fail,
+    find_downloaded_file,
+    store_media_file,
+)
+from fyp.scrape.platform_scraper import (
+    cleanup_temp_files as _cleanup_temp_files,
+)
+from fyp.scrape.platform_scraper import (
+    empty_fail as _empty_fail,
 )
 
 logger = logging.getLogger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 # -------------------------------------------------------------------------
 # Error classification
@@ -88,8 +97,6 @@ from fyp.core.runtime import cf as _cf
 _RETRYABLE = {"rate_limited", "login_required", "network", "server_error", "carousel", "unknown"}
 _PERMANENT = {"removed", "private", "no_video", "geo_blocked"}
 
-_META_MAX_RETRIES = 3
-_DL_MAX_RETRIES = 2
 
 # One format for both legs, so the info dict the metadata leg returns can be
 # downloaded as-is (see _download_media). Processed with yt-dlp's default
@@ -262,16 +269,6 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         return "network", msg
 
     return "unknown", msg
-
-
-def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
-    """Return an empty DataFrame tagged with error classification metadata."""
-    return empty_fail(error_type, error_detail)
-
-
-def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
-    """Remove any partial download files for an item from the temp directory."""
-    cleanup_temp_files(temp_dir, item_id)
 
 
 def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
@@ -517,13 +514,7 @@ def _download_media(
                 else:
                     ydl.download([url])
 
-            downloaded = join(temp_dir, f"{item_id}.mp4")
-            if not exists(downloaded):
-                candidates = glob(join(temp_dir, f"{item_id}.*"))
-                mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
-                downloaded = (
-                    mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
-                )
+            downloaded = find_downloaded_file(temp_dir, item_id)
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
@@ -533,20 +524,12 @@ def _download_media(
             # longer returns a duration (see _probe_duration).
             duration = _probe_duration(downloaded)
 
-            video_fn = f"{item_id}.mp4"
+            store_media_file(downloaded, save_path, f"{item_id}.mp4", stream_to_bucket)
             if stream_to_bucket is not None:
-                blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
-                blob.upload_from_filename(downloaded)
                 try:
                     remove(downloaded)
                 except OSError:
                     pass
-            else:
-                target = join(save_path, video_fn)
-                if downloaded != target:
-                    # Atomic rename when src and dst share a filesystem —
-                    # avoids partial-file reads by concurrent consumers.
-                    os.replace(downloaded, target)
             return True, None, "", duration
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:

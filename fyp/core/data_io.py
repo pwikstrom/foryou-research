@@ -20,6 +20,7 @@ import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
 from fyp.core.types import convert_dtypes_to_pyarrow
 
 logger = get_logger(__name__)
@@ -30,9 +31,6 @@ logger = get_logger(__name__)
 # module-level load_var_schema runs, so the contract overlays' registry reads
 # hit half-defined functions and silently lost legacy metadata (per-instance
 # schema-hash drift, pinned 2026-07-02). Keep config access function-level.
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:

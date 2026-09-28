@@ -23,6 +23,8 @@ import fyp.core.data_io as data_io
 import fyp.core.media_paths as media_paths
 from fyp.annotation.recode_variables import recode_events_df, rename_columns
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import cf as _cf
+from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 from fyp.core.utils import chunk_list, record_dropped_columns, start_monitor
 from fyp.scrape import connectivity, scrape_queues, scrape_versioning, scraper_alerts
 
@@ -40,9 +42,6 @@ from fyp.scrape.platform_scraper import (
 )
 
 logger = get_logger(__name__)
-
-
-from fyp.core.runtime import cf as _cf
 
 
 def _scrapes_label() -> str:
@@ -199,9 +198,6 @@ def _container_memory_fraction() -> "tuple[float, float] | None":
     except (OSError, ValueError):
         pass
     return None
-
-
-from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
 
 
 def _patch_moviepy_audio_reader_del() -> None:

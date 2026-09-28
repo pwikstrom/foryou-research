@@ -32,7 +32,6 @@ keywords before the removal keywords so it stays transient + throttled.
 import logging
 import os
 from datetime import datetime, timezone
-from glob import glob
 from os import remove
 from os.path import exists, join
 from time import sleep
@@ -42,13 +41,28 @@ import yt_dlp
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
+from fyp.core.runtime import cf as _cf
 from fyp.scrape import scraper_cookies
-from fyp.scrape.platform_scraper import BaseScraper, cleanup_temp_files, empty_fail
+from fyp.scrape.platform_scraper import (
+    DL_MAX_RETRIES as _DL_MAX_RETRIES,
+)
+from fyp.scrape.platform_scraper import (
+    META_MAX_RETRIES as _META_MAX_RETRIES,
+)
+from fyp.scrape.platform_scraper import (
+    BaseScraper,
+    find_downloaded_file,
+    store_media_file,
+)
+from fyp.scrape.platform_scraper import (
+    cleanup_temp_files as _cleanup_temp_files,
+)
+from fyp.scrape.platform_scraper import (
+    empty_fail as _empty_fail,
+)
 
 logger = logging.getLogger(__name__)
 
-
-from fyp.core.runtime import cf as _cf
 
 # -------------------------------------------------------------------------
 # Error classification
@@ -72,8 +86,6 @@ _PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_block
 # the ordinary media leg, whose verdict is distrusted and budgeted.
 _UNPLAYABLE_WITH_RECORD = {"geo_blocked", "blocked"}
 
-_META_MAX_RETRIES = 3
-_DL_MAX_RETRIES = 2
 
 # YouTube serves >360p only as separate DASH video+audio streams; the merge
 # (ffmpeg is in the deploy image) caps at 720p to keep storage sane.
@@ -254,18 +266,6 @@ def _classify_message(msg: str) -> tuple[str, str]:
         return "network", msg
 
     return "unknown", msg
-
-
-def _empty_fail(
-    error_type: str = "unknown", error_detail: str = "", *, corroborated: bool = False
-) -> pd.DataFrame:
-    """Return an empty DataFrame tagged with error classification metadata."""
-    return empty_fail(error_type, error_detail, corroborated=corroborated)
-
-
-def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
-    """Remove any partial download files for an item from the temp directory."""
-    cleanup_temp_files(temp_dir, item_id)
 
 
 def _parse_create_time(info: dict) -> datetime:
@@ -513,32 +513,18 @@ def _download_media(
             with yt_dlp.YoutubeDL(dl_opts) as ydl:
                 ydl.download([url])
 
-            downloaded = join(temp_dir, f"{item_id}.mp4")
-            if not exists(downloaded):
-                candidates = glob(join(temp_dir, f"{item_id}.*"))
-                mp4_candidates = [c for c in candidates if c.endswith(".mp4")]
-                downloaded = (
-                    mp4_candidates[0] if mp4_candidates else (candidates[0] if candidates else None)
-                )
+            downloaded = find_downloaded_file(temp_dir, item_id)
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
                 return False, "unknown", "download finished but no output file found"
 
-            video_fn = f"{item_id}.mp4"
+            store_media_file(downloaded, save_path, f"{item_id}.mp4", stream_to_bucket)
             if stream_to_bucket is not None:
-                blob = stream_to_bucket.blob(f"{save_path}/{video_fn}")
-                blob.upload_from_filename(downloaded)
                 try:
                     remove(downloaded)
                 except OSError:
                     pass
-            else:
-                target = join(save_path, video_fn)
-                if downloaded != target:
-                    # Atomic rename when src and dst share a filesystem —
-                    # avoids partial-file reads by concurrent consumers.
-                    os.replace(downloaded, target)
             return True, None, ""
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
