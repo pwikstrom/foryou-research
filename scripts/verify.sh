@@ -11,10 +11,11 @@
 # Steps:
 #   1. ruff       — lint (same rule set as pre-commit / CI)
 #   2. pytest     — unit tests, excluding data/GCS-dependent and stale tests
-#   3. hash guard — the import-cycle / var-schema-hash regression test
-#   4. golden net — replay saved Gemini responses through the annotation
+#                   (includes the import-cycle / var-schema-hash guard, the
+#                   routes.md freshness check and the version-consistency check)
+#   3. golden net — replay saved Gemini responses through the annotation
 #                   pipeline (tests/golden/README.md)
-#   5. boot smoke — the Flask app (and therefore the whole import graph)
+#   4. boot smoke — the Flask app (and therefore the whole import graph)
 #                   must import cleanly
 
 set -euo pipefail
@@ -32,9 +33,6 @@ ruff check --select=F --ignore=F841,F601,F403 .
 
 step "unit tests (checkout-only subset)"
 python -m pytest -m "not requires_data and not requires_gcs and not slow and not stale"
-
-step "import-cycle / schema-hash guard"
-python -m pytest tests/unit/test_import_cycle_hash.py
 
 step "golden annotation safety net"
 python tests/golden/run_safety_net.py

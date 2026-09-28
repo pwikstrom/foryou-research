@@ -56,9 +56,6 @@ jobs:
       - name: Unit tests (checkout-only subset)
         run: python -m pytest -m "not requires_data and not requires_gcs and not slow and not stale"
 
-      - name: Import-cycle / schema-hash guard
-        run: python -m pytest tests/unit/test_import_cycle_hash.py
-
       - name: Golden annotation safety net
         run: python tests/golden/run_safety_net.py
 
