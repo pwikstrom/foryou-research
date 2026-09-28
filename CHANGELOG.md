@@ -12,6 +12,24 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Internal: one import path per module, one lint bar, content-hashed
+  assets.** First-party code now imports every `fyp` module by its canonical
+  subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
+  `fyp/<name>.py` alias shims stay for outside callers, and ruff's banned-api
+  rule rejects them inside the repository. `pyproject.toml` is the single
+  enforced ruff rule set for CI, pre-commit and `scripts/verify.sh`, which also
+  check `ruff format`; the tree was formatted and import-sorted once
+  (listed in `.git-blame-ignore-revs`). Templates reference scripts and
+  stylesheets through `asset_url()`, which versions each URL by the file's
+  content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
+  checks that `docs/routes.md` matches the URL map and that the release
+  version agrees across its five files. No behaviour change.
+- **Internal: tests that could not fail now can.** 34 checks in the ab_eval
+  and var-schema tests only printed their result; eleven test files ran no
+  test under pytest; one golden test was missing from the safety-net runner.
+  All now run and pass, guarded by a runner-coverage test. Fourteen scratch
+  scripts named like tests are deleted.
+
 - **One engagement vocabulary across platforms.** Donor engagement is now
   stored as `fave` (a like), `save` (a bookmark), `comment` and `share` on
   every platform, and labelled Like / Save / Comment / Share everywhere the
@@ -180,6 +198,17 @@ public version. Entries below describe the Hub as it stands at that release.
   logged in for weeks no longer looks idle to the report.
 
 ### Fixed
+
+- **HTML escaping no longer depends on which tabs a user can see.** Three
+  scripts each defined a global `escapeHtml`, and the one that loaded last won;
+  for a role without the Data Pipeline tab that was a version that escaped
+  neither quote character, although many call sites place its output inside
+  HTML attributes. `showToast` existed only in the Data Pipeline script, so
+  parts of the Admin tab raised an error for roles without that tab. Both now
+  live once in `static/js/core/dom_utils.js`, loaded on every page, and a test
+  fails if two scripts define the same global.
+- **Local `docker build` no longer copies `config/config.local.toml`** into the
+  image (Cloud Build already excluded it).
 
 - **A scraper waits out a network outage instead of calling it a broken
   platform.** Instagram and YouTube are scraped from the local install, and
