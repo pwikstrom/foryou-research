@@ -200,6 +200,14 @@ public version. Entries below describe the Hub as it stands at that release.
   study-parameter check for the analysis endpoints. No behaviour change;
   verified by before/after snapshots of the worker wiring and of every
   route's anonymous and missing-/denied-study responses.
+- **Documentation reorganised; a decision log.** `docs/decisions/` records,
+  with dates and evidence, why the Hub works the way it does; the how-to docs
+  keep the rules and link there. Each topic now has one home doc (install,
+  configuration, pipeline, web interface, extending), `DEVELOPING.md` is the
+  developer-workflow guide, and several statements that no longer matched the
+  code were corrected — notably the config import-cycle rule, which now
+  describes the lazy boot. Code comments state rules instead of incident
+  dates; commented-out code is gone and every module has a docstring.
 - **Faster status polling and user lookups.** Hot request paths read their
   JSON in one storage round-trip instead of an existence probe plus a read
   (a task-status read on GCS: ~129 ms → ~62 ms).
