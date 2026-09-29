@@ -176,6 +176,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Unexpected server errors no longer show their exception text.** API
+  routes answered many failures with the raw exception message, which can
+  carry file paths, bucket names or data. An unexpected error now returns
+  `{"error": "Internal error (ref <id>)"}` with status 500, and the server
+  log holds the traceback under the same reference id. Validation messages
+  (a bad date, an unknown name) are shown as before. Every error response now
+  also carries the documented `"error"` key.
+- **Pages load faster on repeat visits.** Scripts and stylesheets, whose
+  URLs already change with their content, are now cached by the browser
+  without a revalidation request each page load (about 40 fewer requests
+  per reload). My Studies viewers without the Data Pipeline tab load only the
+  two study scripts (318 KB and five requests fewer), and public pages no
+  longer load the slider stylesheet.
 - **Internal: one import path per module, one lint bar, content-hashed
   assets.** First-party code now imports every `fyp` module by its canonical
   subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
@@ -312,6 +325,24 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **Deleting a collection in a local install refreshes its studies again.**
+  The study refreshes a delete started never ran locally, so affected
+  studies kept serving the deleted collection's rows until refreshed by
+  hand. Locally they now run inside the delete job, one after another, with
+  their progress in its log; on Cloud Run each is still its own task.
+- **The synchronous annotator refuses batches that cannot finish in time.**
+  Its cap was 2,000 videos against a 3,600 s limit Cloud Tasks never
+  allowed; batches above 666 were estimated to overrun the real 1,800 s
+  deadline. The cap is now derived from that deadline. The default batch of
+  500 and the enrichment loop's batches are unaffected.
+- **Local saves can no longer leave a half-written file.** JSON, text and
+  parquet writes in a local install go to a temporary file that replaces the
+  old one in a single step, so an interrupted save keeps the previous
+  version. Cloud storage writes were already atomic.
+- **The intake report's session counts leave out received activity.** Rows
+  of another account following the donor were counted as the donor's own
+  activity in the all-activity session series, as `assign_session_ids`
+  already avoided; the report now also says how many rows it left out.
 - **A collection's `most_active_weekday` is now the weekday.** The
   per-collection stats in `collections_metadata.parquet` stored the event
   count of the busiest weekday (e.g. `412`) instead of its name (`"tuesday"`),
