@@ -290,8 +290,11 @@
    actually see, so any role may take it. #}
 <script src="{{ asset_url('js/hub_tour.js') }}"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-{# The Data Pipeline scripts share one global scope; this order is their load order. #}
-{% for dm_script in ['core', 'studies', 'enrichment', 'ingestion', 'edit_collections', 'auto_enrichment', 'collection_actions'] %}
+{# The Data Pipeline scripts share one global scope; this order is their load order.
+   A My Studies viewer without the Data Pipeline tab gets only the first two: the
+   read-only study list and modal use nothing else (tests/unit/test_data_management_scripts.py). #}
+{% set dm_scripts = ['core', 'studies', 'enrichment', 'ingestion', 'edit_collections', 'auto_enrichment', 'collection_actions'] %}
+{% for dm_script in (dm_scripts if user.can_access('tab.data_management') else dm_scripts[:2]) %}
 <script src="{{ asset_url('js/data_management/' ~ dm_script ~ '.js') }}"></script>
 {% endfor %}
 {% endif %}

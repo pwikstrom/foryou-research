@@ -101,14 +101,14 @@ function renderStructureWarnings(data) {
         row.innerHTML = `
             <div style="flex: 1; min-width: 0;">
                 <div class="text-sm" style="word-break: break-all;">
-                    ${_escapeHtml(f.original_filename || f.filename)}
+                    ${escapeHtml(f.original_filename || f.filename)}
                     <span class="text-xxs font-bold" style="color: ${badgeColor}; margin-left: 8px; text-transform: uppercase;">${badgeLabel}</span>
                 </div>
                 ${f.original_filename && f.original_filename !== f.filename
-                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(f.filename)}</div>`
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${escapeHtml(f.filename)}</div>`
                     : ''}
                 <div class="text-xxs" style="color: var(--color-text-tertiary);">
-                    ${_escapeHtml(provenance)} · ${nFindings} finding${nFindings === 1 ? '' : 's'}
+                    ${escapeHtml(provenance)} · ${nFindings} finding${nFindings === 1 ? '' : 's'}
                 </div>
             </div>
             <button type="button" class="action-btn text-xs" style="padding: 4px 10px;" data-role="review">Review</button>
@@ -129,20 +129,20 @@ function _structureFindingHtml(finding) {
     const items = (finding.items || []).slice(0, 30);
     const itemsHtml = items.length
         ? `<ul class="text-xxs" style="margin: 4px 0 0 0; padding-left: 18px; color: var(--color-text-secondary); font-family: var(--font-mono); word-break: break-all;">
-               ${items.map(i => `<li>${_escapeHtml(i)}</li>`).join('')}
+               ${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
            </ul>`
         : '';
     const statLine = finding.metric !== undefined
         ? `<div class="text-xxs" style="color: var(--color-text-secondary); margin-top: 2px;">
-               value ${_escapeHtml(finding.value)} vs baseline mean ${_escapeHtml(finding.baseline_mean)}
-               (range ${_escapeHtml(finding.baseline_min)}–${_escapeHtml(finding.baseline_max)}, z = ${_escapeHtml(finding.z)})
+               value ${escapeHtml(finding.value)} vs baseline mean ${escapeHtml(finding.baseline_mean)}
+               (range ${escapeHtml(finding.baseline_min)}–${escapeHtml(finding.baseline_max)}, z = ${escapeHtml(finding.z)})
            </div>`
         : '';
     return `
         <div style="padding: 8px 10px; border-left: 3px solid ${sevColor}; background: var(--color-bg-input); border-radius: 4px;">
             <div class="text-sm">
-                <span class="text-xxs font-bold" style="color: ${sevColor}; text-transform: uppercase; margin-right: 8px;">${_escapeHtml(finding.severity)}</span>
-                ${_escapeHtml(finding.detail || finding.code)}
+                <span class="text-xxs font-bold" style="color: ${sevColor}; text-transform: uppercase; margin-right: 8px;">${escapeHtml(finding.severity)}</span>
+                ${escapeHtml(finding.detail || finding.code)}
             </div>
             ${statLine}
             ${itemsHtml}
@@ -184,16 +184,16 @@ function openStructureReviewModal(verdict) {
     overlay.innerHTML = `
         <div class="upload-modal" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 style="margin: 0; word-break: break-all;">Structure review — ${_escapeHtml(verdict.original_filename || verdict.filename)}</h3>
+                <h3 style="margin: 0; word-break: break-all;">Structure review — ${escapeHtml(verdict.original_filename || verdict.filename)}</h3>
                 ${verdict.original_filename && verdict.original_filename !== verdict.filename
-                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(verdict.filename)}</div>`
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${escapeHtml(verdict.filename)}</div>`
                     : ''}
                 <button type="button" class="btn-discreet" data-role="close">&times;</button>
             </div>
             <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 16px;">
-                ${_escapeHtml([verdict.platform, verdict.source].filter(Boolean).join(' · '))}
-                · evaluated ${_escapeHtml(fypFmtDateTime(verdict.ts_evaluated))}
-                ${statsSummary ? ' · ' + _escapeHtml(statsSummary) : ''}
+                ${escapeHtml([verdict.platform, verdict.source].filter(Boolean).join(' · '))}
+                · evaluated ${escapeHtml(fypFmtDateTime(verdict.ts_evaluated))}
+                ${statsSummary ? ' · ' + escapeHtml(statsSummary) : ''}
             </div>
             ${section('Structure changes', structureFindings.length ? structureFindings.map(_structureFindingHtml).join('') : none)}
             ${section('Parse sanity & drift', statFindings.length ? statFindings.map(_structureFindingHtml).join('') : none)}
@@ -1020,7 +1020,7 @@ function _ingestPlaysCellHtml(r) {
         ? `No viewing activity — this donation contributed no ${noun}s.`
         : `${v.toLocaleString()} ${noun}${v === 1 ? '' : 's'} kept`;
     const style = v === 0 ? 'color: var(--color-danger); font-weight: 600;' : '';
-    return `<span style="${style}" title="${_escapeHtml(title)}">${v.toLocaleString()}</span>`;
+    return `<span style="${style}" title="${escapeHtml(title)}">${v.toLocaleString()}</span>`;
 }
 
 function _ingestDroppedCellHtml(r) {
@@ -1032,7 +1032,7 @@ function _ingestDroppedCellHtml(r) {
     const lines = _ingestDropLines(r);
     if (lines.length === 0) return '<span style="color: var(--color-text-tertiary);">0</span>';
     return lines
-        .map(l => `<div class="text-xxs" style="color: var(--color-text-tertiary); white-space: normal;">${_escapeHtml(l)}</div>`)
+        .map(l => `<div class="text-xxs" style="color: var(--color-text-tertiary); white-space: normal;">${escapeHtml(l)}</div>`)
         .join('');
 }
 
@@ -1040,15 +1040,6 @@ function _formatSiblings(siblings) {
     if (!siblings || siblings.length === 0) return '';
     if (siblings.length === 1) return siblings[0];
     return `${siblings[0]} (+${siblings.length - 1} more)`;
-}
-
-function _escapeHtml(s) {
-    return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
 }
 
 function unskipIngestionFile(btn, filename) {
@@ -1147,22 +1138,22 @@ function renderIngestResultsPanel(data) {
             const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
             const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
             const cidLine = r.canonical_collection_id
-                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.canonical_collection_id)}</div>`
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${escapeHtml(r.canonical_collection_id)}</div>`
                 : '';
             const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
-                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${_escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
                 : '';
             const notesLine = ((r.outcome === 'quarantined_structure' || r.outcome === 'load_failed' || r.outcome === 'blocked_name_collision') && r.notes)
-                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(r.notes)}</div>`
+                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${escapeHtml(r.notes)}</div>`
                 : '';
             return `
                 <tr>
                     <td style="${tdStyle}">
-                        <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.original_filename || r.filename)}</div>
+                        <div class="text-sm" style="word-break: break-all;">${escapeHtml(r.original_filename || r.filename)}</div>
                         ${r.original_filename && r.original_filename !== r.filename
-                            ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(r.filename)}</div>`
+                            ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${escapeHtml(r.filename)}</div>`
                             : ''}
-                        ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                        ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${escapeHtml(provenance)}</div>` : ''}
                     </td>
                     <td style="${tdStyle} color: ${meta.color};">
                         <div class="text-sm">${meta.label}</div>
@@ -1221,8 +1212,8 @@ function renderIngestResultsPanel(data) {
                     const mergedLines = perFile
                         .filter(r => r.outcome === 'merged_with_existing')
                         .map(r => {
-                            const cid = r.canonical_collection_id ? ` in collection "${_escapeHtml(r.canonical_collection_id)}"` : '';
-                            return `<li><code>${_escapeHtml(r.filename)}</code> joined an earlier donation${cid}.</li>`;
+                            const cid = r.canonical_collection_id ? ` in collection "${escapeHtml(r.canonical_collection_id)}"` : '';
+                            return `<li><code>${escapeHtml(r.filename)}</code> joined an earlier donation${cid}.</li>`;
                         })
                         .join('');
                     body += para(`${replaced.toLocaleString()} rows were replaced: a new file repeated events that an earlier donation to the same collection had already supplied. Each event is stored once, so the older copy was removed and the newest donation's copy kept.`)
@@ -1231,7 +1222,7 @@ function renderIngestResultsPanel(data) {
                 if (elsewhere > 0) {
                     const byCid = data.rows_removed_elsewhere_by_collection || {};
                     const cidLines = Object.entries(byCid)
-                        .map(([cid, n]) => `<li>${Number(n).toLocaleString()} from collection "${_escapeHtml(cid)}"</li>`)
+                        .map(([cid, n]) => `<li>${Number(n).toLocaleString()} from collection "${escapeHtml(cid)}"</li>`)
                         .join('');
                     body += para(`${elsewhere.toLocaleString()} rows were removed from collections this run did not add to. They were duplicate events already stored there, for example left behind by a data migration. Each processing run removes duplicates across the whole dataset, so they would have gone on any run. This run's own files lost nothing to them.`)
                         + listHtml(cidLines);
@@ -1258,15 +1249,15 @@ function renderIngestResultsPanel(data) {
                 const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
                 const lastSeen = fypFmtDate(r.ts_last_seen);
                 const cidLine = r.collection_id
-                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>`
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${escapeHtml(r.collection_id)}</div>`
                     : '';
                 const rawRows = (r.raw_rows ?? null) !== null && r.raw_rows > 0
                     ? r.raw_rows.toLocaleString() : '—';
                 return `
                     <tr>
                         <td style="${tdStyle}">
-                            <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
-                            ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                            <div class="text-sm" style="word-break: break-all;">${escapeHtml(r.filename)}</div>
+                            ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${escapeHtml(provenance)}</div>` : ''}
                         </td>
                         <td style="${tdStyle} color: ${meta.color};">
                             <div class="text-sm">${meta.label}</div>
@@ -1275,7 +1266,7 @@ function renderIngestResultsPanel(data) {
                         <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${rawRows}</td>
                         <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${lastSeen}</td>
                         <td style="${tdStyle} text-align: right;">
-                            <button type="button" class="action-btn" style="padding: 4px 10px;" onclick="unskipIngestionFile(this, '${_escapeHtml(r.filename).replace(/'/g, "\\'")}')">Un-skip</button>
+                            <button type="button" class="action-btn" style="padding: 4px 10px;" onclick="unskipIngestionFile(this, '${escapeHtml(r.filename).replace(/'/g, "\\'")}')">Un-skip</button>
                         </td>
                     </tr>
                 `;
@@ -1353,13 +1344,13 @@ function renderIngestionHistory(entries) {
         return `
             <tr>
                 <td style="${tdStyle}">
-                    <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
-                    ${uploaderLine ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">${_escapeHtml(uploaderLine)}</div>` : ''}
-                    ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                    <div class="text-sm" style="word-break: break-all;">${escapeHtml(r.filename)}</div>
+                    ${uploaderLine ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">${escapeHtml(uploaderLine)}</div>` : ''}
+                    ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${escapeHtml(provenance)}</div>` : ''}
                 </td>
                 <td style="${tdStyle} color: ${meta.color};">
                     <div class="text-sm">${meta.label}</div>
-                    ${r.collection_id ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>` : ''}
+                    ${r.collection_id ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${escapeHtml(r.collection_id)}</div>` : ''}
                 </td>
                 <td style="${numStyle}">${numOrDash(r.raw_rows)}</td>
                 <td style="${numStyle}">${numOrDash(r.kept_rows)}</td>

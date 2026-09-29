@@ -208,7 +208,7 @@ function renderEditActivityTable(container) {
     const thead = document.createElement('thead');
     const headerCells = _EDIT_COLLECTION_COLUMNS.map((col, i) => {
         const extra = i === 0 ? ' max-width: 160px;' : '';
-        const title = col.title ? ` title="${_escapeHtml(col.title)}"` : '';
+        const title = col.title ? ` title="${escapeHtml(col.title)}"` : '';
         return `<th style="${thStyle}${extra}" data-sort-type="${col.sortType}"${title}`
             + ` onclick="sortCollectionTable(this)">${col.label}</th>`;
     }).join('');
@@ -297,7 +297,7 @@ function renderEditActivityTable(container) {
             if (sortValue !== null) {
                 td.dataset.sortValue = sortValue;
             }
-            if (isBold) td.innerHTML = `<strong>${_escapeHtml(text)}</strong>`;
+            if (isBold) td.innerHTML = `<strong>${escapeHtml(text)}</strong>`;
             else td.textContent = text;
             return td;
         }

@@ -115,7 +115,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
             if (sortValue !== null) {
                 td.dataset.sortValue = sortValue;
             }
-            if (isBold) td.innerHTML = `<strong>${_escapeHtml(text)}</strong>`;
+            if (isBold) td.innerHTML = `<strong>${escapeHtml(text)}</strong>`;
             else td.textContent = text;
             return td;
         }
@@ -581,7 +581,7 @@ function _showStudyModal(study, isNew = false, readOnly = false) {
     const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
     if (lastUpdatedEl) {
         lastUpdatedEl.textContent = study.last_updated
-            ? 'Last updated: ' + formatShortDate(study.last_updated)
+            ? 'Last updated: ' + fypFmtDateTimeShort(study.last_updated)
             : '';
     }
 

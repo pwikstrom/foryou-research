@@ -5,10 +5,6 @@
 
 // --- Enrichment Stats & Logic ---
 
-function formatShortDate(isoStr) {
-    return fypFmtDateTimeShort(isoStr);
-}
-
 function renderConsolidateStatus(stats) {
     const statusEl = document.getElementById('consolidate-status');
     if (!statusEl || !stats) return;

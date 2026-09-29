@@ -405,13 +405,15 @@ newly invited users, which also links into the public `/thehub` page
 - The Data Pipeline script is split by feature under
   `static/js/data_management/` (core, studies, enrichment, ingestion,
   edit_collections, auto_enrichment, collection_actions). The files share one
-  global scope and load in the order `templates/index.html` lists them, for
-  every user who gets any of them: a top-level statement may only call
-  functions from its own or an earlier file. The worker cards, status poll and
-  log modal are `static/js/worker_control.js`, loaded right after `main.js`.
-- Still-deferred frontend work: loading only the study files for
-  My-Studies-only users (the study code still reaches edit-collection and
-  auto-enrichment functions behind runtime guards), removing inline
-  `onclick=` handlers, and hex-color/token cleanup. The inline handlers pin functions to `window`, so
+  global scope and load in the order `templates/index.html` lists them: a
+  top-level statement may only call functions from its own or an earlier
+  file. Users with the Data Pipeline tab get all of them; a My Studies viewer
+  without it gets only `core` and `studies` (the read-only study list and
+  modal), so those two may call into the other files only on paths such a
+  viewer never reaches — `tests/unit/test_data_management_scripts.py` lists
+  the allowed calls. The worker cards, status poll and log modal are
+  `static/js/worker_control.js`, loaded right after `main.js`.
+- Still-deferred frontend work: removing inline `onclick=` handlers, and
+  hex-color/token cleanup. The inline handlers pin functions to `window`, so
   a handler's function cannot be moved into a module scope or renamed
   without updating every template that calls it.
