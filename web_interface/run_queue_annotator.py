@@ -17,8 +17,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface import worker_registry
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks import worker_registry
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # Safety validation: reject batch sizes that risk timing out.
 # Each video ~60-90s via Gemini with 50 concurrent workers.
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     import concurrent.futures.thread as _ft
 
     from fyp.annotation.machine_annotation import queue_annotation_loop
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.tasks.task_status import LocalStatusReporter
 
     # When a Gemini worker hangs, call_machine_threads() marks it DNF and
     # returns without waiting. The ThreadPoolExecutor's atexit hook would

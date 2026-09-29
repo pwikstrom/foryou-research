@@ -1,6 +1,6 @@
 """The worker registry is complete and self-consistent.
 
-``web_interface/worker_registry.py`` is the one place a background worker is
+``web_interface/tasks/worker_registry.py`` is the one place a background worker is
 declared; the process table, Cloud Tasks eligibility, dispatch deadlines, the
 retry-safe set, the task-function table and the script paths are all derived
 from it. These checks make a half-registered worker fail here rather than in
@@ -10,8 +10,8 @@ one of the two deployment modes.
 import inspect
 from pathlib import Path
 
-from web_interface import process_manager, worker_registry
 from web_interface.routes import process_routes
+from web_interface.tasks import process_manager, worker_registry
 
 WEB = Path(__file__).resolve().parents[2] / "web_interface"
 # run_*.py files that are not workers.

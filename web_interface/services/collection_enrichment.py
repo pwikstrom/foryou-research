@@ -1673,7 +1673,7 @@ def last_tick() -> dict:
         or ``{}`` when the supervisor has never run (or the status is unreadable).
     """
     try:
-        from web_interface.task_status import read_task_status
+        from web_interface.tasks.task_status import read_task_status
 
         status = read_task_status(SUPERVISOR_TASK) or {}
     except Exception as exc:
@@ -1728,7 +1728,7 @@ def activity(platform: str | None = None) -> dict:
     ]
     try:
         from web_interface.services.worker_status import _is_worker_running
-        from web_interface.task_status import read_task_status
+        from web_interface.tasks.task_status import read_task_status
 
         for name, kind in candidates:
             if not _is_worker_running(name):

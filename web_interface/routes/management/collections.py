@@ -18,7 +18,7 @@ from fyp.ingest.raw_names import (
     entry_display_id,
     normalize_display_id,
 )
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ... import activity_log
 from ...collection_accounts import collection_counts_by_user
@@ -26,12 +26,12 @@ from ...data_service import (
     invalidate_collection_tags_cache,
 )
 from ...permissions import permission_required
-from ...process_manager import (
-    start_process,
-)
 from ...security import user_manager
 from ...services.worker_status import (
     _actor,
+)
+from ...tasks.process_manager import (
+    start_process,
 )
 from ._blueprint import management_bp
 
@@ -616,7 +616,7 @@ def _tick_now(cid: str) -> dict:
     """
 
     from ...services import collection_enrichment as ce
-    from ...task_status import is_cloud_run
+    from ...tasks.task_status import is_cloud_run
 
     try:
         if is_cloud_run():
@@ -855,7 +855,7 @@ def tick_collection_enrichment(collection_id):
     """
 
     from ...services import collection_enrichment as ce
-    from ...task_status import is_cloud_run
+    from ...tasks.task_status import is_cloud_run
 
     cid = str(collection_id)
     if ce.get_plan(cid) is None:

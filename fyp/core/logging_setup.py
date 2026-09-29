@@ -2,7 +2,7 @@
 
 Provides `get_logger()`, which returns a logger writing bare messages to
 STDOUT. Workers launched as subprocesses have their stdout parsed line-by-line
-by `web_interface/process_manager.py` and shown as UI log lines, so all
+by `web_interface/tasks/process_manager.py` and shown as UI log lines, so all
 diagnostic output must go to stdout with a plain "%(message)s" format —
 byte-identical to what `print()` produced before the logging migration.
 

@@ -15,17 +15,10 @@ from fyp.analysis.organize_datasets import (
 )
 from fyp.scrape import scraper_alerts
 from fyp.scrape.platform_scraper import get_scraper
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ... import activity_log
 from ...permissions import permission_required
-from ...process_manager import (
-    load_process_stats,
-    process_stats,
-    processes,
-    save_process_stats,
-    start_process,
-)
 from ...services import collection_enrichment, refresh_pipeline, system_health
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
@@ -41,7 +34,14 @@ from ...services.worker_status import (
     consolidate_entry_view,
     refresh_run_view,
 )
-from ...task_status import is_cloud_run
+from ...tasks.process_manager import (
+    load_process_stats,
+    process_stats,
+    processes,
+    save_process_stats,
+    start_process,
+)
+from ...tasks.task_status import is_cloud_run
 from ._blueprint import management_bp
 
 _drain_lease_cache = {"ts": 0.0, "value": {}}
@@ -60,7 +60,7 @@ def _active_drain_leases() -> dict:
     if now - _drain_lease_cache["ts"] < _DRAIN_LEASE_CACHE_TTL_S:
         return _drain_lease_cache["value"]
     try:
-        from ...drain_lease import active_drain_leases
+        from ...tasks.drain_lease import active_drain_leases
 
         value = active_drain_leases()
     except Exception:

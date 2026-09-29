@@ -7,7 +7,7 @@ Provides two reporter implementations:
 
 Both share the same interface so worker functions are execution-mode agnostic.
 
-Log *text* is no longer kept here. It lives in ``web_interface/run_logs.py``,
+Log *text* is no longer kept here. It lives in ``web_interface/tasks/run_logs.py``,
 which survives the next run, a restart and a scale-to-zero; the status file is
 back to carrying only state, progress and emitted data. The reporters feed that
 store, but they do not own a run's identity — see ``run_logs.attach_run``.
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 import fyp.core.data_io as data_io
 from fyp.core.runtime import is_cloud_run as is_cloud_run  # noqa: E402
-from web_interface import run_logs
+from web_interface.tasks import run_logs
 
 STATUS_PREFIX = "task_status"
 CANCEL_SUFFIX = "_cancel.json"
@@ -142,7 +142,7 @@ class LocalStatusReporter(TaskStatusReporter):
         print(message)
 
     def check_cancelled(self) -> bool:
-        from web_interface.process_manager import check_graceful_stop
+        from web_interface.tasks.process_manager import check_graceful_stop
 
         return check_graceful_stop(self.name)
 

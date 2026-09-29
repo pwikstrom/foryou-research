@@ -16,7 +16,7 @@ import argparse
 import sys
 from collections.abc import Callable
 
-from web_interface.task_status import LocalStatusReporter, TaskStatusReporter
+from web_interface.tasks.task_status import LocalStatusReporter, TaskStatusReporter
 
 ArgSpec = tuple[tuple, dict]
 

@@ -16,7 +16,7 @@ import fyp.core.data_io as data_io
 import web_interface.auth as auth
 from fyp.core.fyp_config import fyp_cf
 from fyp.scrape import scraper_alerts
-from web_interface import task_failures, worker_registry
+from web_interface.tasks import task_failures, worker_registry
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -1328,7 +1328,7 @@ def ops_report_html():
 def ops_report_run():
     """Generate a fresh ops report now (runs on the task-runner via the
     normal background-task dispatch)."""
-    from web_interface.process_manager import start_process
+    from web_interface.tasks.process_manager import start_process
 
     success, msg = start_process(
         "ops_report",

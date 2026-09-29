@@ -64,7 +64,7 @@ def check_all(model_id: str | None = None) -> list[dict]:
         }
     )
 
-    # Same signal as web_interface.task_status.is_cloud_run (inlined — the fyp
+    # Same signal as web_interface.tasks.task_status.is_cloud_run (inlined — the fyp
     # core must not import the web layer).
     on_cloud_run = is_cloud_run()
     checks.append(

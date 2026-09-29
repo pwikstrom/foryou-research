@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from fyp.core.fyp_config import PROJECT_ROOT, active_config_path
-from web_interface import process_manager
+from web_interface.tasks import process_manager
 
 ROOT = Path(PROJECT_ROOT).resolve()
 

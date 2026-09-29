@@ -467,7 +467,7 @@ def _check_task_failures() -> dict:
     failure is only visible through this ledger. Anything unacknowledged in
     the last 48 h is a condition an admin should look at.
     """
-    from web_interface import task_failures
+    from web_interface.tasks import task_failures
 
     dead = task_failures.unacknowledged_dead()
     checked_at = _now_iso()

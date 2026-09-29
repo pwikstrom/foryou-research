@@ -109,7 +109,7 @@ def _permanent_storm_threshold() -> int:
 # blips) are more plausible in a healthy session, and any success resets the
 # count. Overridable via ``[misc] scraper_transient_storm_threshold``.
 # Ceiling on one batch's wall clock. On Cloud Run the Cloud Tasks request
-# deadline (1800 s, from web_interface.worker_registry) is the
+# deadline (1800 s, from web_interface.tasks.worker_registry) is the
 # hard limit. A local drain has no such limit: the per-wave estimate governs,
 # bounded by ``[misc] scraper_local_batch_deadline_seconds`` (default 4 h).
 def _batch_deadline_cap() -> int:

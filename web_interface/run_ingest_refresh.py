@@ -18,7 +18,7 @@ from fyp.core.structure_sentinel import StructureSentinel, findings_digest
 from fyp.core.utils import VIDEO_VIEW_TYPES
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
 from fyp.ingest.base import BLOCKED_OUTCOME
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.
 # Mirrors ingest.LEDGER_SKIP_OUTCOMES — kept as a local alias because the UI
@@ -685,7 +685,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     run_worker(
         run_ingest_refresh,

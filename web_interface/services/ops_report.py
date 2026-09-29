@@ -319,7 +319,7 @@ def collect_status(hours_back: int = 24) -> dict:
     sec = section("Workers & processes")
     stats_doc = {}
     try:
-        from web_interface.process_manager import load_process_stats, process_stats
+        from web_interface.tasks.process_manager import load_process_stats, process_stats
 
         load_process_stats()
         stats_doc = dict(process_stats)
@@ -420,7 +420,7 @@ def collect_status(hours_back: int = 24) -> dict:
         check(sec, "Process logs", "red", f"Could not read worker state: {e}")
 
     try:
-        from web_interface import task_failures
+        from web_interface.tasks import task_failures
 
         unack = task_failures.unacknowledged_dead(within_hours=48)
         if unack:

@@ -82,7 +82,7 @@ def test_affected_studies_empty_for_unreferenced_ids(study_defs):
 
 
 def test_worker_cli_args_repeat_the_flag_once_per_collection():
-    from web_interface.process_manager import _task_args_to_cli
+    from web_interface.tasks.process_manager import _task_args_to_cli
 
     args = _task_args_to_cli("collection_delete", {"collection_ids": ["c1", "c2"]})
     assert args == ["--collection-id", "c1", "--collection-id", "c2"]

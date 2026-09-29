@@ -1559,7 +1559,7 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
 
     dispatched = []
     monkeypatch.setattr(
-        "web_interface.process_manager._dispatch_cloud_task",
+        "web_interface.tasks.process_manager._dispatch_cloud_task",
         lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1],
     )
     monkeypatch.setattr(ce, "armed_plans", lambda: {})
@@ -1620,7 +1620,7 @@ def test_last_tick_reports_the_supervisors_outcome(monkeypatch):
     (the plan's lifetime budget was already spent), but the dispatched-task
     path had no way to say so, so the loop read as broken.
     """
-    import web_interface.task_status as ts
+    import web_interface.tasks.task_status as ts
 
     monkeypatch.setattr(
         ts,
@@ -1646,7 +1646,7 @@ def test_last_tick_reports_the_supervisors_outcome(monkeypatch):
 
 
 def test_last_tick_is_empty_and_never_raises_without_a_status_file(monkeypatch):
-    import web_interface.task_status as ts
+    import web_interface.tasks.task_status as ts
 
     monkeypatch.setattr(ts, "read_task_status", lambda name: None)
     assert ce.last_tick() == {}
@@ -1942,7 +1942,10 @@ def test_activity_reports_the_running_worker():
             "web_interface.services.worker_status._is_worker_running",
             side_effect=lambda n: n in running,
         ),
-        patch("web_interface.task_status.read_task_status", side_effect=lambda n: statuses.get(n)),
+        patch(
+            "web_interface.tasks.task_status.read_task_status",
+            side_effect=lambda n: statuses.get(n),
+        ),
     ):
         out = ce.activity("tiktok")
         assert out["kind"] == "annotating"

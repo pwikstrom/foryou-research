@@ -41,10 +41,10 @@ import time
 from datetime import datetime, timezone
 
 import fyp.core.data_io as data_io
-from web_interface import worker_registry
 from web_interface.services import collection_enrichment as ce
 from web_interface.services import enrichment_journal as journal
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks import worker_registry
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # Consecutive cycles a collection may enqueue work without a single new scrape
 # landing before its plan parks itself. Named here for the worker's own log copy;
@@ -125,7 +125,7 @@ def _hard_gate() -> list[str]:
         if _is_worker_running(name):
             blocking.append(name)
     try:
-        from web_interface import drain_lease
+        from web_interface.tasks import drain_lease
 
         blocking += [f"local drain ({p})" for p in sorted(drain_lease.active_drain_leases())]
     except Exception:
@@ -174,7 +174,7 @@ def _in_flight_annotation_ids() -> set[str]:
 
 def _pipeline_in_flight() -> bool:
     """True in the gap between one pipeline step ending and the next booting."""
-    from web_interface.process_manager import load_process_stats, process_stats
+    from web_interface.tasks.process_manager import load_process_stats, process_stats
 
     load_process_stats()
     return bool(process_stats.get("consolidate_enrichment", {}).get("pipeline_in_flight"))
@@ -186,7 +186,7 @@ def _unconsolidated() -> str | None:
     Returns ``"scrape"``, ``"annotate"`` or None. The comparison mirrors the
     Data Management banner: newest worker success versus ``last_consolidation``.
     """
-    from web_interface.process_manager import (
+    from web_interface.tasks.process_manager import (
         SCRAPER_PROCESS_NAMES,
         load_process_stats,
         process_stats,
@@ -229,7 +229,7 @@ def _annotator_process() -> str:
 
 
 def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
-    from web_interface.process_manager import start_process
+    from web_interface.tasks.process_manager import start_process
 
     args = []
     if name.startswith("queue_scraper_"):
@@ -1688,7 +1688,7 @@ def _notify_owner(reporter, cid: str, entry: dict) -> None:
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     run_worker(
         run_enrichment_supervisor,

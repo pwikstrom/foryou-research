@@ -16,7 +16,7 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from fyp.core.utils import VIDEO_VIEW_TYPES
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks.task_status import TaskStatusReporter
 
 
 def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
@@ -310,7 +310,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     def _make_task_args(args) -> dict:
         task_args = {"study_name": args.study_name}

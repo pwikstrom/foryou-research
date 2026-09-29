@@ -338,7 +338,9 @@ def test_admin_users_profile_collections_and_delete_unlinks(env):
     assert r.status_code == 200
     assert um.get_user("member@example.test").profile["country"] == "Australia"
 
-    with patch("web_interface.process_manager.start_process", return_value=(True, "started")) as sp:
+    with patch(
+        "web_interface.tasks.process_manager.start_process", return_value=(True, "started")
+    ) as sp:
         r = client.delete("/api/admin/users?username=member%40example.test&cascade_collections=1")
     assert r.status_code == 200, r.get_json()
     body = r.get_json()

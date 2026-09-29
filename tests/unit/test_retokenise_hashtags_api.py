@@ -33,7 +33,7 @@ def run():
     admin = User("apply-test-admin", "admin", password_hash="x", approved=True)
     viewer = User("apply-test-viewer", "viewer", password_hash="x", approved=True)
 
-    import web_interface.process_manager as pm
+    import web_interface.tasks.process_manager as pm
     from web_interface.routes import management_routes as mr
 
     started = {"calls": []}

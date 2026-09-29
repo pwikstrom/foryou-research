@@ -555,7 +555,7 @@ dispatch, no `task_status/` or `process_stats.json` writes).
 5. In the web UI: make sure `queue_scraper_<platform>` is **not** running
    before starting the drain. While the drain runs it holds a **drain lease**
    (`local_drain_<platform>.json` in `cache`, heartbeat every 30 s, stale
-   after 10 min — see `web_interface/drain_lease.py`): the web UI refuses to
+   after 10 min — see `web_interface/tasks/drain_lease.py`): the web UI refuses to
    start that platform's scraper or a Consolidate while the lease is fresh,
    and the armed auto-consolidate defers. Queue writes themselves are atomic
    (`data_io.update_json` compare-and-swap), so a concurrent append is never

@@ -52,7 +52,7 @@ from ..security import user_manager
 auth_bp = Blueprint("auth_bp", __name__)
 logger = logging.getLogger(__name__)
 
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ..slack_service import get_recent_messages
 
@@ -659,7 +659,7 @@ def api_admin_users():
 
         result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
         if cascade and unlinked:
-            from ..process_manager import start_process
+            from ..tasks.process_manager import start_process
 
             ok, pmsg = start_process(
                 "collection_delete",
@@ -1037,7 +1037,7 @@ def api_irrelevant_words_apply():
     consolidation is running, since it rewrites the same scrape parquets.
     """
 
-    from ..process_manager import start_process
+    from ..tasks.process_manager import start_process
     from .management_routes import _is_worker_running, _workers_blocking_consolidate
 
     if _is_worker_running("retokenise_hashtags"):

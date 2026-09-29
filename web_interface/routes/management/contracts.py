@@ -161,7 +161,11 @@ def promote_annotation_version():
         # recode_refresh_studies succeeds after this timestamp. Reload the
         # shared stats first (cross-service file — never clobber the runner).
         try:
-            from ...process_manager import load_process_stats, process_stats, save_process_stats
+            from ...tasks.process_manager import (
+                load_process_stats,
+                process_stats,
+                save_process_stats,
+            )
 
             load_process_stats()
             entry = process_stats.setdefault("annotation_versions", {})
@@ -304,7 +308,7 @@ def _backend_target_info(target: str | None) -> dict:
     """
     from fyp.annotation.backends import active_backend_name, get_backend
 
-    from ...task_status import is_cloud_run
+    from ...tasks.task_status import is_cloud_run
 
     active = active_backend_name()
     info = {

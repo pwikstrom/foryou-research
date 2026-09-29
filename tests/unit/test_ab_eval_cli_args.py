@@ -7,7 +7,7 @@ arms at all and failed with "no contracts selected".
 
 import json
 
-from web_interface.process_manager import _task_args_to_cli
+from web_interface.tasks.process_manager import _task_args_to_cli
 
 
 def test_ab_eval_args_round_trip_through_cli():

@@ -14,7 +14,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # What depends on this consolidation, and what a change here makes stale, is the
 # refresh pipeline's business — see web_interface/services/refresh_pipeline.
@@ -99,7 +99,7 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
 
     reporter.log(f"Shadow verification found divergence: {result.get('mismatches')}")
     try:
-        from web_interface import task_failures
+        from web_interface.tasks import task_failures
 
         task_failures.record_failure(
             task="consolidate_enrichment",
@@ -204,7 +204,7 @@ def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool
         age = _shadow_check_age_days()
         if age is not None and age < _SHADOW_CHECK_INTERVAL_DAYS:
             return
-        from web_interface.process_manager import (
+        from web_interface.tasks.process_manager import (
             _dispatch_cloud_task,
             dispatch_deadline_for,
             is_cloud_run,
@@ -479,7 +479,7 @@ def run_consolidate_enrichment(
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     # The dependent refreshes are dispatched by the refresh pipeline once this
     # worker finishes — process_routes on Cloud Run, monitor_process_completion

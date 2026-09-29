@@ -500,7 +500,7 @@ def load_run(*, reload: bool = True) -> dict | None:
         reload: Re-read process_stats.json first. Always do this before a
             mutation — a stale in-memory copy has erased a fresh flag before.
     """
-    from web_interface.process_manager import load_process_stats, process_stats
+    from web_interface.tasks.process_manager import load_process_stats, process_stats
 
     if reload:
         load_process_stats()
@@ -516,7 +516,7 @@ def run_in_flight() -> bool:
 
 def seed_run(record: dict) -> dict:
     """Persist a freshly planned run, replacing whatever came before."""
-    from web_interface.process_manager import (
+    from web_interface.tasks.process_manager import (
         load_process_stats,
         process_stats,
         save_process_stats,
@@ -543,7 +543,7 @@ def mutate_run(fn: Callable[[dict], bool | None]) -> dict | None:
     would still lose one update, which is why every writer is a point where
     exactly one task is advancing the run.
     """
-    from web_interface.process_manager import (
+    from web_interface.tasks.process_manager import (
         load_process_stats,
         process_stats,
         save_process_stats,
@@ -570,7 +570,7 @@ def _mirror_in_flight(active: bool) -> None:
     supervisor's hard gate and the downstream-refresh service. Caller holds the
     reload window and does the save.
     """
-    from web_interface.process_manager import process_stats
+    from web_interface.tasks.process_manager import process_stats
 
     entry = dict(process_stats.get("consolidate_enrichment", {}))
     if active:
@@ -592,7 +592,7 @@ def set_in_flight(active: bool) -> None:
     if mutate_run(_apply) is None:
         # No run record (a legacy chain, or a run that was cleared): keep the
         # alias honest anyway so the supervisor's gate does not stick.
-        from web_interface.process_manager import (
+        from web_interface.tasks.process_manager import (
             load_process_stats,
             save_process_stats,
         )
@@ -604,7 +604,7 @@ def set_in_flight(active: bool) -> None:
 
 def clear_run() -> None:
     """Drop the run record entirely (a seeded run whose dispatch then failed)."""
-    from web_interface.process_manager import (
+    from web_interface.tasks.process_manager import (
         load_process_stats,
         process_stats,
         save_process_stats,
@@ -719,7 +719,7 @@ def stage_total(steps: dict) -> int:
 
 def build_context(record: dict) -> RunContext:
     """Gather the change signals the steps of this run have reported so far."""
-    from web_interface.process_manager import process_stats
+    from web_interface.tasks.process_manager import process_stats
 
     started_dt = _parse_ts(record.get("started_ts"))
     results: dict[str, dict] = {}
@@ -970,7 +970,7 @@ def awaiting_delivery(record: dict | None) -> str | None:
     or None. A fresh ``queued`` stamp means the queue still owes us a delivery;
     the run is alive even though nothing is running and nothing has completed.
     """
-    from web_interface.task_status import read_task_status
+    from web_interface.tasks.task_status import read_task_status
 
     if not record:
         return None
@@ -1012,8 +1012,8 @@ def last_activity_ts(record: dict | None) -> str | None:
     version of this fix read a stale value, ignored it, and let the sweep fire
     anyway. ``process_stats`` remains a fallback only.
     """
-    from web_interface.process_manager import process_stats
-    from web_interface.task_status import read_task_status
+    from web_interface.tasks.process_manager import process_stats
+    from web_interface.tasks.task_status import read_task_status
 
     if not record:
         return None

@@ -35,7 +35,7 @@ def is_cloud_run() -> bool:
 def graceful_stop_requested(process_name: str) -> bool:
     """True if the web app has asked worker ``process_name`` to stop gracefully.
 
-    The sentinel is written by ``web_interface.process_manager`` (local mode).
+    The sentinel is written by ``web_interface.tasks.process_manager`` (local mode).
     """
     root = Path(cf()["paths"]["project_root"])
     return (root / "tmp" / "graceful_stop" / f"{process_name}.stop").exists()

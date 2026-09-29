@@ -3,16 +3,16 @@
 from flask import jsonify, request
 
 import fyp.annotation.annotation_versioning as annotation_versioning
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ... import activity_log
 from ...permissions import permission_required
-from ...process_manager import (
-    start_process,
-)
 from ...services.worker_status import (
     _actor,
     _is_worker_running,
+)
+from ...tasks.process_manager import (
+    start_process,
 )
 from ._blueprint import management_bp
 from .contracts import (

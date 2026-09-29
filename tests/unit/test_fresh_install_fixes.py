@@ -27,8 +27,8 @@ def _fake_running_proc():
 
 
 def test_blocking_consolidate_detects_per_platform_scraper(monkeypatch):
-    from web_interface import process_manager
     from web_interface.services import worker_status
+    from web_interface.tasks import process_manager
 
     assert process_manager.SCRAPER_PROCESS_NAMES, "contract must register platforms"
     scraper_name = process_manager.SCRAPER_PROCESS_NAMES[0]

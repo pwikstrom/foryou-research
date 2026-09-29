@@ -45,7 +45,7 @@ def stub_embed_backend(monkeypatch):
 
 
 def test_start_process_refuses_cloud_dispatch_for_local_backend(stub_embed_backend, monkeypatch):
-    import web_interface.process_manager as pm
+    import web_interface.tasks.process_manager as pm
 
     monkeypatch.setenv("K_SERVICE", "fyp-data-hub")
     ok, msg = pm.start_process("embeddings_refresh", "unused_script.py")
@@ -57,7 +57,7 @@ def test_start_process_refuses_cloud_dispatch_for_local_backend(stub_embed_backe
 def test_start_process_local_mode_unaffected(stub_embed_backend, monkeypatch):
     """Locally (no K_SERVICE) the guard must not fire; the subprocess path is
     reached (we stop it by faking an already-running process)."""
-    import web_interface.process_manager as pm
+    import web_interface.tasks.process_manager as pm
 
     monkeypatch.delenv("K_SERVICE", raising=False)
 

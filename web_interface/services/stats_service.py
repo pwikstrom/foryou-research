@@ -21,7 +21,7 @@ from fyp.analysis.organize_datasets import (
 )
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
-from ..process_manager import (
+from ..tasks.process_manager import (
     load_process_stats,
     process_stats,
     processes,

@@ -17,8 +17,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from web_interface import process_manager
 from web_interface.routes import process_routes
+from web_interface.tasks import process_manager
 
 
 @pytest.fixture

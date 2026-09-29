@@ -43,9 +43,9 @@ Two abstractions make this work:
 - **`fyp/core/data_io.py`** — all file I/O goes through named locations
   (`"cache"`, `"recoded"`, `"users"`, ...) that resolve to local paths or GCS
   objects depending on config. Never open raw paths.
-- **`web_interface/process_manager.py` + `task_status.py`** — every
+- **`web_interface/tasks/process_manager.py` + `task_status.py`** — every
   background job is a `run_<name>(reporter, task_args)` function, declared
-  once in `web_interface/worker_registry.py` (`WORKERS`: script, Cloud Tasks
+  once in `web_interface/tasks/worker_registry.py` (`WORKERS`: script, Cloud Tasks
   deadline, retry safety, launch surfaces). Locally it
   runs as a subprocess whose stdout is parsed for `::PROGRESS::`/`::DATA::`
   markers (`LocalStatusReporter`); on Cloud Run it runs as a Cloud Task
@@ -213,4 +213,4 @@ second guard (see [decision 0010](decisions/0010-canonical-imports-only.md)).
 3. `fyp/ingest/base.py` — the base collection, plus one platform subclass
    (e.g. `fyp/ingest/instagram.py`)
 4. `web_interface/fyp_data_hub.py` — the app factory
-5. `web_interface/process_manager.py` — how background work runs
+5. `web_interface/tasks/process_manager.py` — how background work runs

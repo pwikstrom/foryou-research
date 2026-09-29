@@ -27,8 +27,8 @@ if __name__ == "__main__" and __package__ is None:
 # Imports
 from flask_wtf.csrf import CSRFProtect
 
-from .process_manager import load_process_stats  # Import load function
 from .security import login_manager  # Import shared auth objects
+from .tasks.process_manager import load_process_stats  # Import load function
 
 csrf = CSRFProtect()
 

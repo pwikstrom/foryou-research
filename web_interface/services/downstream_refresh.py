@@ -143,7 +143,7 @@ def dispatch_downstream_refresh(
         PIPELINE_STEPS_ORDER,
         _is_worker_running,
     )
-    from web_interface.task_status import is_cloud_run
+    from web_interface.tasks.task_status import is_cloud_run
 
     effective = (
         impact_union(get_deferred_impact(), impact)
@@ -176,7 +176,7 @@ def dispatch_downstream_refresh(
     refresh_pipeline.seed_run(record)
 
     if is_cloud_run():
-        from web_interface.process_manager import (
+        from web_interface.tasks.process_manager import (
             _dispatch_cloud_task,
             dispatch_deadline_for,
         )
@@ -225,7 +225,7 @@ def dispatch_downstream_refresh(
     else:
         import threading
 
-        from web_interface.process_manager import run_local_refresh_run
+        from web_interface.tasks.process_manager import run_local_refresh_run
 
         threading.Thread(
             target=run_local_refresh_run, args=(record["run_id"],), daemon=True

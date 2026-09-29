@@ -13,8 +13,8 @@ from flask_login import current_user
 
 from fyp.scrape.platform_scraper import get_scraper
 
-from ..process_manager import SCRAPER_PROCESS_NAMES, process_stats, processes
-from ..task_status import is_cloud_run, read_task_status
+from ..tasks.process_manager import SCRAPER_PROCESS_NAMES, process_stats, processes
+from ..tasks.task_status import is_cloud_run, read_task_status
 
 
 def _actor() -> str:

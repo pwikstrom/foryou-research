@@ -44,7 +44,7 @@ def svc(monkeypatch):
 
     # A removed study also drops its worker-board entry; record the keys
     # instead of touching the shared process-stats document.
-    import web_interface.process_manager as pm
+    import web_interface.tasks.process_manager as pm
 
     forgotten: list[str] = []
     monkeypatch.setattr(pm, "forget_process_stats", lambda key: (forgotten.append(key), True)[1])

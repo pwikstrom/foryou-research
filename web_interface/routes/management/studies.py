@@ -18,17 +18,13 @@ from fyp.analysis.studies import (
 from fyp.core.fyp_config import (
     fyp_cf,
 )
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ... import activity_log
 from ...data_service import (
     study_cache,
 )
 from ...permissions import permission_required
-from ...process_manager import (
-    forget_process_stats,
-    start_process,
-)
 from ...services.preview_cache import (
     _collections_hash,
     get_preview_cells,
@@ -44,7 +40,11 @@ from ...services.stats_service import (
 from ...services.worker_status import (
     _actor,
 )
-from ...task_status import is_cloud_run
+from ...tasks.process_manager import (
+    forget_process_stats,
+    start_process,
+)
+from ...tasks.task_status import is_cloud_run
 from ._blueprint import management_bp
 
 
@@ -423,7 +423,7 @@ def save_study():
         import threading as _threading
 
         from web_interface.run_study_refresh import run_study_refresh
-        from web_interface.task_status import LocalThreadStatusReporter
+        from web_interface.tasks.task_status import LocalThreadStatusReporter
 
         status_key = f"study_refresh__{study_name}"
         reporter = LocalThreadStatusReporter(status_key)

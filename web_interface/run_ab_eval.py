@@ -21,7 +21,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks.task_status import TaskStatusReporter
 
 
 def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
@@ -157,7 +157,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 if __name__ == "__main__":
     import json as _json
 
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     run_worker(
         run_ab_eval,

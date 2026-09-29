@@ -15,10 +15,12 @@ from flask_login import current_user, login_required
 
 import web_interface.auth as auth
 from fyp.core import logging_setup
-from web_interface import activity_log, run_logs, task_failures, worker_registry
+from web_interface import activity_log
+from web_interface.tasks import run_logs, task_failures, worker_registry
 
 from ..permissions import user_has_permission
-from ..process_manager import (
+from ..services import refresh_pipeline
+from ..tasks.process_manager import (
     CLOUD_TASK_ELIGIBLE,
     SCRAPER_PROCESS_NAMES,
     dispatch_deadline_for,
@@ -30,8 +32,7 @@ from ..process_manager import (
     start_process,
     stop_process,
 )
-from ..services import refresh_pipeline
-from ..task_status import (
+from ..tasks.task_status import (
     CANCEL_SUFFIX,
     STATUS_PREFIX,
     GCSStatusReporter,
@@ -58,7 +59,7 @@ from ..services.refresh_pipeline import (
 )
 
 # Tasks the Cloud Tasks queue may retry after a failed attempt (the rationale
-# for each worker's setting is in web_interface/worker_registry.py).
+# for each worker's setting is in web_interface/tasks/worker_registry.py).
 QUEUE_RETRY_SAFE: set[str] = {
     name for name, spec in worker_registry.WORKERS.items() if spec.retry_safe
 }
@@ -534,7 +535,7 @@ def api_study_refresh_status(study_name: str):
 
     # Local dev: read the in-process status dict populated by the background
     # thread spawned from save_study.
-    from web_interface.task_status import read_local_thread_status
+    from web_interface.tasks.task_status import read_local_thread_status
 
     local_status = read_local_thread_status(status_key)
     if local_status:
@@ -838,7 +839,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     """
     from datetime import datetime
 
-    from ..process_manager import _dispatch_cloud_task
+    from ..tasks.process_manager import _dispatch_cloud_task
 
     status_key = _get_status_key(name, task_args)
     reporter = GCSStatusReporter(status_key)
@@ -1131,7 +1132,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
         the enrichment-supervisor tick rather than dispatch a redundant task off
         the same worker completion.
     """
-    from ..process_manager import _dispatch_cloud_task
+    from ..tasks.process_manager import _dispatch_cloud_task
 
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
@@ -1183,7 +1184,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     # storage (its queue prunes would race the consolidation). The arm stays
     # set, so the next worker completion — or a manual trigger — re-checks.
     try:
-        from web_interface import drain_lease
+        from web_interface.tasks import drain_lease
 
         if drain_lease.active_drain_leases():
             print(f"[{just_finished}] Armed consolidate deferred: local drain lease active.")
@@ -1296,7 +1297,7 @@ def _tick_enrichment_supervisor(just_finished: str) -> None:
         owes = loop_owes_work()
         if not ce.armed_plans() and not (owes["settle"] or owes["refresh"]):
             return
-        from ..process_manager import _dispatch_cloud_task, dispatch_deadline_for
+        from ..tasks.process_manager import _dispatch_cloud_task, dispatch_deadline_for
 
         success, msg = _dispatch_cloud_task(
             "enrichment_supervisor",
@@ -1333,7 +1334,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str, cancelled: bo
         outcome: ``"Success"`` or ``"Fail"``.
         cancelled: The operator cancelled this step.
     """
-    from ..process_manager import _dispatch_cloud_task
+    from ..tasks.process_manager import _dispatch_cloud_task
 
     run_id = task_args.get("pipeline_run_id")
     leaves = task_args.get("pipeline_leaves") or []
@@ -1518,7 +1519,7 @@ def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
     its own study refresh, and any task that was already queued when the run
     record shipped. Linear, no fan-out, no chart.
     """
-    from ..process_manager import _dispatch_cloud_task
+    from ..tasks.process_manager import _dispatch_cloud_task
 
     remaining = task_args.get("pipeline_remaining") or []
     if outcome != "Success" or not remaining:

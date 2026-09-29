@@ -21,7 +21,7 @@ this repository; ruff rejects them here (see [architecture.md](architecture.md)
 
 The registry design means no orchestration edits: per-platform scrape
 queues (`to_scrape_<platform>.json`), the derived worker processes
-(`web_interface/worker_registry.py` declares one `queue_scraper_<platform>`
+(`web_interface/tasks/worker_registry.py` declares one `queue_scraper_<platform>`
 worker per platform in the contract's platform list), media
 subdirectories, and the scrape version registry
 (`fyp/scrape/scrape_versioning.py` — the platform set is part of the `sv_`
@@ -309,7 +309,7 @@ Constraints to know about:
   is written against the Gemini Batch API and reads `[machine.gemini]`
   directly; `supports_batch_mode = True` on another backend won't make it
   work there. New backends run the per-item threaded path.
-- **Cloud Run refusal.** `web_interface/process_manager.py` refuses to
+- **Cloud Run refusal.** `web_interface/tasks/process_manager.py` refuses to
   dispatch `queue_annotator` / `queue_annotator_batch` as a Cloud Task
   when the active backend has `cloud_run_capable = False`, with a message
   telling the admin to switch backends or run locally.

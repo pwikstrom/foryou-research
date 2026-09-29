@@ -161,7 +161,7 @@ def test_a_stale_status_flag_without_an_alert_does_not_hold(alerts):
         "data": {flag: True for flag in ABORT_FLAGS}
         | {"rate_limit_abort": True, "permanent_storm_abort": True},
     }
-    with patch("web_interface.task_status.read_task_status", return_value=stale):
+    with patch("web_interface.tasks.task_status.read_task_status", return_value=stale):
         assert sup._scraper_blocked("youtube") is None
 
 

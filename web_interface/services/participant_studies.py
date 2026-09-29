@@ -97,7 +97,7 @@ def _forget_refresh_stats(name: str) -> None:
     Function-level import: process_manager imports the study helpers.
     """
     try:
-        from web_interface.process_manager import forget_process_stats
+        from web_interface.tasks.process_manager import forget_process_stats
 
         forget_process_stats(f"study_refresh__{name}")
     except Exception as exc:
@@ -183,10 +183,10 @@ def dispatch_me_refresh(username: str, *, wait: bool = False, log=logger.info) -
         "refresh_metadata": True,
     }
 
-    from web_interface.task_status import is_cloud_run
+    from web_interface.tasks.task_status import is_cloud_run
 
     if is_cloud_run():
-        from web_interface.process_manager import start_process
+        from web_interface.tasks.process_manager import start_process
 
         ok, msg = start_process(
             "study_refresh", None, task_args=task_args, started_by="system (participant studies)"
@@ -196,7 +196,7 @@ def dispatch_me_refresh(username: str, *, wait: bool = False, log=logger.info) -
         return ok
 
     from web_interface.run_study_refresh import run_study_refresh
-    from web_interface.task_status import LocalThreadStatusReporter
+    from web_interface.tasks.task_status import LocalThreadStatusReporter
 
     def _run():
         reporter = LocalThreadStatusReporter(f"study_refresh__{study_name}")

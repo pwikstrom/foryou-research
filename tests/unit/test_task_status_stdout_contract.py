@@ -1,9 +1,9 @@
 """Stdout protocol contract for subprocess-mode status reporters.
 
-`web_interface/process_manager.py` (enqueue_output) parses worker subprocess
+`web_interface/tasks/process_manager.py` (enqueue_output) parses worker subprocess
 STDOUT line-by-line for the literal `::PROGRESS::` / `::DATA::` markers; every
 other stdout line becomes a UI log line. The print() calls emitting these
-markers in `web_interface/task_status.py` must therefore never be converted to
+markers in `web_interface/tasks/task_status.py` must therefore never be converted to
 logging or moved off stdout. This test pins the exact wire format.
 """
 
@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from web_interface.task_status import LocalStatusReporter, LocalThreadStatusReporter
+from web_interface.tasks.task_status import LocalStatusReporter, LocalThreadStatusReporter
 
 
 def _marker_lines(captured_out: str, marker: str) -> list[str]:

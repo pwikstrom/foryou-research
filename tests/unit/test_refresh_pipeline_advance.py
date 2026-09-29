@@ -21,8 +21,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-import web_interface.process_manager as pm
 import web_interface.routes.process_routes as pr
+import web_interface.tasks.process_manager as pm
 from web_interface.services import refresh_pipeline as rp
 
 
@@ -364,7 +364,7 @@ def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
 def _status_files(monkeypatch, files: dict):
     """Stand in for the workers' GCS status files — the single-writer record
     the sweep must trust, not the hub's lazily-loaded process_stats."""
-    import web_interface.task_status as ts
+    import web_interface.tasks.task_status as ts
 
     monkeypatch.setattr(ts, "read_task_status", lambda name: files.get(name))
 

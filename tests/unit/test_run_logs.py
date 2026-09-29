@@ -1,4 +1,4 @@
-"""Verify the durable process-log store (web_interface/run_logs.py).
+"""Verify the durable process-log store (web_interface/tasks/run_logs.py).
 
 Covers: the single-timestamping rule (and its no-double-stamp guard), the
 per-process run ring and its line caps, the incremental ``since`` cursor the
@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from web_interface import run_logs
+from web_interface.tasks import run_logs
 
 
 def _fake_io(store: dict, fail: bool = False):

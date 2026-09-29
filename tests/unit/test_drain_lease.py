@@ -1,4 +1,4 @@
-"""Verify the local-drain lease (web_interface/drain_lease.py) and the
+"""Verify the local-drain lease (web_interface/tasks/drain_lease.py) and the
 start_process guard built on it.
 
 Covers: freshness/staleness of read_drain_lease, DrainLease acquire/release
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from web_interface import drain_lease
+from web_interface.tasks import drain_lease
 
 
 def _fake_io(store: dict):
@@ -96,7 +96,7 @@ def test_drain_lease_released_even_when_body_raises():
 
 
 def test_start_process_guard_blocks_leased_platform_and_consolidate():
-    from web_interface import process_manager as pm
+    from web_interface.tasks import process_manager as pm
 
     fresh = json.loads(_lease_payload("youtube", age_seconds=10))
     with (
@@ -119,7 +119,7 @@ def test_start_process_guard_blocks_leased_platform_and_consolidate():
 
 
 def test_start_process_guard_open_when_no_lease():
-    from web_interface import process_manager as pm
+    from web_interface.tasks import process_manager as pm
 
     with (
         patch.object(drain_lease, "read_drain_lease", return_value=None),

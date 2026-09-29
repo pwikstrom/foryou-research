@@ -102,9 +102,9 @@ These are load-bearing conventions; each has a guard, but know them up front:
    `tests/unit/test_import_cycle_hash.py` and
    `tests/unit/test_lazy_config_boot.py`.
 2. **The worker stdout contract.** In subprocess mode,
-   `web_interface/process_manager.py` parses worker stdout line-by-line for
+   `web_interface/tasks/process_manager.py` parses worker stdout line-by-line for
    `::PROGRESS::` / `::DATA::` markers emitted by `LocalStatusReporter`
-   (`web_interface/task_status.py`); every other stdout line becomes a UI log
+   (`web_interface/tasks/task_status.py`); every other stdout line becomes a UI log
    line. Do not redirect worker output to stderr or alter those marker lines.
 3. **The var-schema hash.** Study caches key on a hash of the synthesized
    variable schema. Metadata-only changes (display names, descriptions,

@@ -21,7 +21,7 @@ from web_interface.data_service import (
     load_display_id_map,
 )
 from web_interface.permissions import permission_required
-from web_interface.task_status import is_cloud_run
+from web_interface.tasks.task_status import is_cloud_run
 
 semantic_space_bp = Blueprint("semantic_space_bp", __name__)
 
@@ -318,8 +318,8 @@ def api_semantic_space_status():
     are deliberately cheap (process_stats counters + one file stat, no parquet
     reads).
     """
-    from web_interface.process_manager import load_process_stats, process_stats
     from web_interface.routes.management_routes import _is_worker_running
+    from web_interface.tasks.process_manager import load_process_stats, process_stats
 
     # Cross-service stats live on GCS; reload so we see task-runner writes.
     if is_cloud_run():

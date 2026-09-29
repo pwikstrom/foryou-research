@@ -2,7 +2,7 @@
 
 Workers run as local subprocesses in development and as Cloud Tasks on Cloud
 Run. This module also keeps ``process_stats``, the shared record of their runs;
-the worker facts themselves are declared in :mod:`web_interface.worker_registry`."""
+the worker facts themselves are declared in :mod:`web_interface.tasks.worker_registry`."""
 
 import json
 import os
@@ -15,8 +15,8 @@ from pathlib import Path
 import fyp
 import fyp.core.data_io as data_io
 from fyp.core.fyp_config import PROJECT_ROOT, PYTHON_EXEC, active_config_path
-from web_interface import run_logs, task_failures, worker_registry
-from web_interface.task_status import (
+from web_interface.tasks import run_logs, task_failures, worker_registry
+from web_interface.tasks.task_status import (
     force_clear_status,
     is_cloud_run,
     read_task_status,
@@ -84,7 +84,7 @@ def scrape_platforms() -> list[str]:
 
 
 # Worker facts (names, scripts, deadlines, eligibility) live in one table,
-# web_interface/worker_registry.py; the module-level names below are views of it.
+# web_interface/tasks/worker_registry.py; the module-level names below are views of it.
 SCRAPER_PROCESS_NAMES = worker_registry.SCRAPER_PROCESS_NAMES
 
 # Processes eligible for Cloud Tasks dispatch: every registered worker.
@@ -652,12 +652,12 @@ def _dispatch_cloud_task(
 def _drain_lease_conflict(name: str) -> str | None:
     """Return a block message when a local scrape-queue drain holds a lease.
 
-    A local drain against the shared bucket (see web_interface/drain_lease.py)
+    A local drain against the shared bucket (see web_interface/tasks/drain_lease.py)
     is invisible to this process's subprocess table AND to the GCS task-status
     check, so it gets its own guard: the platform's own scraper is blocked, and
     so is a consolidation (its queue prune would race the drain's).
     """
-    from web_interface import drain_lease
+    from web_interface.tasks import drain_lease
 
     try:
         if name.startswith("queue_scraper_"):
@@ -886,7 +886,7 @@ def start_process(
             _journal_worker_started(name, task_args["started_by"], task_args)
             # Write an immediate "running" status so the UI shows feedback
             # before the task-runner instance starts up and writes its own status.
-            from web_interface.task_status import GCSStatusReporter
+            from web_interface.tasks.task_status import GCSStatusReporter
 
             placeholder = GCSStatusReporter(status_key)
             placeholder._status["state"] = "running"

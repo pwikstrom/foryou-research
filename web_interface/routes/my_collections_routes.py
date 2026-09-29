@@ -11,7 +11,7 @@ import os
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ..permissions import permission_required
 from ._access import current_user_ctx, owned_collection_access_error
@@ -299,7 +299,6 @@ def api_my_withdraw(collection_id):
 
     from .. import activity_log
     from ..mail_utils import is_email, send_withdrawal_email_async
-    from ..process_manager import start_process
     from ..security import user_manager
     from ..services.my_collections_service import (
         RECODED_FILENAME,
@@ -311,6 +310,7 @@ def api_my_withdraw(collection_id):
         record_withdrawal,
     )
     from ..services.study_data import get_collection_tags
+    from ..tasks.process_manager import start_process
 
     err = owned_collection_access_error(collection_id)
     if err:
@@ -422,7 +422,7 @@ def api_my_process():
     process the Data Management page starts). 409 = already running."""
 
     from .. import activity_log
-    from ..process_manager import start_process
+    from ..tasks.process_manager import start_process
 
     success, msg = start_process(
         "ingest_refresh",

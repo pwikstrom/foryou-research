@@ -147,7 +147,7 @@ Each `run_<name>.py` script is dual-mode:
 Everything the two modes need to know about a worker — its name, script,
 Cloud Tasks dispatch deadline, whether the queue may retry it, and which
 launch surfaces offer it — is declared once, in `WORKERS` in
-`web_interface/worker_registry.py`; `process_manager.CLOUD_TASK_ELIGIBLE`,
+`web_interface/tasks/worker_registry.py`; `process_manager.CLOUD_TASK_ELIGIBLE`,
 `process_routes.TASK_FUNCTIONS` / `QUEUE_RETRY_SAFE` and the script paths are
 derived from it (guard: `tests/unit/test_worker_registry.py`). A new worker is
 one `run_<name>.py` module plus one `WORKERS` entry.
@@ -193,7 +193,7 @@ attempts with backoff, but retry is **app-controlled**: only the idempotent
 refreshes in `process_routes.QUEUE_RETRY_SAFE` answer a failure with 503 (and
 are retried); every other task answers 200 and its failure is terminal. All
 failures land in the task-failures ledger (`cache/task_failures.json`,
-`web_interface/task_failures.py`) — the dead-letter record, surfaced on
+`web_interface/tasks/task_failures.py`) — the dead-letter record, surfaced on
 Admin → System Information. Queue setup: `scripts/configure_task_queue.sh`
 (see [DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment)).
 

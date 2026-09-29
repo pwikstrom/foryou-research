@@ -12,7 +12,7 @@ import pytest
 def ledger(monkeypatch):
     """Serve the ledger file from memory; every other file behaves normally."""
     import fyp.core.data_io as data_io
-    from web_interface import task_failures
+    from web_interface.tasks import task_failures
 
     store: dict = {"entries": None}
     target = task_failures.FAILURES_FILENAME
@@ -141,7 +141,7 @@ def test_unacknowledged_dead_excludes_retrying(ledger):
 def test_record_never_raises(monkeypatch):
     """Bookkeeping must never turn a task failure into a crash."""
     import fyp.core.data_io as data_io
-    from web_interface import task_failures
+    from web_interface.tasks import task_failures
 
     def _boom(*a, **kw):
         raise RuntimeError("storage down")

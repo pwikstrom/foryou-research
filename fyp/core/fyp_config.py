@@ -40,7 +40,7 @@ DEFAULT_PARTICIPANT_PLACEHOLDER_DOMAIN = "foryouresearch.net"
 
 # The config TOML ``initialize()`` actually loaded, recorded so a process can
 # hand its own effective config to a subprocess (see
-# ``web_interface.process_manager.worker_env``). Deliberately NOT stored in
+# ``web_interface.tasks.process_manager.worker_env``). Deliberately NOT stored in
 # ``cf["paths"]``: ``_create_local_dirs`` calls ``os.makedirs`` on every value
 # in that section, which would turn the config file into a directory.
 _active_config_path: str | None = None

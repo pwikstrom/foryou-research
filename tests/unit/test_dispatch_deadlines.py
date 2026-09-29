@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from web_interface import process_manager, worker_registry
+from web_interface.tasks import process_manager, worker_registry
 
 WORKER_DIR = Path(process_manager.__file__).parent
 
@@ -59,7 +59,7 @@ def test_run_log_is_opened_before_the_task_is_created(monkeypatch):
     same id, which the dispatcher's record then marked "interrupted" — every
     third worker run showed twice on 2026-09-05. Open first; abort the record
     if the dispatch then fails."""
-    import web_interface.task_status as ts
+    import web_interface.tasks.task_status as ts
 
     order: list[tuple] = []
     monkeypatch.setattr(process_manager, "is_cloud_run", lambda: True)

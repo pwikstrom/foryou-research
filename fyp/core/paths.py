@@ -9,7 +9,7 @@ appended to ``sys.path``.
 
 All names are re-exported by ``fyp.core.fyp_config``. The web app's worker script
 paths are not here: the library does not know the app's file layout; they live
-in ``web_interface/worker_registry.py``.
+in ``web_interface/tasks/worker_registry.py``.
 """
 
 import os

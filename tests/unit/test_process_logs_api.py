@@ -70,7 +70,7 @@ def client(monkeypatch):
 @pytest.fixture
 def store():
     """An isolated in-memory run-log store, with module buffers reset."""
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     data: dict = {}
     with run_logs._states_lock:
@@ -87,7 +87,7 @@ _login = login
 
 
 def test_returns_the_current_run_with_its_banner(client, store):
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("pca_refresh", started_by="patrik", mode="subprocess")
     run_logs.append("pca_refresh", "recoding studies")
@@ -105,7 +105,7 @@ def test_returns_the_current_run_with_its_banner(client, store):
 def test_keyed_status_names_are_readable(client, store):
     # Regression: the cloud lookup used the bare process name, so a per-study
     # refresh's log ("study_refresh__<study>") could never be found.
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("study_refresh__my_study", started_by="patrik")
     run_logs.append("study_refresh__my_study", "refreshing my_study")
@@ -119,7 +119,7 @@ def test_keyed_status_names_are_readable(client, store):
 
 
 def test_since_cursor_returns_only_new_lines(client, store):
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("pca_refresh")
     run_logs.append("pca_refresh", "line one")
@@ -139,7 +139,7 @@ def test_since_cursor_returns_only_new_lines(client, store):
 
 
 def test_a_previous_run_can_be_requested_by_id(client, store):
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     old_id = run_logs.open_run("pca_refresh", started_by="alice")
     run_logs.append("pca_refresh", "the old run")
@@ -159,7 +159,7 @@ def test_a_previous_run_can_be_requested_by_id(client, store):
 
 def test_logs_stays_a_newline_joined_string(client, store):
     # The async-annotator card feed reads this endpoint and splits on '\n'.
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("queue_annotator_batch")
     run_logs.append("queue_annotator_batch", "batch 1 submitted")
@@ -177,7 +177,7 @@ def test_logs_stays_a_newline_joined_string(client, store):
 def test_falls_back_to_the_in_memory_deque_before_any_run_exists(client, store):
     # Covers the deploy window: an older worker is still writing its log the
     # old way, and pre-migration runs have nothing in the new store.
-    from web_interface.process_manager import processes
+    from web_interface.tasks.process_manager import processes
 
     processes["pca_refresh"]["logs"].append("legacy line\n")
     try:
@@ -193,7 +193,7 @@ def test_falls_back_to_the_in_memory_deque_before_any_run_exists(client, store):
 def test_timestamps_are_present_on_every_line(client, store):
     import re
 
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("pca_refresh", started_by="patrik")
     run_logs.append("pca_refresh", "doing the work")
@@ -219,7 +219,7 @@ def test_traversal_keys_are_rejected(client, store):
 
 
 def test_clear_removes_the_history_for_everyone(client, store):
-    from web_interface import run_logs
+    from web_interface.tasks import run_logs
 
     run_logs.open_run("pca_refresh")
     run_logs.append("pca_refresh", "line")

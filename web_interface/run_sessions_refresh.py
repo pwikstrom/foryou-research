@@ -51,8 +51,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface import worker_registry
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks import worker_registry
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # Collections per chain link when the caller pins ``batch_size``. The binding
 # constraint is the vector working set (see
@@ -914,7 +914,7 @@ def run_sessions_refresh(
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     def _make_task_args(args) -> dict:
         task_args: dict = {}

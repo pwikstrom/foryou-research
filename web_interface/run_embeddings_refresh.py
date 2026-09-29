@@ -20,8 +20,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface import worker_registry
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks import worker_registry
+from web_interface.tasks.task_status import TaskStatusReporter
 
 # Items embedded per Cloud Task invocation. ~112 videos/s with 8 workers, so
 # 20k ≈ 3 min of embedding plus shard I/O — comfortably inside the 3600s
@@ -231,7 +231,7 @@ def run_embeddings_refresh(
 if __name__ == "__main__":
     import argparse
 
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.tasks.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Embed pending annotated videos")
     parser.add_argument(

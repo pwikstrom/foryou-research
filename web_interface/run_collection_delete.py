@@ -12,7 +12,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from web_interface.task_status import TaskStatusReporter
+from web_interface.tasks.task_status import TaskStatusReporter
 
 
 def _refresh_targets(affected_studies: list[str], study_defs: dict) -> list[str]:
@@ -65,11 +65,11 @@ def run_collection_delete(
         invalidate_collection_tags_cache,
         study_cache,
     )
-    from web_interface.process_manager import start_process
     from web_interface.routes.management_routes import (
         _affected_studies_for_collections,
         _find_raw_file_locations,
     )
+    from web_interface.tasks.process_manager import start_process
 
     task_args = task_args or {}
     raw_ids = task_args.get("collection_ids")
@@ -360,7 +360,7 @@ def run_collection_delete(
 
 
 if __name__ == "__main__":
-    from web_interface.worker_runner import run_worker
+    from web_interface.tasks.worker_runner import run_worker
 
     run_worker(
         run_collection_delete,

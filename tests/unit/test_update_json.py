@@ -233,7 +233,7 @@ def _fake_stats_io(store: dict):
 
 def test_save_process_stats_merges_only_changed_keys():
     """A key written by the other service between our load and save survives."""
-    from web_interface import process_manager as pm
+    from web_interface.tasks import process_manager as pm
 
     store = {"process_stats.json": json.dumps({"alpha": {"v": 1}, "beta": {"v": 1}})}
     saved_stats = dict(pm.process_stats)
@@ -267,7 +267,7 @@ def test_save_process_stats_merges_only_changed_keys():
 
 def test_save_process_stats_propagates_deletions():
     """A key this process deliberately removed is deleted on disk too."""
-    from web_interface import process_manager as pm
+    from web_interface.tasks import process_manager as pm
 
     store = {"process_stats.json": json.dumps({"alpha": {"v": 1}, "beta": {"v": 1}})}
     saved_stats = dict(pm.process_stats)

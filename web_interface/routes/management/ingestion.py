@@ -13,7 +13,7 @@ from fyp.core.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import get_main_collection, parse_donor_timezone
-from web_interface import worker_registry
+from web_interface.tasks import worker_registry
 
 from ... import activity_log
 from ...data_service import (
@@ -21,12 +21,12 @@ from ...data_service import (
     load_display_id_map,
 )
 from ...permissions import permission_required
-from ...process_manager import (
-    start_process,
-)
 from ...security import user_manager
 from ...services.worker_status import (
     _actor,
+)
+from ...tasks.process_manager import (
+    start_process,
 )
 from ._blueprint import management_bp
 

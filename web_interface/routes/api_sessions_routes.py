@@ -51,7 +51,7 @@ from web_interface.data_service import (
 )
 
 from ..permissions import permission_required
-from ..task_status import is_cloud_run
+from ..tasks.task_status import is_cloud_run
 from ._access import study_access_error
 
 sessions_bp = Blueprint("sessions_bp", __name__)
@@ -1988,8 +1988,8 @@ def api_sessions_status():
     upstream embeddings) worker is currently running, and whether the artifact
     was built by a different embedding model than the active backend's.
     """
-    from web_interface.process_manager import load_process_stats
     from web_interface.routes.management_routes import _is_worker_running
+    from web_interface.tasks.process_manager import load_process_stats
 
     if is_cloud_run():
         load_process_stats()
