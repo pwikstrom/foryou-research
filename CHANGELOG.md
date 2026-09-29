@@ -190,7 +190,7 @@ public version. Entries below describe the Hub as it stands at that release.
   version agrees across its five files. No behaviour change.
 - **Internal: single sources of truth for workers, accessors and route
   checks.** Every background worker is declared once in
-  `web_interface/worker_registry.py` (script, entry point, Cloud Tasks
+  `web_interface/tasks/worker_registry.py` (module, entry point, Cloud Tasks
   deadline, retry safety, launch surfaces); the nine tables that used to repeat
   those facts, and every chained link's deadline, derive from it, and the
   `fyp` library no longer holds the web app's worker script paths. Shared
@@ -200,6 +200,26 @@ public version. Entries below describe the Hub as it stands at that release.
   study-parameter check for the analysis endpoints. No behaviour change;
   verified by before/after snapshots of the worker wiring and of every
   route's anonymous and missing-/denied-study responses.
+- **Internal: module boundaries.** `web_interface/` is organised into
+  packages: `routes/` (the HTTP surface only), `services/`, `auth/` (accounts
+  and access control), `tasks/` (worker registry, launch, status, logs and the
+  Cloud Tasks runtime, which used to live in a route module), `workers/` (one
+  module per background worker) and `integrations/` (email, Slack); a unit
+  test keeps services, tasks and workers from importing route modules. The
+  `data_service.py` and `routes/management_routes.py` re-export facades are
+  gone. Oversized modules are split along their seams: the Sessions, account
+  and Explore routes; in `fyp`, `scrape`, `session_explorer` (now the
+  `fyp.analysis.sessions` package), `machine_annotation`, `organize_datasets`
+  (the `fyp.analysis.datasets` package) and `ingest/base`, each of which still
+  re-exports the names that moved; and the 9,400-line Data Pipeline script
+  and `main.js`'s worker controls. `fyp/core` no longer reaches into
+  `fyp.annotation` for the var-schema vocabulary, and ingest-only code (the
+  structure sentinel, the AIO donation fetch, time-zone inference) lives in
+  `fyp/ingest`. 67 CSS rules that could never match are removed. Local worker
+  commands change form: `python -m web_interface.workers.run_queue_scraper
+  --platform youtube` replaces `python web_interface/run_queue_scraper.py`.
+  No behaviour change: every moved definition was checked AST-identical to
+  the original, and the var-schema hash is unchanged.
 - **A smaller production image.** 103 packages nothing in the app imports
   (the Jupyter stack, plotting libraries, unused Google and geo clients) left
   `requirements.txt`, and the base image no longer ships the compilers it
@@ -237,7 +257,7 @@ public version. Entries below describe the Hub as it stands at that release.
   `follow` (was `following`) and are no longer a Timelines series or an
   Explorer facet: a follow names an account, not a video, so it never had a
   play to attach to and the series was always empty. The vocabulary lives in
-  `fyp.core.utils` (`KNOWN_ACTIVITY_TYPES`, `ENGAGEMENT_LABELS`); each
+  `fyp.core.activity_vocabulary` (`KNOWN_ACTIVITY_TYPES`, `ENGAGEMENT_LABELS`); each
   ingester declares what it emits (`emitted_activity_types`) and a registry
   test holds them to it. Timelines caches regenerate (schema 8).
 
