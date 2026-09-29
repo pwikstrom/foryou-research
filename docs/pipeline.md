@@ -132,7 +132,7 @@ same-item adjacency runs (which also attribute dwell), then via a
 Instagram's impression streams log a view once per item). Only `extra_data`
 is affected by the fallback; `play_duration` stays strictly adjacency-based.
 This folded token is the **only** engagement signal that survives into
-studies, which filter to play/observe rows (see `explorer_backend.py`,
+studies, which filter to play/observe rows (see `services/explorer_backend.py`,
 `parse_extra_data_tokens` from `fyp/core/utils.py`). A follow is counted
 from its own row on the participant's My Collections page only.
 
@@ -325,7 +325,7 @@ storage would resolve to GCS.
   because `ts_added_to_dataset` — and so the newest-wins dedup and the
   canonical collection id — comes from it. When a re-donation supersedes
   every row of an older file, the older file leaves no row to be a sibling,
-  so `_build_per_file_summary` reports the new file as `added_as_new`; the
+  so `build_per_file_summary` reports the new file as `added_as_new`; the
   replay records the true merge from `last_cid_remap`.
 
 ## 2. Scraping (`fyp/scrape/`)
@@ -665,7 +665,7 @@ Annotation runs as a self-chaining Cloud Task
 (`web_interface/workers/run_queue_annotator.py`), one batch per task.
 
 Annotation covers every platform. Eligibility is decided at queue entry
-(`management_routes`): `scraped_ok` AND `video_downloaded` AND under
+(`routes/management/enrichment.py`): `scraped_ok` AND `video_downloaded` AND under
 `max_duration_for_annotation` — metadata-only items (e.g. YouTube long-form
 past the media duration cap) never queue. An unscraped item in the annotate
 queue fails ("DNF - file not found") and is pruned as failed, so unscraped

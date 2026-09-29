@@ -1,12 +1,14 @@
 # web_interface
 
-The Flask dashboard, HTTP API, and background worker scripts. The package
-also hosts the public unauthenticated mini-site (`routes/public_routes.py`,
-`templates/public/`), the participant self-service surface
-(`routes/my_collections_routes.py` plus the my-collections /
-participant-studies / participant-enrichment services), a `services/`
-layer of backend logic extracted from routes, and SEO/indexing
-(`seo.py`: canonical link, robots.txt, sitemap).
+The Flask dashboard, HTTP API, and background workers: `routes/` (the HTTP
+surface), `services/` (business logic shared by routes and workers),
+`auth/` (accounts and access control), `tasks/` (the background-task
+runtime), `workers/` (one module per worker) and `integrations/` (email,
+Slack). It also hosts the public unauthenticated mini-site
+(`routes/public_routes.py`, `templates/public/`), the participant
+self-service surface (`routes/my_collections_routes.py` plus the
+my-collections / participant-studies / participant-enrichment services), and
+SEO/indexing (`seo.py`: canonical link, robots.txt, sitemap).
 
 - Structure, auth, workers, and frontend conventions:
   [docs/web_interface.md](../docs/web_interface.md)

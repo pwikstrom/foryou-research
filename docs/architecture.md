@@ -174,7 +174,7 @@ count, not just with the researcher-defined studies.
 blueprints (`web_interface/routes/` — including the participant-facing
 `my_collections` blueprint and, conditionally on the task-runner/local
 services, the CSRF-exempt `internal` blueprint). Auth is Flask-Login with a
-JSON-file user store, role-based permissions (`permissions.py`,
+JSON-file user store, role-based permissions (`web_interface/auth/`,
 `@permission_required`), and global CSRF. The public/SEO surface lives in
 `web_interface/seo.py`: the canonical `<link>`, `robots.txt`, the sitemap,
 JSON-LD, and the `www.`→apex redirect, all derived from the configured

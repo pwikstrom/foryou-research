@@ -233,9 +233,8 @@ helpers for dtype conversion.
 
 ### Thread Safety
 
-`StudyCache` in `web_interface/services/study_data.py` (re-exported by
-`data_service.py`) uses double-checked locking — be careful when modifying
-cache logic.
+`StudyCache` in `web_interface/services/study_data.py` uses double-checked
+locking — be careful when modifying cache logic.
 
 ### Annotation-Version Vocabulary
 
@@ -346,52 +345,47 @@ foryou-research/
 │       └── studies.py           # Study definitions
 ├── web_interface/
 │   ├── fyp_data_hub.py          # Flask app factory + entry point (port 5002)
-│   ├── data_service.py          # Re-export facade over services/ (StudyCache, PCA/sequence caches)
-│   ├── auth.py                  # Authentication, user/role managers, role_required / admin_required
-│   ├── security.py              # Login manager, user manager
-│   ├── permissions.py           # Tab + sub-page permission catalog, @permission_required
-│   ├── admin_notes.py           # Admin's free-text notes on a user account ({username}_notes.json in "users")
-│   ├── email_verification.py    # Signup email verification: signed, time-limited links + policy
 │   ├── static_assets.py         # asset_url(): content-hashed URLs for static JS/CSS
 │   ├── seo.py                   # Canonical host/link, robots.txt, sitemap.xml, JSON-LD
-│   ├── citation.py              # Copy-ready citation built from CITATION.cff
-│   ├── collection_accounts.py   # Collection ↔ user-account links (user_id in collections_tags.json)
-│   ├── admin_settings.py        # Persisted admin-controlled site settings
-│   ├── activity_log.py          # Per-user activity log for Data/User Management mutations
-│   ├── process_manager.py       # Background job lifecycle (subprocess + Cloud Tasks dispatch)
-│   ├── run_logs.py              # Durable per-process run logs (last 10 runs; GET /api/logs/<name>)
-│   ├── task_status.py           # GCS/local status reporters, heartbeat, cancellation
-│   ├── task_failures.py         # Durable background-task failure ledger (task_failures.json in "cache")
-│   ├── drain_lease.py           # Cross-instance heartbeat lease for local scrape-queue drains
-│   ├── worker_registry.py       # WORKERS: the one table of background workers
-│   ├── worker_runner.py         # Shared __main__ CLI entrypoint used by most run_*.py workers
-│   ├── semantic_trajectory.py   # Collection-trajectory overlay for Semantic Space
-│   ├── explorer_backend.py      # Data explorer backend logic
-│   ├── slack_service.py         # Slack integration
-│   ├── mail_utils.py            # Email utilities
-│   ├── run_queue_annotator.py   # Annotation worker (self-chaining Cloud Task)
-│   ├── run_queue_scraper.py     # Per-platform scraping worker (queue_scraper_<platform>)
-│   ├── run_timelines_refresh.py # Timelines refresh worker
-│   ├── run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
-│   ├── run_pca_refresh.py       # PCA/correlations refresh
-│   ├── run_recode_refresh_studies.py  # Study recoding
-│   ├── run_consolidate_enrichment.py  # Consolidation + impact analysis
-│   ├── run_study_refresh.py     # Single-study stats/PCA/metadata refresh
-│   ├── run_ingest_refresh.py    # Ingest refresh: per-file row counts + provenance snapshot
-│   ├── run_collection_metadata_refresh.py  # Regenerate collections_metadata.parquet
-│   ├── run_collection_delete.py # Delete a collection from recoded/metadata parquets
-│   ├── run_aio_fetch.py         # Fetch recent AIO donations + participant metadata from AWS
-│   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (single-flight)
-│   ├── run_video_map_refresh.py    # Cluster the embedding store into niches + 2D map
-│   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts
-│   ├── run_sessions_refresh.py  # Sessions tab build (self-chaining, incremental; docs/pipeline.md)
-│   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths
-│   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation
-│   ├── run_ab_eval.py           # Prompt A/B eval run
-│   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup
-│   ├── run_enrichment_supervisor.py  # One tick of the automatic per-collection enrichment loop
-│   ├── run_ops_report.py        # Daily ops report: assemble + email (not queue-retry-safe)
-│   ├── services/                # Backend logic extracted from routes (docs/web_interface.md)
+│   ├── auth/                    # Accounts and access control
+│   │   ├── accounts.py          #   User + role store (UserManager, RoleManager, the user_manager singleton)
+│   │   ├── security.py          #   Flask-Login wiring (login_manager, user loader)
+│   │   ├── permissions.py       #   Permission catalog + route guards (@permission_required, @admin_required)
+│   │   └── email_verification.py  # Signup email verification: signed, time-limited links + policy
+│   ├── tasks/                   # Background-task runtime (docs/web_interface.md "Background workers")
+│   │   ├── worker_registry.py   #   WORKERS: the one table of background workers
+│   │   ├── process_manager.py   #   Launch a worker: local subprocess or Cloud Tasks dispatch
+│   │   ├── runtime.py           #   Cloud Tasks runtime: run a delivery, record stats, advance chains + pipeline
+│   │   ├── task_status.py       #   GCS/local status reporters, heartbeat, cancellation
+│   │   ├── run_logs.py          #   Durable per-process run logs (last 10 runs; GET /api/logs/<name>)
+│   │   ├── task_failures.py     #   Durable failure ledger (task_failures.json in "cache")
+│   │   ├── worker_runner.py     #   Shared __main__ CLI entrypoint used by most workers
+│   │   └── drain_lease.py       #   Cross-instance heartbeat lease for local scrape-queue drains
+│   ├── workers/                 # One module per background worker; run locally as python -m web_interface.workers.run_<name>
+│   │   ├── run_queue_annotator.py   # Annotation worker (self-chaining Cloud Task)
+│   │   ├── run_queue_scraper.py     # Per-platform scraping worker (queue_scraper_<platform>)
+│   │   ├── run_timelines_refresh.py # Timelines refresh worker
+│   │   ├── run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
+│   │   ├── run_pca_refresh.py       # PCA/correlations refresh
+│   │   ├── run_recode_refresh_studies.py  # Study recoding
+│   │   ├── run_consolidate_enrichment.py  # Consolidation + impact analysis
+│   │   ├── run_study_refresh.py     # Single-study stats/PCA/metadata refresh
+│   │   ├── run_ingest_refresh.py    # Ingest refresh: per-file row counts + provenance snapshot
+│   │   ├── run_collection_metadata_refresh.py  # Regenerate collections_metadata.parquet
+│   │   ├── run_collection_delete.py # Delete a collection from recoded/metadata parquets
+│   │   ├── run_aio_fetch.py         # Fetch recent AIO donations + participant metadata from AWS
+│   │   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (single-flight)
+│   │   ├── run_video_map_refresh.py    # Cluster the embedding store into niches + 2D map
+│   │   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts
+│   │   ├── run_sessions_refresh.py  # Sessions tab build (self-chaining, incremental; docs/pipeline.md)
+│   │   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths
+│   │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation
+│   │   ├── run_ab_eval.py           # Prompt A/B eval run
+│   │   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup
+│   │   ├── run_enrichment_supervisor.py  # One tick of the automatic per-collection enrichment loop
+│   │   └── run_ops_report.py        # Daily ops report: assemble + email (not queue-retry-safe)
+│   ├── integrations/            # Outbound email (mail_utils) and Slack (slack_service)
+│   ├── services/                # Business logic shared by routes and workers — data, stats, settings, accounts links (docs/web_interface.md)
 │   ├── routes/                  # Flask Blueprints (docs/web_interface.md; endpoints: docs/routes.md)
 │   │   ├── auth_routes.py       #   Login, signup, settings
 │   │   ├── api_explorer_routes.py       #   Studies + Explore API + system info + methods note
@@ -403,7 +397,6 @@ foryou-research/
 │   │   ├── my_collections_routes.py     #   Participant self-service API (/api/my/collections/*)
 │   │   ├── _access.py           #   Shared route-level access helpers
 │   │   ├── management/          #   Admin/management endpoints: per-domain submodules on one blueprint
-│   │   ├── management_routes.py #   Compatibility shim re-exporting the management package
 │   │   ├── human_eval_routes.py #   Human annotation input (coding, votes, invitations)
 │   │   ├── public_routes.py     #   Public (unauthenticated) mini-site, robots.txt, sitemap.xml
 │   │   └── process_routes.py    #   Background process endpoints + the internal Cloud Tasks receiver
@@ -522,8 +515,8 @@ but nothing here needs it.
 **When to deploy which service:**
 
 - UI/route/template/JS changes only → deploy just `fyp-data-hub`
-- Task worker logic only (`run_*.py`) → deploy just `fyp-task-runner`
-- Shared code (`fyp/`, `process_manager.py`, `task_status.py`) → deploy
+- Task worker logic only (`workers/run_*.py`) → deploy just `fyp-task-runner`
+- Shared code (`fyp/`, `tasks/`, `services/`) → deploy
   **both**
 - Step 1 (build) is always required before any deploy
 - Step 0 (base image) is only needed when Python dependencies change
