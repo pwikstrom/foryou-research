@@ -8,6 +8,7 @@ real sessions index is required.
 import pandas as pd
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
 from tests._web import web_client
 from web_interface.services import sessions_data, sessions_stats
 
@@ -336,14 +337,14 @@ def test_display_params_fall_back_to_config_for_an_older_artifact():
     from fyp.analysis import session_explorer
 
     assert sessions_data.display_params(None) == {
-        **session_explorer.default_params(),
+        **sessions_inputs.default_params(),
         "context_plays": sessions_data.context_plays(),
         "drift_p": sessions_data._drift_p(),
         "trend_min_videos": sessions_data.trend_min_videos(),
     }
     assert (
         sessions_data.display_params({"params": {}})["window_n"]
-        == session_explorer.default_params()["window_n"]
+        == sessions_inputs.default_params()["window_n"]
     )
 
 
@@ -1388,7 +1389,7 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
         block = np.stack([vecs[i] for i in found])
         return {iid: row for row, iid in enumerate(found)}, block
 
-    monkeypatch.setattr(mod.session_explorer, "load_directional_block", fake_block)
+    monkeypatch.setattr(mod.sessions_inputs, "load_directional_block", fake_block)
 
     play_rows = [
         {"item_id": "v0", "ts": "t0"},

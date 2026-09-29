@@ -31,6 +31,7 @@ from test_structured_refinement_path import _structured_response
 
 import fyp.annotation.machine_annotation as ma
 import fyp.annotation.machine_annotation_batch as batch
+from fyp.annotation import annotation_refinement
 
 _GEN = {
     "temperature": 1.0,
@@ -204,7 +205,7 @@ def test_batch_ingested_raw_refines_through_structured_path() -> None:
         annotation_version="av_batch_test",
     )
     with pinned_var_schema(), isolated_storage():
-        df = ma.refine_one_raw_annotation_batch(
+        df = annotation_refinement.refine_one_raw_annotation_batch(
             raw_outputs_from_machine=raw,
             raw_json_filename="machine_annotations_batch_x.json",
             verbose=False,

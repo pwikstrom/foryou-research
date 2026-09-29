@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 import pytest
 
-from fyp.scrape import scrape
+from fyp.scrape import failures, scrape
 
 LABEL = "scrape_failed_items"
 
@@ -56,7 +56,7 @@ def _fake_store(files: dict[str, list]):
         patch.object(scrape.data_io, "load_json", fake_load_json),
         patch.object(scrape.data_io, "save_json", fake_save_json),
         patch.object(scrape.data_io, "move", fake_move),
-        patch.object(scrape, "_failed_scrapes_label", return_value=LABEL),
+        patch.object(failures, "_failed_scrapes_label", return_value=LABEL),
     ]
     return saved, ctx
 
@@ -67,7 +67,7 @@ def _load(files: dict[str, list], detail: bool = False):
     for c in ctx:
         c.start()
     try:
-        loader = scrape.load_failed_scrapes_detail if detail else scrape.load_failed_scrapes
+        loader = failures.load_failed_scrapes_detail if detail else failures.load_failed_scrapes
         return loader(verbose=False), saved
     finally:
         for c in ctx:

@@ -11,6 +11,8 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
 import fyp.core.data_io as data_io
 from fyp.analysis import session_explorer as se
 from web_interface.services import sessions_data
@@ -75,7 +77,7 @@ def _plays_frame():
 
 
 def test_plays_table_is_sorted_and_schema_typed():
-    tbl = se.plays_table(_plays_frame())
+    tbl = sessions_publish.plays_table(_plays_frame())
     assert tbl.num_rows == 4
     assert tbl.column("collection_id").to_pylist() == ["collA", "collA", "collA", "collB"]
     # Within a collection, time-sorted.
@@ -91,7 +93,7 @@ def test_plays_table_is_sorted_and_schema_typed():
 
 
 def test_plays_table_empty_is_schema_correct():
-    tbl = se.plays_table(None)
+    tbl = sessions_publish.plays_table(None)
     assert tbl.num_rows == 0
     assert set(tbl.schema.names) == {
         "collection_id",
@@ -108,7 +110,7 @@ def test_plays_table_empty_is_schema_correct():
 
 def test_plays_table_without_text_columns_publishes_nulls():
     """A frame that never went through attach_play_texts stays schema-stable."""
-    tbl = se.plays_table(_plays_frame())
+    tbl = sessions_publish.plays_table(_plays_frame())
     assert tbl.column("story").null_count == tbl.num_rows
     assert tbl.column("desc").null_count == tbl.num_rows
     assert tbl.column("hashtags").null_count == tbl.num_rows
@@ -121,19 +123,19 @@ def test_attach_play_texts_maps_caps_and_joins():
         index=pd.Index(["v1", "v2", "v3"], name="item_id", dtype="string"),
     )
     stories = {"v1": "a story", "v3": "y" * 500}
-    out = se.attach_play_texts(plays, feat, stories)
+    out = sessions_publish.attach_play_texts(plays, feat, stories)
     by_item = {str(r["item_id"]): r for _, r in out.iterrows()}
     assert by_item["v1"]["story"] == "a story"
     assert by_item["v1"]["desc"] == "a caption"
     assert by_item["v1"]["hashtags"] == "#one #two"
     # Caps apply at build time; the endpoint's own cap becomes a no-op.
-    assert by_item["v3"]["desc"] == "x" * se.PLAY_TEXT_CAP + "…"
-    assert by_item["v3"]["story"] == "y" * se.PLAY_TEXT_CAP + "…"
+    assert by_item["v3"]["desc"] == "x" * sessions_publish.PLAY_TEXT_CAP + "…"
+    assert by_item["v3"]["story"] == "y" * sessions_publish.PLAY_TEXT_CAP + "…"
     # Items with no text stay null, and play order/rows are unchanged.
     assert pd.isna(by_item["v2"]["desc"]) and pd.isna(by_item["v2"]["story"])
     assert len(out) == len(plays)
     # The baked columns round-trip through the artifact table.
-    tbl = se.plays_table(out)
+    tbl = sessions_publish.plays_table(out)
     stories_col = dict(zip(tbl.column("item_id").to_pylist(), tbl.column("story").to_pylist()))
     assert stories_col["v1"] == "a story"
 
@@ -141,52 +143,54 @@ def test_attach_play_texts_maps_caps_and_joins():
 def test_publish_skips_plays_on_mixed_shard_schemas(storage):
     """Mid-run schema widening degrades to the fallback, never a failed publish."""
     plays = _plays_frame()
-    se.write_batch_shards("runM", 0, [], [], [], plays=plays)
-    se.write_batch_shards("runM", 1, [], [], [], plays=plays)
+    sessions_publish.write_batch_shards("runM", 0, [], [], [], plays=plays)
+    sessions_publish.write_batch_shards("runM", 1, [], [], [], plays=plays)
     # Simulate a pre-deploy link 1: overwrite its plays shard with one that
     # lacks the text columns.
-    old = se.plays_table(plays).drop_columns(["story", "desc", "hashtags"])
+    old = sessions_publish.plays_table(plays).drop_columns(["story", "desc", "hashtags"])
     data_io.write_parquet_stream(
         storage_location="cache",
-        filename=se.shard_filename("plays", "runM", 1),
+        filename=sessions_publish.shard_filename("plays", "runM", 1),
         batches=[old],
         schema=old.schema,
     )
-    se.publish_artifacts(
+    sessions_publish.publish_artifacts(
         "runM",
         n_chunks=2,
         expected={"sessions": 0, "episodes": 0, "windows": 0, "plays": 8},
         meta={},
     )
-    assert not data_io.exists(storage_location="cache", filename=se.PLAYS_FILE)
-    assert data_io.exists(storage_location="cache", filename=se.SESSIONS_FILE)
+    assert not data_io.exists(storage_location="cache", filename=sessions_inputs.PLAYS_FILE)
+    assert data_io.exists(storage_location="cache", filename=sessions_inputs.SESSIONS_FILE)
 
 
 def test_publish_includes_plays_and_verifies_counts(storage):
     plays = _plays_frame()
-    se.write_batch_shards("runX", 0, [], [], [], plays=plays)
-    se.publish_artifacts(
+    sessions_publish.write_batch_shards("runX", 0, [], [], [], plays=plays)
+    sessions_publish.publish_artifacts(
         "runX",
         n_chunks=1,
         expected={"sessions": 0, "episodes": 0, "windows": 0, "plays": 4},
         meta={"n_plays": 4},
     )
-    df = data_io.load_parquet_selective(storage_location="cache", filename=se.PLAYS_FILE)
+    df = data_io.load_parquet_selective(
+        storage_location="cache", filename=sessions_inputs.PLAYS_FILE
+    )
     assert len(df) == 4
     assert list(df["collection_id"].astype(str))[:3] == ["collA"] * 3
     # Shards were swept after publish.
     leftovers = [
         f
         for f in data_io.listdir(storage_location="cache")
-        if f.startswith(tuple(se.SHARD_PREFIXES.values()))
+        if f.startswith(tuple(sessions_inputs.SHARD_PREFIXES.values()))
     ]
     assert leftovers == []
 
 
 def test_publish_rejects_a_plays_count_mismatch(storage):
-    se.write_batch_shards("runY", 0, [], [], [], plays=_plays_frame())
+    sessions_publish.write_batch_shards("runY", 0, [], [], [], plays=_plays_frame())
     with pytest.raises(RuntimeError, match="plays"):
-        se.publish_artifacts(
+        sessions_publish.publish_artifacts(
             "runY",
             n_chunks=1,
             expected={"sessions": 0, "episodes": 0, "windows": 0, "plays": 99},
@@ -196,16 +200,18 @@ def test_publish_rejects_a_plays_count_mismatch(storage):
 
 def test_publish_skips_plays_for_a_pre_upgrade_run(storage):
     """A run whose links never wrote plays shards still publishes the rest."""
-    se.write_batch_shards("runZ", 0, [], [], [], plays=_plays_frame())
-    data_io.remove(storage_location="cache", filename=se.shard_filename("plays", "runZ", 0))
-    se.publish_artifacts(
+    sessions_publish.write_batch_shards("runZ", 0, [], [], [], plays=_plays_frame())
+    data_io.remove(
+        storage_location="cache", filename=sessions_publish.shard_filename("plays", "runZ", 0)
+    )
+    sessions_publish.publish_artifacts(
         "runZ",
         n_chunks=1,
         expected={"sessions": 0, "episodes": 0, "windows": 0, "plays": 4},
         meta={},
     )
-    assert not data_io.exists(storage_location="cache", filename=se.PLAYS_FILE)
-    assert data_io.exists(storage_location="cache", filename=se.SESSIONS_FILE)
+    assert not data_io.exists(storage_location="cache", filename=sessions_inputs.PLAYS_FILE)
+    assert data_io.exists(storage_location="cache", filename=sessions_inputs.SESSIONS_FILE)
 
 
 def _write_activity_file(plays):
@@ -235,9 +241,12 @@ def test_session_plays_artifact_matches_fallback(storage):
     assert list(fb["item_id"]) == ["v1", "v2"]
 
     # Now publish the artifact and read again — identical rows.
-    tbl = se.plays_table(plays)
+    tbl = sessions_publish.plays_table(plays)
     data_io.write_parquet_stream(
-        storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
+        storage_location="cache",
+        filename=sessions_inputs.PLAYS_FILE,
+        batches=[tbl],
+        schema=tbl.schema,
     )
     sessions_data._STAT_CACHE.clear()
     art = sessions_data.session_plays("collA", _session_row("collA__0"))
@@ -251,9 +260,12 @@ def test_session_plays_recovers_na_sessions_from_the_artifact(storage):
     import web_interface.routes.api_sessions_routes as mod
 
     plays = _plays_frame()
-    tbl = se.plays_table(plays)
+    tbl = sessions_publish.plays_table(plays)
     data_io.write_parquet_stream(
-        storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
+        storage_location="cache",
+        filename=sessions_inputs.PLAYS_FILE,
+        batches=[tbl],
+        schema=tbl.schema,
     )
     sessions_data._STAT_CACHE.clear()
     got = sessions_data.session_plays(
@@ -269,9 +281,12 @@ def test_session_plays_falls_back_when_artifact_lacks_the_collection(storage):
     plays = _plays_frame()
     _write_activity_file(plays)
     only_b = plays[plays["collection_id"] == "collB"]
-    tbl = se.plays_table(only_b)
+    tbl = sessions_publish.plays_table(only_b)
     data_io.write_parquet_stream(
-        storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
+        storage_location="cache",
+        filename=sessions_inputs.PLAYS_FILE,
+        batches=[tbl],
+        schema=tbl.schema,
     )
     sessions_data._STAT_CACHE.clear()
     got = sessions_data.session_plays("collA", _session_row("collA__0"))

@@ -41,6 +41,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
+from fyp.annotation import annotation_refinement, response_parsing
 from fyp.annotation import annotation_schema as sch
 from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 
@@ -622,7 +623,7 @@ def annotate_one(
     # was safe only because execute_run happens to import platform_map_for off
     # the same shim first — delete that line and the pool would race a cold
     # shim. See tests/unit/test_pool_import_race.py.
-    from fyp.annotation.machine_annotation import initialize_machine
+    from fyp.annotation.gemini_calls import initialize_machine
 
     initialize_machine()
     machine = _cf()["machine"]["gemini"]
@@ -983,19 +984,18 @@ def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFr
     ``clean_up_machine_annotations`` → flags → pyarrow), entirely in memory —
     nothing is saved. Drifts *with* production by construction.
     """
-    import fyp.annotation.machine_annotation as ma
     from fyp.annotation.recode_variables import recode_events_df, rename_columns
 
     df = pd.DataFrame(records)
     sink = io.StringIO()
     ctx = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()
     with ctx:
-        df = ma.consolidate_rare_columns_from_gemini_output(df)
+        df = response_parsing.consolidate_rare_columns_from_gemini_output(df)
         if "transcript" in df.columns:
-            df = ma.remove_repetitions_from_transcripts(df)
+            df = response_parsing.remove_repetitions_from_transcripts(df)
         df = rename_columns(df)
         df = recode_events_df(study_dataset=df, drop_single_value_cols=False)
-        df = ma.clean_up_machine_annotations(some_events=df)
+        df = annotation_refinement.clean_up_machine_annotations(some_events=df)
         if "type_of_story" in df.columns:
             df["annotated_ok"] = ~df["type_of_story"].isna()
             df["annotated_fail"] = df["type_of_story"].isna()

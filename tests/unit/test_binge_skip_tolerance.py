@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.segment as sessions_segment
 from fyp.analysis import session_explorer as se
 
 CUT, MEM, MIN_VIDEOS, MIN_MINUTES = 0.5, 6, 4, 1.0
@@ -36,8 +38,8 @@ def test_a_single_off_theme_video_no_longer_ends_the_binge():
     # four on-theme, ONE ad, four on-theme
     seq = _seq([0, 1, 2, 3, 8, 4, 5, 6, 7])
 
-    old = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=0)
-    new = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)
+    old = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=0)
+    new = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)
 
     assert len(old) == 2, "pre-fix: the ad splits the run in two"
     assert len(new) == 1, "post-fix: one binge spanning the ad"
@@ -48,7 +50,7 @@ def test_a_single_off_theme_video_no_longer_ends_the_binge():
 def test_a_tolerated_video_is_not_a_member_and_never_enters_the_centroid():
     U = _vectors()
     seq = _seq([0, 1, 2, 3, 8, 4, 5, 6, 7])
-    ep = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)[0]
+    ep = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)[0]
 
     assert "v8" not in ep["ids"] and "v8" not in ep["seen"]
     assert 8 not in ep["idx"]
@@ -61,7 +63,7 @@ def test_tolerance_is_for_CONSECUTIVE_outliers_only():
     U = _vectors()
     # Three ads in a row exceeds max_skip=2 — that is a real break.
     seq = _seq([0, 1, 2, 3, 8, 9, 10, 4, 5, 6, 7])
-    eps = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
+    eps = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
     assert len(eps) == 2
     assert [len(e["idx"]) for e in eps] == [4, 4]
     # The run that ended on interruptions does not count them.
@@ -73,7 +75,7 @@ def test_a_real_break_rewinds_so_the_outliers_can_open_the_next_binge():
     U = _vectors()
     # four on-theme, then four off-theme that are themselves a coherent run.
     seq = _seq([0, 1, 2, 3, 8, 9, 10, 11])
-    eps = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
+    eps = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
     assert len(eps) == 2
     assert eps[0]["ids"] == ["v0", "v1", "v2", "v3"]
     # v8 and v9 were tolerated by the first run, then rewound into the second.
@@ -84,7 +86,7 @@ def test_max_skip_zero_reproduces_the_shipped_behaviour():
     """The old semantics must remain reachable, including outlier-as-seed."""
     U = _vectors()
     seq = _seq([0, 1, 2, 3, 8, 4, 5, 6, 7])
-    eps = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=0)
+    eps = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=0)
     assert [e["ids"] for e in eps] == [["v0", "v1", "v2", "v3"], ["v4", "v5", "v6", "v7"]]
     # Pre-fix, the ad seeded the second run before being dropped from it...
     assert all(e["n_skipped"] == 0 for e in eps)
@@ -95,14 +97,14 @@ def test_rewind_terminates_on_an_all_outlier_sequence():
     U = _vectors()
     # Alternating themes: each video breaks the previous run.
     seq = _seq([0, 8, 1, 9, 2, 10, 3, 11] * 3)
-    eps = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
+    eps = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2)
     assert isinstance(eps, list)  # returned at all == terminated
 
 
 def test_rewatched_videos_still_extend_without_becoming_members():
     U = _vectors()
     seq = _seq([0, 1, 2, 3, 0, 8, 4])
-    ep = se.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)[0]
+    ep = sessions_segment.segment_session(seq, U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=1)[0]
     assert ep["ids"] == ["v0", "v1", "v2", "v3", "v4"]
     assert ep["n_plays"] == 6  # 5 members + 1 rewatch, ad excluded
     assert ep["n_skipped"] == 1
@@ -132,10 +134,10 @@ def test_flicked_off_theme_videos_do_not_spend_the_skip_budget():
         (6, 10.0),
         (7, 10.0),
     ]
-    counted = se.segment_session(
+    counted = sessions_segment.segment_session(
         _seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2, flick_seconds=0
     )
-    flicked = se.segment_session(
+    flicked = sessions_segment.segment_session(
         _seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2, flick_seconds=3.0
     )
     assert len(counted) == 2, "count-only rule: the 3 flicks break the run"
@@ -160,7 +162,7 @@ def test_watched_off_theme_videos_still_spend_the_budget():
         (6, 10.0),
         (7, 10.0),
     ]
-    eps = se.segment_session(
+    eps = sessions_segment.segment_session(
         _seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2, flick_seconds=3.0
     )
     assert len(eps) == 2
@@ -183,7 +185,7 @@ def test_unknown_dwell_counts_toward_the_budget():
         (6, 10.0),
         (7, 10.0),
     ]
-    eps = se.segment_session(
+    eps = sessions_segment.segment_session(
         _seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2, flick_seconds=3.0
     )
     assert len(eps) == 2, "unknown dwell must behave like watched, not flicked"
@@ -204,7 +206,7 @@ def test_flicked_videos_are_never_members():
         (6, 10.0),
         (7, 10.0),
     ]
-    ep = se.segment_session(
+    ep = sessions_segment.segment_session(
         _seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES, max_skip=2, flick_seconds=3.0
     )[0]
     assert not {"v8", "v9", "v10"} & set(ep["ids"])
@@ -212,8 +214,8 @@ def test_flicked_videos_are_never_members():
 
 
 def test_default_params_carries_flick_seconds_from_config():
-    p = se.default_params()
-    assert p["flick_seconds"] == pytest.approx(se.FLICK_SECONDS)
+    p = sessions_inputs.default_params()
+    assert p["flick_seconds"] == pytest.approx(sessions_inputs.FLICK_SECONDS)
     from fyp.core.fyp_config import fyp_cf
 
     cfg = fyp_cf.get("sessions", {})
@@ -222,8 +224,8 @@ def test_default_params_carries_flick_seconds_from_config():
 
 
 def test_default_params_carries_max_skip_from_config():
-    p = se.default_params()
-    assert p["max_skip"] == pytest.approx(se.MAX_SKIP)
+    p = sessions_inputs.default_params()
+    assert p["max_skip"] == pytest.approx(sessions_inputs.MAX_SKIP)
     assert p["max_skip"] >= 0
     from fyp.core.fyp_config import fyp_cf
 

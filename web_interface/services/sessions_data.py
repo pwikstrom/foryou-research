@@ -16,8 +16,9 @@ import numpy as np
 import pandas as pd
 
 import fyp.analysis.embeddings as embeddings
+import fyp.analysis.sessions.inputs as sessions_inputs
 import fyp.core.data_io as data_io
-from fyp.analysis import embedding_store, session_explorer
+from fyp.analysis import embedding_store
 from fyp.core.fyp_config import fyp_cf
 from web_interface.services.study_data import (
     get_study_collections,
@@ -41,7 +42,7 @@ DEFAULT_DRIFT_P = 0.05
 DEFAULT_TREND_MIN_VIDEOS = 7
 
 # Prefix of the per-variable session-extreme columns baked into the index
-# (``vmax_<variable>`` / ``vmin_<variable>``; see session_explorer.sessions_schema).
+# (``vmax_<variable>`` / ``vmin_<variable>``; see sessions_publish.sessions_schema).
 VARMAX_PREFIX = "vmax_"
 
 # In-process caches, invalidated on their source files' fingerprints (index /
@@ -102,7 +103,7 @@ _ranges_lock = threading.Lock()
 
 
 def artifact_fingerprint(
-    filename: str, location: str = session_explorer.ARTIFACT_LOCATION
+    filename: str, location: str = sessions_inputs.ARTIFACT_LOCATION
 ) -> str | None:
     """Return a size:mtime fingerprint for a cache artifact, or None if absent.
 
@@ -130,7 +131,7 @@ def load_index() -> pd.DataFrame | None:
     row-mask copies the overview makes stay cheap. ``start_dt`` (parsed
     ``start_ts``) is added once here so no request re-parses 79k strings.
     """
-    key = artifact_fingerprint(session_explorer.SESSIONS_FILE)
+    key = artifact_fingerprint(sessions_inputs.SESSIONS_FILE)
     if key is None:
         return None
     if _INDEX_CACHE["df"] is not None and _INDEX_CACHE["fingerprint"] == key:
@@ -139,8 +140,8 @@ def load_index() -> pd.DataFrame | None:
         if _INDEX_CACHE["df"] is not None and _INDEX_CACHE["fingerprint"] == key:
             return _INDEX_CACHE["df"]
         df = data_io.load_parquet_selective(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=session_explorer.SESSIONS_FILE,
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
+            filename=sessions_inputs.SESSIONS_FILE,
         )
         if df is None:
             return None
@@ -190,7 +191,7 @@ def directed_counts() -> pd.Series | None:
     then report "not computed" rather than zero, which would read as "no
     session has a directed binge".
     """
-    key = artifact_fingerprint(session_explorer.EPISODES_FILE)
+    key = artifact_fingerprint(sessions_inputs.EPISODES_FILE)
     if key is None:
         return None
     cut = _drift_p()
@@ -208,8 +209,8 @@ def directed_counts() -> pd.Series | None:
         ):
             return _DIRECTED_CACHE["counts"]
         df = data_io.load_parquet_selective(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=session_explorer.EPISODES_FILE,
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
+            filename=sessions_inputs.EPISODES_FILE,
             columns=["collection_id", "session_id", "direction_p"],
         )
         if df is None or "direction_p" not in df.columns:
@@ -225,7 +226,7 @@ def directed_counts() -> pd.Series | None:
 
 def load_meta() -> dict | None:
     """Load (and fingerprint-cache) the artifact provenance meta, or None."""
-    key = artifact_fingerprint(session_explorer.META_FILE)
+    key = artifact_fingerprint(sessions_inputs.META_FILE)
     if key is None:
         return None
     if _META_CACHE["fingerprint"] == key:
@@ -234,8 +235,8 @@ def load_meta() -> dict | None:
         if _META_CACHE["fingerprint"] == key:
             return _META_CACHE["meta"]
         meta = data_io.load_json(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=session_explorer.META_FILE,
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
+            filename=sessions_inputs.META_FILE,
         )
         _META_CACHE.update(
             {
@@ -291,7 +292,7 @@ def flag_sets() -> dict:
         if _FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["key"] == key:
             return _FLAGS_CACHE["flags"]
         flags = (
-            session_explorer.enrichment_id_sets(model, include_embedded=False)
+            sessions_inputs.enrichment_id_sets(model, include_embedded=False)
             if model
             else {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()}
         )
@@ -405,7 +406,7 @@ def attach_context_distances(seqs: list[dict], play_rows: list[dict], n_ctx: int
         return
 
     try:
-        id2row, block = session_explorer.load_directional_block(
+        id2row, block = sessions_inputs.load_directional_block(
             model, sorted(need_ids), mean, index=index
         )
     except Exception:
@@ -452,10 +453,10 @@ def features() -> pd.DataFrame:
             # video_map.parquet (whose item_id filters never prune row groups
             # — that read was seconds of every detail click).
             try:
-                extra_cols = session_explorer.trend_numeric_columns()
+                extra_cols = sessions_inputs.trend_numeric_columns()
             except Exception:
                 extra_cols = None
-            df = session_explorer.load_video_features(extra_map_cols=extra_cols)
+            df = sessions_inputs.load_video_features(extra_map_cols=extra_cols)
             _FEAT_CACHE["trend_cols"] = extra_cols or []
         except Exception:
             df = pd.DataFrame(
@@ -552,7 +553,7 @@ def play_text_maps(plays: pd.DataFrame) -> tuple[dict[str, str], dict[str, dict]
     """Story/scrape-text maps from a plays frame with baked-in text columns.
 
     The plays artifact stores per-item ``story``/``desc``/``hashtags``
-    (already capped at build time — see ``session_explorer.PLAY_TEXT_CAP``),
+    (already capped at build time — see ``sessions_publish.PLAY_TEXT_CAP``),
     so a detail request needs no corpus-parquet reads at all. Returns the
     same shapes as :func:`story_map` and :func:`scrape_text_map`.
     """
@@ -783,7 +784,7 @@ def display_params(meta: dict | None) -> dict:
     for keys an older artifact never recorded. ``context_plays`` is a pure
     display knob, so it is always live.
     """
-    params = dict(session_explorer.default_params())
+    params = dict(sessions_inputs.default_params())
     built = (meta or {}).get("params")
     if isinstance(built, dict):
         params.update({k: v for k, v in built.items() if k in params})
@@ -897,7 +898,7 @@ def session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
 
     sid = str(session_row["session_id"])
     df = None
-    plays_fp = artifact_fingerprint(session_explorer.PLAYS_FILE)
+    plays_fp = artifact_fingerprint(sessions_inputs.PLAYS_FILE)
     if plays_fp is not None:
         with _collection_plays_lock:
             entry = _COLLECTION_PLAYS_CACHE.get(collection_id)
@@ -906,8 +907,8 @@ def session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
         else:
             try:
                 df = data_io.load_parquet_selective(
-                    storage_location=session_explorer.ARTIFACT_LOCATION,
-                    filename=session_explorer.PLAYS_FILE,
+                    storage_location=sessions_inputs.ARTIFACT_LOCATION,
+                    filename=sessions_inputs.PLAYS_FILE,
                     filters=[("collection_id", "==", collection_id)],
                 )
             except Exception:
@@ -968,7 +969,7 @@ def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.Data
         if cache["df"] is not None and cache["fingerprint"] == key:
             return cache["df"]
         df = data_io.load_parquet_selective(
-            storage_location=session_explorer.ARTIFACT_LOCATION, filename=filename
+            storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=filename
         )
         if df is None:
             return None
@@ -981,7 +982,7 @@ def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.Data
 
 def session_episodes(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's episode rows (members reassembled per episode)."""
-    frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
+    frame = _artifact_frame(sessions_inputs.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
     if frame is None:
         return []
     df = frame[(frame["collection_id"] == collection_id) & (frame["session_id"] == session_id)]
@@ -1053,7 +1054,7 @@ def session_episodes(collection_id: str, session_id: str) -> list[dict]:
 
 def session_windows(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's low-entropy-window rows (members reassembled)."""
-    frame = _artifact_frame(session_explorer.WINDOWS_FILE, _WINDOWS_CACHE, _windows_lock)
+    frame = _artifact_frame(sessions_inputs.WINDOWS_FILE, _WINDOWS_CACHE, _windows_lock)
     if frame is None:
         return []
     df = frame[(frame["collection_id"] == collection_id) & (frame["session_id"] == session_id)]
@@ -1113,7 +1114,7 @@ def episode_vmax() -> pd.DataFrame | None:
     result is tiny (episodes × variables). None when no episodes artifact
     exists yet.
     """
-    ep_fp = artifact_fingerprint(session_explorer.EPISODES_FILE)
+    ep_fp = artifact_fingerprint(sessions_inputs.EPISODES_FILE)
     if ep_fp is None:
         return None
     map_fp = artifact_fingerprint("video_map.parquet", location=embeddings.STORE_LOCATION)
@@ -1123,7 +1124,7 @@ def episode_vmax() -> pd.DataFrame | None:
     with _epvmax_lock:
         if _EPVMAX_CACHE["df"] is not None and _EPVMAX_CACHE["key"] == key:
             return _EPVMAX_CACHE["df"]
-        frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
+        frame = _artifact_frame(sessions_inputs.EPISODES_FILE, _EPISODES_CACHE, _episodes_lock)
         if frame is None:
             return None
         exploded = pd.DataFrame(

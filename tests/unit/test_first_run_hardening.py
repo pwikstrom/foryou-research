@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 import fyp.annotation.machine_annotation as machine_annotation
+from fyp.annotation import gemini_calls
 from web_interface.fyp_data_hub import _debug_enabled
 
 
@@ -46,7 +47,7 @@ def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog)
     )
 
     with caplog.at_level("WARNING"):
-        machine_annotation.initialize_machine()
+        gemini_calls.initialize_machine()
 
     assert machine["client"] is None
     assert any("not configured" in r.message for r in caplog.records)
@@ -58,4 +59,4 @@ def test_generate_with_retry_raises_clearly_without_client(monkeypatch):
     monkeypatch.setitem(machine, "client", None)
 
     with pytest.raises(RuntimeError, match="not configured"):
-        machine_annotation._generate_with_retry(contents=[], gen_config=None)
+        gemini_calls._generate_with_retry(contents=[], gen_config=None)

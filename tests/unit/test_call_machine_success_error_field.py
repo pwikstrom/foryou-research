@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import gemini_calls
 from fyp.core.fyp_config import fyp_cf
 
 
@@ -54,7 +55,7 @@ def test_successful_call_reports_no_error(tmp_path) -> None:
     saved_client = fyp_cf["machine"]["gemini"].get("client")
     fyp_cf["machine"]["gemini"]["client"] = _FakeClient()
     try:
-        out = ma.call_machine(
+        out = gemini_calls.call_machine(
             video_id=video_id,
             use_local_video_file=True,
             local_path=str(tmp_path),

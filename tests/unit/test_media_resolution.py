@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import google.genai
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import gemini_calls
 from fyp.core.fyp_config import fyp_cf
 
 _MISSING = object()
@@ -45,31 +46,31 @@ def _set(value):
 
 def test_empty_or_unset_is_none() -> None:
     with _set(""):
-        assert ma._resolve_media_resolution() is None
+        assert gemini_calls._resolve_media_resolution() is None
     with _set(_MISSING):
-        assert ma._resolve_media_resolution() is None
+        assert gemini_calls._resolve_media_resolution() is None
 
 
 def test_bare_level_maps_to_enum() -> None:
     with _set("LOW"):
-        assert ma._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_LOW
+        assert gemini_calls._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_LOW
     with _set("MEDIUM"):
-        assert ma._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_MEDIUM
+        assert gemini_calls._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_MEDIUM
 
 
 def test_full_enum_name_accepted() -> None:
     with _set("MEDIA_RESOLUTION_HIGH"):
-        assert ma._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_HIGH
+        assert gemini_calls._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_HIGH
 
 
 def test_case_insensitive() -> None:
     with _set("low"):
-        assert ma._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_LOW
+        assert gemini_calls._resolve_media_resolution() == _MR.MEDIA_RESOLUTION_LOW
 
 
 def test_unknown_value_is_none() -> None:
     with _set("banana"):
-        assert ma._resolve_media_resolution() is None
+        assert gemini_calls._resolve_media_resolution() is None
 
 
 def _main() -> int:

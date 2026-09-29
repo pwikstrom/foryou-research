@@ -35,6 +35,7 @@ import pandas as pd
 import fyp.annotation.machine_annotation as ma
 import fyp.annotation.recode_variables as rv
 import fyp.core.data_io as data_io
+from fyp.annotation import annotation_refinement
 from fyp.core.fyp_config import fyp_cf
 
 _ARCHIVE_FN = f"{ma.MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
@@ -160,7 +161,7 @@ def test_mixed_consolidation_unions_columns_and_keeps_all_versions() -> None:
             f"{ma.MACHINE_ANNOTATIONS_LABEL}_002_new.parquet",
             [_new_row(3), _new_row(4), _new_row(5)],
         )
-        _changed, active, _ids = ma.consolidate_and_save_refined_annotations(
+        _changed, active, _ids = annotation_refinement.consolidate_and_save_refined_annotations(
             force_consolidation=True, verbose=False
         )
         archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)

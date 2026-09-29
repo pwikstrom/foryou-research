@@ -36,6 +36,7 @@ from test_structured_refinement_path import _structured_response
 import fyp.annotation.annotation_versioning as av
 import fyp.annotation.machine_annotation as ma
 import fyp.core.data_io as data_io
+from fyp.annotation import annotation_refinement
 from fyp.core.fyp_config import fyp_cf
 
 _ARCHIVE_FN = f"{ma.MACHINE_ANNOTATIONS_LABEL}_all_versions.parquet"
@@ -98,7 +99,7 @@ def test_refine_stamps_annotation_version() -> None:
         },
     }
     with pinned_var_schema(), _isolated():
-        df = ma.refine_one_raw_annotation_batch(
+        df = annotation_refinement.refine_one_raw_annotation_batch(
             raw_outputs_from_machine=raw,
             raw_json_filename="machine_annotations_x.json",
             verbose=False,
@@ -112,7 +113,7 @@ def test_consolidation_archives_all_versions_and_active_is_latest() -> None:
     with _isolated():
         _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1")
         _save_refined("machine_annotations_b.parquet", ["i1", "i3"], "v2")
-        _changed, active_df, _ids = ma.consolidate_and_save_refined_annotations(
+        _changed, active_df, _ids = annotation_refinement.consolidate_and_save_refined_annotations(
             force_consolidation=True, verbose=False
         )
         archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
@@ -139,7 +140,7 @@ def test_promotion_rebuilds_active_view_without_deleting_history() -> None:
             schema_json=None,
         )
         av.promote_version("v1")
-        _changed, active_df, _ids = ma.consolidate_and_save_refined_annotations(
+        _changed, active_df, _ids = annotation_refinement.consolidate_and_save_refined_annotations(
             force_consolidation=True, verbose=False
         )
         archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
@@ -173,7 +174,7 @@ def test_rebuild_active_from_archive_reflects_promotion() -> None:
             schema_json=None,
         )
         av.promote_version("v2")
-        n = ma.rebuild_preferred_annotations_from_archive(verbose=False)
+        n = annotation_refinement.rebuild_preferred_annotations_from_archive(verbose=False)
         recoded = data_io.load_parquet(
             storage_location="recoded", filename=f"{ma.MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
         )

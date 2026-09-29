@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
+import fyp.analysis.sessions.segment as sessions_segment
 from fyp.analysis import entropy_metrics
 from fyp.analysis import session_explorer as se
 
@@ -71,7 +74,9 @@ def _id_sets(ids):
 def test_episode_splits_at_cluster_jump(space, feat):
     id2idx, U, ids = space
     seq = [f"c0_{i}" for i in range(6)] + [f"c1_{i}" for i in range(6)]
-    srows, erows, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
     assert len(srows) == 1
     assert len(erows) == 2
     assert erows[0]["member_item_ids"] == [f"c0_{i}" for i in range(6)]
@@ -90,7 +95,9 @@ def test_rewatches_extend_span_but_are_not_members(space, feat):
     seq = []
     for i in range(4):
         seq += [f"c0_{i}", f"c0_{i}"]
-    srows, erows, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
     assert len(erows) == 1
     assert erows[0]["n_distinct"] == 4
     assert erows[0]["n_plays"] == 8
@@ -100,7 +107,9 @@ def test_rewatches_extend_span_but_are_not_members(space, feat):
 def test_min_videos_gate_drops_short_runs(space, feat):
     id2idx, U, ids = space
     seq = [f"c0_{i}" for i in range(3)]  # below MIN_VIDEOS=4
-    srows, erows, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
     assert erows == []
     assert srows[0]["n_episodes"] == 0
 
@@ -114,7 +123,9 @@ def test_session_boundary_hard_breaks_episodes(space, feat):
         [f"c0_{i}" for i in range(4, 8)], session="col1__1", start="2026-01-01 14:00:00", gap_s=70
     )
     plays = pd.concat([p1, p2], ignore_index=True)
-    srows, erows, wrows = se.build_collection("col1", plays, id2idx, U, feat, _id_sets(ids))
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", plays, id2idx, U, feat, _id_sets(ids)
+    )
     assert len(srows) == 2
     assert len(erows) == 2
     assert {e["session_id"] for e in erows} == {"col1__0", "col1__1"}
@@ -124,7 +135,9 @@ def test_null_session_ids_become_singletons(space, feat):
     id2idx, U, ids = space
     plays = _plays([f"c0_{i}" for i in range(5)])
     plays["session_id"] = pd.array([None] * 5, dtype="string")
-    srows, erows, wrows = se.build_collection("col1", plays, id2idx, U, feat, _id_sets(ids))
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", plays, id2idx, U, feat, _id_sets(ids)
+    )
     # Each null-session play is isolated — five singleton sessions, no episodes.
     assert len(srows) == 5
     assert all(s["session_id"].startswith("na_") for s in srows)
@@ -136,7 +149,7 @@ def test_session_coverage_fractions(space, feat):
     seq = [f"c0_{i}" for i in range(4)] + ["unknown_1", "unknown_2"]
     id_sets = _id_sets(ids)
     id_sets["annotated"] = {f"c0_{i}" for i in range(2)}
-    srows, _, _w = se.build_collection("col1", _plays(seq), id2idx, U, feat, id_sets)
+    srows, _, _w = sessions_segment.build_collection("col1", _plays(seq), id2idx, U, feat, id_sets)
     s = srows[0]
     assert s["n_distinct"] == 6
     assert s["coverage_embedded"] == pytest.approx(4 / 6, abs=1e-3)
@@ -147,7 +160,7 @@ def test_session_coverage_fractions(space, feat):
 def test_min_window_focus_requires_enough_embedded(space, feat):
     id2idx, U, ids = space
     # Fewer distinct embedded videos than WINDOW_N=6 → no focus metric.
-    srows, _, _w = se.build_collection(
+    srows, _, _w = sessions_segment.build_collection(
         "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids)
     )
     assert srows[0]["min_window_cosdist"] is None
@@ -155,7 +168,9 @@ def test_min_window_focus_requires_enough_embedded(space, feat):
 
     # A focused 6-window inside a mixed session is found and is small.
     seq = [f"c2_{i}" for i in range(3)] + [f"c0_{i}" for i in range(6)] + ["c1_0", "c2_5"]
-    srows, _, _w = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
+    srows, _, _w = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
     assert srows[0]["min_window_cosdist"] is not None
     assert srows[0]["min_window_cosdist"] < 0.05
 
@@ -168,8 +183,10 @@ def test_low_entropy_windows_nonoverlapping_and_ranked(space, feat):
         + [f"c1_{i}" for i in range(6)]
         + [f"c2_{i}" for i in range(6)]
     )
-    srows, _, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
-    assert 1 <= len(wrows) <= se.MAX_WINDOWS
+    srows, _, wrows = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
+    assert 1 <= len(wrows) <= sessions_inputs.MAX_WINDOWS
     # Ranked ascending by distance; window 0's score is the session's min.
     scores = [w["mean_cosdist"] for w in wrows]
     assert scores == sorted(scores)
@@ -179,13 +196,13 @@ def test_low_entropy_windows_nonoverlapping_and_ranked(space, feat):
     seen: set[str] = set()
     for w in wrows:
         members = set(w["member_item_ids"])
-        assert len(members) == se.WINDOW_N
+        assert len(members) == sessions_inputs.WINDOW_N
         assert not (members & seen)
         seen |= members
         assert w["window_idx"] == wrows.index(w)
         assert w["dominant_niche"] is not None
     # Session shorter than the window → no windows at all.
-    srows, _, wrows = se.build_collection(
+    srows, _, wrows = sessions_segment.build_collection(
         "col1", _plays([f"c0_{i}" for i in range(5)]), id2idx, U, feat, _id_sets(ids)
     )
     assert wrows == []
@@ -195,10 +212,12 @@ def test_low_entropy_windows_nonoverlapping_and_ranked(space, feat):
 def test_arrow_frames_roundtrip(space, feat):
     id2idx, U, ids = space
     seq = [f"c0_{i}" for i in range(6)] + [f"c1_{i}" for i in range(6)]
-    srows, erows, wrows = se.build_collection("col1", _plays(seq), id2idx, U, feat, _id_sets(ids))
-    sdf = se._arrow_frame(srows, se._SESSIONS_SCHEMA)
-    edf = se._arrow_frame(erows, se._EPISODES_SCHEMA)
-    wdf = se._arrow_frame(wrows, se._WINDOWS_SCHEMA)
+    srows, erows, wrows = sessions_segment.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids)
+    )
+    sdf = sessions_publish._arrow_frame(srows, sessions_segment._SESSIONS_SCHEMA)
+    edf = sessions_publish._arrow_frame(erows, sessions_publish._EPISODES_SCHEMA)
+    wdf = sessions_publish._arrow_frame(wrows, sessions_publish._WINDOWS_SCHEMA)
     assert len(sdf) == 1 and len(edf) == 2 and len(wdf) == len(wrows) >= 1
     assert all(str(t).endswith("[pyarrow]") for t in sdf.dtypes)
     assert all(str(t).endswith("[pyarrow]") for t in wdf.dtypes)
@@ -206,7 +225,7 @@ def test_arrow_frames_roundtrip(space, feat):
     assert members == [f"c0_{i}" for i in range(6)]
     roll = list(edf["member_rolling_cosdist"].iloc[0])
     assert pd.isna(roll[0]) and len(roll) == 6
-    assert len(list(wdf["member_item_ids"].iloc[0])) == se.WINDOW_N
+    assert len(list(wdf["member_item_ids"].iloc[0])) == sessions_inputs.WINDOW_N
 
 
 def test_session_record_emits_variable_extremes(space, feat):
@@ -218,7 +237,7 @@ def test_session_record_emits_variable_extremes(space, feat):
     seq = [f"c0_{i}" for i in range(6)]
     plays = _plays(seq)
     plays["play_duration"] = [5.0, 10.0, 40.0, 20.0, 15.0, 25.0]
-    srows, _, _w = se.build_collection(
+    srows, _, _w = sessions_segment.build_collection(
         "col1", plays, id2idx, U, f, _id_sets(ids), trend_cols=["sensitivity_score", "log_plays"]
     )
     s = srows[0]
@@ -238,7 +257,7 @@ def test_search_text_collects_and_caps_the_display_fields(space, feat):
     f["desc_hashtags"] = "#funnycats"
     seq = [f"c0_{i}" for i in range(4)]
     stories = {"c0_0": "A story about SOURDOUGH bread"}
-    srows, _, _w = se.build_collection(
+    srows, _, _w = sessions_segment.build_collection(
         "col1", _plays(seq), id2idx, U, f, _id_sets(ids), stories=stories
     )
     blob = srows[0]["search_text"]
@@ -256,7 +275,7 @@ def test_search_text_collects_and_caps_the_display_fields(space, feat):
 def test_sessions_schema_extends_the_base_with_extremes_and_roundtrips(space, feat):
     id2idx, U, ids = space
     trend_cols = ["sensitivity_score"]
-    schema = se.sessions_schema(trend_cols)
+    schema = sessions_publish.sessions_schema(trend_cols)
     for col in (
         "search_text",
         "vmin_sensitivity_score",
@@ -265,17 +284,17 @@ def test_sessions_schema_extends_the_base_with_extremes_and_roundtrips(space, fe
         "vmax_dwell_s",
     ):
         assert col in schema
-    assert set(se._SESSIONS_SCHEMA) <= set(schema)
+    assert set(sessions_segment._SESSIONS_SCHEMA) <= set(schema)
 
     seq = [f"c0_{i}" for i in range(6)]
-    srows, _, _w = se.build_collection(
+    srows, _, _w = sessions_segment.build_collection(
         "col1", _plays(seq), id2idx, U, feat, _id_sets(ids), trend_cols=trend_cols
     )
-    sdf = se._arrow_frame(srows, schema)
+    sdf = sessions_publish._arrow_frame(srows, schema)
     assert all(str(t).endswith("[pyarrow]") for t in sdf.dtypes)
     assert sdf["vmax_sensitivity_score"].iloc[0] == pytest.approx(0.0)
     assert isinstance(sdf["search_text"].iloc[0], str)
-    tbl = se._arrow_table(srows, schema)
+    tbl = sessions_publish._arrow_table(srows, schema)
     assert tbl.num_rows == 1
 
 
@@ -303,13 +322,15 @@ def test_load_video_features_dedupes_a_duplicated_video_map(monkeypatch):
     def _load(storage_location, filename, columns=None, **kw):
         return dup_map[columns].copy() if columns else dup_map.copy()
 
-    monkeypatch.setattr(se.data_io, "load_parquet_selective", _load)
-    monkeypatch.setattr(se.data_io, "get_parquet_columns", lambda **kw: [])
+    monkeypatch.setattr(sessions_inputs.data_io, "load_parquet_selective", _load)
+    monkeypatch.setattr(sessions_inputs.data_io, "get_parquet_columns", lambda **kw: [])
 
-    feat = se.load_video_features(item_ids={"a", "b"})
+    feat = sessions_inputs.load_video_features(item_ids={"a", "b"})
     assert feat.index.is_unique
     assert feat.loc["a", "niche_name"] == "last"
 
-    out = se.attach_play_texts(_plays(["a", "b", "a"]), feat, stories={"a": "story a"})
+    out = sessions_publish.attach_play_texts(
+        _plays(["a", "b", "a"]), feat, stories={"a": "story a"}
+    )
     assert len(out) == 3
     assert out.loc[out["item_id"] == "a", "story"].iloc[0] == "story a"

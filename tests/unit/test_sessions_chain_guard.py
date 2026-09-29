@@ -12,6 +12,8 @@ anti-partial-publish guard. Two defences:
   retried link's second execution stops instead of forking the chain.
 """
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
 import fyp.core.data_io as data_io
 from web_interface.workers import run_sessions_refresh as rsr
 
@@ -77,15 +79,15 @@ def test_initial_dispatch_is_setup_only(monkeypatch):
     )
     wide = [["1970-01-01", "2100-01-01"]]
     monkeypatch.setattr(
-        session_explorer, "compute_coverage_spec", lambda *a, **k: {"c1": wide, "c2": wide}
+        sessions_inputs, "compute_coverage_spec", lambda *a, **k: {"c1": wide, "c2": wide}
     )
     monkeypatch.setattr(
-        session_explorer,
+        sessions_inputs,
         "discover_covered_collections",
         lambda coverage, collections=None: [("c1", 10), ("c2", 5)],
     )
-    monkeypatch.setattr(session_explorer, "trend_numeric_columns", lambda: ["log_plays"])
-    monkeypatch.setattr(session_explorer, "sweep_stale_run_files", lambda run_id: None)
+    monkeypatch.setattr(sessions_inputs, "trend_numeric_columns", lambda: ["log_plays"])
+    monkeypatch.setattr(sessions_publish, "sweep_stale_run_files", lambda run_id: None)
     # Hermetic storage: no artifacts exist (-> full plan), manifest seeding
     # goes to an in-memory store.
     monkeypatch.setattr(data_io, "exists", lambda **kwargs: False)
@@ -94,7 +96,7 @@ def test_initial_dispatch_is_setup_only(monkeypatch):
     def _boom(*args, **kwargs):
         raise AssertionError("setup link must not build a batch")
 
-    monkeypatch.setattr(session_explorer, "build_batch", _boom)
+    monkeypatch.setattr(sessions_publish, "build_batch", _boom)
 
     result = rsr.run_sessions_refresh(_Reporter(), task_args={})
 

@@ -10,6 +10,8 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
 import fyp.core.data_io as data_io
 from fyp.analysis import session_explorer as se
 
@@ -37,12 +39,12 @@ def _rows(kind: str, cids: list[str], tag: str) -> list[dict]:
 
 
 def _write_artifact(kind: str, final: str, cids: list[str], tag: str) -> None:
-    tbl = se._arrow_table(
+    tbl = sessions_publish._arrow_table(
         _rows(kind, cids, tag),
         {
-            "sessions": se.sessions_schema(TREND),
-            "episodes": se._EPISODES_SCHEMA,
-            "windows": se._WINDOWS_SCHEMA,
+            "sessions": sessions_publish.sessions_schema(TREND),
+            "episodes": sessions_publish._EPISODES_SCHEMA,
+            "windows": sessions_publish._WINDOWS_SCHEMA,
         }[kind],
     )
     data_io.write_parquet_stream(
@@ -53,36 +55,39 @@ def _write_artifact(kind: str, final: str, cids: list[str], tag: str) -> None:
 def _seed(run_id: str, refresh: list[str], n_chunks: int = 1):
     """Old artifacts with A,B,C + one shard set containing `refresh` rows."""
     for kind, final in (
-        ("sessions", se.SESSIONS_FILE),
-        ("episodes", se.EPISODES_FILE),
-        ("windows", se.WINDOWS_FILE),
+        ("sessions", sessions_inputs.SESSIONS_FILE),
+        ("episodes", sessions_inputs.EPISODES_FILE),
+        ("windows", sessions_inputs.WINDOWS_FILE),
     ):
         _write_artifact(kind, final, ["A", "B", "C"], "old")
-    ptbl = se.plays_table(None)
+    ptbl = sessions_publish.plays_table(None)
     data_io.write_parquet_stream(
-        storage_location="cache", filename=se.PLAYS_FILE, batches=[ptbl], schema=ptbl.schema
+        storage_location="cache",
+        filename=sessions_inputs.PLAYS_FILE,
+        batches=[ptbl],
+        schema=ptbl.schema,
     )
     for chunk in range(n_chunks):
         for kind in ("sessions", "episodes", "windows"):
-            tbl = se._arrow_table(
+            tbl = sessions_publish._arrow_table(
                 _rows(kind, refresh, "new"),
                 {
-                    "sessions": se.sessions_schema(TREND),
-                    "episodes": se._EPISODES_SCHEMA,
-                    "windows": se._WINDOWS_SCHEMA,
+                    "sessions": sessions_publish.sessions_schema(TREND),
+                    "episodes": sessions_publish._EPISODES_SCHEMA,
+                    "windows": sessions_publish._WINDOWS_SCHEMA,
                 }[kind],
             )
             data_io.write_parquet_stream(
                 storage_location="cache",
-                filename=se.shard_filename(kind, run_id, chunk),
+                filename=sessions_publish.shard_filename(kind, run_id, chunk),
                 batches=[tbl] if chunk == 0 else [],
                 schema=tbl.schema,
             )
         data_io.write_parquet_stream(
             storage_location="cache",
-            filename=se.shard_filename("plays", run_id, chunk),
+            filename=sessions_publish.shard_filename("plays", run_id, chunk),
             batches=[],
-            schema=se.plays_table(None).schema,
+            schema=sessions_publish.plays_table(None).schema,
         )
 
 
@@ -101,7 +106,7 @@ def _expected(refresh: list[str]) -> dict:
 def test_merge_replaces_refreshed_and_drops_departed(storage):
     _seed("run1", refresh=["B"])
     meta = {"collections": {"A": {}, "B": {}}}
-    se.merge_publish_artifacts(
+    sessions_publish.merge_publish_artifacts(
         "run1",
         n_chunks=1,
         refresh_cids=["B"],
@@ -111,14 +116,18 @@ def test_merge_replaces_refreshed_and_drops_departed(storage):
         trend_cols=TREND,
         covered_collections=1,
     )
-    for final in (se.SESSIONS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE):
+    for final in (
+        sessions_inputs.SESSIONS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+    ):
         assert _ids(final) == ["A__old", "B__new"]
-    saved = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    saved = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert saved["n_sessions"] == 2 and saved["n_collections"] == 2
     leftovers = [
         fn
         for fn in data_io.listdir(storage_location="cache")
-        if fn.startswith(tuple(se.SHARD_PREFIXES.values()))
+        if fn.startswith(tuple(sessions_inputs.SHARD_PREFIXES.values()))
     ]
     assert leftovers == []
 
@@ -126,7 +135,7 @@ def test_merge_replaces_refreshed_and_drops_departed(storage):
 def test_partial_coverage_refuses_before_touching_artifacts(storage):
     _seed("run1", refresh=["B"])
     with pytest.raises(RuntimeError, match="covered"):
-        se.merge_publish_artifacts(
+        sessions_publish.merge_publish_artifacts(
             "run1",
             n_chunks=1,
             refresh_cids=["B", "X"],
@@ -136,7 +145,11 @@ def test_partial_coverage_refuses_before_touching_artifacts(storage):
             trend_cols=TREND,
             covered_collections=1,
         )
-    for final in (se.SESSIONS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE):
+    for final in (
+        sessions_inputs.SESSIONS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+    ):
         assert _ids(final) == ["A__old", "B__old", "C__old"]
 
 
@@ -144,7 +157,7 @@ def test_row_count_mismatch_refuses_before_touching_artifacts(storage):
     _seed("run1", refresh=["B"])
     bad = dict(_expected(["B"]), sessions=99)
     with pytest.raises(RuntimeError, match="shard rows"):
-        se.merge_publish_artifacts(
+        sessions_publish.merge_publish_artifacts(
             "run1",
             n_chunks=1,
             refresh_cids=["B"],
@@ -154,15 +167,21 @@ def test_row_count_mismatch_refuses_before_touching_artifacts(storage):
             trend_cols=TREND,
             covered_collections=1,
         )
-    for final in (se.SESSIONS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE):
+    for final in (
+        sessions_inputs.SESSIONS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+    ):
         assert _ids(final) == ["A__old", "B__old", "C__old"]
 
 
 def test_incomplete_shard_set_refuses(storage):
     _seed("run1", refresh=["B"])
-    data_io.remove(storage_location="cache", filename=se.shard_filename("windows", "run1", 0))
+    data_io.remove(
+        storage_location="cache", filename=sessions_publish.shard_filename("windows", "run1", 0)
+    )
     with pytest.raises(RuntimeError, match="incomplete"):
-        se.merge_publish_artifacts(
+        sessions_publish.merge_publish_artifacts(
             "run1",
             n_chunks=1,
             refresh_cids=["B"],
@@ -172,21 +191,24 @@ def test_incomplete_shard_set_refuses(storage):
             trend_cols=TREND,
             covered_collections=1,
         )
-    assert _ids(se.SESSIONS_FILE) == ["A__old", "B__old", "C__old"]
+    assert _ids(sessions_inputs.SESSIONS_FILE) == ["A__old", "B__old", "C__old"]
 
 
 def test_old_schema_drift_refuses(storage):
     _seed("run1", refresh=["B"])
     # Rewrite the sessions artifact with an extra column: setup should have
     # escalated to full, so the merge must refuse rather than mix schemas.
-    schema = dict(se.sessions_schema(TREND))
+    schema = dict(sessions_publish.sessions_schema(TREND))
     schema["surprise_col"] = pa.string()
-    tbl = se._arrow_table(_rows("sessions", ["A"], "old"), schema)
+    tbl = sessions_publish._arrow_table(_rows("sessions", ["A"], "old"), schema)
     data_io.write_parquet_stream(
-        storage_location="cache", filename=se.SESSIONS_FILE, batches=[tbl], schema=tbl.schema
+        storage_location="cache",
+        filename=sessions_inputs.SESSIONS_FILE,
+        batches=[tbl],
+        schema=tbl.schema,
     )
     with pytest.raises(RuntimeError, match="columns differ"):
-        se.merge_publish_artifacts(
+        sessions_publish.merge_publish_artifacts(
             "run1",
             n_chunks=1,
             refresh_cids=["B"],
@@ -205,12 +227,17 @@ def test_merge_writes_sessions_index_last(storage, monkeypatch):
 
     def spy(**kwargs):
         fn = kwargs["filename"]
-        if fn in (se.SESSIONS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE, se.PLAYS_FILE):
+        if fn in (
+            sessions_inputs.SESSIONS_FILE,
+            sessions_inputs.EPISODES_FILE,
+            sessions_inputs.WINDOWS_FILE,
+            sessions_inputs.PLAYS_FILE,
+        ):
             order.append(fn)
         return real(**kwargs)
 
-    monkeypatch.setattr(se.data_io, "write_parquet_stream", spy)
-    se.merge_publish_artifacts(
+    monkeypatch.setattr(sessions_publish.data_io, "write_parquet_stream", spy)
+    sessions_publish.merge_publish_artifacts(
         "run1",
         n_chunks=1,
         refresh_cids=["B"],
@@ -220,14 +247,18 @@ def test_merge_writes_sessions_index_last(storage, monkeypatch):
         trend_cols=TREND,
         covered_collections=1,
     )
-    assert order[-1] == se.SESSIONS_FILE
-    assert set(order[:-1]) == {se.PLAYS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE}
+    assert order[-1] == sessions_inputs.SESSIONS_FILE
+    assert set(order[:-1]) == {
+        sessions_inputs.PLAYS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+    }
 
 
 def test_missing_old_artifact_degrades_to_shards_only(storage):
     _seed("run1", refresh=["B"])
-    data_io.remove(storage_location="cache", filename=se.WINDOWS_FILE)
-    se.merge_publish_artifacts(
+    data_io.remove(storage_location="cache", filename=sessions_inputs.WINDOWS_FILE)
+    sessions_publish.merge_publish_artifacts(
         "run1",
         n_chunks=1,
         refresh_cids=["B"],
@@ -237,5 +268,5 @@ def test_missing_old_artifact_degrades_to_shards_only(storage):
         trend_cols=TREND,
         covered_collections=1,
     )
-    assert _ids(se.WINDOWS_FILE) == ["B__new"]
-    assert _ids(se.SESSIONS_FILE) == ["A__old", "B__new", "C__old"]
+    assert _ids(sessions_inputs.WINDOWS_FILE) == ["B__new"]
+    assert _ids(sessions_inputs.SESSIONS_FILE) == ["A__old", "B__new", "C__old"]

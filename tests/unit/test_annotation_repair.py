@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import response_parsing
 
 # ---------------------------------------------------------------------------
 # _compress_embedded_repeats
@@ -34,20 +35,20 @@ import fyp.annotation.machine_annotation as ma
 
 
 def test_compress_repeats_multichar_unit() -> None:
-    assert ma._compress_embedded_repeats("abcabcabc") == "[3]*[abc]"
-    assert ma._compress_embedded_repeats("xabcabcabcy") == "x[3]*[abc]y"
+    assert response_parsing._compress_embedded_repeats("abcabcabc") == "[3]*[abc]"
+    assert response_parsing._compress_embedded_repeats("xabcabcabcy") == "x[3]*[abc]y"
 
 
 def test_compress_repeats_below_threshold_unchanged() -> None:
     # Two repeats (< min_repeats=3) are left alone.
-    assert ma._compress_embedded_repeats("abab") == "abab"
-    assert ma._compress_embedded_repeats("hello") == "hello"
+    assert response_parsing._compress_embedded_repeats("abab") == "abab"
+    assert response_parsing._compress_embedded_repeats("hello") == "hello"
 
 
 def test_compress_repeats_single_char_run_collapses_to_one() -> None:
     # Documented (lossy) behaviour: a run of >=3 identical chars collapses to 1.
-    assert ma._compress_embedded_repeats("aaaa") == "a"
-    assert ma._compress_embedded_repeats("aaa") == "a"
+    assert response_parsing._compress_embedded_repeats("aaaa") == "a"
+    assert response_parsing._compress_embedded_repeats("aaa") == "a"
 
 
 # ---------------------------------------------------------------------------
@@ -56,14 +57,14 @@ def test_compress_repeats_single_char_run_collapses_to_one() -> None:
 
 
 def test_decode_valid_escape() -> None:
-    assert ma._decode_valid_unicode_escapes(r"&") == "&"
-    assert ma._decode_valid_unicode_escapes(r"plain A text") == "plain A text"
+    assert response_parsing._decode_valid_unicode_escapes(r"&") == "&"
+    assert response_parsing._decode_valid_unicode_escapes(r"plain A text") == "plain A text"
 
 
 def test_decode_passthrough_and_invalid() -> None:
-    assert ma._decode_valid_unicode_escapes("no escapes here") == "no escapes here"
+    assert response_parsing._decode_valid_unicode_escapes("no escapes here") == "no escapes here"
     # Invalid hex with drop_invalid=True drops the "\u" marker, keeps the rest.
-    assert ma._decode_valid_unicode_escapes(r"\uZZZZ") == "ZZZZ"
+    assert response_parsing._decode_valid_unicode_escapes(r"\uZZZZ") == "ZZZZ"
 
 
 # ---------------------------------------------------------------------------
@@ -72,18 +73,21 @@ def test_decode_passthrough_and_invalid() -> None:
 
 
 def test_fuzzy_load_valid_object() -> None:
-    assert ma.fuzzy_load_of_json_from_string('{"a": 1, "b": "x"}') == {"a": 1, "b": "x"}
+    assert response_parsing.fuzzy_load_of_json_from_string('{"a": 1, "b": "x"}') == {
+        "a": 1,
+        "b": "x",
+    }
 
 
 def test_fuzzy_load_strips_markdown_fence() -> None:
-    assert ma.fuzzy_load_of_json_from_string('```json\n{"a": 1}\n```') == {"a": 1}
+    assert response_parsing.fuzzy_load_of_json_from_string('```json\n{"a": 1}\n```') == {"a": 1}
 
 
 def test_fuzzy_load_rejects_non_object_and_empty() -> None:
     # A top-level array (not an object) is rejected.
-    assert ma.fuzzy_load_of_json_from_string("[1,2,3]") is None
-    assert ma.fuzzy_load_of_json_from_string("") is None
-    assert ma.fuzzy_load_of_json_from_string(None) is None
+    assert response_parsing.fuzzy_load_of_json_from_string("[1,2,3]") is None
+    assert response_parsing.fuzzy_load_of_json_from_string("") is None
+    assert response_parsing.fuzzy_load_of_json_from_string(None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +119,7 @@ def _full_response() -> dict:
 
 
 def test_flatten_joins_lists_and_extracts_scene_sentiment() -> None:
-    flat = ma.flatten_one_machine_response(_full_response())
+    flat = response_parsing.flatten_one_machine_response(_full_response())
     assert flat["transcript"] == "hello | world"
     assert flat["scenes"] == "a dog runs | a cat sleeps"
     assert flat["scene_sentiments"] == "Positive"
@@ -124,7 +128,7 @@ def test_flatten_joins_lists_and_extracts_scene_sentiment() -> None:
 
 
 def test_flatten_unpacks_faces_and_audio() -> None:
-    flat = ma.flatten_one_machine_response(_full_response())
+    flat = response_parsing.flatten_one_machine_response(_full_response())
     assert flat["faces_gender"] == "Female"
     assert flat["faces_age_estimate"] == "20-30"
     assert flat["faces_ethnicity"] == "Caucasian"
@@ -137,8 +141,8 @@ def test_flatten_unpacks_faces_and_audio() -> None:
 
 
 def test_flatten_non_dict_returned_as_is() -> None:
-    assert ma.flatten_one_machine_response("not a dict") == "not a dict"
-    assert ma.flatten_one_machine_response(None) is None
+    assert response_parsing.flatten_one_machine_response("not a dict") == "not a dict"
+    assert response_parsing.flatten_one_machine_response(None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -154,14 +158,14 @@ def test_remove_repetitions_shrinks_repeated_phrase() -> None:
     # non-empty result — not a clean reconstruction.  A structured-output
     # pipeline with a thinking model should make this hack largely unnecessary.
     repeated = "the quick brown fox " * 13
-    out = ma._remove_repetitions(repeated)
+    out = response_parsing._remove_repetitions(repeated)
     assert isinstance(out, str) and out.strip()
     assert len(out) < len(repeated) * 0.5  # at least halved
 
 
 def test_remove_repetitions_leaves_clean_text_unchanged() -> None:
     clean = "hello world this is a normal sentence"
-    assert ma._remove_repetitions(clean) == clean
+    assert response_parsing._remove_repetitions(clean) == clean
 
 
 def _main() -> int:

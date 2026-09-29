@@ -26,7 +26,7 @@ import google.genai
 import pandas as pd
 import requests
 
-from fyp.annotation import machine_annotation
+from fyp.annotation import gemini_calls
 from fyp.core import data_io
 from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.fyp_config import get_config
@@ -912,7 +912,7 @@ def _check_embedding_backend() -> dict:
 
 def _check_gemini() -> dict:
     """Ping Gemini with a ~1-token generation call to prove auth/quota/model."""
-    machine_annotation.initialize_machine()
+    gemini_calls.initialize_machine()
     client = get_config()["machine"]["gemini"].get("client")
     if client is None:
         return {

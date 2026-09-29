@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import response_parsing
 
 
 def _mostly_failed_batch(n_total: int = 100, n_good: int = 5) -> pd.DataFrame:
@@ -44,7 +45,7 @@ def _mostly_failed_batch(n_total: int = 100, n_good: int = 5) -> pd.DataFrame:
 
 def test_mostly_failed_batch_preserves_real_columns():
     df = _mostly_failed_batch(n_total=100, n_good=5)
-    out = ma.consolidate_rare_columns_from_gemini_output(df)
+    out = response_parsing.consolidate_rare_columns_from_gemini_output(df)
     # The bug collapsed this to just item_id. The fix must keep the real columns
     # AND their 5 good values.
     for col in ("type_of_story", "objects", "main_gender"):
@@ -69,7 +70,7 @@ def test_similar_stray_key_is_consumed_but_dissimilar_is_retained():
             row["objects"] = "['cat']"  # dissimilar -> should stay
         rows.append(row)
     df = pd.DataFrame(rows)
-    out = ma.consolidate_rare_columns_from_gemini_output(df)
+    out = response_parsing.consolidate_rare_columns_from_gemini_output(df)
     assert "type_of_stroy" not in out.columns, "similar stray key was not merged"
     assert "objects" in out.columns, "dissimilar rare column was wrongly dropped"
     assert out["objects"].notna().sum() == 3, "dissimilar rare values lost"
@@ -81,7 +82,7 @@ def test_similarity_threshold_separates_real_from_unrelated():
 
     _, bad = fyp_utils.best_similarity_match("type_of_story", ["item_id"])
     _, good = fyp_utils.best_similarity_match("type_of_stroy", ["type_of_story"])
-    assert bad < ma.RARE_COLUMN_MERGE_MIN_SIMILARITY <= good, (bad, good)
+    assert bad < response_parsing.RARE_COLUMN_MERGE_MIN_SIMILARITY <= good, (bad, good)
     assert fyp_utils.best_similarity_match("x", []) == (None, 0.0)
 
 
@@ -94,7 +95,7 @@ def test_normal_batch_unchanged():
             "objects": ["['cat']"] * 50,
         }
     )
-    out = ma.consolidate_rare_columns_from_gemini_output(df)
+    out = response_parsing.consolidate_rare_columns_from_gemini_output(df)
     assert set(out.columns) == {"item_id", "type_of_story", "objects"}
     assert len(out) == 50
 

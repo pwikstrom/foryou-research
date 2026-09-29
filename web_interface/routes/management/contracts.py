@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
-from fyp.annotation.machine_annotation import rebuild_preferred_annotations_from_archive
+from fyp.annotation.annotation_refinement import rebuild_preferred_annotations_from_archive
 from fyp.core.fyp_config import (
     fyp_cf,
     load_var_schema,

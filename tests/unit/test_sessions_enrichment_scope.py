@@ -37,6 +37,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+import fyp.analysis.sessions.plan as sessions_plan
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
 from fyp.analysis import session_explorer as se
@@ -56,17 +57,21 @@ NEW_SHARD = ["shard_c.parquet", 50, 3.0]
 
 
 def test_shards_appended_only_accepts_growth_and_rejects_rewrites():
-    assert se.shards_appended_only(OLD_SHARDS, OLD_SHARDS + [NEW_SHARD])
-    assert se.shards_appended_only(OLD_SHARDS, OLD_SHARDS)
+    assert sessions_plan.shards_appended_only(OLD_SHARDS, OLD_SHARDS + [NEW_SHARD])
+    assert sessions_plan.shards_appended_only(OLD_SHARDS, OLD_SHARDS)
     # a shard changed size → rewritten
-    assert not se.shards_appended_only(OLD_SHARDS, [["shard_a.parquet", 101, 1.0], OLD_SHARDS[1]])
+    assert not sessions_plan.shards_appended_only(
+        OLD_SHARDS, [["shard_a.parquet", 101, 1.0], OLD_SHARDS[1]]
+    )
     # a shard changed mtime → rewritten
-    assert not se.shards_appended_only(OLD_SHARDS, [OLD_SHARDS[0], ["shard_b.parquet", 200, 2.5]])
+    assert not sessions_plan.shards_appended_only(
+        OLD_SHARDS, [OLD_SHARDS[0], ["shard_b.parquet", 200, 2.5]]
+    )
     # a shard vanished → compaction
-    assert not se.shards_appended_only(OLD_SHARDS, [OLD_SHARDS[0], NEW_SHARD])
+    assert not sessions_plan.shards_appended_only(OLD_SHARDS, [OLD_SHARDS[0], NEW_SHARD])
     # nothing recorded → cannot prove anything
-    assert not se.shards_appended_only([], OLD_SHARDS)
-    assert not se.shards_appended_only(None, OLD_SHARDS)
+    assert not sessions_plan.shards_appended_only([], OLD_SHARDS)
+    assert not sessions_plan.shards_appended_only(None, OLD_SHARDS)
 
 
 def _index(ids, rows):
@@ -78,10 +83,10 @@ def _index(ids, rows):
 def test_new_vector_item_ids_are_the_rows_past_the_old_count():
     # index is sorted by item_id, not by row — rows are what matter
     idx = _index(["a", "b", "c", "d"], [3, 0, 5, 1])
-    assert se.new_vector_item_ids(idx, old_count=4) == {"c"}
-    assert se.new_vector_item_ids(idx, old_count=2) == {"a", "c"}
-    assert se.new_vector_item_ids(idx, old_count=6) == set()
-    assert se.new_vector_item_ids(idx, old_count=0) == {"a", "b", "c", "d"}
+    assert sessions_plan.new_vector_item_ids(idx, old_count=4) == {"c"}
+    assert sessions_plan.new_vector_item_ids(idx, old_count=2) == {"a", "c"}
+    assert sessions_plan.new_vector_item_ids(idx, old_count=6) == set()
+    assert sessions_plan.new_vector_item_ids(idx, old_count=0) == {"a", "b", "c", "d"}
 
 
 def _batches(monkeypatch, frames_by_file: dict):
@@ -127,26 +132,26 @@ def test_changed_annotations_are_those_past_the_watermark(monkeypatch):
     )
     _batches(monkeypatch, {embeddings.ANNOTATIONS_FILE: anno})
 
-    changed, max_ts = se.annotation_items_changed_since("2026-09-02T00:00:00+00:00")
+    changed, max_ts = sessions_plan.annotation_items_changed_since("2026-09-02T00:00:00+00:00")
     assert changed == {"v2", "v4"}, "rows without a timestamp never count"
     assert max_ts == "2026-09-03T03:25:00+00:00"
 
     # No watermark: unknown, but the corpus max is still reported.
-    changed, max_ts = se.annotation_items_changed_since(None)
+    changed, max_ts = sessions_plan.annotation_items_changed_since(None)
     assert changed is None and max_ts == "2026-09-03T03:25:00+00:00"
-    assert se.annotation_corpus_max_ts() == "2026-09-03T03:25:00+00:00"
+    assert sessions_plan.annotation_corpus_max_ts() == "2026-09-03T03:25:00+00:00"
 
 
 def test_epoch_seconds_handles_the_column_types_a_corpus_may_carry():
     secs = _epoch("2026-09-03T03:25:00+00:00")
     # int seconds, with a null
-    out = se._epoch_seconds(pa.array([secs, None], type=pa.int64()))
+    out = sessions_plan._epoch_seconds(pa.array([secs, None], type=pa.int64()))
     assert out[0] == secs and np.isnan(out[1])
     # milliseconds are recognised by magnitude
-    out = se._epoch_seconds(pa.array([secs * 1000], type=pa.int64()))
+    out = sessions_plan._epoch_seconds(pa.array([secs * 1000], type=pa.int64()))
     assert out[0] == pytest.approx(secs)
     # a real timestamp column
-    out = se._epoch_seconds(
+    out = sessions_plan._epoch_seconds(
         pa.array([pd.Timestamp(secs, unit="s", tz="UTC")], type=pa.timestamp("us", tz="UTC"))
     )
     assert out[0] == pytest.approx(secs)
@@ -159,13 +164,19 @@ def test_collections_containing_maps_items_within_the_covered_set(monkeypatch):
             "item_id": ["v1", "v2", "v2", "v7", "v1"],
         }
     )
-    _batches(monkeypatch, {f"{se.COLLECTIONS_LABEL}_recoded.parquet": activity})
+    _batches(monkeypatch, {f"{sessions_plan.COLLECTIONS_LABEL}_recoded.parquet": activity})
 
-    assert se.collections_containing({"v1", "v2"}, allow={"c1", "c2", "c3"}) == {"c1", "c2"}
-    assert se.collections_containing({"v7"}, allow={"c1", "c2"}) == set()
-    assert se.collections_containing(set(), allow={"c1"}) == set()
+    assert sessions_plan.collections_containing({"v1", "v2"}, allow={"c1", "c2", "c3"}) == {
+        "c1",
+        "c2",
+    }
+    assert sessions_plan.collections_containing({"v7"}, allow={"c1", "c2"}) == set()
+    assert sessions_plan.collections_containing(set(), allow={"c1"}) == set()
     # an absurd id set is not worth mapping — the caller rebuilds everything
-    assert se.collections_containing({str(i) for i in range(10)}, {"c1"}, max_items=5) is None
+    assert (
+        sessions_plan.collections_containing({str(i) for i in range(10)}, {"c1"}, max_items=5)
+        is None
+    )
 
 
 # --------------------------------------------------------------------------
@@ -211,13 +222,16 @@ def world(monkeypatch):
     )
     _batches(
         monkeypatch,
-        {embeddings.ANNOTATIONS_FILE: anno, f"{se.COLLECTIONS_LABEL}_recoded.parquet": activity},
+        {
+            embeddings.ANNOTATIONS_FILE: anno,
+            f"{sessions_plan.COLLECTIONS_LABEL}_recoded.parquet": activity,
+        },
     )
     return {"covered": {"c1", "c2", "c3"}}  # c4 is in no study
 
 
 def test_append_scopes_to_the_collections_holding_the_new_items(world):
-    out = se.enrichment_change_scope(
+    out = sessions_plan.enrichment_change_scope(
         _meta(), "fp-new", 6, "afp-new", MODEL, world["covered"], fraction=0.5
     )
     assert out["local"] is True
@@ -227,7 +241,9 @@ def test_append_scopes_to_the_collections_holding_the_new_items(world):
 
 
 def test_unchanged_enrichment_is_local_and_empty(world):
-    out = se.enrichment_change_scope(_meta(), "fp-old", 4, "afp-old", MODEL, world["covered"])
+    out = sessions_plan.enrichment_change_scope(
+        _meta(), "fp-old", 4, "afp-old", MODEL, world["covered"]
+    )
     assert out["local"] is True and out["affected"] == set()
 
 
@@ -237,18 +253,20 @@ def test_rewritten_shards_are_not_local(world, monkeypatch):
         "shard_entries",
         lambda: [("shard_a.parquet", 999, 1.0), tuple(OLD_SHARDS[1])],
     )
-    out = se.enrichment_change_scope(_meta(), "fp-new", 6, "afp-old", MODEL, world["covered"])
+    out = sessions_plan.enrichment_change_scope(
+        _meta(), "fp-new", 6, "afp-old", MODEL, world["covered"]
+    )
     assert out["local"] is False and "rewritten" in out["reason"]
 
 
 def test_drift_budget_forces_a_rebaseline(world):
     # 4 → 6 vectors is +50 % on the baseline; a 10 % budget refuses
-    out = se.enrichment_change_scope(
+    out = sessions_plan.enrichment_change_scope(
         _meta(), "fp-new", 6, "afp-old", MODEL, world["covered"], fraction=0.10
     )
     assert out["local"] is False and "drift budget" in out["reason"]
     # …and the budget is measured from the last FULL build, not the last merge
-    out = se.enrichment_change_scope(
+    out = sessions_plan.enrichment_change_scope(
         _meta(baseline_corpus_count=100, corpus_mean_count=4),
         "fp-new",
         6,
@@ -262,12 +280,12 @@ def test_drift_budget_forces_a_rebaseline(world):
 
 def test_first_build_after_this_rule_bootstraps_once(world):
     # a meta from before shard sets were recorded
-    out = se.enrichment_change_scope(
+    out = sessions_plan.enrichment_change_scope(
         _meta(store_shards=None), "fp-new", 6, "afp-old", MODEL, world["covered"]
     )
     assert out["local"] is False and "no shard set" in out["reason"]
     # a meta from before the annotation watermark was recorded
-    out = se.enrichment_change_scope(
+    out = sessions_plan.enrichment_change_scope(
         _meta(annotations_max_ts=None), "fp-old", 4, "afp-new", MODEL, world["covered"]
     )
     assert out["local"] is False and "no annotation watermark" in out["reason"]
@@ -277,8 +295,8 @@ def test_first_build_after_this_rule_bootstraps_once(world):
 
 
 def test_unmappable_ids_are_not_local(world, monkeypatch):
-    monkeypatch.setattr(se, "collections_containing", lambda *a, **k: None)
-    out = se.enrichment_change_scope(
+    monkeypatch.setattr(sessions_plan, "collections_containing", lambda *a, **k: None)
+    out = sessions_plan.enrichment_change_scope(
         _meta(), "fp-new", 6, "afp-old", MODEL, world["covered"], fraction=0.9
     )
     assert out["local"] is False and "could not map" in out["reason"]
@@ -319,7 +337,9 @@ def _plan(discovered, meta, **over):
         "enrichment_scope": None,
     }
     kwargs.update(over)
-    return se.compute_refresh_plan(discovered, {c: WIDE for c, _ in discovered}, meta, **kwargs)
+    return sessions_plan.compute_refresh_plan(
+        discovered, {c: WIDE for c, _ in discovered}, meta, **kwargs
+    )
 
 
 def test_a_local_store_change_merges_only_the_touched_collections():

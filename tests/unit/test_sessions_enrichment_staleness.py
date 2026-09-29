@@ -15,6 +15,8 @@ worker's setup link end to end: given per-collection records that match
 exactly, a moved embedding store or annotation corpus must still rebuild.
 """
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, session_explorer
 from web_interface.workers import run_sessions_refresh as rsr
@@ -69,21 +71,21 @@ def _install_stubs(monkeypatch, meta: dict, store_fp: str, annotations_fp: str):
     monkeypatch.setattr(
         embedding_store, "get_corpus_mean", lambda model, reporter=None: ("mean", 100, store_fp)
     )
-    monkeypatch.setattr(session_explorer, "compute_coverage_spec", lambda *a, **k: {"c1": WIDE})
+    monkeypatch.setattr(sessions_inputs, "compute_coverage_spec", lambda *a, **k: {"c1": WIDE})
     monkeypatch.setattr(
-        session_explorer,
+        sessions_inputs,
         "discover_covered_collections",
         lambda coverage, collections=None: [("c1", 10)],
     )
-    monkeypatch.setattr(session_explorer, "trend_numeric_columns", lambda: ["log_plays"])
-    monkeypatch.setattr(session_explorer, "annotation_corpus_fingerprint", lambda: annotations_fp)
-    monkeypatch.setattr(session_explorer, "sweep_stale_run_files", lambda run_id: None)
+    monkeypatch.setattr(sessions_inputs, "trend_numeric_columns", lambda: ["log_plays"])
+    monkeypatch.setattr(sessions_inputs, "annotation_corpus_fingerprint", lambda: annotations_fp)
+    monkeypatch.setattr(sessions_publish, "sweep_stale_run_files", lambda run_id: None)
     monkeypatch.setattr(data_io, "exists", lambda **kwargs: True)
     monkeypatch.setattr(data_io, "load_json", lambda **kwargs: meta)
     monkeypatch.setattr(
         data_io,
         "get_parquet_columns",
-        lambda **kwargs: list(session_explorer.plays_table(None).schema.names),
+        lambda **kwargs: list(sessions_publish.plays_table(None).schema.names),
     )
     monkeypatch.setattr(data_io, "update_json", _fake_update_json({}))
 
@@ -91,7 +93,7 @@ def _install_stubs(monkeypatch, meta: dict, store_fp: str, annotations_fp: str):
 def _published_meta(store_fp: str = "fp1", annotations_fp: str = "afp1") -> dict:
     return {
         "embedding_model": "test-model",
-        "params": session_explorer.default_params(),
+        "params": sessions_inputs.default_params(),
         "trend_vars": ["log_plays"],
         "store_fingerprint": store_fp,
         "annotations_fingerprint": annotations_fp,
@@ -157,7 +159,7 @@ def test_setup_pins_the_annotation_fingerprint_into_the_chain(monkeypatch):
 def test_annotation_fingerprint_is_empty_without_a_corpus(monkeypatch):
     """No annotations parquet is a fresh install, not a change to react to."""
     monkeypatch.setattr(data_io, "stat", lambda **kwargs: None)
-    assert session_explorer.annotation_corpus_fingerprint() == ""
+    assert sessions_inputs.annotation_corpus_fingerprint() == ""
 
 
 def test_annotation_fingerprint_tracks_size_and_mtime(monkeypatch):
@@ -167,13 +169,13 @@ def test_annotation_fingerprint_tracks_size_and_mtime(monkeypatch):
     adding any, so the fingerprint is size+mtime.
     """
     monkeypatch.setattr(data_io, "stat", lambda **kwargs: {"size": 10, "mtime": 1.0})
-    first = session_explorer.annotation_corpus_fingerprint()
+    first = sessions_inputs.annotation_corpus_fingerprint()
 
     monkeypatch.setattr(data_io, "stat", lambda **kwargs: {"size": 10, "mtime": 2.0})
-    assert session_explorer.annotation_corpus_fingerprint() != first
+    assert sessions_inputs.annotation_corpus_fingerprint() != first
 
     monkeypatch.setattr(data_io, "stat", lambda **kwargs: {"size": 11, "mtime": 1.0})
-    assert session_explorer.annotation_corpus_fingerprint() != first
+    assert sessions_inputs.annotation_corpus_fingerprint() != first
 
 
 def test_discovery_reports_no_enrichment_counts():
@@ -184,7 +186,7 @@ def test_discovery_reports_no_enrichment_counts():
     """
     import inspect
 
-    src = inspect.getsource(session_explorer.discover_covered_collections)
+    src = inspect.getsource(sessions_inputs.discover_covered_collections)
     assert "annotated_ok" not in src.split('"""')[2], (
         "discover_covered_collections must not read annotated_ok from the activity file"
     )

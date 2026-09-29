@@ -370,7 +370,7 @@ def test_load_fill_profiles_missing_file(monkeypatch):
 
 
 def test_check_gemini_no_client(monkeypatch):
-    monkeypatch.setattr(sh.machine_annotation, "initialize_machine", lambda: None)
+    monkeypatch.setattr(sh.gemini_calls, "initialize_machine", lambda: None)
     monkeypatch.setattr(sh, "get_config", lambda: {"machine": {"gemini": {"client": None}}})
     assert sh._check_gemini()["status"] == "fail"
 
@@ -389,7 +389,7 @@ def test_check_gemini_ok_and_fail(monkeypatch):
         def __init__(self, error=None):
             self.models = FakeModels(error)
 
-    monkeypatch.setattr(sh.machine_annotation, "initialize_machine", lambda: None)
+    monkeypatch.setattr(sh.gemini_calls, "initialize_machine", lambda: None)
     monkeypatch.setattr(
         sh,
         "get_config",

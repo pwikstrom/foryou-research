@@ -88,7 +88,7 @@ def test_moviepy_audio_reader_destructor_is_quiet():
     pytest.importorskip("moviepy")
     from moviepy.audio.io.readers import FFMPEG_AudioReader
 
-    from fyp.scrape.scrape import _patch_moviepy_audio_reader_del
+    from fyp.scrape.slideshow import _patch_moviepy_audio_reader_del
 
     _patch_moviepy_audio_reader_del()
     # An instance whose __init__ raised before assigning ``proc``.

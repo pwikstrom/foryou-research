@@ -9,7 +9,7 @@ per link is O(batch), never O(corpus).
 
 The build is **study-window-scoped**: only collections selected by at least
 one study are segmented, and only within the union of those studies' saved
-date windows (padded — see session_explorer.compute_coverage_spec). Three
+date windows (padded — see sessions_inputs.compute_coverage_spec). Three
 run modes, decided at the setup link:
 
 * **full** (no ``collections``, no ``stale_only``): rebuild every covered
@@ -49,7 +49,7 @@ from web_interface.tasks.task_status import TaskStatusReporter
 
 # Collections per chain link when the caller pins ``batch_size``. The binding
 # constraint is the vector working set (see
-# session_explorer.MAX_VECTORS_PER_LINK), which build_batch enforces
+# sessions_inputs.MAX_VECTORS_PER_LINK), which build_batch enforces
 # independently; this only sets the plays/feature batch width.
 COLLECTIONS_PER_BATCH = 8
 
@@ -104,9 +104,9 @@ def plan_batch(
 
 
 def _progress_filename(run_id: str) -> str:
-    from fyp.analysis import session_explorer
+    import fyp.analysis.sessions.inputs as sessions_inputs
 
-    return f"{session_explorer.PROGRESS_PREFIX}{run_id}.json"
+    return f"{sessions_inputs.PROGRESS_PREFIX}{run_id}.json"
 
 
 def _flag(value) -> bool:
@@ -119,7 +119,7 @@ def _manifest_n_plays(value) -> int:
 
     The legacy shape is ``[n_plays, n_annotated]``; the annotated term was
     dropped (it was structurally always 0 — see
-    :func:`session_explorer.discover_covered_collections`). A chain in flight
+    :func:`sessions_inputs.discover_covered_collections`). A chain in flight
     across a deploy that changed the shape still carries the list in its
     progress file, and its final link runs on the new code.
     """
@@ -133,7 +133,7 @@ def _store_shards_for(store_fp: str) -> list | None:
     ``store_fp`` (the store moved mid-chain; the next run then re-baselines).
 
     Recorded so the next run can tell an append from a rewrite — see
-    ``session_explorer.enrichment_change_scope``.
+    ``sessions_plan.enrichment_change_scope``.
     """
     from fyp.analysis import embedding_store
 
@@ -167,7 +167,7 @@ def _merge_meta(
     The per-collection block is the previous build's block minus dropped and
     refreshed collections, plus fresh entries for the refreshed ones (windows
     and counts from the run manifest). The ``n_*`` totals are filled by
-    :func:`session_explorer.merge_publish_artifacts` from the merged files.
+    :func:`sessions_publish.merge_publish_artifacts` from the merged files.
     ``corpus_mean_drift`` records that untouched collections were centred on
     a different (statistically equivalent) corpus mean than this run's.
     ``baseline_corpus_count`` (the vector count at the last FULL build) is
@@ -221,14 +221,14 @@ def _foreign_run_active(max_age_seconds: float = 5400) -> bool:
     A finished chain deletes its progress file; an abandoned one goes stale
     and stops blocking.
     """
+    import fyp.analysis.sessions.inputs as sessions_inputs
     import fyp.core.data_io as data_io
-    from fyp.analysis import session_explorer
 
     now = time.time()
-    for fn in data_io.listdir(storage_location=session_explorer.ARTIFACT_LOCATION):
-        if not fn.startswith(session_explorer.PROGRESS_PREFIX):
+    for fn in data_io.listdir(storage_location=sessions_inputs.ARTIFACT_LOCATION):
+        if not fn.startswith(sessions_inputs.PROGRESS_PREFIX):
             continue
-        st = data_io.stat(storage_location=session_explorer.ARTIFACT_LOCATION, filename=fn)
+        st = data_io.stat(storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=fn)
         if st and now - st["mtime"] <= max_age_seconds:
             return True
     return False
@@ -252,8 +252,8 @@ def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
     Returns:
         True when this execution won the claim.
     """
+    import fyp.analysis.sessions.inputs as sessions_inputs
     import fyp.core.data_io as data_io
-    from fyp.analysis import session_explorer
 
     claimed = {"won": False}
 
@@ -265,7 +265,7 @@ def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
         return progress
 
     data_io.update_json(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
+        storage_location=sessions_inputs.ARTIFACT_LOCATION,
         filename=_progress_filename(run_id),
         mutate=_mutate,
         default=None,
@@ -296,8 +296,11 @@ def run_sessions_refresh(
     """
     import pandas as pd
 
+    import fyp.analysis.sessions.inputs as sessions_inputs
+    import fyp.analysis.sessions.plan as sessions_plan
+    import fyp.analysis.sessions.publish as sessions_publish
     import fyp.core.data_io as data_io
-    from fyp.analysis import embedding_store, embeddings, session_explorer
+    from fyp.analysis import embedding_store, embeddings
     from fyp.core.memory import mem_probe
 
     task_args = task_args or {}
@@ -406,7 +409,7 @@ def run_sessions_refresh(
                 reporter.update_progress(100, "Skipped — refresh already running")
                 reporter.emit_data({"sessions_mode": "skipped_busy"})
                 return None
-        params = {**session_explorer.default_params(), **overrides}
+        params = {**sessions_inputs.default_params(), **overrides}
         collections = None
         if collections_str:
             collections = [c.strip() for c in str(collections_str).split(",") if c.strip()]
@@ -420,47 +423,47 @@ def run_sessions_refresh(
         except (ValueError, embedding_store.CorpusMeanDrift):
             corpus_mean, n_vectors, store_fp = None, 0, ""
         reporter.log(f"Embedding store: {n_vectors:,} vectors (model={model})")
-        annotations_fp = session_explorer.annotation_corpus_fingerprint()
+        annotations_fp = sessions_inputs.annotation_corpus_fingerprint()
 
         # Coverage-scoped discovery: only collections selected by >=1 study,
         # only their in-window plays. Always global — an explicit collections
         # list narrows the plan below, never the discovery, so staleness and
         # drops are computed against the whole corpus.
         reporter.update_progress(0, "Discovering covered collections...")
-        coverage = session_explorer.compute_coverage_spec()
-        discovered = session_explorer.discover_covered_collections(coverage)
+        coverage = sessions_inputs.compute_coverage_spec()
+        discovered = sessions_inputs.discover_covered_collections(coverage)
         # Pinned at setup and carried through the chain: every shard must use
         # the same session-extreme column set or the publish concat would see
         # mismatched schemas (e.g. a video_map rebuild landing mid-chain).
-        trend_cols = session_explorer.trend_numeric_columns()
+        trend_cols = sessions_inputs.trend_numeric_columns()
         reporter.log(f"Session min/max columns for {len(trend_cols)} trend variable(s).")
 
         artifact_files = (
-            session_explorer.SESSIONS_FILE,
-            session_explorer.EPISODES_FILE,
-            session_explorer.WINDOWS_FILE,
-            session_explorer.PLAYS_FILE,
+            sessions_inputs.SESSIONS_FILE,
+            sessions_inputs.EPISODES_FILE,
+            sessions_inputs.WINDOWS_FILE,
+            sessions_inputs.PLAYS_FILE,
         )
         artifacts_exist = all(
-            data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION, filename=f)
+            data_io.exists(storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=f)
             for f in artifact_files
         )
         meta_old = None
         if data_io.exists(
-            storage_location=session_explorer.ARTIFACT_LOCATION, filename=session_explorer.META_FILE
+            storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=sessions_inputs.META_FILE
         ):
             meta_old = data_io.load_json(
-                storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.META_FILE,
+                storage_location=sessions_inputs.ARTIFACT_LOCATION,
+                filename=sessions_inputs.META_FILE,
             )
         plays_schema_ok = True
         if artifacts_exist:
             old_cols = data_io.get_parquet_columns(
-                storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.PLAYS_FILE,
+                storage_location=sessions_inputs.ARTIFACT_LOCATION,
+                filename=sessions_inputs.PLAYS_FILE,
             )
             plays_schema_ok = sorted(old_cols or []) == sorted(
-                session_explorer.plays_table(None).schema.names
+                sessions_publish.plays_table(None).schema.names
             )
 
         scope = {str(c) for c in collections} if collections else None
@@ -472,7 +475,7 @@ def run_sessions_refresh(
         covered = {cid for cid, _ in discovered}
         annotations_max_ts = (meta_old or {}).get("annotations_max_ts")
         try:
-            escope = session_explorer.enrichment_change_scope(
+            escope = sessions_plan.enrichment_change_scope(
                 meta_old, store_fp, int(n_vectors), annotations_fp, model, covered
             )
             if escope.get("reason") and escope.get("reason") != "enrichment unchanged":
@@ -483,7 +486,7 @@ def run_sessions_refresh(
             # scanned now (a first build, or one from before the watermark).
             annotations_max_ts = escope.get("annotations_max_ts") or annotations_max_ts
             if annotations_max_ts is None and annotations_fp:
-                annotations_max_ts = session_explorer.annotation_corpus_max_ts()
+                annotations_max_ts = sessions_plan.annotation_corpus_max_ts()
         except Exception as exc:
             # Scoping is an optimisation: if it cannot be computed the plan
             # falls back to the full rebuild it always did.
@@ -493,7 +496,7 @@ def run_sessions_refresh(
             )
             escope = None
 
-        plan = session_explorer.compute_refresh_plan(
+        plan = sessions_plan.compute_refresh_plan(
             discovered,
             coverage,
             meta_old,
@@ -555,7 +558,7 @@ def run_sessions_refresh(
             # Pure-drop merge (collections left every study, nothing stale):
             # no batches to segment, so fold the drops in right here — the
             # stream is bounded and the setup deadline is trivially met.
-            session_explorer.sweep_stale_run_files(run_id)
+            sessions_publish.sweep_stale_run_files(run_id)
             meta = _merge_meta(
                 meta_old,
                 {"refresh": [], "drop": plan["drop"]},
@@ -568,7 +571,7 @@ def run_sessions_refresh(
                 annotations_fp,
                 annotations_max_ts,
             )
-            session_explorer.merge_publish_artifacts(
+            sessions_publish.merge_publish_artifacts(
                 run_id,
                 n_chunks=0,
                 refresh_cids=[],
@@ -590,8 +593,8 @@ def run_sessions_refresh(
         if plan["mode"] == "full" and total == 0:
             # Publish empty artifacts (fresh install / no studies) so the
             # tab renders a clean empty state instead of a missing-file error.
-            session_explorer.sweep_stale_run_files(run_id)
-            meta = session_explorer.build_artifacts(
+            sessions_publish.sweep_stale_run_files(run_id)
+            meta = sessions_publish.build_artifacts(
                 reporter=reporter, params=overrides or None, coverage=coverage
             )
             reporter.update_progress(100, "Done")
@@ -599,7 +602,7 @@ def run_sessions_refresh(
             reporter.log("No covered collections with in-window play rows; wrote empty artifacts.")
             return None if not meta.get("cancelled") else None
 
-        session_explorer.sweep_stale_run_files(run_id)
+        sessions_publish.sweep_stale_run_files(run_id)
         # Seed the run manifest into the progress file: the batch links read
         # the coverage windows from it, and the final link builds the meta's
         # per-collection block from it — Cloud Tasks payloads stay small.
@@ -617,7 +620,7 @@ def run_sessions_refresh(
             return progress
 
         data_io.update_json(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
             filename=_progress_filename(run_id),
             mutate=_seed,
             default=None,
@@ -686,10 +689,10 @@ def run_sessions_refresh(
     # has none and builds unscoped in fixed-count batches, as before.
     manifest: dict = {}
     if data_io.exists(
-        storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+        storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
     ):
         prog = data_io.load_json(
-            storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+            storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
         )
         if isinstance(prog, dict) and isinstance(prog.get("manifest"), dict):
             manifest = prog["manifest"]
@@ -710,7 +713,7 @@ def run_sessions_refresh(
     index = embedding_store.load_index(model) if corpus_mean is not None else None
 
     with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log, collections=len(batch)):
-        srows, erows, wrows, plays, stats = session_explorer.build_batch(
+        srows, erows, wrows, plays, stats = sessions_publish.build_batch(
             batch,
             model,
             corpus_mean,
@@ -724,9 +727,9 @@ def run_sessions_refresh(
     if srows is None:
         reporter.log("Cancelled by user. Previous artifacts left intact.")
         return None
-    reporter.log(session_explorer.format_batch_timing(chunk, len(batch), stats))
+    reporter.log(sessions_publish.format_batch_timing(chunk, len(batch), stats))
 
-    session_explorer.write_batch_shards(
+    sessions_publish.write_batch_shards(
         run_id, chunk, srows, erows, wrows, trend_cols=trend_cols, plays=plays
     )
 
@@ -750,7 +753,7 @@ def run_sessions_refresh(
         return progress
 
     progress_raw = data_io.update_json(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
+        storage_location=sessions_inputs.ARTIFACT_LOCATION,
         filename=_progress_filename(run_id),
         mutate=_mutate,
         default=None,
@@ -821,11 +824,11 @@ def run_sessions_refresh(
             )
         meta_old = None
         if data_io.exists(
-            storage_location=session_explorer.ARTIFACT_LOCATION, filename=session_explorer.META_FILE
+            storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=sessions_inputs.META_FILE
         ):
             meta_old = data_io.load_json(
-                storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.META_FILE,
+                storage_location=sessions_inputs.ARTIFACT_LOCATION,
+                filename=sessions_inputs.META_FILE,
             )
         meta = _merge_meta(
             meta_old,
@@ -839,7 +842,7 @@ def run_sessions_refresh(
             annotations_fp,
             annotations_max_ts,
         )
-        session_explorer.merge_publish_artifacts(
+        sessions_publish.merge_publish_artifacts(
             run_id,
             n_chunks=chunk + 1,
             refresh_cids=list(manifest.get("refresh") or []),
@@ -881,7 +884,7 @@ def run_sessions_refresh(
                 }
                 for cid in manifest.get("refresh") or []
             }
-        session_explorer.publish_artifacts(
+        sessions_publish.publish_artifacts(
             run_id,
             n_chunks=chunk + 1,
             expected=expected,
@@ -891,7 +894,7 @@ def run_sessions_refresh(
             total_collections=total,
         )
     data_io.remove(
-        storage_location=session_explorer.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
+        storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=_progress_filename(run_id)
     )
 
     reporter.update_progress(100, "Done")

@@ -190,7 +190,7 @@ def _poll_one_job(reporter, run, job, batch, data_io):
     exactly THIS job's claimed ids and halts further submits — the other jobs
     keep polling and draining, so one bad job never strands its siblings.
     """
-    from fyp.annotation.machine_annotation import refine_one_raw_annotation_batch
+    from fyp.annotation.annotation_refinement import refine_one_raw_annotation_batch
 
     label = f"Batch {int(job.get('batch_no') or 0)}"
     submitted_ids = job.get("submitted_ids") or []

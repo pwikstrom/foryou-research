@@ -15,6 +15,9 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.publish as sessions_publish
+import fyp.analysis.sessions.segment as sessions_segment
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
 from fyp.analysis import session_explorer as se
@@ -162,9 +165,9 @@ def corpus(tmp_path, monkeypatch):
 def _read_artifacts():
     out = {}
     for kind, fn, keys in (
-        ("sessions", se.SESSIONS_FILE, ["collection_id", "session_id"]),
-        ("episodes", se.EPISODES_FILE, ["collection_id", "session_id", "episode_idx"]),
-        ("windows", se.WINDOWS_FILE, ["collection_id", "session_id", "window_idx"]),
+        ("sessions", sessions_inputs.SESSIONS_FILE, ["collection_id", "session_id"]),
+        ("episodes", sessions_inputs.EPISODES_FILE, ["collection_id", "session_id", "episode_idx"]),
+        ("windows", sessions_inputs.WINDOWS_FILE, ["collection_id", "session_id", "window_idx"]),
     ):
         df = data_io.load_parquet_selective(storage_location="cache", filename=fn)
         out[kind] = df.sort_values(keys, kind="stable").reset_index(drop=True)
@@ -172,12 +175,12 @@ def _read_artifacts():
 
 
 def test_golden_equivalence_across_batch_sizes(corpus):
-    meta_all = se.build_artifacts(batch_size=99)
+    meta_all = sessions_publish.build_artifacts(batch_size=99)
     got_all = _read_artifacts()
     assert meta_all["n_sessions"] == 6
     assert meta_all["n_windows"] > 0  # the fixture must exercise windows
 
-    meta_one = se.build_artifacts(batch_size=1)
+    meta_one = sessions_publish.build_artifacts(batch_size=1)
     got_one = _read_artifacts()
 
     assert meta_one["n_sessions"] == meta_all["n_sessions"]
@@ -193,12 +196,12 @@ _HAS_FORK = "fork" in multiprocessing.get_all_start_methods()
 @pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
 def test_golden_equivalence_across_worker_counts(corpus):
     """The pool is a wall-time device only: rows identical at any worker count."""
-    meta_serial = se.build_artifacts(batch_size=99, workers=1)
+    meta_serial = sessions_publish.build_artifacts(batch_size=99, workers=1)
     want = _read_artifacts()
     assert meta_serial["n_windows"] > 0
 
     reporter = FakeReporter()
-    meta_pool = se.build_artifacts(batch_size=99, workers=3, reporter=reporter)
+    meta_pool = sessions_publish.build_artifacts(batch_size=99, workers=3, reporter=reporter)
     got = _read_artifacts()
     assert meta_pool["n_sessions"] == meta_serial["n_sessions"]
     for kind in ("sessions", "episodes", "windows"):
@@ -208,7 +211,7 @@ def test_golden_equivalence_across_worker_counts(corpus):
     timing = [line for line in reporter.lines if "[TIMING] sessions_link" in line]
     assert timing and "workers=3" in timing[0] and "units=3" in timing[0]
 
-    se.build_artifacts(batch_size=1, workers=3)
+    sessions_publish.build_artifacts(batch_size=1, workers=3)
     got_one = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
         pd.testing.assert_frame_equal(want[kind], got_one[kind])
@@ -217,11 +220,11 @@ def test_golden_equivalence_across_worker_counts(corpus):
 @pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
 def test_session_chunking_does_not_change_rows(corpus, monkeypatch):
     """One session per work unit vs the default chunk: same rows, same order."""
-    se.build_artifacts(batch_size=99, workers=1)
+    sessions_publish.build_artifacts(batch_size=99, workers=1)
     want = _read_artifacts()
 
-    monkeypatch.setattr(se, "SESSION_CHUNK_PLAYS", 1)
-    se.build_artifacts(batch_size=99, workers=3)
+    monkeypatch.setattr(sessions_inputs, "SESSION_CHUNK_PLAYS", 1)
+    sessions_publish.build_artifacts(batch_size=99, workers=3)
     got = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
         pd.testing.assert_frame_equal(want[kind], got[kind])
@@ -231,17 +234,17 @@ def test_broken_pool_falls_back_to_serial(corpus, monkeypatch):
     """A pool failure must degrade to the serial path, never fail the run."""
     from concurrent.futures.process import BrokenProcessPool
 
-    se.build_artifacts(batch_size=99, workers=1)
+    sessions_publish.build_artifacts(batch_size=99, workers=1)
     want = _read_artifacts()
 
     class _Boom:
         def __init__(self, *args, **kwargs):
             raise BrokenProcessPool("boom")
 
-    monkeypatch.setattr(se, "ProcessPoolExecutor", _Boom)
-    monkeypatch.setattr(se, "resolve_workers", lambda requested=None: 3)
+    monkeypatch.setattr(sessions_segment, "ProcessPoolExecutor", _Boom)
+    monkeypatch.setattr(sessions_segment, "resolve_workers", lambda requested=None: 3)
     reporter = FakeReporter()
-    meta = se.build_artifacts(batch_size=99, reporter=reporter)
+    meta = sessions_publish.build_artifacts(batch_size=99, reporter=reporter)
     assert not meta.get("cancelled")
     got = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
@@ -251,10 +254,10 @@ def test_broken_pool_falls_back_to_serial(corpus, monkeypatch):
 
 @pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
 def test_cancel_under_pool_leaves_previous_artifacts_intact(corpus, monkeypatch):
-    se.build_artifacts(batch_size=99, workers=1)
+    sessions_publish.build_artifacts(batch_size=99, workers=1)
     want = _read_artifacts()
 
-    monkeypatch.setattr(se, "_CANCEL_CHECK_EVERY", 1)
+    monkeypatch.setattr(sessions_inputs, "_CANCEL_CHECK_EVERY", 1)
     reporter = FakeReporter(cancel_after=1)
     setup = worker.run_sessions_refresh(reporter, {"batch_size": 2, "workers": 2})
     out = worker.run_sessions_refresh(reporter, setup["next_task_args"])
@@ -266,7 +269,7 @@ def test_cancel_under_pool_leaves_previous_artifacts_intact(corpus, monkeypatch)
 
 def test_anti_guard_per_batch_mean_breaks_equivalence(corpus, monkeypatch):
     """A guard that cannot fail is not a guard: per-batch centring MUST differ."""
-    meta_all = se.build_artifacts(batch_size=99)
+    meta_all = sessions_publish.build_artifacts(batch_size=99)
     got_all = _read_artifacts()
     assert meta_all["n_windows"] > 0
 
@@ -276,12 +279,12 @@ def test_anti_guard_per_batch_mean_breaks_equivalence(corpus, monkeypatch):
         rows, found = index.lookup(item_ids)
         U = embedding_store.read_vectors(model, rows, index, dtype=np.float32)
         # THE BUG THIS SUITE GUARDS AGAINST: centring on the batch's own mean.
-        se._directionalise(U, U.mean(axis=0, dtype=np.float64))
+        sessions_inputs._directionalise(U, U.mean(axis=0, dtype=np.float64))
         found_ids = [str(i) for i, f in zip(item_ids, found) if f]
         return {iid: i for i, iid in enumerate(found_ids)}, U
 
-    monkeypatch.setattr(se, "load_directional_block", per_batch_mean_block)
-    se.build_artifacts(batch_size=1)
+    monkeypatch.setattr(sessions_inputs, "load_directional_block", per_batch_mean_block)
+    sessions_publish.build_artifacts(batch_size=1)
     got_bad = _read_artifacts()
 
     same = np.allclose(
@@ -306,7 +309,7 @@ def _run_chain(task_args=None, reporter=None, max_links=50):
 
 
 def test_chained_worker_matches_single_shot(corpus):
-    se.build_artifacts(batch_size=99)
+    sessions_publish.build_artifacts(batch_size=99)
     want = _read_artifacts()
 
     reporter, links = _run_chain({"batch_size": 1})
@@ -316,13 +319,15 @@ def test_chained_worker_matches_single_shot(corpus):
         pd.testing.assert_frame_equal(want[kind], got[kind])
 
     # Meta finalised; intermediate shards + progress cleaned up.
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert meta["n_sessions"] == 6 and meta["n_collections"] == 3
     assert meta["store_fingerprint"]
     leftovers = [
         fn
         for fn in data_io.listdir(storage_location="cache")
-        if fn.startswith(tuple(se.SHARD_PREFIXES.values()) + (se.PROGRESS_PREFIX,))
+        if fn.startswith(
+            tuple(sessions_inputs.SHARD_PREFIXES.values()) + (sessions_inputs.PROGRESS_PREFIX,)
+        )
     ]
     assert leftovers == []
     assert reporter.progress[-1][0] == 100
@@ -346,7 +351,7 @@ def test_retry_of_a_link_does_not_duplicate_rows(corpus):
             break
         args = nxt["next_task_args"]
 
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert meta["n_sessions"] == 6  # not 8 — the replayed link overwrote its shard
 
 
@@ -375,7 +380,7 @@ def test_trailing_duplicate_chain_cannot_clobber_a_published_artifact(corpus):
         args = chain["next_task_args"]
 
     good = _read_artifacts()
-    good_meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    good_meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert good_meta["n_collections"] == 3
 
     # Chain B resumes from link 1 with the SAME run_id, after A already
@@ -394,7 +399,12 @@ def test_trailing_duplicate_chain_cannot_clobber_a_published_artifact(corpus):
     after = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
         pd.testing.assert_frame_equal(good[kind], after[kind])
-    assert data_io.load_json(storage_location="cache", filename=se.META_FILE)["n_collections"] == 3
+    assert (
+        data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)[
+            "n_collections"
+        ]
+        == 3
+    )
 
 
 def test_corpus_drift_restarts_chain_bounded(corpus, monkeypatch):
@@ -420,7 +430,7 @@ def test_corpus_drift_restarts_chain_bounded(corpus, monkeypatch):
 
 
 def test_cancel_leaves_previous_artifacts_intact(corpus):
-    se.build_artifacts(batch_size=99)
+    sessions_publish.build_artifacts(batch_size=99)
     want = _read_artifacts()
 
     reporter = FakeReporter(cancel_after=1)
@@ -441,10 +451,14 @@ def test_publish_order_sessions_index_last(corpus, monkeypatch):
         return real_concat(**kwargs)
 
     monkeypatch.setattr(data_io, "concat_parquet_files", spy)
-    monkeypatch.setattr(se.data_io, "concat_parquet_files", spy)
+    monkeypatch.setattr(sessions_publish.data_io, "concat_parquet_files", spy)
     _run_chain({"batch_size": 2})
-    assert order[-1] == se.SESSIONS_FILE
-    assert set(order[:-1]) == {se.PLAYS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE}
+    assert order[-1] == sessions_inputs.SESSIONS_FILE
+    assert set(order[:-1]) == {
+        sessions_inputs.PLAYS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+    }
 
 
 # ---- Incremental (stale_only / merge) modes ----
@@ -456,7 +470,7 @@ def _set_study_defs(defs: dict) -> None:
 
 def test_full_run_writes_per_collection_block(corpus):
     _run_chain({"batch_size": 2})
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     block = meta["collections"]
     assert sorted(block) == ["coll0", "coll1", "coll2"]
     for rec in block.values():
@@ -468,7 +482,9 @@ def test_stale_only_noops_when_nothing_changed(corpus, monkeypatch):
     want = _read_artifacts()
 
     swept = []
-    monkeypatch.setattr(se, "sweep_stale_run_files", lambda run_id: swept.append(run_id))
+    monkeypatch.setattr(
+        sessions_publish, "sweep_stale_run_files", lambda run_id: swept.append(run_id)
+    )
     reporter, links = _run_chain({"stale_only": True})
     assert links == 1, "noop must not chain"
     assert reporter.progress[-1] == (100, "Up to date")
@@ -503,7 +519,7 @@ def test_stale_only_merges_only_the_changed_collection(corpus):
             before[kind][before[kind]["collection_id"] != "coll1"].reset_index(drop=True),
             after[kind].reset_index(drop=True),
         )
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert sorted(meta["collections"]) == ["coll0", "coll2"]
     assert meta["n_collections"] == 2
 
@@ -511,7 +527,7 @@ def test_stale_only_merges_only_the_changed_collection(corpus):
 def test_stale_only_resegments_a_window_change(corpus):
     _run_chain({"batch_size": 2})
     before = _read_artifacts()
-    meta_before = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta_before = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
 
     # Give coll2 its own explicit (still-covering) window: the fingerprint's
     # windows differ, so exactly coll2 is re-segmented; its data is unchanged
@@ -533,7 +549,7 @@ def test_stale_only_resegments_a_window_change(corpus):
         pd.testing.assert_frame_equal(
             before[kind].reset_index(drop=True), after[kind].reset_index(drop=True)
         )
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert (
         meta["collections"]["coll2"]["built_at"] > meta_before["collections"]["coll2"]["built_at"]
     )
@@ -555,7 +571,7 @@ def test_targeted_collections_merge_preserves_the_rest(corpus):
         pd.testing.assert_frame_equal(
             before[kind].reset_index(drop=True), after[kind].reset_index(drop=True)
         )
-    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    meta = data_io.load_json(storage_location="cache", filename=sessions_inputs.META_FILE)
     assert meta["n_collections"] == 3
 
 
@@ -564,14 +580,16 @@ def test_skip_if_busy_yields_to_a_live_run(corpus):
     want = _read_artifacts()
     # A fresh foreign progress file looks like an in-flight chain.
     data_io.save_json(
-        data={"chunks": {}}, storage_location="cache", filename=f"{se.PROGRESS_PREFIX}otherrun.json"
+        data={"chunks": {}},
+        storage_location="cache",
+        filename=f"{sessions_inputs.PROGRESS_PREFIX}otherrun.json",
     )
 
     reporter, links = _run_chain({"skip_if_busy": True})
     assert links == 1
     assert any("skipping" in m.lower() for m in reporter.lines)
     assert data_io.exists(
-        storage_location="cache", filename=f"{se.PROGRESS_PREFIX}otherrun.json"
+        storage_location="cache", filename=f"{sessions_inputs.PROGRESS_PREFIX}otherrun.json"
     ), "the busy guard must not sweep the live run's files"
     got = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
@@ -580,8 +598,8 @@ def test_skip_if_busy_yields_to_a_live_run(corpus):
 
 def test_restart_args_keep_stale_only_but_strip_skip_if_busy(corpus, monkeypatch):
     # Make one collection stale so a stale_only run actually chains.
-    data_io.remove(storage_location="cache", filename=se.META_FILE) if data_io.exists(
-        storage_location="cache", filename=se.META_FILE
+    data_io.remove(storage_location="cache", filename=sessions_inputs.META_FILE) if data_io.exists(
+        storage_location="cache", filename=sessions_inputs.META_FILE
     ) else None
     reporter = FakeReporter()
     setup = worker.run_sessions_refresh(
@@ -624,7 +642,7 @@ def test_plan_batch_rules():
 
 def test_default_batching_by_play_budget_matches_golden(corpus, monkeypatch):
     """No batch_size: links fill to the play budget; rows unchanged."""
-    se.build_artifacts(batch_size=99)
+    sessions_publish.build_artifacts(batch_size=99)
     want = _read_artifacts()
 
     # Fixture collections hold 16 plays each: a 20-play budget packs two
@@ -646,7 +664,7 @@ def test_workers_ride_the_chain_but_stay_out_of_params(corpus, monkeypatch):
     args = setup["next_task_args"]
     assert args["workers"] == 2
     assert "workers" not in json.loads(args["params_json"])
-    assert "workers" not in se.default_params()
+    assert "workers" not in sessions_inputs.default_params()
 
     def drifted(model, expected_fp=None, reporter=None):
         raise embedding_store.CorpusMeanDrift("store moved")

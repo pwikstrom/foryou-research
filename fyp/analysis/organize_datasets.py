@@ -18,7 +18,7 @@ import pandas as pd
 
 import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
-from fyp.annotation.machine_annotation import consolidate_and_save_refined_annotations
+from fyp.annotation.annotation_refinement import consolidate_and_save_refined_annotations
 from fyp.annotation.recode_variables import (
     compute_var_schema_hash,
     derive_australian_relevance,
@@ -36,8 +36,9 @@ from fyp.core.memory import rss_mb as _rss_mb
 from fyp.core.polars_ops import fast_join
 from fyp.core.runtime import cf as _cf
 from fyp.core.utils import parse_extra_data_tokens
-from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 from fyp.scrape import scrape_contract as _scrape_contract
+from fyp.scrape.consolidate import consolidate_and_save_scrape_data
+from fyp.scrape.failures import load_failed_scrapes
 
 logger = get_logger(__name__)
 from fyp.analysis.studies import init_study_defs
@@ -1367,7 +1368,7 @@ def _backfill_source_platform(series: pd.Series) -> pd.Series:
     composite ``(source_platform, item_id)`` join and silently drops the rows
     from the per-platform groupbys below. All pre-column history is TikTok by
     definition — the same argument as the scrape-side backfill in
-    ``fyp.scrape.consolidate_and_save_scrape_data``. The persisted parquet is
+    ``fyp.scrape.consolidate.consolidate_and_save_scrape_data``. The persisted parquet is
     healed by ``fyp.ingest.ForYouCollection._backfill_source_platform``; this
     guard keeps merges correct before that refresh has run.
     """
@@ -1894,7 +1895,7 @@ def _per_item_signatures(
     df: pd.DataFrame, exclude: frozenset | set = frozenset()
 ) -> dict[str, str]:
     """Per-item content signatures of a consolidated frame (dtype-insensitive)."""
-    from fyp.scrape.scrape import scrape_value_signatures
+    from fyp.scrape.consolidate import scrape_value_signatures
 
     if df is None or df.empty:
         return {}
@@ -1944,7 +1945,7 @@ def verify_consolidation_equivalence(
         expected reaction to ``ok=False`` is alerting plus a real
         ``force_consolidation=True`` run to promote the full rebuild.
     """
-    from fyp.scrape.scrape import SCRAPE_PROVENANCE_COLS
+    from fyp.scrape.consolidate import SCRAPE_PROVENANCE_COLS
 
     def _progress(pct: float, msg: str) -> None:
         if progress_cb is not None:

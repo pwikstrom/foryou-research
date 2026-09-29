@@ -117,7 +117,7 @@ def run_current_refinement(raw_outputs: dict, quiet: bool = True) -> pd.DataFram
     Returns:
         The refined dataframe (also written to an isolated temp parquet).
     """
-    from fyp.annotation.machine_annotation import refine_one_raw_annotation_batch
+    from fyp.annotation.annotation_refinement import refine_one_raw_annotation_batch
 
     sink = io.StringIO()
     redirect = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()

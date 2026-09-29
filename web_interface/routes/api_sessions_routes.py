@@ -39,7 +39,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
 import fyp.analysis.embeddings as embeddings
-from fyp.analysis import session_explorer
+import fyp.analysis.sessions.inputs as sessions_inputs
 from web_interface.services.study_data import (
     get_study_date_window,
     load_display_id_map,
@@ -137,10 +137,10 @@ def _detail_cache_version(study: str) -> tuple:
     except Exception:
         model = None
     return (
-        sessions_data.artifact_fingerprint(session_explorer.PLAYS_FILE),
-        sessions_data.artifact_fingerprint(session_explorer.EPISODES_FILE),
-        sessions_data.artifact_fingerprint(session_explorer.WINDOWS_FILE),
-        sessions_data.artifact_fingerprint(session_explorer.SESSIONS_FILE),
+        sessions_data.artifact_fingerprint(sessions_inputs.PLAYS_FILE),
+        sessions_data.artifact_fingerprint(sessions_inputs.EPISODES_FILE),
+        sessions_data.artifact_fingerprint(sessions_inputs.WINDOWS_FILE),
+        sessions_data.artifact_fingerprint(sessions_inputs.SESSIONS_FILE),
         get_recoded_mtime(study),
         sessions_data.flags_cache_key(model),
     )
@@ -690,7 +690,7 @@ def api_sessions_status():
         load_process_stats()
 
     meta = sessions_data.load_meta()
-    exists = sessions_data.artifact_fingerprint(session_explorer.SESSIONS_FILE) is not None
+    exists = sessions_data.artifact_fingerprint(sessions_inputs.SESSIONS_FILE) is not None
     active_model = None
     try:
         active_model = embeddings.active_embedding_backend().model_id()

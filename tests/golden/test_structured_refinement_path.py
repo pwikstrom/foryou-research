@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import isolated_storage, pinned_var_schema
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import annotation_refinement
 
 
 def _structured_response(type_of_story: str) -> dict:
@@ -75,7 +76,7 @@ def _raw_batch() -> dict:
 
 def test_structured_refinement_produces_valid_rows() -> None:
     with pinned_var_schema(), isolated_storage():
-        df = ma.refine_one_raw_annotation_batch(
+        df = annotation_refinement.refine_one_raw_annotation_batch(
             raw_outputs_from_machine=_raw_batch(),
             raw_json_filename="structured_test.json",
             verbose=False,

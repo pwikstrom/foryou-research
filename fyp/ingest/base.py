@@ -2181,7 +2181,7 @@ class ForYouCollection(ForYouBaseCollection):
         the composite ``(source_platform, item_id)`` activity↔enrichment join and
         drops the rows from the per-platform enrichment-status filters. All
         pre-column history is TikTok by definition (same argument as the
-        scrape-side backfill in ``fyp.scrape.consolidate_and_save_scrape_data``).
+        scrape-side backfill in ``fyp.scrape.consolidate.consolidate_and_save_scrape_data``).
         """
         default_platform = (
             _scrape_contract.default_platform(_scrape_contract.load_contract()) or "tiktok"

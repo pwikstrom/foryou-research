@@ -33,9 +33,10 @@ import fyp.analysis.organize_datasets as od
 import fyp.annotation.annotation_versioning as av
 import fyp.annotation.machine_annotation as ma
 import fyp.core.data_io as data_io
+from fyp.annotation import annotation_refinement
 from fyp.core.fyp_config import fyp_cf
-from fyp.scrape import scrape as sc_mod
-from fyp.scrape.scrape import consolidate_and_save_scrape_data
+from fyp.scrape import consolidate as sc_mod
+from fyp.scrape.consolidate import consolidate_and_save_scrape_data
 
 _SCRAPES_RECODED = "scrapes_recoded.parquet"
 _LEDGER = "consolidated_enrichment_files.json"
@@ -289,12 +290,16 @@ def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
     with _isolated():
         # Cycle 1: v1 annotations (full path establishes the ledger + archive).
         _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1")
-        ok, view1, ids1 = ma.consolidate_and_save_refined_annotations(incremental=True)
+        ok, view1, ids1 = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
         assert ok and ids1 == {"i1", "i2"}
 
         # Cycle 2: v2 re-annotates i1 and adds i3 — the fold path.
         _save_refined("machine_annotations_b.parquet", ["i1", "i3"], "v2")
-        ok, view2, ids2 = ma.consolidate_and_save_refined_annotations(incremental=True)
+        ok, view2, ids2 = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
         assert ok and ids2 == {"i1", "i3"}
         by_item = dict(zip(view2["item_id"].astype(str), view2["annotation_version"]))
         assert by_item == {"i1": "v2", "i2": "v1", "i3": "v2"}  # latest-per-item
@@ -320,14 +325,18 @@ def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
         )
         av.promote_version("v1")
         _save_refined("machine_annotations_c.parquet", ["i4"], "v2")
-        ok, view3, ids3 = ma.consolidate_and_save_refined_annotations(incremental=True)
+        ok, view3, ids3 = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
         assert ok and ids3 == {"i4"}
         by_item = dict(zip(view3["item_id"].astype(str), view3["annotation_version"]))
         assert by_item == {"i1": "v1", "i2": "v1", "i3": "v2", "i4": "v2"}
 
         # With the promotion recorded, the following cycle folds again.
         _save_refined("machine_annotations_d.parquet", ["i5"], "v2")
-        ok, view4, ids4 = ma.consolidate_and_save_refined_annotations(incremental=True)
+        ok, view4, ids4 = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
         assert ok and ids4 == {"i5"}
         by_item = dict(zip(view4["item_id"].astype(str), view4["annotation_version"]))
         assert by_item["i5"] == "v2" and by_item["i1"] == "v1"
@@ -338,7 +347,9 @@ def test_annotation_fold_equals_full_rebuild_with_promotion() -> None:
 
         # Reference: full rebuild equality of both the view and the archive.
         folded_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
-        ok, full_view, _ = ma.consolidate_and_save_refined_annotations(force_consolidation=True)
+        ok, full_view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            force_consolidation=True
+        )
         assert ok
         full_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
         _assert_frames_equal(
@@ -356,11 +367,15 @@ def test_annotation_fold_view_matches_full_when_no_promotion() -> None:
     """Without a promoted version the folded view equals the full rebuild's."""
     with _isolated():
         _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1")
-        ma.consolidate_and_save_refined_annotations(incremental=True)
+        annotation_refinement.consolidate_and_save_refined_annotations(incremental=True)
         _save_refined("machine_annotations_b.parquet", ["i1", "i3"], "v2", story="Issue-Based")
-        ok, folded_view, _ = ma.consolidate_and_save_refined_annotations(incremental=True)
+        ok, folded_view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
         assert ok
-        ok, full_view, _ = ma.consolidate_and_save_refined_annotations(force_consolidation=True)
+        ok, full_view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            force_consolidation=True
+        )
         assert ok
         _assert_frames_equal(
             folded_view, full_view, ["source_platform", "item_id"], "annotation fold-vs-full view"

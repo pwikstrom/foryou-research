@@ -10,6 +10,7 @@ import pytest
 
 import fyp.annotation.machine_annotation_batch as batch
 import web_interface.workers.run_queue_annotator_batch as worker
+from fyp.annotation import annotation_refinement
 
 
 # --------------------------------------------------------------------------- #
@@ -188,7 +189,7 @@ def _refine_echo_ingested(monkeypatch, fake_batch, fail_ids=()):
             }
         )
 
-    monkeypatch.setattr(ma, "refine_one_raw_annotation_batch", _refine)
+    monkeypatch.setattr(annotation_refinement, "refine_one_raw_annotation_batch", _refine)
 
 
 # --------------------------------------------------------------------------- #

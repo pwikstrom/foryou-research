@@ -11,6 +11,7 @@ untouched.
 """
 
 import fyp.core.gemini_client as gemini_client
+from fyp.annotation import gemini_calls
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 from fyp.core.fyp_config import get_config
 
@@ -88,9 +89,7 @@ class GeminiBackend(AnnotationBackend):
         """Issue a ~1-token generation call; return a check row."""
         import google.genai
 
-        import fyp.annotation.machine_annotation as machine_annotation
-
-        machine_annotation.initialize_machine()
+        gemini_calls.initialize_machine()
         client = get_config()["machine"]["gemini"].get("client")
         if client is None:
             return {
@@ -144,9 +143,6 @@ class GeminiBackend(AnnotationBackend):
         # a gemini *variant* runs this from 50 pool threads, and a shim resolved
         # cold inside a pool thread can hand back the partially-initialized
         # module (see fyp/annotation/backends/__init__.py's module docstring).
-        from fyp.annotation import machine_annotation
 
         merged = {**self.overrides, **(gen_overrides or {})}
-        return machine_annotation.call_machine(
-            item_id, platform=platform, gen_overrides=merged or None
-        )
+        return gemini_calls.call_machine(item_id, platform=platform, gen_overrides=merged or None)

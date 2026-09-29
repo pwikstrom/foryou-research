@@ -35,7 +35,7 @@ import pandas as pd
 from fyp.core import fyp_config
 
 fyp_config.initialize()
-from fyp.annotation.machine_annotation import clean_up_machine_annotations
+from fyp.annotation.annotation_refinement import clean_up_machine_annotations
 from fyp.core.fyp_config import fyp_cf
 
 OTHER = fyp_cf["labels"]["OTHER_THINGS"]

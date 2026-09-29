@@ -6,6 +6,8 @@ full / merge / noop from the current fingerprints vs the meta's
 per-collection block. No storage involved.
 """
 
+import fyp.analysis.sessions.inputs as sessions_inputs
+import fyp.analysis.sessions.plan as sessions_plan
 from fyp.analysis import session_explorer as se
 
 WIDE = [["1969-12-29", "2100-01-04"]]  # wide defaults ±3d pad, end+1d
@@ -35,7 +37,7 @@ def _rec(windows, n_plays) -> dict:
 
 
 def test_coverage_pads_and_uses_end_of_day():
-    spec = se.compute_coverage_spec(
+    spec = sessions_inputs.compute_coverage_spec(
         {"S": {"SELECTED_COLLECTIONS": ["a"], "START_DATE": "2026-03-10", "END_DATE": "2026-03-20"}}
     )
     # start -3d; END means through end-of-day, so bound is +1d, then +3d pad.
@@ -43,7 +45,7 @@ def test_coverage_pads_and_uses_end_of_day():
 
 
 def test_coverage_merges_overlapping_study_windows():
-    spec = se.compute_coverage_spec(
+    spec = sessions_inputs.compute_coverage_spec(
         {
             "S1": {
                 "SELECTED_COLLECTIONS": ["a"],
@@ -62,7 +64,7 @@ def test_coverage_merges_overlapping_study_windows():
 
 
 def test_coverage_keeps_disjoint_windows_separate():
-    spec = se.compute_coverage_spec(
+    spec = sessions_inputs.compute_coverage_spec(
         {
             "S1": {
                 "SELECTED_COLLECTIONS": ["a"],
@@ -80,17 +82,17 @@ def test_coverage_keeps_disjoint_windows_separate():
 
 
 def test_coverage_absent_bounds_fall_back_wide():
-    spec = se.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
+    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
     assert spec == {"a": WIDE}
 
 
 def test_coverage_excludes_collections_in_no_study():
-    spec = se.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
+    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
     assert "b" not in spec
 
 
 def test_coverage_unparseable_bound_falls_back_wide():
-    spec = se.compute_coverage_spec(
+    spec = sessions_inputs.compute_coverage_spec(
         {"S": {"SELECTED_COLLECTIONS": ["a"], "START_DATE": "not-a-date"}}
     )
     assert spec["a"][0][0] == "1969-12-29"
@@ -111,7 +113,7 @@ def _plan(discovered, coverage, meta, **over):
         "annotations_fp": "afp1",
     }
     kwargs.update(over)
-    return se.compute_refresh_plan(discovered, coverage, meta, **kwargs)
+    return sessions_plan.compute_refresh_plan(discovered, coverage, meta, **kwargs)
 
 
 def test_missing_artifacts_forces_full():

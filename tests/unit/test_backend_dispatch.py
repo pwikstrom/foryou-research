@@ -5,6 +5,7 @@ import json
 import pytest
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import gemini_calls
 from fyp.annotation.backends import settings as backend_settings
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 
@@ -74,9 +75,11 @@ def test_call_machine_threads_dispatches_to_backend(stub_backend, monkeypatch):
     import fyp.core.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", _fake_save_json)
-    monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered", lambda: None)
+    monkeypatch.setattr(
+        gemini_calls.annotation_versioning, "ensure_active_version_registered", lambda: None
+    )
 
-    results, filename = ma.call_machine_threads(
+    results, filename = gemini_calls.call_machine_threads(
         interesting_videos=["11", "22"],
         verbose=False,
         platform_by_id={"11": "tiktok", "22": "instagram"},
@@ -109,7 +112,9 @@ def test_dry_run_makes_no_backend_calls(stub_backend, monkeypatch):
     import fyp.core.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", lambda **k: None)
-    monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered", lambda: None)
-    results, filename = ma.call_machine_threads(interesting_videos=["11"], dry_run=True)
+    monkeypatch.setattr(
+        gemini_calls.annotation_versioning, "ensure_active_version_registered", lambda: None
+    )
+    results, filename = gemini_calls.call_machine_threads(interesting_videos=["11"], dry_run=True)
     assert stub_backend.calls == []
     assert filename is None

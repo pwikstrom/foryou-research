@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import _normalize_cell, load_fixture
 
 import fyp.annotation.machine_annotation as ma
+from fyp.annotation import response_parsing
 from fyp.annotation.annotation_schema import (
     FIELD_SPECS,
     build_response_schema,
@@ -130,10 +131,10 @@ def test_structured_flatten_matches_legacy_on_real_data() -> None:
         resp_text = entry.get("response")
         if not resp_text:
             continue
-        nested = ma.fuzzy_load_of_json_from_string(resp_text)
+        nested = response_parsing.fuzzy_load_of_json_from_string(resp_text)
         if not isinstance(nested, dict):
             continue
-        legacy = ma.flatten_one_machine_response(deepcopy(nested))
+        legacy = response_parsing.flatten_one_machine_response(deepcopy(nested))
         if not isinstance(legacy, dict):
             continue  # legacy rejects this response (missing required keys)
         structured = flatten_structured(_to_structured_shape(nested))
