@@ -15,11 +15,16 @@ from web_interface.tasks.task_status import TaskStatusReporter
 
 # Safety validation: reject batch sizes that risk timing out.
 # Each video ~60-90s via Gemini with 50 concurrent workers.
-# Formula: batch_size * 90 / 50 * 1.5 safety margin.  Must fit in 3600s.
-MAX_BATCH_SIZE = 2000
+# Formula: batch_size * 90 / 50 * 1.5 safety margin, which must fit in the
+# Cloud Tasks dispatch deadline (1800 s), so at most 666 videos per batch.
 _SECONDS_PER_VIDEO = 90
 _WORKERS = 50
 _SAFETY_MARGIN = 1.5
+MAX_BATCH_SIZE = int(
+    worker_registry.CLOUD_TASKS_MAX_DISPATCH_DEADLINE
+    * _WORKERS
+    / (_SECONDS_PER_VIDEO * _SAFETY_MARGIN)
+)
 # Local backend: sequential, ~30-60s/item (pilot: ~30s) + one-time model load.
 _LOCAL_SECONDS_PER_VIDEO = 60
 _LOCAL_MODEL_LOAD_SECONDS = 120
@@ -112,7 +117,8 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         est = _estimate_seconds(batch_size)
         raise ValueError(
             f"batch_size {batch_size} rejected: estimated {est:.0f}s exceeds "
-            f"the 3600s Cloud Tasks timeout. Maximum is {MAX_BATCH_SIZE}."
+            f"the {worker_registry.CLOUD_TASKS_MAX_DISPATCH_DEADLINE}s Cloud Tasks deadline. "
+            f"Maximum is {MAX_BATCH_SIZE}."
         )
 
     # ---- Load the annotation queue ----
