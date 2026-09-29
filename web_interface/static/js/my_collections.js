@@ -4,7 +4,7 @@
 //
 // window.mycRenderPersonality(containerEl, bundle, opts) renders one personality
 // bundle into any container (chart ids are scoped per render), so the Edit
-// Collections modal in data_management.js reuses the exact same view — it passes
+// Collections modal (js/data_management/edit_collections.js) reuses the exact same view — it passes
 // {voice: 'neutral'} for admin-facing copy.
 (function () {
     'use strict';
@@ -402,7 +402,7 @@
     }
 
     // Public: render one personality bundle into any container. Used by this
-    // page and by the Edit Collections modal (data_management.js).
+    // page and by the Edit Collections modal (js/data_management/edit_collections.js).
     //
     // opts.voice picks the copy register. The default addresses the donor whose
     // data this is ("your golden hour", "no judgement") — the whole point of the

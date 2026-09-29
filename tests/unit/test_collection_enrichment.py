@@ -1840,13 +1840,14 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     assert "dmDisplayIdCommit" in (disp.get("onblur") or "")
     assert "Enter" in (disp.get("onkeydown") or "")
 
-    js = (
-        Path(__file__).resolve().parents[2]
-        / "web_interface"
-        / "static"
-        / "js"
-        / "data_management.js"
-    ).read_text()
+    js = "".join(
+        p.read_text()
+        for p in sorted(
+            (Path(__file__).resolve().parents[2] / "web_interface" / "static" / "js").glob(
+                "data_management/*.js"
+            )
+        )
+    )
     for fn in (
         "function dmDisplayIdInput",
         "function dmDisplayIdCommit",

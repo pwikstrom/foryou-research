@@ -318,6 +318,7 @@
     window.PIPELINE_REGISTRY = {{ pipeline_registry | tojson }};
 </script>
 <script src="{{ asset_url('main.js') }}"></script>
+<script src="{{ asset_url('js/worker_control.js') }}"></script>
 <script src="{{ asset_url('js/variable_prefs.js') }}"></script>
 <script src="{{ asset_url('study_state.js') }}"></script>
 <script src="{{ asset_url('filter_value_search.js') }}"></script>
@@ -345,6 +346,9 @@
    actually see, so any role may take it. #}
 <script src="{{ asset_url('js/hub_tour.js') }}"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ asset_url('js/data_management.js') }}"></script>
+{# The Data Pipeline scripts share one global scope; this order is their load order. #}
+{% for dm_script in ['core', 'studies', 'enrichment', 'ingestion', 'edit_collections', 'auto_enrichment', 'collection_actions'] %}
+<script src="{{ asset_url('js/data_management/' ~ dm_script ~ '.js') }}"></script>
+{% endfor %}
 {% endif %}
 {% endblock %}

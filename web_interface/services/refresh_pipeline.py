@@ -12,7 +12,8 @@ Three things live here:
   what. It replaced four literals that had to be kept in sync by comment
   (``_PIPELINE_STEPS_ORDER``, ``PIPELINE_STEPS_ORDER``, ``_FORK_PARENT`` /
   ``_FORK_LEAF_TASKS`` and the video-map worker's own downstream list), plus the
-  mirror in ``data_management.js`` which now reads ``window.PIPELINE_REGISTRY``.
+  mirror in ``js/data_management/enrichment.js`` which now reads
+  ``window.PIPELINE_REGISTRY``.
 * **The run record** — ``process_stats["refresh_pipeline"]``, its own top-level
   key so it never collides with the per-step entries the task runner writes.
 * **The planner** — :func:`plan_run` computes a run's shape from its origin;

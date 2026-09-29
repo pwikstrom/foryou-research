@@ -426,7 +426,7 @@ def test_list_studies_keeps_presentation_keys_off_the_shared_defs(participant_de
         assert res.status_code == 200
         payload = res.get_json()
 
-    # The payload still carries both keys — data_management.js renders them.
+    # The payload still carries both keys — js/data_management/studies.js renders them.
     by_name = {s["STUDY_NAME"]: s for s in payload}
     assert set(by_name) == set(defs)
     assert by_name[f"__me__{_OWNER}"]["DISPLAY_LABEL"] == f"Just Me — {_OWNER}"

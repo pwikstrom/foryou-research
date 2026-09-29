@@ -1,5 +1,5 @@
 // Client-side donation-zip slimming, shared by the admin ingestion modal
-// (data_management.js) and the participant upload on My Collections
+// (js/data_management/ingestion.js) and the participant upload on My Collections
 // (my_collections.js). Rebuilds a donation zip with only the members the
 // server ingester needs — this is what keeps a multi-GB platform export
 // under Cloud Run's 32 MiB request cap.

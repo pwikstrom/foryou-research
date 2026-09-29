@@ -267,7 +267,7 @@ donation-export parsing and pruning — hard invariant: it makes **no**
 network requests, and the pruned file is rebuilt from kept rows only),
 `hub_tour.js` (the guided tour), `admin_ops_report.js` (Admin → System ops
 report pane), and `my_collections.js`, which exports
-`window.mycRenderPersonality()`; `data_management.js` reuses it in the Edit
+`window.mycRenderPersonality()`; `js/data_management/edit_collections.js` reuses it in the Edit
 Collections modal so the participant and admin persona views cannot drift.
 
 Styling is entirely token-driven (`static/style.css`): semantic CSS custom
@@ -353,8 +353,8 @@ chain rather than a run and stays out of the chart.
 The edit-study modal's footer groups Delete | Rename | Duplicate: delete and
 rename have their own endpoints (`POST /api/manage/studies/delete` /
 `.../rename` — rename moves the study's cached artifacts in place, no
-rebuild), while duplicate is client-side (`data_management.js
-duplicateStudy()` saves a copy under a suggested unique name). The study date
+rebuild), while duplicate is client-side (`js/data_management/studies.js`
+`duplicateStudy()` saves a copy under a suggested unique name). The study date
 window has per-end controls — date inputs, −/+ day steppers, and draggable
 chart edge handles over the daily-activities chart (`POST
 /api/manage/studies/daily_activities` serves the full-span series so the user
@@ -389,8 +389,16 @@ newly invited users, which also links into the public `/thehub` page
   `services/`, and the former inline template scripts in `static/js/`
   (`admin_tab.js`, `my_stuff_tab.js`, ...). Add new admin functionality in
   those locations.
-- Still-deferred frontend work: decomposing `static/js/data_management.js`
-  (by far the largest script), removing inline `onclick=` handlers, and
-  hex-color/token cleanup. The inline handlers pin functions to `window`, so
+- The Data Pipeline script is split by feature under
+  `static/js/data_management/` (core, studies, enrichment, ingestion,
+  edit_collections, auto_enrichment, collection_actions). The files share one
+  global scope and load in the order `templates/index.html` lists them, for
+  every user who gets any of them: a top-level statement may only call
+  functions from its own or an earlier file. The worker cards, status poll and
+  log modal are `static/js/worker_control.js`, loaded right after `main.js`.
+- Still-deferred frontend work: loading only the study files for
+  My-Studies-only users (the study code still reaches edit-collection and
+  auto-enrichment functions behind runtime guards), removing inline
+  `onclick=` handlers, and hex-color/token cleanup. The inline handlers pin functions to `window`, so
   a handler's function cannot be moved into a module scope or renamed
   without updating every template that calls it.

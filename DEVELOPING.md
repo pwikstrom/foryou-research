@@ -422,7 +422,7 @@ foryou-research/
 │   │   ├── partials/            # Shared partials (consent statement, per-platform how-to)
 │   │   └── tabs/                # Tab content templates (+ admin/ and dm/ partial subdirectories)
 │   └── static/                  # JS + CSS, no bundler
-│       ├── main.js              # Tab navigation controller + process-card status polling
+│       ├── main.js              # Tab navigation, CSRF fetch wrapper, theme, app dialogs
 │       ├── video_analysis.js    # Video Analysis tab
 │       ├── explore.js           # Data explorer tab
 │       ├── correlations.js      # Correlations tab
@@ -434,7 +434,8 @@ foryou-research/
 │       ├── style.css            # Main stylesheet (the token system)
 │       └── js/
 │           ├── core/dom_utils.js     # DOM helpers shared by every app script (loaded first)
-│           ├── data_management.js    # Data Pipeline tab
+│           ├── data_management/      # Data Pipeline tab, one file per feature (load order: templates/index.html)
+│           ├── worker_control.js     # Worker cards, the status poll, the log modal
 │           ├── variable_prefs.js     # Per-user "Customize variables" panels
 │           ├── admin_var_schema.js   # Variable Visibility viewer (only the prio checkboxes save)
 │           ├── admin_tab.js / my_stuff_tab.js  # Former inline template scripts
