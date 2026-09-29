@@ -11,7 +11,7 @@ import pandas as pd
 from fyp.core.structure_sentinel import StructureSentinel, findings_digest
 from fyp.core.utils import VIDEO_VIEW_TYPES
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
-from fyp.ingest.base import BLOCKED_OUTCOME
+from fyp.ingest.ingestion_ledger import BLOCKED_OUTCOME
 from web_interface.tasks.task_status import TaskStatusReporter
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.

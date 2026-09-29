@@ -5,12 +5,10 @@ rows (timezone inference, session ids, play durations, engagement tokens), the
 concrete multi-platform collection, and the ingestion ledger and approval flow.
 """
 
-import copy
 import functools
 import os
-import re
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -32,14 +30,31 @@ from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import label
 from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.utils import (
-    ACTIVITY_TYPE_MAP,
     KNOWN_ACTIVITY_TYPES,
-    RECEIVED_ACTIVITY_TYPES,
     share_method_base,
 )
-from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
 from fyp.scrape import scrape_contract as _scrape_contract
 from fyp.scrape import scrape_versioning as _scrape_versioning
+
+from . import ingestion_ledger, transforms
+
+# Moved to .transforms and .ingestion_ledger; re-exported for callers of this
+# module's old surface.
+from .ingestion_ledger import (  # noqa: F401
+    BLOCKED_OUTCOME,
+    INGESTION_LEDGER_FILENAME,
+    LEDGER_SKIP_OUTCOMES,
+    LEGACY_DISCARDED_FILENAME,
+    LEGACY_MIGRATION_NOTE,
+)
+from .transforms import (  # noqa: F401
+    MANIFEST_TZ_COLUMN,
+    WEEKDAY_MAPPER,
+    assign_session_ids,
+    derive_play_duration,
+    parse_donor_timezone,
+    zone_offset_hours,
+)
 
 logger = get_logger(__name__)
 
@@ -49,16 +64,6 @@ def _collections_label() -> str:
     return label("COLLECTIONS_LABEL")
 
 
-WEEKDAY_MAPPER = {
-    1: "monday",
-    2: "tuesday",
-    3: "wednesday",
-    4: "thursday",
-    5: "friday",
-    6: "saturday",
-    7: "sunday",
-}
-
 # Maps a collection's standard donated-metadata scratch columns to the canonical
 # scrape base fields (config/scrape_contract.toml) written by save_enrichment_seed.
 _SEED_TO_CANONICAL = {
@@ -67,69 +72,6 @@ _SEED_TO_CANONICAL = {
     "seed_author_name": "author_name",
     "seed_create_time": "create_time",
 }
-
-# Scratch column carrying the per-file donor timezone from the ingestion manifest
-# (an IANA name like "Asia/Kolkata" or a fixed "+05:30" offset). Stamped in
-# load_raw, consumed by the timezone resolvers, dropped by process()'s filter.
-MANIFEST_TZ_COLUMN = "manifest_tz"
-
-_FIXED_OFFSET_RE = re.compile(r"^([+-])(\d{1,2})(?::?(\d{2}))?$")
-
-
-def parse_donor_timezone(tz_str: str | None):
-    """Parse a manifest timezone string to a ``tzinfo``, or ``None`` if unusable.
-
-    Accepts an IANA zone name (``"Australia/Brisbane"``, ``"Asia/Kolkata"`` —
-    preferred, since it carries DST history) or a fixed UTC offset
-    (``"+05:30"``, ``"-8"``, ``"+1000"``).
-
-    Args:
-        tz_str: The manifest timezone value.
-
-    Returns:
-        A ``ZoneInfo`` or fixed-offset ``timezone``, or ``None`` when the value
-        is empty or not a recognisable timezone.
-    """
-    if not tz_str or not isinstance(tz_str, str):
-        return None
-    tz_str = tz_str.strip()
-    try:
-        return ZoneInfo(tz_str)
-    except (ZoneInfoNotFoundError, ValueError):
-        pass
-    match = _FIXED_OFFSET_RE.match(tz_str)
-    if match:
-        sign = -1 if match.group(1) == "-" else 1
-        hours = int(match.group(2))
-        minutes = int(match.group(3) or 0)
-        return timezone(sign * timedelta(hours=hours, minutes=minutes))
-    return None
-
-
-def zone_offset_hours(utc_timestamps: pd.Series, tz) -> pd.Series:
-    """Return the per-row UTC offset in hours of ``tz`` at each UTC instant.
-
-    Vectorised and DST-correct: converts the tz-aware UTC series into ``tz`` and
-    measures the wall-clock difference. ``NaT`` rows stay ``NaN``.
-    """
-    converted = utc_timestamps.dt.tz_convert(tz)
-    return (converted.dt.tz_localize(None) - utc_timestamps.dt.tz_localize(None)) / pd.Timedelta(
-        hours=1
-    )
-
-
-def _first_manifest_tz(df: pd.DataFrame):
-    """Return the parsed manifest timezone for a per-file frame, or ``None``.
-
-    A frame handled by ``process_single`` holds one raw file's rows, so the
-    manifest timezone is constant; the first non-null value is taken.
-    """
-    if MANIFEST_TZ_COLUMN not in df.columns:
-        return None
-    values = df[MANIFEST_TZ_COLUMN].dropna()
-    if len(values) == 0:
-        return None
-    return parse_donor_timezone(str(values.iloc[0]))
 
 
 # The activity schema is owned by config/activity_contract.toml (the REQUIRED_COLUMNS /
@@ -163,55 +105,8 @@ except Exception:
     ]
 
 
-def _day_segment_from_hour(hour: int) -> str:
-    if not (0 <= hour <= 23):
-        raise ValueError(f"hour must be in 0..23, got {hour}")
-    if hour <= 5:
-        return "night"
-    if hour <= 11:
-        return "morning"
-    if hour <= 17:
-        return "afternoon"
-    return "evening"
-
-
 COLLECTION_TAGS_FILENAME = "collections_tags.json"
 STUDIES_FILENAME = "studies.json"
-
-
-# Per-file ingestion ledger. Records the outcome of every raw_file ever scanned
-# so that the next ingest run can skip files that have a "do not re-include"
-# outcome without rescanning, loading, processing, and re-deduping them.
-INGESTION_LEDGER_FILENAME = "ingestion_ledger.json"
-
-# Legacy flat list of "discarded" filenames. Read once on first load to seed
-# the ledger, then ignored. Not deleted from disk. It is a bare list of names
-# with no counts, timestamps, provenance or reason, so its entries get their
-# own outcome rather than being reported as something the ledger never recorded.
-LEGACY_DISCARDED_FILENAME = "discarded_collection_files.json"
-
-# Marks a ledger entry seeded from LEGACY_DISCARDED_FILENAME. Ledgers written
-# before ``skipped_legacy`` existed stamped those entries ``discarded_at_load``
-# with a fabricated 0-row count; this note is what identifies them for the
-# in-place upgrade in _load_ledger.
-LEGACY_MIGRATION_NOTE = "migrated from legacy discarded_collection_files.json"
-
-# Outcomes whose files must NOT be reloaded on the next ingest. Stored on the
-# ledger entry. Membership in this set is the single source of truth for the
-# "skip next run" filter used by load_raw.
-LEDGER_SKIP_OUTCOMES: set[str] = {
-    "fully_deduped",
-    "discarded_at_load",
-    "manually_excluded",
-    "quarantined_structure",
-    "skipped_legacy",
-}
-
-# A pending manifest entry whose stored name is already in the skip set
-# (load_raw's tripwire). Reported in the run result; never written to the
-# ledger under that name (it belongs to the older file) and never pruned
-# from the manifest.
-BLOCKED_OUTCOME = "blocked_name_collision"
 
 
 def apply_cid_remap_to_metadata(
@@ -361,263 +256,6 @@ def apply_cid_remap_to_metadata(
         )
 
     return summary
-
-
-def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> pd.DataFrame:
-    """Assign a persistent, globally-unique ``session_id`` to every activity.
-
-    A *session* (a "phone sitting") is a maximal run of one collection's
-    activities separated by gaps no larger than ``gap_threshold_s``. Every
-    row of the donor's own activity gets the id of the sitting it belongs
-    to, formatted as ``"{collection_id}__{n}"`` so ids are unique across
-    collections. Rows of ``RECEIVED_ACTIVITY_TYPES`` (another account
-    following the donor) are not the donor's activity: they neither open,
-    extend nor join sittings, and their ``session_id`` is null. A replay of
-    the TikTok corpus found them joining 156 otherwise separate sittings.
-
-    Sessions are assigned to every donor row, viewing or not, so a login or
-    a like from before the watch history begins forms a session of its
-    own; counts of sessions belong on viewing rows.
-
-    This is deliberately distinct from the transient, per-raw-file 180s grouping
-    used inside ``TikTokDDPCollection.process_single`` for comment item_id
-    backfill — that one is dropped immediately and never persisted. This
-    session_id is computed on the full per-collection sequence (after migration,
-    before any study sampling) and is meant to be used anywhere downstream.
-
-    Args:
-        df: Activity dataframe with ``collection_id`` and ``utc_timestamp``.
-        gap_threshold_s: Maximum within-sitting gap in seconds. ``None`` reads
-            ``[sessions] session_gap_s`` from the config (default 900 = 15 min).
-
-    Returns:
-        The same dataframe with a ``session_id`` column added; original row
-        order is preserved.
-    """
-    if gap_threshold_s is None:
-        gap_threshold_s = int(_cf().get("sessions", {}).get("session_gap_s", 900))
-    if df.empty:
-        df["session_id"] = pd.Series(dtype="string[pyarrow]")
-        return df
-
-    if "activity_type" in df.columns:
-        received = df["activity_type"].astype("string").isin(RECEIVED_ACTIVITY_TYPES).fillna(False)
-        donor = df[~received.to_numpy()]
-    else:
-        donor = df
-    order = donor.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").index
-    ordered = donor.loc[order]
-    gap = ordered.groupby("collection_id")["utc_timestamp"].diff().dt.total_seconds()
-    session_break = gap.isna() | (gap > gap_threshold_s)
-    session_num = session_break.groupby(ordered["collection_id"]).cumsum().astype("int64")
-    session_id = ordered["collection_id"].astype(str) + "__" + session_num.astype(str)
-
-    df["session_id"] = session_id.reindex(df.index)
-    df["session_id"] = df["session_id"].convert_dtypes(dtype_backend="pyarrow")
-    return df
-
-
-def _engagement_token(atype: str, edata) -> str:
-    """Build one folded ``extra_data`` token: ``"<atype>"`` or ``"<atype>:context"``."""
-    if edata is not pd.NA and pd.notna(edata):
-        edata_clean = re.sub(r"[\s,]+", " ", str(edata)).strip()
-        if edata_clean:
-            return f"{atype}:{edata_clean}"
-    return str(atype)
-
-
-def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFrame:
-    """Derive per-play dwell time from forward time-deltas between activities.
-
-    ``play_duration`` is assigned only to ``play`` activities: the time elapsed
-    until the *next* recorded event serves as a proxy for how long the user
-    spent on the item. When a play is directly followed by other activities on
-    the same ``item_id`` (e.g. a fave or comment on the same video), those
-    deltas represent time spent on the same item and are attributed to the
-    first play in the run; the non-lead activity types are folded into the lead
-    play's ``extra_data``. Non-play activities always get NA, as does the last
-    activity of the frame (no forward delta) and anything above ``cap_seconds``.
-
-    Engagement activities (fave/comment/share/follow/save) that are *not*
-    chronologically adjacent to a play of the same item still get linked: their
-    token is folded into the nearest-in-time play row with the same ``item_id``
-    anywhere in the frame. This matters on platforms whose exports log a view
-    only once per item (e.g. Instagram's ``videos_watched``), so a later like
-    of that item can be days away from its logged play. Only ``extra_data`` is
-    affected — ``play_duration`` stays a strictly adjacency-based measure.
-
-    Engagement from before the frame's first play is left unlinked by the
-    fallback. An export's like and bookmark lists reach years further back
-    than its watch history, so the viewing such an engagement belongs to is
-    not in the data, and its nearest play of the same item is a later
-    re-watch: in a replay of the TikTok corpus, 1,946 of the 2,004 bookmarks
-    whose nearest play lay a day or more away were of this kind.
-
-    Every play that received a folded token says how: ``link_method`` is
-    ``"adjacent"``, ``"nearest_play"``, or ``"adjacent,nearest_play"`` when
-    both folds contributed. Plays with no engagement keep the column null, and
-    a value a platform parser wrote earlier (TikTok's ``"ffill_180s"`` on a
-    comment row) is preserved. The inference is documented in the activity
-    contract; this column is what lets an analysis exclude inferred links.
-
-    Args:
-        df: A single-donor activity frame in chronological order with
-            ``utc_timestamp``, ``activity_type`` and ``item_id`` columns
-            (every platform's ``process_single`` frame qualifies).
-        cap_seconds: Durations above this are considered idle time → NA.
-
-    Returns:
-        The same frame with a ``play_duration`` [int64[pyarrow]] column added.
-    """
-    df = df.reset_index(drop=True)
-    if "extra_data" not in df.columns:
-        df["extra_data"] = pd.NA
-    elif isinstance(df["extra_data"].dtype, pd.ArrowDtype) and df["extra_data"].isna().all():
-        # An all-NA pyarrow column may carry the null type, which rejects the
-        # string tokens the folds below write into it.
-        df["extra_data"] = df["extra_data"].astype("string[pyarrow]")
-
-    if "link_method" not in df.columns:
-        df["link_method"] = pd.array([pd.NA] * len(df), dtype="string[pyarrow]")
-    elif isinstance(df["link_method"].dtype, pd.ArrowDtype) and df["link_method"].isna().all():
-        df["link_method"] = df["link_method"].astype("string[pyarrow]")
-
-    if df.empty:
-        df["play_duration"] = pd.Series([], dtype="int64[pyarrow]")
-        return df
-
-    # Which fold(s) put a token on each lead play; written to link_method at the end.
-    link_methods: dict[int, list[str]] = {}
-
-    # 1. Forward delta on the full frame: for each row, the time until the *next*
-    # event. This is the correct attribution of dwell time to an activity.
-    delta = df["utc_timestamp"].diff().dt.total_seconds()
-    forward_delta = delta.shift(-1)
-
-    # Default assignment: play activities get forward_delta, everything else gets NA.
-    df["play_duration"] = forward_delta.where(df["activity_type"] == "play")
-
-    # 2. Detect consecutive same-item_id runs of length > 1. A row is a non-first member
-    # of a run when its item_id equals the previous row's item_id (and item_id is not null).
-    # Such runs are vanishingly rare (~1/10,000 activities are non-play), so we iterate.
-    is_continuation = df["item_id"].notna() & (df["item_id"] == df["item_id"].shift(1))
-
-    # Non-lead rows whose token was folded into an adjacent lead play. Rows in
-    # here are excluded from the same-item fallback fold below.
-    folded_rows: set[int] = set()
-
-    if is_continuation.any():
-        # Walk each continuation backward to find the full run, then aggregate.
-        continuation_idxs = df.index[is_continuation].tolist()
-        visited: set[int] = set()
-        for idx in continuation_idxs:
-            if idx in visited:
-                continue
-            # Find the start of this run by walking back
-            run_item = df.at[idx, "item_id"]
-            run_start = idx
-            while (
-                run_start - 1 in df.index
-                and pd.notna(df.at[run_start - 1, "item_id"])
-                and df.at[run_start - 1, "item_id"] == run_item
-            ):
-                run_start -= 1
-            # Find the end of the run by walking forward
-            run_end = idx
-            while (
-                run_end + 1 in df.index
-                and pd.notna(df.at[run_end + 1, "item_id"])
-                and df.at[run_end + 1, "item_id"] == run_item
-            ):
-                run_end += 1
-            run_slice = list(range(run_start, run_end + 1))
-            visited.update(run_slice)
-
-            # Find the first play activity in the run
-            play_rows = [
-                i
-                for i in run_slice
-                if df.at[i, "activity_type"] is not pd.NA and df.at[i, "activity_type"] == "play"
-            ]
-            if not play_rows:
-                df.loc[run_slice, "play_duration"] = pd.NA
-                continue
-
-            # Sum forward_delta across all rows in the run using the full-df precomputed
-            # series, so the last row's contribution (gap to the row after the run) is
-            # correctly included — slicing before shifting would lose it.
-            first_play = play_rows[0]
-            total_delta = forward_delta.loc[run_slice].sum()
-            df.loc[run_slice, "play_duration"] = pd.NA
-            df.at[first_play, "play_duration"] = total_delta
-
-            # Record the activity types of the non-lead rows in the run on the lead play's
-            # extra_data column, as a comma-separated string (e.g. "fave" or "fave,comment").
-            other_parts = []
-            for i in run_slice:
-                if i == first_play:
-                    continue
-                atype = df.at[i, "activity_type"]
-                if atype is pd.NA:
-                    continue
-                other_parts.append(_engagement_token(atype, df.at[i, "extra_data"]))
-                folded_rows.add(i)
-            if other_parts:
-                df.at[first_play, "extra_data"] = ",".join(other_parts)
-                link_methods.setdefault(first_play, []).append("adjacent")
-
-    # 3. Same-item fallback fold: engagement rows that did not fold via
-    # adjacency but whose item was played somewhere in the frame get their
-    # token appended to the nearest-in-time play of that item.
-    is_engagement = df["activity_type"].isin(list(ACTIVITY_TYPE_MAP.keys()))
-    is_play = df["activity_type"] == "play"
-    first_play_ts = df.loc[is_play.fillna(False), "utc_timestamp"].min() if is_play.any() else None
-    in_window = (
-        (df["utc_timestamp"] >= first_play_ts).fillna(False)
-        if first_play_ts is not None
-        else pd.Series(False, index=df.index)
-    )
-    pending = df.index[
-        is_engagement & df["item_id"].notna() & in_window & ~df.index.isin(list(folded_rows))
-    ]
-    if len(pending) > 0:
-        plays = df.loc[is_play & df["item_id"].notna(), "item_id"]
-        play_rows_by_item = {k: list(v) for k, v in plays.groupby(plays).groups.items()}
-        for i in pending:
-            candidates = play_rows_by_item.get(df.at[i, "item_id"], [])
-            if not candidates:
-                continue
-            ts = df.at[i, "utc_timestamp"]
-            target = min(candidates, key=lambda p: abs(df.at[p, "utc_timestamp"] - ts))
-            token = _engagement_token(df.at[i, "activity_type"], df.at[i, "extra_data"])
-            existing = df.at[target, "extra_data"]
-            if existing is not pd.NA and pd.notna(existing):
-                df.at[target, "extra_data"] = f"{existing},{token}"
-            else:
-                df.at[target, "extra_data"] = token
-            methods = link_methods.setdefault(target, [])
-            if "nearest_play" not in methods:
-                methods.append("nearest_play")
-
-    # 4. Record on each lead play which fold(s) linked engagement to it. A
-    # value the platform parser wrote before the fold (TikTok's ffill_180s on
-    # comment rows) sits on non-play rows and is left untouched.
-    for idx, methods in link_methods.items():
-        existing = df.at[idx, "link_method"]
-        parts = [] if existing is pd.NA or pd.isna(existing) else str(existing).split(",")
-        for m in methods:
-            if m not in parts:
-                parts.append(m)
-        df.at[idx, "link_method"] = ",".join(parts)
-
-    # 5. Cap play_duration at cap_seconds and cast to the project dtype.
-    df["play_duration"] = (
-        df["play_duration"]
-        .map(lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA)
-        .astype("int64[pyarrow]")
-    )
-
-    return df
 
 
 class ForYouBaseCollection(ABC):
@@ -827,9 +465,9 @@ class ForYouBaseCollection(ABC):
         """
         df = df[df["utc_timestamp"].notna()].copy()
         if len(df) > 0:
-            tz = _first_manifest_tz(df)
+            tz = transforms._first_manifest_tz(df)
             if tz is not None:
-                df["tz_offset"] = zone_offset_hours(df["utc_timestamp"], tz)
+                df["tz_offset"] = transforms.zone_offset_hours(df["utc_timestamp"], tz)
             else:
                 df["tz_offset"] = infer_timezone_offset(df["utc_timestamp"])
         df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
@@ -1049,7 +687,7 @@ class ForYouBaseCollection(ABC):
 
                 # Per-file donor timezone for the offset resolver (scratch column,
                 # dropped by process()'s filter before _standardize()).
-                one_df[MANIFEST_TZ_COLUMN] = (
+                one_df[transforms.MANIFEST_TZ_COLUMN] = (
                     self._current_file_tz if self._current_file_tz else pd.NA
                 )
 
@@ -1648,7 +1286,7 @@ class ForYouBaseCollection(ABC):
         ts = df["local_timestamp"]
 
         iso = ts.dt.isocalendar()  # DataFrame: year, week, day
-        iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
+        iso["day"] = iso["day"].map(transforms.WEEKDAY_MAPPER)
         iso["year_week"] = iso["year"].astype(str) + "-" + iso["week"].astype(str)
 
         # Assign as plain lists, then convert explicitly, so these columns end up
@@ -1663,7 +1301,7 @@ class ForYouBaseCollection(ABC):
         # used to derive the day segment.
         df["local_hour"] = local_hour
 
-        df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(
+        df["local_day_segment"] = local_hour.map(transforms._day_segment_from_hour).convert_dtypes(
             dtype_backend="pyarrow"
         )
 
@@ -1678,7 +1316,7 @@ class ForYouBaseCollection(ABC):
         ``self.data`` (a sitting may span multiple raw files). Persisted by
         ``save_processed`` alongside the local-time features.
         """
-        self.data = assign_session_ids(self.data, gap_threshold_s=gap_threshold_s)
+        self.data = transforms.assign_session_ids(self.data, gap_threshold_s=gap_threshold_s)
 
     def _standardize(self):
         """
@@ -1766,367 +1404,15 @@ class ForYouBaseCollection(ABC):
         self.data = df.copy()
 
 
-class ForYouCollection(ForYouBaseCollection):
+class ForYouCollection(ingestion_ledger.IngestionLedgerMixin, ForYouBaseCollection):
     def __init__(self, collection_id: str = None, verbose: bool = False):
         super().__init__(collection_id, verbose)
         self.source_platform = "all"
         self.data_source = "foryou"
         self.collections = []
-        self.ledger_filename = INGESTION_LEDGER_FILENAME
+        self.ledger_filename = ingestion_ledger.INGESTION_LEDGER_FILENAME
         self.ledger: dict = {"schema_version": 1, "files": {}}
         self._load_ledger()
-
-    def _load_ledger(self) -> None:
-        """Load the per-file ingestion ledger from disk. If absent, fall back
-        to seeding from the legacy flat ``discarded_collection_files.json``
-        (every entry becomes ``skipped_legacy``). The ``discarded_raw_files``
-        attribute is rebuilt as a derived view over the ledger so the rest of
-        the pipeline (which still reads the flat list) continues to work.
-
-        Ledgers seeded before ``skipped_legacy`` existed are upgraded in place:
-        those entries claimed ``discarded_at_load`` ("too few rows") with a
-        0-row count, none of which the legacy file actually recorded. The
-        rewrite is in memory and reaches disk on the next ``save_ledger``.
-        """
-        ledger = None
-        if data_io.exists(
-            storage_location=self.processed_storage_location,
-            filename=self.ledger_filename,
-        ):
-            ledger = data_io.load_json(
-                storage_location=self.processed_storage_location,
-                filename=self.ledger_filename,
-                verbose=False,
-            )
-
-        if not isinstance(ledger, dict) or "files" not in ledger:
-            legacy_list: list = []
-            if data_io.exists(
-                storage_location=self.processed_storage_location,
-                filename=LEGACY_DISCARDED_FILENAME,
-            ):
-                loaded = data_io.load_json(
-                    storage_location=self.processed_storage_location,
-                    filename=LEGACY_DISCARDED_FILENAME,
-                    verbose=False,
-                )
-                if isinstance(loaded, list):
-                    legacy_list = loaded
-            files = {
-                fn: {
-                    "outcome": "skipped_legacy",
-                    # None, not 0: the legacy file recorded no counts at all,
-                    # and a zero here reads as "we read the file and found
-                    # nothing in it".
-                    "raw_rows": None,
-                    "kept_rows": None,
-                    "collection_id": None,
-                    "merged_with_siblings": [],
-                    "platform": None,
-                    "source": None,
-                    "ts_first_seen": None,
-                    "ts_last_seen": None,
-                    "notes": LEGACY_MIGRATION_NOTE,
-                }
-                for fn in legacy_list
-            }
-            ledger = {"schema_version": 1, "files": files}
-
-        self.ledger = ledger
-        # What storage held when we loaded: save_ledger writes back only what
-        # THIS process changed since, so two processes editing the ledger at
-        # once (an ingest run and the hub's review buttons) don't erase each
-        # other's writes.
-        self._ledger_snapshot = copy.deepcopy(ledger.get("files") or {})
-        self._upgrade_legacy_ledger_entries()
-        self._refresh_discarded_from_ledger()
-
-    def _upgrade_legacy_ledger_entries(self) -> None:
-        """Re-stamp entries an older migration mislabelled ``discarded_at_load``.
-
-        They came from the legacy flat list, which carried no reason and no
-        counts — so "Skipped — too few rows / 0 rows read" was a claim the data
-        never supported. Matched on the migration note, which is the only thing
-        that distinguishes them from a real too-few-rows discard. Skip
-        behaviour is unchanged: both outcomes are in LEDGER_SKIP_OUTCOMES.
-        """
-        for entry in (self.ledger.get("files") or {}).values():
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("notes") != LEGACY_MIGRATION_NOTE:
-                continue
-            if entry.get("outcome") != "discarded_at_load":
-                continue
-            entry["outcome"] = "skipped_legacy"
-            entry["raw_rows"] = None
-            entry["kept_rows"] = None
-
-    def _refresh_discarded_from_ledger(self) -> None:
-        """Rebuild ``self.discarded_raw_files`` from the ledger, preserving any
-        filenames already in the list (e.g. too-few-rows entries a sub-collection
-        appended during this run that haven't been written into the ledger
-        yet). Mutates in place so sub-collections that share this list via
-        ``register_collection_class`` see the update.
-        """
-        files = self.ledger.get("files", {})
-        ledger_skips = [
-            fn for fn, meta in files.items() if (meta or {}).get("outcome") in LEDGER_SKIP_OUTCOMES
-        ]
-        merged = list(dict.fromkeys(ledger_skips + list(self.discarded_raw_files)))
-        self.discarded_raw_files[:] = merged
-
-    def update_ledger(self, per_file_summary: list[dict]) -> None:
-        """Update the in-memory ledger with the outcomes from a freshly
-        completed ingestion. Preserves ``ts_first_seen`` for previously known
-        files and stamps ``ts_last_seen`` on every entry touched.
-
-        Args:
-            per_file_summary: list of dicts from
-                ``run_ingest_refresh.build_per_file_summary``.
-        """
-        now = datetime.now(timezone.utc).isoformat()
-        files = self.ledger.setdefault("files", {})
-        manifest_meta: dict[str, dict] = {}
-        for collection in getattr(self, "collections", None) or []:
-            manifest_meta.update(getattr(collection, "manifest_this_run", {}) or {})
-        for entry in per_file_summary:
-            fn = entry.get("filename")
-            if not fn:
-                continue
-            # A blocked entry names a file the ledger already describes (the
-            # older file that owns that name); writing it here would overwrite
-            # that record. The block is reported in the run result instead.
-            if entry.get("outcome") == BLOCKED_OUTCOME:
-                continue
-            existing = files.get(fn) or {}
-            files[fn] = {
-                "outcome": entry.get("outcome"),
-                "raw_rows": int(entry.get("raw_rows") or 0),
-                "processed_rows": int(entry.get("processed_rows") or 0),
-                "kept_rows": int(entry.get("final_rows") or 0),
-                # None (not 0) when the caller never computed it — entries
-                # written before this field existed, and the secondary writers
-                # that record an outcome without processing a frame. The UI
-                # renders that as "—" rather than claiming zero viewing.
-                "play_rows": entry.get("play_rows"),
-                "deduped_rows": int(entry.get("deduped_rows") or 0),
-                "dropped": entry.get("dropped") or {},
-                "collection_id": entry.get("canonical_collection_id"),
-                "merged_with_siblings": entry.get("merged_with_siblings") or [],
-                "platform": entry.get("platform"),
-                "source": entry.get("source"),
-                "ts_first_seen": existing.get("ts_first_seen") or now,
-                "ts_last_seen": now,
-                "notes": entry.get("notes") or existing.get("notes"),
-            }
-            # Provenance from the upload-time manifest entry (original
-            # filename, uploader, timezone, review flag): copied here because
-            # the manifest entry is pruned once the file is resolved.
-            for k, v in provenance_from_manifest(manifest_meta.get(fn)).items():
-                files[fn][k] = v
-            for k in MANIFEST_PROVENANCE_KEYS:
-                if k not in files[fn] and existing.get(k) is not None:
-                    files[fn][k] = existing[k]
-        self._refresh_discarded_from_ledger()
-
-    def prune_manifests(self) -> None:
-        """Drop ingestion-manifest entries this run resolved.
-
-        An entry leaves the manifest only when THIS run consumed its file
-        (opened it and ingested, deduped or discarded it — quarantined and
-        unreadable files stay pending) or when the raw object is gone. Never
-        by matching names against the whole dataset: that is how a pending
-        upload whose name collided with an old raw file would be pruned as
-        "processed" without being read. Entries the tripwire
-        blocked are always kept.
-        """
-        MANIFEST_FILENAME = "ingestion_manifest.json"
-        for collection in self.collections:
-            if collection.raw_path is None:
-                continue
-            if not data_io.exists(storage_location=collection.raw_path, filename=MANIFEST_FILENAME):
-                continue
-            manifest = (
-                data_io.load_json(
-                    storage_location=collection.raw_path, filename=MANIFEST_FILENAME, verbose=False
-                )
-                or {}
-            )
-            consumed = self._files_consumed_this_run(collection)
-            blocked = set(getattr(collection, "blocked_this_run", {}) or {})
-            trimmed = {}
-            for fn, meta in manifest.items():
-                if fn in blocked:
-                    trimmed[fn] = meta
-                    continue
-                if fn in consumed:
-                    continue
-                if not data_io.exists(storage_location=collection.raw_path, filename=fn):
-                    logger.warning(
-                        f"Dropping manifest entry '{fn}' from {collection.raw_path}: "
-                        f"the raw file no longer exists."
-                    )
-                    continue
-                trimmed[fn] = meta
-            if len(trimmed) < len(manifest):
-                data_io.save_json(
-                    data=trimmed,
-                    storage_location=collection.raw_path,
-                    filename=MANIFEST_FILENAME,
-                    verbose=False,
-                )
-                if self.verbose:
-                    logger.info(
-                        f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}"
-                    )
-
-    @staticmethod
-    def _files_consumed_this_run(collection) -> set[str]:
-        """Stored names a sub-collection opened and resolved in this run:
-        every file with load stats, minus the ones held back for review
-        (quarantined) or left pending for retry (unreadable)."""
-        stats = getattr(collection, "file_stats_this_run", {}) or {}
-        held = set(getattr(collection, "quarantined_this_run", {}) or {})
-        held |= set(getattr(collection, "load_failed_this_run", {}) or {})
-        return {fn for fn in stats if fn not in held}
-
-    def save_ledger(self) -> None:
-        """Persist the ledger, merging this process's changes into storage.
-
-        The ledger is edited from two places at once: an ingest run holds it
-        in memory for a minute and writes it at the end, and the hub's
-        review buttons (approve / reject / unskip) edit it on click. A plain
-        overwrite lets whichever writes last win: approvals that land while a
-        run is saving are undone by the run's stale copy, which puts the
-        ``quarantined_structure`` entries straight back and leaves the files
-        invisible (verdict approved, ledger quarantined, upload pending).
-
-        So the stored ledger is re-read and only what changed since this
-        process loaded it is applied: entries added or rewritten here win,
-        entries removed here are removed, everything else keeps whatever
-        storage holds now. One more rule for the run side: a quarantine this
-        run recorded is NOT written when the file's stored verdict shows an
-        approval or rejection made after this run evaluated it — the admin's
-        decision is the newer fact, and the ledger entry the review wanted
-        (none, or ``manually_excluded``) is already in storage.
-        """
-        files = self.ledger.setdefault("files", {})
-        snapshot = getattr(self, "_ledger_snapshot", None)
-        merged = self._merge_ledger_into_storage(files, snapshot)
-        self.ledger["files"] = merged
-        self._ledger_snapshot = copy.deepcopy(merged)
-        self._refresh_discarded_from_ledger()
-        data_io.save_json(
-            data=self.ledger,
-            storage_location=self.processed_storage_location,
-            filename=self.ledger_filename,
-            verbose=False,
-        )
-
-    def _merge_ledger_into_storage(self, files: dict, snapshot: dict | None) -> dict:
-        """Three-way merge of this process's ledger edits over the stored file.
-
-        Args:
-            files: This process's in-memory ledger entries.
-            snapshot: The entries as loaded by this process, or None when the
-                ledger was never loaded from storage (tests, fresh installs):
-                then ``files`` is written as-is.
-
-        Returns:
-            The merged ``files`` mapping to persist.
-        """
-        if snapshot is None:
-            return files
-        stored = self._read_stored_ledger_files()
-        if stored is None:
-            return files
-        merged = dict(stored)
-        for fn in snapshot:
-            if fn not in files:
-                merged.pop(fn, None)
-        reviewed_after = self._quarantines_reviewed_after_evaluation(files)
-        for fn, entry in files.items():
-            if snapshot.get(fn) == entry:
-                continue
-            if fn in reviewed_after:
-                continue
-            merged[fn] = entry
-        return merged
-
-    def _read_stored_ledger_files(self) -> dict | None:
-        """The ``files`` mapping currently in storage, or None when unreadable."""
-        try:
-            if not data_io.exists(
-                storage_location=self.processed_storage_location, filename=self.ledger_filename
-            ):
-                return {}
-            stored = data_io.load_json(
-                storage_location=self.processed_storage_location,
-                filename=self.ledger_filename,
-                verbose=False,
-            )
-        except Exception as exc:
-            logger.warning(f"WARNING: could not re-read the ingestion ledger before saving: {exc}")
-            return None
-        if not isinstance(stored, dict) or not isinstance(stored.get("files"), dict):
-            return {}
-        return stored["files"]
-
-    def _quarantines_reviewed_after_evaluation(self, files: dict) -> set[str]:
-        """Stored names this run quarantined that an admin has since reviewed."""
-        evaluated_at: dict[str, str] = {}
-        for collection in getattr(self, "collections", None) or []:
-            for fn, verdict in (getattr(collection, "quarantined_this_run", {}) or {}).items():
-                evaluated_at[fn] = (verdict or {}).get("ts_evaluated") or ""
-        candidates = {
-            fn
-            for fn, entry in files.items()
-            if (entry or {}).get("outcome") == "quarantined_structure" and fn in evaluated_at
-        }
-        if not candidates:
-            return set()
-        try:
-            stored_verdicts = _structure_sentinel.load_verdicts().get("files") or {}
-        except Exception as exc:
-            logger.warning(
-                f"WARNING: could not read structure verdicts before saving the ledger: {exc}"
-            )
-            return set()
-        return {
-            fn
-            for fn in candidates
-            if _structure_sentinel.review_is_newer(stored_verdicts.get(fn), evaluated_at[fn])
-        }
-
-    def remove_from_ledger(self, filename: str) -> bool:
-        """Drop a single filename from the ledger so it will be rescanned on
-        the next ingestion run. Returns True if the entry existed and was
-        removed, False otherwise. Caller is responsible for calling
-        ``save_ledger`` to persist the change.
-        """
-        files = self.ledger.setdefault("files", {})
-        if filename in files:
-            del files[filename]
-            self._refresh_discarded_from_ledger()
-            return True
-        return False
-
-    def set_ledger_outcome(self, filename: str, outcome: str, note: str | None = None) -> bool:
-        """Overwrite a single file's ledger outcome (e.g. a structure-review
-        reject rewrites ``quarantined_structure`` → ``manually_excluded``).
-        Returns True if the entry existed, False otherwise. Caller is
-        responsible for calling ``save_ledger`` to persist the change.
-        """
-        files = self.ledger.setdefault("files", {})
-        entry = files.get(filename)
-        if entry is None:
-            return False
-        entry["outcome"] = outcome
-        entry["ts_last_seen"] = datetime.now(timezone.utc).isoformat()
-        if note:
-            entry["notes"] = note
-        self._refresh_discarded_from_ledger()
-        return True
 
     def load_single_raw(self, fn: str) -> pd.DataFrame:
         raise ValueError("Don't use this class to load raw data")
@@ -2223,7 +1509,7 @@ class ForYouCollection(ForYouBaseCollection):
             logger.info(f"Backfilling play_duration for {len(grp):,} '{platform}' activity row(s).")
             for _, file_grp in grp.groupby("raw_file", dropna=False):
                 ordered = file_grp.sort_values("utc_timestamp", kind="mergesort")
-                recomputed = derive_play_duration(ordered)
+                recomputed = transforms.derive_play_duration(ordered)
                 self.data.loc[ordered.index, "play_duration"] = recomputed[
                     "play_duration"
                 ].set_axis(ordered.index)

@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 
 from fyp import ingest
-from fyp.analysis.organize_datasets import _add_merge_calculated_columns, _backfill_source_platform
+from fyp.analysis.datasets.enrichment_status import _backfill_source_platform
+from fyp.analysis.datasets.merge import _add_merge_calculated_columns
 
 
 def test_merge_guard_fills_default_platform():
@@ -110,7 +111,7 @@ def test_ingest_play_duration_self_heal_missing_column():
 def test_plays_per_day_fallback_masks_sentinel():
     """The merge-time plays_per_day fallback must not turn a -1 play_count sentinel
     into a negative rate (Instagram has no view count → play_count stays -1)."""
-    shebang = pd.DataFrame(
+    merged = pd.DataFrame(
         {
             "item_id": pd.array(["ig1", "yt1", "tt1", "z0"], dtype="string[pyarrow]"),
             # No scrape-time plays_per_day → the fallback path runs for every row.
@@ -125,7 +126,7 @@ def test_plays_per_day_fallback_masks_sentinel():
             "play_duration": pd.array([5, 15, None, 6], dtype="int64[pyarrow]"),
         }
     )
-    out = _add_merge_calculated_columns(shebang)
+    out = _add_merge_calculated_columns(merged)
     ppd = pd.to_numeric(out["plays_per_day"], errors="coerce")
     assert pd.isna(ppd.iloc[0]), f"IG sentinel should be NA, got {ppd.iloc[0]}"
     assert ppd.iloc[1] > 0

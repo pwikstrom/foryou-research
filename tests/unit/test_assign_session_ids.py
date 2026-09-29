@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from fyp.ingest.base import assign_session_ids
+from fyp.ingest.transforms import assign_session_ids
 
 
 def _frame(rows):

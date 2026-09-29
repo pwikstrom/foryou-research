@@ -8,6 +8,8 @@ matching play row in every recoded study frame.
 import pandas as pd
 import pytest
 
+import fyp.analysis.datasets.common as datasets_common
+import fyp.analysis.datasets.merge as datasets_merge
 from fyp.analysis import organize_datasets as od
 
 
@@ -39,8 +41,8 @@ def test_duplicated_map_rows_do_not_duplicate_plays(duplicated_map):
             "collection_id": pd.array(["col1"] * 3, dtype="string[pyarrow]"),
         }
     )
-    out = od._join_niche_columns(plays)
+    out = datasets_merge._join_niche_columns(plays)
     assert len(out) == 3
     # keep="last" — the later map row wins, matching the embedding store.
     assert out.loc[out["item_id"] == "a", "niche_name"].iloc[0] == "last"
-    assert out.loc[out["item_id"] == "c", "niche_name"].iloc[0] == od._NICHE_UNMAPPED
+    assert out.loc[out["item_id"] == "c", "niche_name"].iloc[0] == datasets_common._NICHE_UNMAPPED

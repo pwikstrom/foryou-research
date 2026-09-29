@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pytest
 
+import fyp.analysis.datasets.enrichment_status as datasets_status
 import web_interface.workers.run_consolidate_enrichment as rce
 
 
@@ -57,7 +58,7 @@ def no_verification(monkeypatch):
         calls.append(1)
         return {"ok": True, "mismatches": {}}
 
-    monkeypatch.setattr(od, "verify_consolidation_equivalence", _boom)
+    monkeypatch.setattr(datasets_status, "verify_consolidation_equivalence", _boom)
     return calls
 
 

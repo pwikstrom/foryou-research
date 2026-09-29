@@ -12,7 +12,8 @@ from web_interface.tasks.task_status import TaskStatusReporter
 def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh recoded datasets and stats for studies."""
     import fyp.core.data_io as data_io
-    from fyp.analysis.organize_datasets import create_study_recoded_dataset, enrichment_preload
+    from fyp.analysis.datasets.loading import enrichment_preload
+    from fyp.analysis.organize_datasets import create_study_recoded_dataset
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
     from web_interface.services.methods_note import write_methods_note

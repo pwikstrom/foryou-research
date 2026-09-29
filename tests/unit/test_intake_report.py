@@ -331,7 +331,7 @@ def test_calibrate_one_file_agrees_with_true_zone_and_flags_wrong_one():
 
 
 def test_session_stats_matches_assign_session_ids():
-    from fyp.ingest.base import assign_session_ids
+    from fyp.ingest.transforms import assign_session_ids
 
     df = pd.DataFrame(
         {

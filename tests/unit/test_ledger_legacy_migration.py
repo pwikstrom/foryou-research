@@ -6,11 +6,8 @@ made the ingestion history report a reason ("too few rows") and a count the
 file never held — on a real install, for hundreds of files at once.
 """
 
-from fyp.ingest.base import (
-    LEDGER_SKIP_OUTCOMES,
-    LEGACY_MIGRATION_NOTE,
-    ForYouCollection,
-)
+from fyp.ingest.base import ForYouCollection
+from fyp.ingest.ingestion_ledger import LEDGER_SKIP_OUTCOMES, LEGACY_MIGRATION_NOTE
 
 
 def _upgrade(files):

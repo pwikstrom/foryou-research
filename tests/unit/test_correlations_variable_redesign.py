@@ -10,6 +10,7 @@ before the PCA group mean; and the per-group video count is the declared
 import pandas as pd
 import pytest
 
+import fyp.analysis.datasets.merge as datasets_merge
 import fyp.analysis.organize_datasets as od
 from fyp.analysis.pca import VIDEOS_WATCHED_COL, contract_numeric_transforms
 from web_interface.services import correlations_service as svc
@@ -18,7 +19,7 @@ from web_interface.services import correlations_service as svc
 @pytest.fixture
 def no_failed_scrapes(monkeypatch):
     """Keep _add_merge_calculated_columns storage-free on a fresh checkout."""
-    monkeypatch.setattr(od, "load_failed_scrapes", lambda verbose=False: [])
+    monkeypatch.setattr(datasets_merge, "load_failed_scrapes", lambda verbose=False: [])
 
 
 def _frame(**overrides):
@@ -34,12 +35,12 @@ def _frame(**overrides):
 
 
 def test_engaged_flags_rows_with_engagement_tokens(no_failed_scrapes):
-    out = od._add_merge_calculated_columns(_frame())
+    out = datasets_merge._add_merge_calculated_columns(_frame())
     assert out["engaged"].tolist() == [1.0, 0.0, 1.0, 0.0]
 
 
 def test_rewatched_true_only_when_play_exceeds_duration(no_failed_scrapes):
-    out = od._add_merge_calculated_columns(_frame())
+    out = datasets_merge._add_merge_calculated_columns(_frame())
     # 30<60 → 0; 90>60 → 1; NA play or NA duration → NA
     assert out["rewatched"].tolist()[:2] == [0.0, 1.0]
     assert pd.isna(out["rewatched"].iloc[2])
@@ -47,7 +48,7 @@ def test_rewatched_true_only_when_play_exceeds_duration(no_failed_scrapes):
 
 
 def test_is_weekend_two_level_factor_with_na_passthrough(no_failed_scrapes):
-    out = od._add_merge_calculated_columns(_frame())
+    out = datasets_merge._add_merge_calculated_columns(_frame())
     assert out["is_weekend"].tolist()[:2] == ["weekend", "weekday"]
     assert pd.isna(out["is_weekend"].iloc[2])
     assert out["is_weekend"].iloc[3] == "weekend"
@@ -55,14 +56,14 @@ def test_is_weekend_two_level_factor_with_na_passthrough(no_failed_scrapes):
 
 def test_missing_inputs_yield_na_defaults_not_errors(no_failed_scrapes):
     bare = pd.DataFrame({"item_id": ["a", "b"]})
-    out = od._add_merge_calculated_columns(bare)
+    out = datasets_merge._add_merge_calculated_columns(bare)
     for col in ("engaged", "rewatched", "is_weekend", "completion_rate"):
         assert col in out.columns
         assert out[col].isna().all()
 
 
 def test_new_columns_registered_for_enrichment_patch():
-    assert {"engaged", "rewatched", "is_weekend"} <= od._CALCULATED_ENRICHMENT_COLUMNS
+    assert {"engaged", "rewatched", "is_weekend"} <= datasets_merge._CALCULATED_ENRICHMENT_COLUMNS
 
 
 def test_contract_numeric_transforms_covers_heavy_tailed_features():

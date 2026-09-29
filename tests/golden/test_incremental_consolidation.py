@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 
 import pandas as pd
 
+import fyp.analysis.datasets.common as datasets_common
+import fyp.analysis.datasets.enrichment_status as datasets_status
 import fyp.analysis.organize_datasets as od
 import fyp.annotation.annotation_versioning as av
 import fyp.annotation.machine_annotation as ma
@@ -392,7 +394,7 @@ def test_status_patch_equals_full_rebuild() -> None:
         collections = pd.DataFrame(
             {
                 "item_id": pd.array(["a1", "a1", "a2", "b1", "s1"], dtype="string[pyarrow]"),
-                od.collection_id_column: pd.array(
+                datasets_common.collection_id_column: pd.array(
                     ["c1", "c2", "c1", "c1", "c2"], dtype="string[pyarrow]"
                 ),
             }
@@ -420,17 +422,17 @@ def test_status_patch_equals_full_rebuild() -> None:
         )
         annotations = pd.concat([baseline_annotations, annotations], ignore_index=True)
 
-        orig_failed = od.load_failed_scrapes
-        od.load_failed_scrapes = lambda **k: ["b1"]
+        orig_failed = datasets_status.load_failed_scrapes
+        datasets_status.load_failed_scrapes = lambda **k: ["b1"]
         try:
             # Baseline status from the full rebuild — both lanes non-empty so
             # the flag columns are already in merge (NA-where-unmatched)
             # semantics, the regime status_patch_allowed requires.
-            od.update_enrichment_status(
+            datasets_status.update_enrichment_status(
                 all_datasets={
-                    od._collections_label(): collections,
-                    od._machine_annotations_label(): baseline_annotations,
-                    od._scrapes_label(): scrapes,
+                    datasets_common._collections_label(): collections,
+                    datasets_common._machine_annotations_label(): baseline_annotations,
+                    datasets_common._scrapes_label(): scrapes,
                 },
                 save_to_disk=True,
             )
@@ -448,23 +450,23 @@ def test_status_patch_equals_full_rebuild() -> None:
                 ],
                 ignore_index=True,
             )
-            od.load_failed_scrapes = lambda **k: ["s1"]
+            datasets_status.load_failed_scrapes = lambda **k: ["s1"]
 
-            patched = od.patch_enrichment_status(
+            patched = datasets_status.patch_enrichment_status(
                 {"b1", "a1"}, scrape_frame=scrapes2, annotation_frame=annotations
             )
             assert patched is not None
 
-            full = od.update_enrichment_status(
+            full = datasets_status.update_enrichment_status(
                 all_datasets={
-                    od._collections_label(): collections,
-                    od._machine_annotations_label(): annotations,
-                    od._scrapes_label(): scrapes2,
+                    datasets_common._collections_label(): collections,
+                    datasets_common._machine_annotations_label(): annotations,
+                    datasets_common._scrapes_label(): scrapes2,
                 },
                 save_to_disk=False,
             )
         finally:
-            od.load_failed_scrapes = orig_failed
+            datasets_status.load_failed_scrapes = orig_failed
 
         _assert_frames_equal(patched, full, ["item_id"], "status patch-vs-full")
         assert bool(patched.loc["b1", "scraped_ok"])

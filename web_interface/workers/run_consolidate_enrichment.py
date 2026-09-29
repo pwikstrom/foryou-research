@@ -27,7 +27,7 @@ def _shadow_check_age_days() -> float | None:
     """
     try:
         import fyp.core.data_io as data_io
-        from fyp.analysis.organize_datasets import SHADOW_CHECK_FILENAME
+        from fyp.analysis.datasets.enrichment_status import SHADOW_CHECK_FILENAME
 
         if not data_io.exists(storage_location="recoded", filename=SHADOW_CHECK_FILENAME):
             return None
@@ -57,7 +57,7 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     nothing to add. Without the guard a single re-delivery costs another full
     corpus rebuild (five attempts have cost 66 minutes of runner).
     """
-    from fyp.analysis.organize_datasets import (
+    from fyp.analysis.datasets.enrichment_status import (
         consolidate_enrichment_data,
         verify_consolidation_equivalence,
     )
@@ -234,11 +234,8 @@ def run_consolidate_enrichment(
     metadata so the task runner can advance the pipeline one step at a time.
     """
     import fyp.core.data_io as data_io
-    from fyp.analysis.organize_datasets import (
-        MACHINE_ANNOTATIONS_LABEL,
-        SCRAPES_LABEL,
-        consolidate_enrichment_data,
-    )
+    from fyp.analysis.datasets.enrichment_status import consolidate_enrichment_data
+    from fyp.analysis.organize_datasets import MACHINE_ANNOTATIONS_LABEL, SCRAPES_LABEL
 
     task_args = task_args or {}
     auto_refresh = bool(task_args.get("auto_refresh"))

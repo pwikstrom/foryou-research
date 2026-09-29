@@ -22,8 +22,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fyp.ingest.base import derive_play_duration
 from fyp.ingest.tiktok import TikTokDDPCollection
+from fyp.ingest.transforms import derive_play_duration
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -290,7 +290,7 @@ def test_copy_of_earlier_follows_donation_rank():
 
 
 def test_session_census_donor_rows_match_production():
-    from fyp.ingest.base import assign_session_ids
+    from fyp.ingest.transforms import assign_session_ids
 
     base = pd.Timestamp("2025-03-01 10:00", tz="UTC")
     rows = [

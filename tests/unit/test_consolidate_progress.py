@@ -17,6 +17,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pandas as pd
 
+import fyp.analysis.datasets.common as datasets_common
+import fyp.analysis.datasets.enrichment_status as datasets_status
+import fyp.analysis.datasets.refresh as datasets_refresh
 import fyp.analysis.organize_datasets as od
 import fyp.core.fyp_config  # noqa: F401
 from fyp.core.fyp_config import fyp_cf
@@ -27,44 +30,44 @@ def _run_capture(with_impact: bool):
     changed = {"vid1"} if with_impact else set()
 
     orig = {
-        "anno": od.consolidate_and_save_refined_annotations,
-        "scrape": od.consolidate_and_save_scrape_data,
-        "status": od.update_enrichment_status,
+        "anno": datasets_status.consolidate_and_save_refined_annotations,
+        "scrape": datasets_status.consolidate_and_save_scrape_data,
+        "status": datasets_status.update_enrichment_status,
         "load": od.data_io.load_parquet,
-        "marker": od._status_inputs_unchanged,
+        "marker": datasets_refresh._status_inputs_unchanged,
         "study_defs": fyp_cf.get("study_defs"),
     }
     # Pin the no-op fast path off so this test always exercises the full
     # 15/40/65/85/95 sequence regardless of what markers exist on disk.
-    od._status_inputs_unchanged = lambda **k: False
+    datasets_refresh._status_inputs_unchanged = lambda **k: False
     # Annotations / scrape return (new_data, df, new_ids).
-    od.consolidate_and_save_refined_annotations = lambda **k: (
+    datasets_status.consolidate_and_save_refined_annotations = lambda **k: (
         bool(changed),
         pd.DataFrame(),
         set(changed),
     )
-    od.consolidate_and_save_scrape_data = lambda **k: (False, pd.DataFrame(), set())
-    od.update_enrichment_status = lambda **k: None
+    datasets_status.consolidate_and_save_scrape_data = lambda **k: (False, pd.DataFrame(), set())
+    datasets_status.update_enrichment_status = lambda **k: None
     # collections frame: non-empty with the changed item so the impact branch runs.
     od.data_io.load_parquet = lambda **k: pd.DataFrame(
-        {"item_id": ["vid1"], od.collection_id_column: ["c1"]}
+        {"item_id": ["vid1"], datasets_common.collection_id_column: ["c1"]}
     )
     # Avoid init_study_defs side effects — pre-seed an empty study map.
     fyp_cf["study_defs"] = {}
 
     percents = []
     try:
-        od.consolidate_enrichment_data(
+        datasets_status.consolidate_enrichment_data(
             force_consolidation=False,
             verbose=False,
             progress_cb=lambda pct, msg: percents.append(pct),
         )
     finally:
-        od.consolidate_and_save_refined_annotations = orig["anno"]
-        od.consolidate_and_save_scrape_data = orig["scrape"]
-        od.update_enrichment_status = orig["status"]
+        datasets_status.consolidate_and_save_refined_annotations = orig["anno"]
+        datasets_status.consolidate_and_save_scrape_data = orig["scrape"]
+        datasets_status.update_enrichment_status = orig["status"]
         od.data_io.load_parquet = orig["load"]
-        od._status_inputs_unchanged = orig["marker"]
+        datasets_refresh._status_inputs_unchanged = orig["marker"]
         fyp_cf["study_defs"] = orig["study_defs"]
     return percents
 

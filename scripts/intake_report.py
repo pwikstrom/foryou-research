@@ -704,7 +704,7 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
     event, i.e. the rows a per-file constant gets wrong even when it agrees.
     """
     from fyp.annotation.recode_variables import infer_timezone_offset
-    from fyp.ingest.base import parse_donor_timezone, zone_offset_hours
+    from fyp.ingest.transforms import parse_donor_timezone, zone_offset_hours
 
     # Materialise as a numpy tz-aware series: an Arrow-backed column from the
     # parquet reader compares per-row offsets differently and misreports the
@@ -778,7 +778,7 @@ def session_stats(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS) -> dic
 
     Sorts once, computes each collection's inter-event gaps once, and applies
     every threshold to the same series; equivalent to
-    ``fyp.ingest.base.assign_session_ids`` run per threshold.
+    ``ingest_transforms.assign_session_ids`` run per threshold.
     """
     out: dict = {
         "n_rows": len(df),

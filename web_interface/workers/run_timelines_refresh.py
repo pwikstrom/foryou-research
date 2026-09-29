@@ -329,11 +329,11 @@ def _preload_and_slice(
         {collection_id: DataFrame_slice_or_None}
     """
     import fyp.core.data_io as data_io
+    from fyp.analysis.datasets.merge import new_merge
     from fyp.analysis.organize_datasets import (
         COLLECTIONS_LABEL,
         MACHINE_ANNOTATIONS_LABEL,
         SCRAPES_LABEL,
-        new_merge,
     )
 
     reporter.log("Preloading core datasets...")

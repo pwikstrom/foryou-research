@@ -9,10 +9,7 @@ from flask_login import current_user
 
 import fyp.core.data_io as data_io
 import fyp.scrape.scrape_queues as scrape_queues
-from fyp.analysis.organize_datasets import (
-    COLLECTIONS_LABEL,
-    create_study_recoded_dataset,
-)
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL, create_study_recoded_dataset
 from fyp.core.artifacts import ACCEPTED_COLUMN, load_enrichment_status
 from fyp.scrape import scraper_alerts
 from fyp.scrape.platform_scraper import get_scraper

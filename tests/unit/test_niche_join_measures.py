@@ -13,6 +13,8 @@ merges instead of raising.
 import pandas as pd
 import pytest
 
+import fyp.analysis.datasets.common as datasets_common
+import fyp.analysis.datasets.merge as datasets_merge
 from fyp.analysis import organize_datasets as od
 
 
@@ -52,7 +54,7 @@ def test_measures_are_joined_onto_mapped_rows(full_map):
         }
     )
 
-    out = od._join_niche_columns(plays)
+    out = datasets_merge._join_niche_columns(plays)
 
     assert out["typicality_pct"].tolist() == [12.5, 87.5, 12.5]
     assert out["niche_isolation_pct"].tolist() == [40.0, 60.0, 40.0]
@@ -71,9 +73,9 @@ def test_unmapped_rows_get_a_null_measure_not_a_stand_in(full_map):
         }
     )
 
-    out = od._join_niche_columns(plays)
+    out = datasets_merge._join_niche_columns(plays)
 
-    assert out["niche_name"].tolist() == ["n_a", od._NICHE_UNMAPPED]
+    assert out["niche_name"].tolist() == ["n_a", datasets_common._NICHE_UNMAPPED]
     assert out["typicality_pct"].isna().tolist() == [False, True]
     assert out["niche_isolation_pct"].isna().tolist() == [False, True]
 
@@ -97,7 +99,7 @@ def test_a_map_without_the_measures_still_produces_the_columns(monkeypatch):
         }
     )
 
-    out = od._join_niche_columns(plays)
+    out = datasets_merge._join_niche_columns(plays)
 
     for col in ("typicality_pct", "niche_isolation_pct"):
         assert col in out.columns, col
@@ -116,7 +118,7 @@ def test_a_re_merge_refreshes_stale_measures(full_map):
         }
     )
 
-    out = od._join_niche_columns(plays)
+    out = datasets_merge._join_niche_columns(plays)
 
     assert out["typicality_pct"].tolist() == [12.5]
     assert out["niche_isolation_pct"].tolist() == [40.0]

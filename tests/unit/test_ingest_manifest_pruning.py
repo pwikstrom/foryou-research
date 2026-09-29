@@ -13,7 +13,8 @@ import json
 import pandas as pd
 import pytest
 
-from fyp.ingest.base import BLOCKED_OUTCOME, ForYouBaseCollection, ForYouCollection
+from fyp.ingest.base import ForYouBaseCollection, ForYouCollection
+from fyp.ingest.ingestion_ledger import BLOCKED_OUTCOME
 
 RAW = "probe_raw"
 

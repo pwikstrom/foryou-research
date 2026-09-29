@@ -17,12 +17,8 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
 from fyp.core.utils import read_zip_members
-from fyp.ingest.base import (
-    ForYouBaseCollection,
-    _config_timezone_offset,
-    derive_play_duration,
-    parse_donor_timezone,
-)
+from fyp.ingest.base import ForYouBaseCollection, _config_timezone_offset
+from fyp.ingest.transforms import derive_play_duration, parse_donor_timezone
 
 logger = get_logger(__name__)
 

@@ -17,7 +17,7 @@ standalone) — see ``fyp.core.utils``. This module rewrites the persisted
    one row per send with the identical-record count (``chat_head ×3``); the
    recount option rebuilds already-stored share rows the same way;
 4. every ``(source_platform, raw_file)`` group re-folded with
-   :func:`fyp.ingest.base.derive_play_duration`, so the play rows'
+   :func:`ingest_transforms.derive_play_duration`, so the play rows'
    ``extra_data`` / ``link_method`` tokens say ``save`` and ``share`` where
    they used to say ``fave`` or nothing;
 5. every row re-stamped with the active activity-contract version.
@@ -37,8 +37,9 @@ import pandas as pd
 from fyp.core import activity_versioning as _activity_versioning
 from fyp.core.logging_setup import get_logger
 from fyp.core.utils import share_method_with_count
-from fyp.ingest.base import ForYouBaseCollection, assign_session_ids, derive_play_duration
+from fyp.ingest.base import ForYouBaseCollection
 from fyp.ingest.tiktok import TikTokDDPCollection
+from fyp.ingest.transforms import assign_session_ids, derive_play_duration
 
 logger = get_logger(__name__)
 

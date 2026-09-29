@@ -81,7 +81,7 @@ _PERSONA_FIELDS = [
 _WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 # local_day_segment value -> persona archetype (segments from
-# fyp.ingest.base._day_segment_from_hour: night 0-5, morning 6-11,
+# ingest_transforms._day_segment_from_hour: night 0-5, morning 6-11,
 # afternoon 12-17, evening 18-23).
 _ARCHETYPES = {
     "morning": "Morning Person",
@@ -419,7 +419,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
     if hit and now - hit[0] < _CACHE_TTL_S:
         return hit[1]
 
-    from fyp.ingest.base import MANIFEST_TZ_COLUMN
+    from fyp.ingest.transforms import MANIFEST_TZ_COLUMN
 
     inst = _fresh_ingester(raw_path)
     if inst is None:

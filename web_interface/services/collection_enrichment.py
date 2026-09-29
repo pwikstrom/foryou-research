@@ -380,7 +380,7 @@ def load_activity(collection_id: str) -> pd.DataFrame | None:
 
     Two of the columns tie each row to a **viewing session** — a run of
     activity with no gap over ``[sessions] session_gap_s``, stamped on every
-    row at ingest as ``session_id`` (``fyp.ingest.base.assign_session_ids``),
+    row at ingest as ``session_id`` (``ingest_transforms.assign_session_ids``),
     so the session frame exists before anything is scraped. ``session`` is
     the session's local start time as an ISO string, the key the planner
     samples by: stable across a re-ingest, where the positional
