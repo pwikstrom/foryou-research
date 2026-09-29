@@ -83,7 +83,7 @@ def test_restore_writes_the_stored_manifest_entry_back(ledger, monkeypatch):
     monkeypatch.setattr(mcs.data_io, "move", lambda **kw: None)
     monkeypatch.setattr(mcs.data_io, "load_json", lambda **kw: {})
     monkeypatch.setattr(mcs.data_io, "save_json", lambda **kw: written.update(kw["data"]))
-    import web_interface.collection_accounts as ca
+    import web_interface.services.collection_accounts as ca
 
     monkeypatch.setattr(ca, "set_collection_owner", lambda *a, **k: None)
     monkeypatch.setattr(mcs, "invalidate_cache", lambda: None)
@@ -108,7 +108,7 @@ def test_restore_of_an_old_withdrawal_falls_back_to_the_minimal_entry(ledger, mo
     monkeypatch.setattr(mcs.data_io, "move", lambda **kw: None)
     monkeypatch.setattr(mcs.data_io, "load_json", lambda **kw: {})
     monkeypatch.setattr(mcs.data_io, "save_json", lambda **kw: written.update(kw["data"]))
-    import web_interface.collection_accounts as ca
+    import web_interface.services.collection_accounts as ca
 
     monkeypatch.setattr(ca, "set_collection_owner", lambda *a, **k: None)
     monkeypatch.setattr(mcs, "invalidate_cache", lambda: None)

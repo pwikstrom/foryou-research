@@ -11,7 +11,7 @@ This module owns them as ``var_presentation.json`` (storage location
      "updated_at": "...", "updated_by": "..."}
 
 Membership only — ordering stays derived (section → categorical-before-numeric
-→ alphabetical, see ``data_service.load_schema_metadata``). Presentation edits
+→ alphabetical, see ``web_interface.services.user_variables.load_schema_metadata``). Presentation edits
 can never change the study hash (``web_*`` columns are excluded from
 ``compute_var_schema_hash``).
 

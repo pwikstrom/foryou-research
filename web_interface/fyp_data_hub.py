@@ -94,7 +94,7 @@ def _register_web_ui(app):
     from .routes.api_viewer_routes import viewer_bp
     from .routes.auth_routes import auth_bp
     from .routes.human_eval_routes import human_eval_bp
-    from .routes.management_routes import management_bp
+    from .routes.management import management_bp
     from .routes.my_collections_routes import my_collections_bp
     from .routes.process_routes import process_bp
     from .routes.public_routes import public_bp
@@ -221,7 +221,7 @@ def _register_web_ui(app):
         a context processor is the only way to reach all of them without
         threading the value through every render_template call.
         """
-        from web_interface.citation import get_citation
+        from web_interface.services.citation import get_citation
 
         try:
             return {"citation": get_citation()}
@@ -260,7 +260,7 @@ def _register_web_ui(app):
         from fyp.ingest import platform_url_templates
 
         from .auth.permissions import get_user_permissions, visible_pipeline_steps
-        from .slack_service import get_recent_messages
+        from .integrations.slack_service import get_recent_messages
 
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
         slack_messages = get_recent_messages() if slack_configured else []
@@ -281,7 +281,7 @@ def _register_web_ui(app):
         # The site-wide default study (Admin -> Site Settings), or "" when the
         # operator has not picked one. study_state.js opens on it for users
         # who have not chosen a study themselves.
-        from .admin_settings import get_default_study, get_demo_collection
+        from .services.admin_settings import get_default_study, get_demo_collection
 
         default_study = get_default_study()
         # The admin-chosen collection the guided tour demonstrates with (part

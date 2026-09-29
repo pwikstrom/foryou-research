@@ -16,10 +16,10 @@ from fyp.annotation import human_eval
 from fyp.core.fyp_config import fyp_cf
 from fyp.ingest import platform_url_templates
 
-from .. import explorer_backend as explorer
 from ..auth.accounts import user_manager
 from ..auth.permissions import permission_required, user_has_permission
-from ..data_service import (
+from ..services import explorer_backend as explorer
+from ..services.study_data import (
     enrich_with_user_tags,
     get_explorer_data,
     get_explorer_rows,

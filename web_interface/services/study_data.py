@@ -1,7 +1,4 @@
-"""Study/explorer data loading, caches and user-tag enrichment.
-
-Re-exported through :mod:`web_interface.data_service`; every cache singleton
-keeps its identity across those re-exports."""
+"""Study/explorer data loading, caches and user-tag enrichment."""
 
 import threading
 import time
@@ -20,7 +17,7 @@ from fyp.analysis.studies import init_study_defs, is_composed_study, participant
 from fyp.core.fyp_config import fyp_cf
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
-from .. import explorer_backend as explorer
+from . import explorer_backend as explorer
 
 # --- Explorer State ---
 
@@ -223,7 +220,7 @@ def resolve_compose(study):
     cfg = defs.get(study)
     if not is_composed_study(cfg):
         return None
-    from ..admin_settings import get_default_study
+    from .admin_settings import get_default_study
 
     base = get_default_study()
     owner = cfg.get("OWNER")

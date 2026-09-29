@@ -15,7 +15,7 @@ to self-registered accounts because the shipped default was the open one.
 
 import pytest
 
-from web_interface import admin_settings
+from web_interface.services import admin_settings
 
 
 def test_shipped_default_requires_admin_approval():

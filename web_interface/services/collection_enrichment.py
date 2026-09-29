@@ -156,7 +156,7 @@ def session_min_plays() -> int:
     Resolved by the callers with a world to read (the supervisor, the
     panel's progress figures) and passed into the pure planner."""
     try:
-        from web_interface.admin_settings import get_session_floors
+        from web_interface.services.admin_settings import get_session_floors
 
         return max(1, int(get_session_floors()["sessions_min_plays"]))
     except Exception:

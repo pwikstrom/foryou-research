@@ -13,7 +13,7 @@ from datetime import UTC
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
-from web_interface import activity_log
+from web_interface.services import activity_log
 from web_interface.tasks import run_logs, worker_registry
 
 from ..auth.permissions import admin_required, user_has_permission

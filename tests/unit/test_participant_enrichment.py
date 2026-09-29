@@ -71,7 +71,7 @@ def _recoded_frame(cid, n_items, platform="tiktok"):
 
 @pytest.fixture
 def owned(monkeypatch):
-    import web_interface.collection_accounts as ca
+    import web_interface.services.collection_accounts as ca
 
     monkeypatch.setattr(ca, "load_owner_map", lambda fresh=False: {"c1": "donor@example.org"})
 
@@ -155,7 +155,7 @@ def _completion_env(
     monkeypatch.setattr(pe, "_status_lookup", lambda items: flags)
 
     sent = []
-    from web_interface import mail_utils
+    from web_interface.integrations import mail_utils
 
     monkeypatch.setattr(
         mail_utils,

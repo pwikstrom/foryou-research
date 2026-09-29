@@ -45,7 +45,7 @@ def local_store(tmp_path, monkeypatch):
     monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_cache", False)
     monkeypatch.setattr(raw_names, "registered_raw_paths", lambda: ["ddp_raw"])
 
-    from web_interface import activity_log
+    from web_interface.services import activity_log
 
     monkeypatch.setattr(activity_log, "record", lambda **kw: None)
     from web_interface.services import study_data

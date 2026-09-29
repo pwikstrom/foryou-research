@@ -10,7 +10,7 @@ values stay reachable. Same stubbed-user approach as
 import pandas as pd
 import pytest
 
-from web_interface import explorer_backend as explorer
+from web_interface.services import explorer_backend as explorer
 from web_interface.services import study_data
 
 _TEST_VIEWER = "__value_search_test_viewer__"

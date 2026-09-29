@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the per-user admin's log (``web_interface.admin_notes``).
+"""Unit tests for the per-user admin's log (``web_interface.services.admin_notes``).
 
 Runs against an in-memory stand-in for the ``users`` storage location, so no
 real user files are touched. Covers: add/read ordering and attribution,
@@ -21,8 +21,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from web_interface import admin_notes
 from web_interface.auth import accounts  # noqa: E402
+from web_interface.services import admin_notes
 
 
 class _FakeStore:

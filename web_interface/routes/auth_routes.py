@@ -16,14 +16,23 @@ import fyp.core.data_io as data_io
 from fyp.core.fyp_config import fyp_cf
 from web_interface.auth import accounts
 
-from .. import activity_log, admin_notes
-from ..admin_settings import (
+from ..auth import email_verification
+from ..auth.accounts import user_manager
+from ..auth.permissions import permission_required
+from ..integrations.mail_utils import (
+    is_email,
+    mail_configured,
+    send_new_user_pending_email_async,
+    send_welcome_email_async,
+)
+from ..services import activity_log, admin_notes
+from ..services.admin_settings import (
     DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
 )
-from ..admin_settings import (
+from ..services.admin_settings import (
     SETTING_TYPES as ADMIN_SETTING_TYPES,
 )
-from ..admin_settings import (
+from ..services.admin_settings import (
     get_default_new_user_role,
     get_new_user_approval_required,
     get_session_floors,
@@ -31,23 +40,14 @@ from ..admin_settings import (
     save_admin_settings,
     validate_setting_value,
 )
-from ..admin_settings import (
+from ..services.admin_settings import (
     study_names as admin_study_names,
 )
-from ..auth import email_verification
-from ..auth.accounts import user_manager
-from ..auth.permissions import permission_required
-from ..collection_accounts import (
+from ..services.collection_accounts import (
     collections_for_user,
     load_owner_map,
     orphan_placeholder_accounts,
     unlink_user,
-)
-from ..mail_utils import (
-    is_email,
-    mail_configured,
-    send_new_user_pending_email_async,
-    send_welcome_email_async,
 )
 
 auth_bp = Blueprint("auth_bp", __name__)
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 from web_interface.tasks import worker_registry
 
-from ..slack_service import get_recent_messages
+from ..integrations.slack_service import get_recent_messages
 
 
 def _safe_next(target: str | None) -> str | None:
@@ -637,7 +637,7 @@ def api_admin_users():
         if not success:
             # Re-link: the delete was refused (e.g. last admin), so the
             # account still exists and should keep its collections.
-            from ..collection_accounts import set_collection_owner
+            from ..services.collection_accounts import set_collection_owner
 
             for cid in unlinked:
                 set_collection_owner(cid, username)
@@ -869,7 +869,7 @@ def api_admin_settings():
 
         if user_has_permission(current_user, "tab.admin.general"):
             payload["study_names"] = admin_study_names()
-            from ..admin_settings import demo_collection_choices
+            from ..services.admin_settings import demo_collection_choices
 
             payload["demo_collection_choices"] = demo_collection_choices()
         return jsonify(payload)
@@ -1040,8 +1040,8 @@ def api_irrelevant_words_apply():
     consolidation is running, since it rewrites the same scrape parquets.
     """
 
+    from ..services.worker_status import _is_worker_running, _workers_blocking_consolidate
     from ..tasks.process_manager import start_process
-    from .management_routes import _is_worker_running, _workers_blocking_consolidate
 
     if _is_worker_running("retokenise_hashtags"):
         return jsonify({"status": "error", "message": "Already running"}), 409
@@ -1131,7 +1131,8 @@ def api_user_variable_catalog():
     the same for every study. The tabs used to supply this from their loaded
     study metadata; My Stuff has no study loaded, hence this endpoint.
     """
-    from ..data_service import load_schema_metadata, make_serializable
+    from ..services.study_data import make_serializable
+    from ..services.user_variables import load_schema_metadata
 
     meta = load_schema_metadata({})
     catalog = {

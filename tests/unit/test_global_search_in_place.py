@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from web_interface import explorer_backend as explorer
+from web_interface.services import explorer_backend as explorer
 
 
 def _arrow(values, pa_type):

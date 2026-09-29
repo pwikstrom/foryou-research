@@ -1,6 +1,4 @@
-"""Study access control, per-user variable composition, schema metadata.
-
-Re-exported through :mod:`web_interface.data_service`."""
+"""Study access control, per-user variable composition, schema metadata."""
 
 import pandas as pd
 
@@ -33,7 +31,7 @@ def get_accessible_studies(
         participant_me_name,
     )
 
-    from ..admin_settings import get_default_study
+    from .admin_settings import get_default_study
 
     if "study_defs" not in fyp_cf:
         init_study_defs()

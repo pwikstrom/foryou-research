@@ -20,7 +20,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # web_interface/ sits directly under the project root, next to CITATION.cff.
-_CITATION_FILE = Path(__file__).resolve().parents[1] / "CITATION.cff"
+_CITATION_FILE = Path(__file__).resolve().parents[2] / "CITATION.cff"
 
 _UNAVAILABLE: dict = {"available": False}
 

@@ -9,7 +9,8 @@ modules don't each re-implement it.
 from flask import jsonify
 from flask_login import current_user
 
-from ..data_service import get_accessible_studies, get_study_collections
+from ..services.study_data import get_study_collections
+from ..services.user_variables import get_accessible_studies
 
 
 def current_user_ctx() -> tuple[str, str | None, bool]:
@@ -80,7 +81,7 @@ def owned_collection_access_error(collection_id: str):
         return None
     # Function-level import: collection_accounts pulls in the security module
     # lazily and must stay import-light for the task-runner.
-    from ..collection_accounts import collections_for_user
+    from ..services.collection_accounts import collections_for_user
 
     if str(collection_id) in {str(c) for c in collections_for_user(username)}:
         return None

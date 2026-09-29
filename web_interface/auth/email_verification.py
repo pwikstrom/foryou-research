@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 from flask import current_app, url_for
 from itsdangerous import BadData, URLSafeTimedSerializer
 
-from ..admin_settings import get_signup_email_verification_required
-from ..mail_utils import mail_configured, send_verification_email_async
+from ..integrations.mail_utils import mail_configured, send_verification_email_async
+from ..services.admin_settings import get_signup_email_verification_required
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ def _absolute_verify_url(token: str) -> str:
     Prefers ``[site].app_url`` (the public hostname; on Cloud Run the request
     host may be the internal run.app one) and falls back to the request host.
     """
-    from ..mail_utils import _site
+    from ..integrations.mail_utils import _site
 
     path = url_for("auth_bp.verify_email", token=token)
     app_url = str(_site().get("app_url", "") or "").strip().rstrip("/")

@@ -3,7 +3,7 @@
 Event-window filtering, study stats calculation/estimation, design feedback,
 and consolidation-staleness evaluation. ``_calculate_stats``,
 ``_compute_universe_enrichment`` and the window filters are also consumed by
-the ``run_study_refresh`` worker (via the ``management_routes`` shim).
+the ``run_study_refresh`` worker.
 """
 
 import time as _time

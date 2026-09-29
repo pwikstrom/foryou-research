@@ -16,7 +16,7 @@ CITATION_FILE = pathlib.Path(__file__).resolve().parents[2] / "CITATION.cff"
 
 @pytest.fixture
 def citation():
-    from web_interface.citation import get_citation
+    from web_interface.services.citation import get_citation
 
     get_citation.cache_clear()
     try:
@@ -61,7 +61,7 @@ def test_bibtex_is_a_parseable_software_entry(citation):
 
 def test_missing_cff_degrades_instead_of_raising(monkeypatch, tmp_path):
     """A fork that drops CITATION.cff must still be able to serve every page."""
-    from web_interface import citation as citation_mod
+    from web_interface.services import citation as citation_mod
 
     monkeypatch.setattr(citation_mod, "_CITATION_FILE", tmp_path / "nope.cff")
     citation_mod.get_citation.cache_clear()
@@ -72,7 +72,7 @@ def test_missing_cff_degrades_instead_of_raising(monkeypatch, tmp_path):
 
 
 def test_unparseable_cff_degrades_instead_of_raising(monkeypatch, tmp_path):
-    from web_interface import citation as citation_mod
+    from web_interface.services import citation as citation_mod
 
     broken = tmp_path / "CITATION.cff"
     broken.write_text("title: [unclosed\n", encoding="utf-8")

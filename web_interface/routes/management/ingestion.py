@@ -15,13 +15,10 @@ from fyp.core.fyp_config import (
 from fyp.ingest import get_main_collection, parse_donor_timezone
 from web_interface.tasks import worker_registry
 
-from ... import activity_log
 from ...auth.accounts import user_manager
 from ...auth.permissions import permission_required
-from ...data_service import (
-    invalidate_collection_tags_cache,
-    load_display_id_map,
-)
+from ...services import activity_log
+from ...services.study_data import invalidate_collection_tags_cache, load_display_id_map
 from ...services.worker_status import (
     _actor,
 )

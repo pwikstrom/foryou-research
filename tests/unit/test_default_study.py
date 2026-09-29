@@ -47,7 +47,7 @@ def study_defs(monkeypatch):
 
 def _set_default(monkeypatch, name):
     """Pin get_default_study() without touching the real settings store."""
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     monkeypatch.setattr(admin_settings, "get_default_study", lambda: name)
 
@@ -125,10 +125,10 @@ def test_my_studies_without_a_default_denies_unshared(study_defs, viewer_client,
 def admin_client(monkeypatch):
     """Admin test client with the admin settings file snapshotted/restored."""
     import fyp.core.data_io as data_io
-    from web_interface import admin_settings
     from web_interface.auth import accounts
     from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
+    from web_interface.services import admin_settings
 
     orig_get_user = accounts.user_manager.get_user
 
@@ -177,7 +177,7 @@ def test_put_rejects_an_unknown_study(study_defs, admin_client):
 
 
 def test_put_roundtrips_and_clears_the_default_study(study_defs, admin_client):
-    from web_interface.admin_settings import get_default_study
+    from web_interface.services.admin_settings import get_default_study
 
     res = admin_client.put("/api/admin/settings", json={"default_study": "closed_study"})
     assert res.status_code == 200
@@ -196,11 +196,15 @@ def test_rename_follows_the_default_study(monkeypatch):
 
     stored = {"default_study": "old_name"}
     monkeypatch.setattr(
-        "web_interface.admin_settings.get_default_study", lambda: stored.get("default_study", "")
+        "web_interface.services.admin_settings.get_default_study",
+        lambda: stored.get("default_study", ""),
     )
-    monkeypatch.setattr("web_interface.admin_settings.load_admin_settings", lambda: dict(stored))
     monkeypatch.setattr(
-        "web_interface.admin_settings.save_admin_settings", lambda settings: stored.update(settings)
+        "web_interface.services.admin_settings.load_admin_settings", lambda: dict(stored)
+    )
+    monkeypatch.setattr(
+        "web_interface.services.admin_settings.save_admin_settings",
+        lambda settings: stored.update(settings),
     )
 
     studies_mod._retarget_default_study("old_name", "new_name")

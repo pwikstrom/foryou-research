@@ -13,11 +13,9 @@ from fyp.core.fyp_config import (
     load_var_schema,
 )
 
-from ... import activity_log
 from ...auth.permissions import permission_required
-from ...data_service import (
-    study_cache,
-)
+from ...services import activity_log
+from ...services.study_data import study_cache
 from ...services.worker_status import (
     _actor,
 )
@@ -555,8 +553,8 @@ def upload_annotation_contract():
 
             from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
 
-            from ...admin_settings import validate_setting_value
             from ...auth.permissions import user_has_permission
+            from ...services.admin_settings import validate_setting_value
 
             if not user_has_permission(current_user, "tab.admin.backends"):
                 return jsonify(
@@ -630,7 +628,7 @@ def upload_annotation_contract():
             from fyp.annotation.backends import active_backend_name
             from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
 
-            from ...admin_settings import load_admin_settings, save_admin_settings
+            from ...services.admin_settings import load_admin_settings, save_admin_settings
 
             prev_backend = active_backend_name()
             if switch_backend != prev_backend:

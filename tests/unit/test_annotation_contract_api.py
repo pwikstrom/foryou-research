@@ -161,7 +161,7 @@ def test_dry_run_prompt_change(client):
     edited = copy.deepcopy(tomllib.loads(ac._read_baked_text()))
     f = edited["fields"][0]
     f["desc"] = (f.get("desc") or "") + " EXTRA PROMPT WORDS FOR TEST"
-    from web_interface.routes.management_routes import _annotation_contract_impact
+    from web_interface.routes.management.contracts import _annotation_contract_impact
 
     impact = _annotation_contract_impact(edited)
     ok = impact["version_changed"] is True and impact["metadata_only"] is False

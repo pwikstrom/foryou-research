@@ -114,7 +114,7 @@ def ensure_participant_studies(username: str, *, log=logger.info) -> dict:
     Returns ``{"me_changed": bool, "removed": bool, "collections": int}`` —
     ``me_changed`` means the Just Me dataset needs a refresh.
     """
-    from web_interface.collection_accounts import collections_for_user
+    from web_interface.services.collection_accounts import collections_for_user
 
     username = (username or "").strip()
     if not username:
@@ -252,7 +252,7 @@ def sync_for_cids(cids, *, usernames=(), wait: bool = False, log=logger.info) ->
     trigger that catches them when they do). Owners who already carry a pair
     are always reconciled, so grow/shrink/remove keeps working for everyone.
     """
-    from web_interface.collection_accounts import load_owner_map
+    from web_interface.services.collection_accounts import load_owner_map
 
     owner_map = load_owner_map(fresh=True)
     owners = {owner_map.get(str(c)) for c in (cids or [])}
@@ -308,7 +308,7 @@ def refresh_stale_participant_studies(*, wait: bool = True, log=logger.info) -> 
     owner costs one in-memory comparison; refreshes dispatch only for owners
     whose collection set actually moved. Run from the untargeted recode sweep.
     """
-    from web_interface.collection_accounts import load_owner_map
+    from web_interface.services.collection_accounts import load_owner_map
 
     owner_map = load_owner_map(fresh=True)
     owners = {u for u in owner_map.values() if u}

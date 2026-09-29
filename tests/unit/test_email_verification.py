@@ -213,7 +213,7 @@ def test_skip_reason(monkeypatch, setting, mail, expected):
 
 
 def test_shipped_default_requires_verification():
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     assert admin_settings.DEFAULTS["signup_email_verification_required"] is True
     assert admin_settings.SETTING_TYPES["signup_email_verification_required"] is bool
@@ -377,7 +377,7 @@ def test_email_check_reports_unverified(client, signup_env):
 
 
 def test_prune_unverified_signups(manager, monkeypatch):
-    import web_interface.collection_accounts as ca
+    import web_interface.services.collection_accounts as ca
 
     monkeypatch.setattr(
         ca,

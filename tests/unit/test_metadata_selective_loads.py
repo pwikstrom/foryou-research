@@ -2,7 +2,7 @@
 expect after switching to load_parquet_selective().
 
 Mirrors the exact arguments used in:
-  - web_interface/data_service.py:745
+  - web_interface/services/study_data.py
   - web_interface/routes/data_routes.py:1707
   - web_interface/workers/run_timelines_refresh.py:98
 """
@@ -32,7 +32,7 @@ def _expect(cond, msg):
 
 
 def test_data_service_745():
-    print("\n[A] data_service.py:745 — first_event_ts for one collection")
+    print("\n[A] services/study_data.py — first_event_ts for one collection")
     df = data_io.load_parquet_selective(
         storage_location="recoded",
         filename=f"{COLLECTIONS_LABEL}_metadata.parquet",

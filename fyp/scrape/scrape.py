@@ -888,7 +888,7 @@ def _canonicalize_recode_save(
                 results[col] = restored
 
         # scraped_ok is retained as a derived back-compat shim (downstream merges
-        # in organize_datasets / data_service still read it); scrape_status is the
+        # in organize_datasets / services.study_data still read it); scrape_status is the
         # source of truth.
         results["scraped_ok"] = (results["scrape_status"] == "ok").astype("bool[pyarrow]")
 

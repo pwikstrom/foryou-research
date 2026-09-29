@@ -50,8 +50,12 @@ def _warm_worker_imports() -> None:
     """
     import fyp.core.data_io  # noqa: F401
     from fyp.analysis import organize_datasets, timeline_analysis  # noqa: F401
-    from web_interface import data_service  # noqa: F401
-    from web_interface.services import timeline_service  # noqa: F401
+    from web_interface.services import (  # noqa: F401
+        analysis_data,
+        study_data,
+        timeline_service,
+        user_variables,
+    )
 
 
 # Whole collections are the work unit and the big ones are big (the largest
@@ -559,7 +563,7 @@ def _process_batch(
 
 def _load_viz_vars(reporter: TaskStatusReporter) -> list[str]:
     """Load timeline viz_vars from schema metadata."""
-    from web_interface.data_service import load_schema_metadata
+    from web_interface.services.user_variables import load_schema_metadata
 
     meta: dict = {}
     load_schema_metadata(meta)

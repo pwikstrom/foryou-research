@@ -42,7 +42,7 @@ import math
 import sys
 import time
 
-from web_interface.mail_utils import send_batch_annotation_email_async
+from web_interface.integrations.mail_utils import send_batch_annotation_email_async
 from web_interface.tasks import worker_registry
 from web_interface.tasks.task_status import TaskStatusReporter
 

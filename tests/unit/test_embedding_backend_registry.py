@@ -64,7 +64,11 @@ def test_gemini_availability_shape():
 
 
 def test_admin_settings_validation_for_embedding_backend():
-    from web_interface.admin_settings import DEFAULTS, SETTING_TYPES, validate_setting_value
+    from web_interface.services.admin_settings import (
+        DEFAULTS,
+        SETTING_TYPES,
+        validate_setting_value,
+    )
 
     assert DEFAULTS["embedding_backend"] == "gemini"
     assert SETTING_TYPES["embedding_backend"] is str

@@ -12,9 +12,9 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from web_interface import explorer_backend as explorer
 from web_interface.routes.api_explorer_routes import _filter_request_columns
 from web_interface.routes.api_viewer_routes import _IDS_BASE_COLUMNS, _ids_columns
+from web_interface.services import explorer_backend as explorer
 
 _COL_TYPES = {
     "desc": "long_text",

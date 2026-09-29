@@ -34,7 +34,7 @@ def run():
     viewer = User("apply-test-viewer", "viewer", password_hash="x", approved=True)
 
     import web_interface.tasks.process_manager as pm
-    from web_interface.routes import management_routes as mr
+    from web_interface.services import worker_status as mr
 
     started = {"calls": []}
     orig_start = pm.start_process

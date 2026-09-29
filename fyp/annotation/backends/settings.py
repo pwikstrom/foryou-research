@@ -1,7 +1,7 @@
 """Read-side accessors for annotation settings in the admin settings store.
 
 The store itself (``users/admin_settings.json``) is owned and written by
-``web_interface/admin_settings.py``; this module is the read-only view the
+``web_interface/services/admin_settings.py``; this module is the read-only view the
 ``fyp`` core uses so the dependency keeps pointing web_interface → fyp.
 The key names defined here are imported by the web layer's validation, so the
 two sides cannot drift.
@@ -9,7 +9,7 @@ two sides cannot drift.
 
 import fyp.core.data_io as data_io
 
-# Must match web_interface.admin_settings.SETTINGS_FILENAME (web imports the
+# Must match web_interface.services.admin_settings.SETTINGS_FILENAME (web imports the
 # admin-settings machinery; fyp only reads the same file via data_io).
 SETTINGS_FILENAME = "admin_settings.json"
 

@@ -247,7 +247,7 @@ def test_structured_data_describes_the_project_and_its_funding(client):
 
 
 def test_the_hub_page_describes_the_software_from_the_citation(client):
-    from web_interface.citation import get_citation
+    from web_interface.services.citation import get_citation
 
     citation = get_citation()
     software = _node(_json_ld(client, "/thehub"), "SoftwareApplication")

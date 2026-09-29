@@ -288,8 +288,8 @@ def test_query_params_override_the_admin_floors(client, patched_routes, monkeypa
 
 def test_session_floors_come_from_the_admin_store_in_endpoint_units(monkeypatch):
     """The route converts the admin-facing percentage to the stored fraction."""
-    import web_interface.admin_settings as admin_settings
     import web_interface.routes.api_sessions_routes as mod
+    import web_interface.services.admin_settings as admin_settings
 
     monkeypatch.setattr(
         admin_settings,
@@ -311,7 +311,7 @@ def test_committed_config_seeds_the_session_floors():
     """The seed keys must exist in config.toml, or a fresh deploy silently
     falls back to the code defaults instead of the documented values."""
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.admin_settings import SESSION_FLOOR_KEYS
+    from web_interface.services.admin_settings import SESSION_FLOOR_KEYS
 
     cfg = fyp_cf.get("sessions", {})
     for cfg_key in SESSION_FLOOR_KEYS.values():
@@ -772,7 +772,7 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
 
 def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
-    import web_interface.routes.management_routes as mgmt
+    import web_interface.services.worker_status as worker_status
 
     monkeypatch.setattr(mod, "_fingerprint", lambda fn: "1:2")
     monkeypatch.setattr(
@@ -780,7 +780,7 @@ def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
         "_load_meta",
         lambda: {"built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "some-other-model"},
     )
-    monkeypatch.setattr(mgmt, "_is_worker_running", lambda name: False)
+    monkeypatch.setattr(worker_status, "_is_worker_running", lambda name: False)
 
     res = client.get("/api/sessions/status")
     assert res.status_code == 200

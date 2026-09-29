@@ -55,14 +55,11 @@ def run_collection_delete(
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.data_service import (
-        invalidate_collection_tags_cache,
-        study_cache,
-    )
-    from web_interface.routes.management_routes import (
+    from web_interface.routes.management.collections import (
         _affected_studies_for_collections,
         _find_raw_file_locations,
     )
+    from web_interface.services.study_data import invalidate_collection_tags_cache, study_cache
     from web_interface.tasks.process_manager import start_process
 
     task_args = task_args or {}
@@ -316,7 +313,7 @@ def run_collection_delete(
     # the Active Users page.
     orphan_placeholders: list[str] = []
     try:
-        from web_interface.collection_accounts import orphan_placeholder_accounts
+        from web_interface.services.collection_accounts import orphan_placeholder_accounts
 
         orphan_placeholders = orphan_placeholder_accounts()
     except Exception as exc:

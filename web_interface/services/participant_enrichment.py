@@ -94,7 +94,7 @@ def enqueue_first_batches(collection_ids: list[str], log=print) -> dict:
     if not AUTO_ENQUEUE_ENABLED:
         return queued
     try:
-        from web_interface.collection_accounts import load_owner_map
+        from web_interface.services.collection_accounts import load_owner_map
 
         owner_map = load_owner_map(fresh=True)
         ledger = _load_ledger()
@@ -228,8 +228,8 @@ def check_first_batch_completions() -> list[str]:
         if not open_entries:
             return notified
 
-        from web_interface import mail_utils
         from web_interface.auth.accounts import user_manager
+        from web_interface.integrations import mail_utils
 
         for cid, entry in open_entries.items():
             items = [str(i) for i in (entry.get("item_ids") or [])]

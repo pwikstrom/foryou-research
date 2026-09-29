@@ -1,6 +1,4 @@
-"""PCA and sequence-analysis data accessors.
-
-Re-exported through :mod:`web_interface.data_service`."""
+"""PCA and sequence-analysis data accessors."""
 
 import threading
 

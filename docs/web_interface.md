@@ -116,7 +116,7 @@ terms checkbox is ticked. Signing up with the email of a passwordless participan
 The link is the `user_id` key of the collection's entry in
 `recoded/collections_tags.json` — absent = undecided (AIO ingest may
 auto-link), `null` = explicitly unassigned (never re-linked), a username =
-linked. `web_interface/collection_accounts.py` owns the format
+linked. `web_interface/services/collection_accounts.py` owns the format
 (`set_collection_owner`, `unlink_user`, `orphan_placeholder_accounts`),
 the AIO donor-data → account move (`link_aio_collections`, run by the
 ingest worker after `save_processed` and by the one-off migration

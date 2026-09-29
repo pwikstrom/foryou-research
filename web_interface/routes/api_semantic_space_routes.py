@@ -14,13 +14,10 @@ from flask_login import current_user
 import fyp.analysis.embeddings as embeddings
 import fyp.analysis.video_map as video_map
 import fyp.core.data_io as data_io
-import web_interface.semantic_trajectory as semantic_trajectory
+import web_interface.services.semantic_trajectory as semantic_trajectory
 from web_interface.auth.permissions import permission_required
-from web_interface.data_service import (
-    get_accessible_studies,
-    get_study_collections,
-    load_display_id_map,
-)
+from web_interface.services.study_data import get_study_collections, load_display_id_map
+from web_interface.services.user_variables import get_accessible_studies
 from web_interface.tasks.task_status import is_cloud_run
 
 semantic_space_bp = Blueprint("semantic_space_bp", __name__)
@@ -318,7 +315,7 @@ def api_semantic_space_status():
     are deliberately cheap (process_stats counters + one file stat, no parquet
     reads).
     """
-    from web_interface.routes.management_routes import _is_worker_running
+    from web_interface.services.worker_status import _is_worker_running
     from web_interface.tasks.process_manager import load_process_stats, process_stats
 
     # Cross-service stats live on GCS; reload so we see task-runner writes.
@@ -485,7 +482,7 @@ def api_semantic_space_trajectory():
     """Centre-of-gravity / entropy / daily trajectory for one collection.
 
     Projects the collection's play activity onto the global map via its
-    embedding-derived niche labels (see :mod:`web_interface.semantic_trajectory`)
+    embedding-derived niche labels (see :mod:`web_interface.services.semantic_trajectory`)
     and returns the per-day + all-time metrics the overlay renders.
     """
     collection_id = (request.args.get("collection_id") or "").strip()

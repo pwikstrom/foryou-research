@@ -60,7 +60,7 @@ def viewer(client, monkeypatch):
     )
     # Real column classification, so `niche_name` is filterable exactly as it is
     # in production (the category branch of filter_dataframe is dtype-gated).
-    from web_interface import explorer_backend
+    from web_interface.services import explorer_backend
 
     def _data(study, context=None, columns=None):
         df = _frame()

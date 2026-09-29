@@ -1,8 +1,7 @@
 """Worker/pipeline status helpers shared by the management endpoints.
 
 Worker liveness checks, the consolidate-pipeline step view, per-platform
-cookie-health caching, and the acting-user lookup. Re-exported through
-``web_interface/routes/management_routes.py``.
+cookie-health caching, and the acting-user lookup.
 """
 
 import threading

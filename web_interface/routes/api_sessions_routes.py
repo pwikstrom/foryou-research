@@ -42,7 +42,7 @@ import fyp.analysis.embeddings as embeddings
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, session_explorer
 from fyp.core.fyp_config import fyp_cf
-from web_interface.data_service import (
+from web_interface.services.study_data import (
     get_study_collections,
     get_study_date_window,
     get_study_frame_collections,
@@ -1107,7 +1107,7 @@ def _session_floors() -> dict:
     ``min_coverage`` is converted from the admin-facing percentage to the 0-1
     fraction ``coverage_embedded`` is stored as.
     """
-    from web_interface.admin_settings import get_session_floors
+    from web_interface.services.admin_settings import get_session_floors
 
     floors = get_session_floors()
     return {
@@ -1988,7 +1988,7 @@ def api_sessions_status():
     upstream embeddings) worker is currently running, and whether the artifact
     was built by a different embedding model than the active backend's.
     """
-    from web_interface.routes.management_routes import _is_worker_running
+    from web_interface.services.worker_status import _is_worker_running
     from web_interface.tasks.process_manager import load_process_stats
 
     if is_cloud_run():

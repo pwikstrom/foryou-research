@@ -7,7 +7,7 @@ contract.
 
 import pytest
 
-from web_interface import admin_settings
+from web_interface.services import admin_settings
 
 
 def test_ships_unset():

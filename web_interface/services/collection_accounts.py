@@ -36,7 +36,7 @@ from fyp.analysis.donations import demographic_metadata_columns
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.core.fyp_config import fyp_cf
 
-from .services.study_data import get_collection_tags, invalidate_collection_tags_cache
+from .study_data import get_collection_tags, invalidate_collection_tags_cache
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def _um(um=None):
         return um
     # Function-level import: the security module builds the Flask login
     # manager, which the ingest worker must not pull in at import time.
-    from .auth.accounts import user_manager
+    from ..auth.accounts import user_manager
 
     return user_manager
 
@@ -328,8 +328,8 @@ def resolve_or_create_account(
             return existing.username, "existing", details
         if dry_run:
             return email, "created", {"profile": profile}
+        from ..auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
         from .admin_settings import get_default_new_user_role
-        from .auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
 
         ok, msg = um.add_user(
             email,
@@ -351,8 +351,8 @@ def resolve_or_create_account(
     username = next_placeholder_username(um=um, tags=tags)
     if dry_run:
         return username, "placeholder", {"profile": profile}
+    from ..auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
     from .admin_settings import get_default_new_user_role
-    from .auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
 
     ok, msg = um.add_user(
         username,

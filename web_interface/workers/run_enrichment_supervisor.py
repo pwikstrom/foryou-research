@@ -100,7 +100,7 @@ def _admin_kill_switch() -> bool:
     operator turns on deliberately, after watching one collection run.
     """
     try:
-        from web_interface import admin_settings
+        from web_interface.services import admin_settings
 
         return bool(admin_settings.get_setting("auto_enrichment_enabled"))
     except Exception:
@@ -1669,8 +1669,8 @@ def _notify_owner(reporter, cid: str, entry: dict) -> None:
     if not owner or entry.get("notified"):
         return
     try:
-        from web_interface import mail_utils
         from web_interface.auth.accounts import user_manager
+        from web_interface.integrations import mail_utils
 
         user = user_manager.get_user(owner)
         if not user:

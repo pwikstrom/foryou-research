@@ -26,17 +26,11 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     from fyp.analysis.pca import calculate_scaled_pca_scores
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
-    from web_interface import explorer_backend as explorer
-    from web_interface.data_service import (
-        load_schema_metadata,
-        make_serializable,
-        study_cache,
-    )
-    from web_interface.routes.management_routes import (
-        _calculate_stats,
-        _compute_universe_enrichment,
-        _load_study_raw_window,
-    )
+    from web_interface.services import explorer_backend as explorer
+    from web_interface.services.preview_cache import _load_study_raw_window
+    from web_interface.services.stats_service import _calculate_stats, _compute_universe_enrichment
+    from web_interface.services.study_data import make_serializable, study_cache
+    from web_interface.services.user_variables import load_schema_metadata
 
     if not task_args or "study_name" not in task_args:
         raise ValueError("task_args must contain 'study_name'")
@@ -219,7 +213,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         col_types = explorer.classify_columns(df_recoded)
 
         # Filter to annotated (or scraped) play/observe events.
-        # The [viz] require_annotated_items flag mirrors data_service.get_explorer_data
+        # The [viz] require_annotated_items flag mirrors study_data.get_explorer_data
         # so the saved metadata (filter dropdowns, value counts) reflects the same
         # row set the Explore tab actually shows at request time. When the flag is
         # False we fall back to scraped_ok so items without media are still excluded.

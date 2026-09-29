@@ -425,8 +425,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 and "collection_id" in df.columns
             ):
                 try:
-                    # Lazy import to avoid circular dependency with data_service
-                    from .data_service import get_collection_tags
+                    # Lazy import to avoid a circular dependency with study_data
+                    from .study_data import get_collection_tags
 
                     annotations = get_collection_tags()
                 except Exception:

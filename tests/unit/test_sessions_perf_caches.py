@@ -210,7 +210,7 @@ def test_flag_sets_cache_invalidates_on_source_fingerprints(monkeypatch):
 
 
 def test_admin_settings_cache_invalidated_by_save(monkeypatch, tmp_path):
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     store = {"value": {"sessions_min_plays": 4}}
     monkeypatch.setattr(admin_settings.data_io, "exists", lambda **kw: True)

@@ -20,13 +20,13 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
     import fyp.core.data_io as data_io
     from fyp.analysis.studies import init_study_defs
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.data_service import load_schema_metadata
-    from web_interface.explorer_backend import (
+    from web_interface.services.explorer_backend import (
         get_current_stats,
         get_metadata,
         load_data,
         make_serializable,
     )
+    from web_interface.services.user_variables import load_schema_metadata
 
     task_args = task_args or {}
     reporter.log("Starting Group Comparisons (Explorer) Metadata Refresh...")
@@ -79,7 +79,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
                 continue
 
             # Context = Explorer (Annotated OK + Activity Filter).
-            # The [viz] require_annotated_items flag mirrors data_service.get_explorer_data
+            # The [viz] require_annotated_items flag mirrors study_data.get_explorer_data
             # so the saved metadata reflects the same row set the Explore tab will show.
             # When the flag is False we still require scraped_ok so items without media
             # are excluded.

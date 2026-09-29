@@ -20,11 +20,8 @@ from fyp.core.fyp_config import (
 )
 from web_interface.tasks import worker_registry
 
-from ... import activity_log
 from ...auth.permissions import permission_required
-from ...data_service import (
-    study_cache,
-)
+from ...services import activity_log
 from ...services.preview_cache import (
     _collections_hash,
     get_preview_cells,
@@ -37,6 +34,7 @@ from ...services.stats_service import (
     _universe_from_cells,
     get_study_activity_cap,
 )
+from ...services.study_data import study_cache
 from ...services.worker_status import (
     _actor,
 )
@@ -72,7 +70,7 @@ def _user_can_see_study(config: dict, study_name: str | None = None) -> bool:
     """
     if _is_study_manager():
         return True
-    from ...admin_settings import get_default_study
+    from ...services.admin_settings import get_default_study
 
     name = study_name or config.get("STUDY_NAME")
     default_study = get_default_study()
@@ -94,7 +92,7 @@ def _retarget_default_study(old_name: str, new_name: str) -> None:
     matches no study, so the app falls back to its no-default behaviour).
     """
     try:
-        from ...admin_settings import (
+        from ...services.admin_settings import (
             get_default_study,
             load_admin_settings,
             save_admin_settings,

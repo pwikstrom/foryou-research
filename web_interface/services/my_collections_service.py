@@ -22,8 +22,8 @@ import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
-from ..collection_accounts import collections_for_user
 from . import collection_coverage
+from .collection_accounts import collections_for_user
 from .study_data import get_collection_tags
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
@@ -493,7 +493,7 @@ def platform_display_label(platform: str | None) -> str:
 def discard_pending_upload(raw_path: str, filename: str) -> None:
     """Remove a rejected pending upload: the raw file, its manifest entry, and
     its tags-sidecar link (only when the collection isn't in the dataset)."""
-    from ..collection_accounts import drop_collection_entry
+    from .collection_accounts import drop_collection_entry
 
     manifest = {}
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
@@ -672,7 +672,7 @@ def restore_withdrawal(cid: str) -> dict:
     a normal pending upload (instant preview, re-added on the next process
     run). Raises :class:`RestoreError` past the window or when the archived
     file is not available (e.g. the delete worker hasn't archived it yet)."""
-    from ..collection_accounts import set_collection_owner
+    from .collection_accounts import set_collection_owner
 
     w = _load_withdrawals_raw()
     entry = w.get(str(cid))

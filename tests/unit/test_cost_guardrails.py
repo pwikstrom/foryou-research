@@ -25,7 +25,7 @@ def app_ctx(monkeypatch):
 
 
 def _set_caps(monkeypatch, annotation=None, scrape=None):
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     values = {}
     if annotation is not None:
@@ -80,7 +80,7 @@ def test_cap_under_limit_is_untouched(app_ctx, monkeypatch):
 
 
 def test_get_queue_cap_defaults_and_coercion(monkeypatch):
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     monkeypatch.setattr(admin_settings, "load_admin_settings", lambda: {})
     assert admin_settings.get_queue_cap("annotation") == 5000
@@ -100,7 +100,7 @@ def test_get_queue_cap_defaults_and_coercion(monkeypatch):
 
 
 def test_validate_cap_setting_values():
-    from web_interface.admin_settings import validate_setting_value
+    from web_interface.services.admin_settings import validate_setting_value
 
     for key in ("queue_cap_annotation_items", "queue_cap_scrape_items"):
         assert validate_setting_value(key, 0) is None

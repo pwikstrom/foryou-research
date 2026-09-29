@@ -432,8 +432,8 @@ def _check_email() -> dict:
     switched on but cannot happen": every signup is then admitted unproven
     and the only trace is a line in the log.
     """
-    from web_interface.admin_settings import get_signup_email_verification_required
-    from web_interface.mail_utils import mail_configured
+    from web_interface.integrations.mail_utils import mail_configured
+    from web_interface.services.admin_settings import get_signup_email_verification_required
 
     configured = mail_configured()
     wanted = get_signup_email_verification_required()

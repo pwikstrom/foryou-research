@@ -101,7 +101,7 @@ def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
     tab applied the config seed, the two would silently disagree.
     """
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.admin_settings import SESSION_FLOOR_KEYS
+    from web_interface.services.admin_settings import SESSION_FLOOR_KEYS
 
     cfg = fyp_cf.get("sessions", {})
     settings = client.get("/api/admin/settings").get_json()["settings"]
@@ -110,7 +110,7 @@ def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
 
 
 def test_session_floor_roundtrip_overrides_the_config_seed(client):
-    from web_interface.admin_settings import get_session_floors
+    from web_interface.services.admin_settings import get_session_floors
 
     res = client.put(
         "/api/admin/settings",

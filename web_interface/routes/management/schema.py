@@ -14,8 +14,8 @@ from fyp.core.fyp_config import (
     load_var_schema,
 )
 
-from ... import activity_log
 from ...auth.permissions import permission_required
+from ...services import activity_log
 from ...services.worker_status import (
     _actor,
 )

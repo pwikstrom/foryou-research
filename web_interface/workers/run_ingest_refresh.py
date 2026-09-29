@@ -524,7 +524,10 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # ingest — the link can be made later from Edit Collections.
     try:
         from fyp.analysis.donations import load_aio_participant_metadata
-        from web_interface.collection_accounts import link_aio_collections, summarize_report
+        from web_interface.services.collection_accounts import (
+            link_aio_collections,
+            summarize_report,
+        )
 
         aio_participants = load_aio_participant_metadata()
         known_cids = _dataset_collection_ids()

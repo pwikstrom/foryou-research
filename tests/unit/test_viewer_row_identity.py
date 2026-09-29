@@ -23,7 +23,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from web_interface import explorer_backend as explorer
+from web_interface.services import explorer_backend as explorer
 from web_interface.services import study_data
 
 # Stands in for the video the bug was reported against: watched twice in one

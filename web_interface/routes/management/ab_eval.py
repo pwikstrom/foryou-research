@@ -5,8 +5,8 @@ from flask import jsonify, request
 import fyp.annotation.annotation_versioning as annotation_versioning
 from web_interface.tasks import worker_registry
 
-from ... import activity_log
 from ...auth.permissions import permission_required
+from ...services import activity_log
 from ...services.worker_status import (
     _actor,
     _is_worker_running,

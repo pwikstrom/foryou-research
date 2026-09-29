@@ -17,14 +17,14 @@ from fyp.core.fyp_config import fyp_cf
 from fyp.scrape import scraper_alerts
 from web_interface.tasks import task_failures, worker_registry
 
-from .. import explorer_backend as explorer
 from ..auth.accounts import user_manager
 from ..auth.permissions import admin_required, permission_required
-from ..data_service import (
+from ..services import explorer_backend as explorer
+from ..services import system_health
+from ..services.study_data import (
     TOTAL_STATS_PROVISIONAL_KEY,
     _get_recoded_mtime,
     enrich_with_user_tags,
-    get_accessible_studies,
     get_collection_tags,
     get_explorer_data,
     get_explorer_metadata_cached,
@@ -32,14 +32,16 @@ from ..data_service import (
     get_study_collections,
     is_study_frame_cached,
     load_display_id_map,
-    load_schema_metadata,
     load_shared_tags,
     make_serializable,
+    resolve_compose,
     search_column_value_counts,
 )
-from ..services import system_health
-from ..services.study_data import resolve_compose
-from ..services.user_variables import compose_effective_variables
+from ..services.user_variables import (
+    compose_effective_variables,
+    get_accessible_studies,
+    load_schema_metadata,
+)
 from ._access import require_accessible_study, study_access_error
 
 explorer_bp = Blueprint("explorer_bp", __name__)
@@ -1000,7 +1002,7 @@ def api_explorer_metadata():
     # cached payload is reused on subsequent reads regardless of which tab
     # triggered the cold computation. Both contexts compute identical metadata
     # because get_explorer_data() applies the same filter for explorer and
-    # viewer (see data_service.py).
+    # viewer (see services/study_data.py).
     if not composed:
         data_io.save_json(
             data=make_serializable(metadata),

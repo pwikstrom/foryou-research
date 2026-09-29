@@ -52,7 +52,7 @@ sys.path.insert(0, str(project_root))
 
 import web_interface.services.refresh_pipeline as rp
 import web_interface.tasks.runtime as runtime
-from web_interface.routes.management_routes import PIPELINE_STEPS_ORDER
+from web_interface.services.worker_status import PIPELINE_STEPS_ORDER
 from web_interface.tasks.process_manager import local_pipeline_module_map
 
 PASS = 0

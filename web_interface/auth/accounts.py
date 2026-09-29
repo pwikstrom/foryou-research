@@ -919,9 +919,9 @@ class UserManager:
                 data=existing_data, storage_location=self.storage_location, filename=filename
             )
             logger.info(f"Saved user {username}.")
-            # Function-level import: data_service imports parts of the web layer,
+            # Function-level import: study_data imports parts of the web layer,
             # so a module-level import here would create a cycle.
-            from ..data_service import invalidate_user_json_cache
+            from ..services.study_data import invalidate_user_json_cache
 
             invalidate_user_json_cache(username)
         except Exception as e:
@@ -1153,11 +1153,11 @@ class UserManager:
             except Exception as e:
                 logger.error(f"Failed to remove user file {filename}: {e}")
 
-        # Drop the deleted user from the data_service per-user JSON cache so a
+        # Drop the deleted user from study_data's per-user JSON cache so a
         # stale copy can't resurface in shared-annotation reads. Function-level
-        # import to respect the auth<->data_service import cycle.
+        # import to respect the accounts<->study_data import cycle.
         try:
-            from ..data_service import invalidate_user_json_cache
+            from ..services.study_data import invalidate_user_json_cache
 
             invalidate_user_json_cache(username)
         except Exception as e:
@@ -1297,7 +1297,7 @@ class UserManager:
         Returns:
             The usernames that were deleted.
         """
-        from ..collection_accounts import collections_for_user
+        from ..services.collection_accounts import collections_for_user
 
         now = now or datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(days=max_age_days)

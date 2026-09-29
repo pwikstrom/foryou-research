@@ -13,8 +13,8 @@ from flask import Blueprint, jsonify, request
 from fyp.core.logging_setup import get_logger
 
 from ..auth.permissions import permission_required
-from ..data_service import get_pca_df
 from ..services import correlations_service
+from ..services.analysis_data import get_pca_df
 from ._access import require_accessible_study
 from ._access import study_access_error as _study_access_error
 

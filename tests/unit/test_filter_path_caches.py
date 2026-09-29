@@ -19,8 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from web_interface import explorer_backend
-from web_interface.services import study_data
+from web_interface.services import explorer_backend, study_data
 
 
 @pytest.fixture()

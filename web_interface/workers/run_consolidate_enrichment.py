@@ -299,7 +299,7 @@ def run_consolidate_enrichment(
     # no redeploy) and is threaded down as a plain parameter — the fyp library
     # must not import web_interface.
     try:
-        from web_interface.admin_settings import get_setting
+        from web_interface.services.admin_settings import get_setting
 
         incremental = bool(get_setting("incremental_consolidation"))
     except Exception as exc:

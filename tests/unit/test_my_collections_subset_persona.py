@@ -18,8 +18,8 @@ _ADMIN = "subset.admin@example.test"
 
 @pytest.fixture
 def env(monkeypatch):
-    from web_interface import collection_accounts as ca
     from web_interface.fyp_data_hub import app
+    from web_interface.services import collection_accounts as ca
     from web_interface.services import my_collections_service as svc
 
     calls = []

@@ -12,8 +12,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from web_interface import collection_accounts as ca
 from web_interface.auth import accounts
+from web_interface.services import collection_accounts as ca
 
 _ADMIN = "route.admin@example.test"
 

@@ -11,13 +11,9 @@ from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 from ..auth.accounts import user_manager
 from ..auth.permissions import permission_required
-from ..data_service import (
-    compose_effective_variables,
-    get_accessible_studies,
-    get_study_collections,
-    get_timeline_data,
-    make_serializable,
-)
+from ..services.study_data import get_study_collections, make_serializable
+from ..services.timeline_service import get_timeline_data
+from ..services.user_variables import compose_effective_variables, get_accessible_studies
 from ._access import collection_access_error
 
 timelines_bp = Blueprint("timelines_bp", __name__)

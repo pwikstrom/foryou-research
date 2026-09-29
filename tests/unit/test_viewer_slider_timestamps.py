@@ -60,9 +60,9 @@ def client(monkeypatch):
 @pytest.fixture
 def viewer(client, monkeypatch):
     """Logged-in viewer with the tab permission and one accessible study."""
-    from web_interface import explorer_backend
     from web_interface.auth import accounts
     from web_interface.routes import api_viewer_routes as routes
+    from web_interface.services import explorer_backend
 
     monkeypatch.setattr(
         accounts.role_manager,
@@ -135,8 +135,8 @@ def test_time_marks_ladder_spans_the_whole_filtered_set(viewer):
 
 def test_time_marks_are_exact_for_a_small_result_set(viewer, monkeypatch):
     """At or under the cap every index is sampled, so the chip never approximates."""
-    from web_interface import explorer_backend
     from web_interface.routes import api_viewer_routes as routes
+    from web_interface.services import explorer_backend
 
     n_small = 120
 
@@ -158,8 +158,8 @@ def test_time_marks_ride_only_on_the_first_chunk(viewer):
 
 def test_payload_survives_a_study_with_no_timestamp_column(viewer, monkeypatch):
     """No clock to report — the keys degrade rather than the request failing."""
-    from web_interface import explorer_backend
     from web_interface.routes import api_viewer_routes as routes
+    from web_interface.services import explorer_backend
 
     def _no_ts(study, context=None, columns=None):
         df = _frame()[["item_id", "niche_name"]]

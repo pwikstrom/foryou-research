@@ -20,13 +20,11 @@ from fyp.ingest.raw_names import (
 )
 from web_interface.tasks import worker_registry
 
-from ... import activity_log
 from ...auth.accounts import user_manager
 from ...auth.permissions import permission_required
-from ...collection_accounts import collection_counts_by_user
-from ...data_service import (
-    invalidate_collection_tags_cache,
-)
+from ...services import activity_log
+from ...services.collection_accounts import collection_counts_by_user
+from ...services.study_data import invalidate_collection_tags_cache
 from ...services.worker_status import (
     _actor,
 )
@@ -458,7 +456,7 @@ def _deferred_refresh_view() -> dict:
 @permission_required("tab.data_management.edit_collections")
 def get_collection_enrichment(collection_id):
     """The collection's automatic-enrichment plan + live progress, for the modal."""
-    from ... import admin_settings
+    from ...services import admin_settings
     from ...services import collection_enrichment as ce
     from .enrichment import _annotation_cost_estimate
 
@@ -509,8 +507,8 @@ def save_collection_enrichment(collection_id):
     which is the only thing that lets the panel say how far a RUN has come
     rather than how far the collection has. Resuming a paused plan keeps it.
     """
-    from ...collection_accounts import load_owner_map
     from ...services import collection_enrichment as ce
+    from ...services.collection_accounts import load_owner_map
 
     data = request.json or {}
     cid = str(collection_id)

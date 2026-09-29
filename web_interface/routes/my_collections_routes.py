@@ -60,7 +60,7 @@ def api_my_collections():
 
     if request.args.get("fresh"):
         svc.invalidate_cache()
-        from ..collection_accounts import collections_for_user
+        from ..services.collection_accounts import collections_for_user
 
         collections_for_user(current_user.username, fresh=True)
         from ..services.study_data import get_collection_tags
@@ -99,8 +99,8 @@ def api_my_upload():
         manifest_entry,
     )
 
-    from .. import activity_log
-    from ..collection_accounts import set_collection_owner
+    from ..services import activity_log
+    from ..services.collection_accounts import set_collection_owner
     from ..services.my_collections_service import (
         MANIFEST_FILENAME,
         donation_upload_sources,
@@ -265,7 +265,7 @@ def api_my_pending_personality():
 def api_my_pending_delete():
     """Withdraw a pending upload before processing: removes the raw file, its
     manifest entry and the account link. Owner-gated like the preview."""
-    from .. import activity_log
+    from ..services import activity_log
     from ..services.my_collections_service import discard_pending_upload
 
     data = request.json or {}
@@ -297,9 +297,9 @@ def api_my_withdraw(collection_id):
     """
     import fyp.core.data_io as data_io
 
-    from .. import activity_log
     from ..auth.accounts import user_manager
-    from ..mail_utils import is_email, send_withdrawal_email_async
+    from ..integrations.mail_utils import is_email, send_withdrawal_email_async
+    from ..services import activity_log
     from ..services.my_collections_service import (
         RECODED_FILENAME,
         _load_metadata_personas,
@@ -389,7 +389,7 @@ def api_my_withdraw(collection_id):
 def api_my_restore(collection_id):
     """Bring a withdrawn donation back within its restore window: the archived
     raw file returns to the upload location as a pending donation."""
-    from .. import activity_log
+    from ..services import activity_log
     from ..services.my_collections_service import (
         RestoreError,
         load_withdrawals,
@@ -421,7 +421,7 @@ def api_my_process():
     """Run the ingest worker over all pending uploads (corpus-wide, same
     process the Data Management page starts). 409 = already running."""
 
-    from .. import activity_log
+    from ..services import activity_log
     from ..tasks.process_manager import start_process
 
     success, msg = start_process(
@@ -448,7 +448,7 @@ def api_my_combined_personality():
     Flask's routing (static segments win over converters), but keep the name
     ``combined`` reserved — a collection id can never claim it.
     """
-    from ..collection_accounts import collections_for_user
+    from ..services.collection_accounts import collections_for_user
     from ..services.my_collections_service import build_personality
 
     owned = [str(c) for c in collections_for_user(current_user.username)]

@@ -1,7 +1,7 @@
 """Read-side accessor for the embedding-backend setting in the admin store.
 
 The store itself (``users/admin_settings.json``) is owned and written by
-``web_interface/admin_settings.py``; this module is the read-only view the
+``web_interface/services/admin_settings.py``; this module is the read-only view the
 ``fyp`` core uses so the dependency keeps pointing web_interface → fyp.
 The key name defined here is imported by the web layer's validation, so the
 two sides cannot drift. The filename constant is shared with the annotation

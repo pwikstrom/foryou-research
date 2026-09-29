@@ -710,7 +710,7 @@ Selection and configuration:
 
 - The backend choice lives in the **admin settings store** (Admin →
   Backends; `fyp/annotation/backends/settings.py` is the read side,
-  `web_interface/admin_settings.py` the write side). The five
+  `web_interface/services/admin_settings.py` the write side). The five
   `[machine.gemini]` params (model / temperature / thinking_budget /
   media_resolution / max_output_tokens) are **config-file-only**: edit
   `config/config.toml` and restart or redeploy, because model and parameters

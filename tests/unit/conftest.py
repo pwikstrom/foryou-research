@@ -28,7 +28,7 @@ def _reset_perf_caches():
     reads, so a value cached in one test must never leak into the next.
     """
     yield
-    admin = sys.modules.get("web_interface.admin_settings")
+    admin = sys.modules.get("web_interface.services.admin_settings")
     if admin is not None:
         admin._SETTINGS_CACHE.update({"ts": 0.0, "data": None})
     routes = sys.modules.get("web_interface.routes.api_sessions_routes")

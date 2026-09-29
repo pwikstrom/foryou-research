@@ -17,7 +17,7 @@ _OTHER = "someone-else@example.org"
 @pytest.fixture
 def svc(monkeypatch):
     """participant_studies wired to an in-memory defs dict + ownership map."""
-    import web_interface.collection_accounts as accounts
+    import web_interface.services.collection_accounts as accounts
     import web_interface.services.participant_studies as ps
     from fyp.core.fyp_config import fyp_cf
 
@@ -199,7 +199,7 @@ def test_migration_skips_system_studies(monkeypatch):
 def test_default_study_picker_excludes_system_studies(monkeypatch):
     import fyp.analysis.studies as fyp_studies
     from fyp.core.fyp_config import fyp_cf
-    from web_interface import admin_settings
+    from web_interface.services import admin_settings
 
     monkeypatch.setitem(
         fyp_cf,
@@ -225,8 +225,7 @@ def participant_defs(monkeypatch):
     """Defs with a default study and one participant's pair; storage faked so
     the base and Just Me parquets 'exist' and the composed study is listable."""
     from fyp.core.fyp_config import fyp_cf
-    from web_interface import admin_settings
-    from web_interface.services import user_variables
+    from web_interface.services import admin_settings, user_variables
 
     defs = {
         "main_study": {

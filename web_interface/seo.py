@@ -384,7 +384,7 @@ def _software_node():
     anywhere on the site, and structured data is not exempt from that just
     because a human cannot see it.
     """
-    from web_interface.citation import get_citation
+    from web_interface.services.citation import get_citation
 
     citation = get_citation()
     if not citation.get("available"):

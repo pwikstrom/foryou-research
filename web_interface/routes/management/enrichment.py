@@ -17,9 +17,8 @@ from fyp.scrape import scraper_alerts
 from fyp.scrape.platform_scraper import get_scraper
 from web_interface.tasks import worker_registry
 
-from ... import activity_log
 from ...auth.permissions import permission_required
-from ...services import collection_enrichment, refresh_pipeline, system_health
+from ...services import activity_log, collection_enrichment, refresh_pipeline, system_health
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
     _evaluate_version_promotion_staleness,
@@ -111,7 +110,7 @@ def _collection_display_ids() -> dict[str, str]:
     """``{collection_id: display id}`` from the collections sidecar; the id
     itself where no display id is set."""
     try:
-        from ...collection_accounts import _load_tags_fresh
+        from ...services.collection_accounts import _load_tags_fresh
 
         tags = _load_tags_fresh()
     except Exception:
@@ -171,7 +170,7 @@ def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict
         ``(possibly-truncated items, cap_info)`` where ``cap_info`` is the
         ``{"capped", "cap", "requested"}`` dict merged into the JSON response.
     """
-    from web_interface.admin_settings import get_queue_cap
+    from web_interface.services.admin_settings import get_queue_cap
 
     requested = len(items)
     cap = get_queue_cap(queue_kind)
@@ -192,7 +191,7 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
     """
     from fyp.annotation.backends import variants
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.admin_settings import get_annotation_backend
+    from web_interface.services.admin_settings import get_annotation_backend
 
     try:
         selection = get_annotation_backend()

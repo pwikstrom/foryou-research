@@ -801,7 +801,7 @@ def collect_status(hours_back: int = 24) -> dict:
     try:
         import requests
 
-        from web_interface.mail_utils import _site
+        from web_interface.integrations.mail_utils import _site
 
         app_url = str(_site().get("app_url", "") or "").strip()
         if app_url:
@@ -1922,7 +1922,7 @@ def _prune_dated_reports(data_io):
 
 
 def _email_report(page: str, doc: dict) -> bool:
-    from web_interface.mail_utils import _send_html_email, _site
+    from web_interface.integrations.mail_utils import _send_html_email, _site
 
     site = _site()
     recipient = str(site.get("ops_report_email", "") or site.get("mail_sender", "") or "").strip()

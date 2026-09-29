@@ -75,7 +75,7 @@ def main(argv=None) -> int:
         )
         return 2
 
-    from web_interface.collection_accounts import migrate_existing_collections
+    from web_interface.services.collection_accounts import migrate_existing_collections
 
     report = migrate_existing_collections(dry_run=not args.apply, log=print)
 

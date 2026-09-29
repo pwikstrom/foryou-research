@@ -22,8 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from web_interface.data_service import compose_effective_variables
 from web_interface.routes.auth_routes import _validate_variable_prefs
+from web_interface.services.user_variables import compose_effective_variables
 
 ALL_ORDER = ["a", "b", "c", "d", "e"]
 GLOBAL = ["b", "d"]
