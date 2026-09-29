@@ -777,12 +777,21 @@ def session_stats(df: pd.DataFrame, gaps: tuple[int, ...] = SESSION_GAPS) -> dic
 
     Sorts once, computes each collection's inter-event gaps once, and applies
     every threshold to the same series; equivalent to
-    ``ingest_transforms.assign_session_ids`` run per threshold.
+    ``ingest_transforms.assign_session_ids`` run per threshold. Like it, rows
+    of ``RECEIVED_ACTIVITY_TYPES`` (another account following the donor) are
+    left out when ``df`` has an ``activity_type`` column: they are not the
+    donor's activity and neither open nor extend a sitting.
     """
+    from fyp.core.activity_vocabulary import RECEIVED_ACTIVITY_TYPES
+
     out: dict = {
         "n_rows": len(df),
         "n_collections": int(df["collection_id"].nunique()) if len(df) else 0,
     }
+    if "activity_type" in df.columns:
+        received = df["activity_type"].astype("string").isin(RECEIVED_ACTIVITY_TYPES).fillna(False)
+        out["n_received_excluded"] = int(received.sum())
+        df = df[~received.to_numpy()]
     if df.empty:
         return out
     ordered = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort")
@@ -1869,7 +1878,7 @@ def build_report(
             platform_per_file[str(fn)] = platform
         for fn, cid in df.groupby("raw_file")["collection_id"].first().items():
             collection_per_file[str(fn)] = str(cid)
-        sessions[platform] = session_stats(df[["collection_id", "utc_timestamp"]])
+        sessions[platform] = session_stats(df[["collection_id", "utc_timestamp", "activity_type"]])
         plays = df[df["activity_type"].isin(["play", "observe"])]
         sessions_plays[platform] = session_stats(plays[["collection_id", "utc_timestamp"]])
         if platform == "tiktok":

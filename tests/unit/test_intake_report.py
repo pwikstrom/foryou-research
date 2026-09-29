@@ -348,6 +348,23 @@ def test_session_stats_matches_assign_session_ids():
     assert out["gap_300s"]["n_sessions"] == 6 and out["gap_1800s"]["n_sessions"] == 3
 
 
+def test_session_stats_leaves_out_received_rows_like_assign_session_ids():
+    """A ``followed_by`` row between two sittings must not bridge them."""
+    from fyp.ingest.transforms import assign_session_ids
+
+    df = pd.DataFrame(
+        {
+            "collection_id": ["c1"] * 3,
+            "utc_timestamp": pd.to_datetime([0, 1000, 2000], unit="s", utc=True),
+            "activity_type": ["play", "followed_by", "play"],
+        }
+    )
+    out = ir.session_stats(df, (1800,))
+    expected = assign_session_ids(df.copy(), gap_threshold_s=1800)["session_id"].nunique()
+    assert out["gap_1800s"]["n_sessions"] == expected == 2
+    assert out["n_received_excluded"] == 1 and out["n_rows"] == 3
+
+
 def test_comment_gap_stats():
     df = pd.DataFrame(
         {
