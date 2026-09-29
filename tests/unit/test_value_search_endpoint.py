@@ -60,7 +60,7 @@ def stub_counts(monkeypatch):
     def _install(pairs, dtype="category"):
         entry = _entry(pairs, dtype=dtype)
         monkeypatch.setattr(
-            "web_interface.routes.api_explorer_routes.search_column_value_counts",
+            "web_interface.routes.api_explorer_routes.explore.search_column_value_counts",
             lambda study, column: entry,
         )
 
@@ -112,7 +112,7 @@ def test_dynamic_column_is_400(client, stub_counts):
 
 def test_unknown_column_is_404(client, monkeypatch):
     monkeypatch.setattr(
-        "web_interface.routes.api_explorer_routes.search_column_value_counts",
+        "web_interface.routes.api_explorer_routes.explore.search_column_value_counts",
         lambda study, column: None,
     )
     res = client.get("/api/explore/values/search?study=s1&column=nope&q=ab")

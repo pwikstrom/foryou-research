@@ -15,7 +15,7 @@ Uses the Flask test client with a stubbed admin (same approach as
 
 import pytest
 
-from web_interface.routes import api_explorer_routes as routes
+from web_interface.routes.api_explorer_routes import explore as routes
 
 _TEST_ADMIN = "__coldopen_test_admin__"
 

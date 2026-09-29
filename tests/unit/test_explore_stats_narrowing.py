@@ -13,7 +13,7 @@ Two changes keep it proportional to what the user sees:
 import pandas as pd
 import pytest
 
-from web_interface.routes.api_explorer_routes import _viz_stats_col_types
+from web_interface.routes.api_explorer_routes.explore import _viz_stats_col_types
 from web_interface.services import explorer_backend as explorer
 
 _COL_TYPES = {
@@ -42,7 +42,7 @@ def schema_meta(monkeypatch):
         ],
     }
     monkeypatch.setattr(
-        "web_interface.routes.api_explorer_routes.load_schema_metadata",
+        "web_interface.routes.api_explorer_routes.explore.load_schema_metadata",
         lambda m: {**m, **meta},
     )
     return meta
@@ -83,7 +83,7 @@ def test_narrowing_falls_back_to_all_columns_without_a_viz_list(monkeypatch):
     """A fresh install with no var_schema must keep computing everything —
     the frontend then renders every stats key."""
     monkeypatch.setattr(
-        "web_interface.routes.api_explorer_routes.load_schema_metadata",
+        "web_interface.routes.api_explorer_routes.explore.load_schema_metadata",
         lambda m: {**m, "viz_priority": [], "all_variables_order": []},
     )
 

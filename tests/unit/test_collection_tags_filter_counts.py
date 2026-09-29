@@ -7,7 +7,7 @@ videos read as "3" — the smallest-looking option in the list.
 
 import pytest
 
-from web_interface.routes import api_explorer_routes as routes
+from web_interface.routes.api_explorer_routes import explore as routes
 
 
 @pytest.fixture

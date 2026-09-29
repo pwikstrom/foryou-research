@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from web_interface.routes.api_explorer_routes import _filter_request_columns
+from web_interface.routes.api_explorer_routes.explore import _filter_request_columns
 from web_interface.routes.api_viewer_routes import _IDS_BASE_COLUMNS, _ids_columns
 from web_interface.services import explorer_backend as explorer
 
@@ -45,7 +45,7 @@ def schema_meta(monkeypatch):
         "all_variables_order": ["content_category", "duration", "desc"],
     }
     monkeypatch.setattr(
-        "web_interface.routes.api_explorer_routes.load_schema_metadata",
+        "web_interface.routes.api_explorer_routes.explore.load_schema_metadata",
         lambda m: {**m, **meta},
     )
     return meta
