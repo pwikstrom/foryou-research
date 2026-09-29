@@ -778,12 +778,12 @@ Regression protection: `tests/golden/` replays saved raw Gemini responses
 through the whole parse/flatten/repair pipeline — run it
 (`python tests/golden/run_safety_net.py`) whenever you touch annotation code.
 
-## 4. Consolidation & recoding (`scrape.py`, `organize_datasets.py`, `recode_variables.py`)
+## 4. Consolidation & recoding (`scrape/consolidate.py`, `analysis/datasets/`, `recode_variables.py`)
 
 "Consolidate & Refresh" (web UI) folds new scrape/annotation parquets into
 the enrichment store, merges enrichment seeds, migrates legacy columns to
 canonical names, and detects value changes from re-scrapes (so affected
-studies auto-refresh). `organize_datasets.new_merge` joins activity with
+studies auto-refresh). `datasets.merge.new_merge` joins activity with
 enrichment on `(source_platform, item_id)`; `recode_variables.py` derives
 analysis variables per the var_schema (type-driven generic recoder).
 
@@ -1021,7 +1021,7 @@ time from the default study plus the user's data, and SYSTEM study
 definitions are excluded from all-studies sweeps.
 On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
 (`stats.py`), timeline metrics (`timeline_analysis.py`), session and
-binge-episode segmentation (`session_explorer.py`), sequence windowing
+binge-episode segmentation (`fyp/analysis/sessions/`), sequence windowing
 (`sequence_analysis.py`), dense semantic embeddings + niche clustering + 2D
 map (`embeddings.py`, `video_map.py`). Research analyses the app does not use
 (text-based niche detection, within-session profiling, predictive sequence
@@ -1097,7 +1097,7 @@ Enabling the alternatives: [installation.md](installation.md#enabling-local-embe
 `video_map.py` clusters the video embeddings into niches and a 2D semantic
 map (with `video_map_meta.json` provenance). It also emits two per-video
 **percentiles**, `typicality_pct` and `niche_isolation_pct`, joined into every
-study frame by `organize_datasets._join_niche_columns` as numeric measures,
+study frame by `datasets.merge._join_niche_columns` as numeric measures,
 so they reach the Correlations tab as group means per collection-day. They
 are percentiles rather than the raw cosine/PCA distances because those scales
 drift with every rebuild. Both are NULL for videos not yet in the map, and
@@ -1123,7 +1123,7 @@ study to rebuild anyway.
 
 The Sessions tab's artifacts (session index, binge episodes, low-entropy
 windows, and a `sessions_plays.parquet` detail fast path) are built by
-`fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a dense
+`fyp/analysis/sessions/` + `entropy_metrics.py` over a dense
 random-access embedding sidecar (`fyp/analysis/embedding_store.py`), by the
 `sessions_refresh` worker (`web_interface/workers/run_sessions_refresh.py`), a
 self-chaining Cloud Task with O(batch) memory. Each link segments a few
@@ -1141,7 +1141,7 @@ link 0 and restarts (bounded) if the shard store moves mid-run.
   `sessions_meta.json`. A targeted `collections` run also merges; a run with
   no arguments is a forced full rebuild.
 - **Scoped enrichment staleness**
-  (`session_explorer.enrichment_change_scope`): because the embedding shards
+  (`sessions.plan.enrichment_change_scope`): because the embedding shards
   are append-only, a store whose previously recorded shards are all still
   present byte-identical has only grown; the vectors past the last build's
   count and the annotation rows past its `inference_ts` watermark (an epoch

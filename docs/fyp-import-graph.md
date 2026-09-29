@@ -13,11 +13,11 @@ one with `python scripts/gen_import_graph.py` (see the end of this file).
 
 | Subpackage | `__init__` behavior | Modules |
 |---|---|---|
-| `fyp/core/` | inert (docstring only) | `paths`, `fyp_config`, `runtime`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `memory`, `media_paths`, `gemini_client`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel` |
-| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | `base`, `tiktok`, `instagram`, `youtube`, `raw_names`, `migrations/` |
-| `fyp/scrape/` | eager `from .scrape import …` re-exports + forwarding `__getattr__`; **must not boot config** | `scrape`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`, `scraper_alerts`, `connectivity` |
-| `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`, `backends/` |
-| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `session_explorer`, `entropy_metrics`, `sequence_analysis`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
+| `fyp/core/` | inert (docstring only) | `paths`, `fyp_config`, `runtime`, `artifacts`, `data_io`, `types`, `utils`, `logging_setup`, `polars_ops`, `memory`, `media_paths`, `gemini_client`, `registry_metadata`, `activity_contract`, `activity_versioning`, `derived_contract`, `structure_sentinel` |
+| `fyp/ingest/` | **eager** — imports `base`, then `tiktok`, `instagram`, `youtube` (registration order pinned) | `base`, `transforms`, `ingestion_ledger`, `tiktok`, `instagram`, `youtube`, `raw_names`, `migrations/` |
+| `fyp/scrape/` | eager re-exports from `.scrape` (and `.consolidate`, `.failures`, `.slideshow`, split out of it) + forwarding `__getattr__`; **must not boot config** | `scrape`, `consolidate`, `failures`, `slideshow`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`, `scraper_alerts`, `connectivity` |
+| `fyp/annotation/` | inert | `machine_annotation`, `gemini_calls`, `response_parsing`, `annotation_refinement`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`, `backends/` |
+| `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `session_explorer`, `sessions/` (`inputs`, `segment`, `plan`, `publish`), `entropy_metrics`, `sequence_analysis`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `datasets/` (`common`, `loading`, `sampling`, `merge`, `refresh`, `enrichment_status`), `donations` |
 | `fyp/analysis/experimental/` | inert | research analyses the app does not import: `niche_detection`, `session_profile`, `sequence_model` (their flat shims still resolve) |
 
 Most modules also keep an old flat path (`fyp/<module>.py`) as a
@@ -36,9 +36,22 @@ accessors: `cf`, `label`, `is_cloud_run`, `graceful_stop_requested`),
 per-platform scraper alerts), `fyp/scrape/connectivity.py` (the scrapers'
 online probe and batch gate), `fyp/annotation/backends/` and
 `fyp/analysis/embedding_backends/` (backend registries),
-`fyp/analysis/embedding_store.py` (dense random-access sidecar), and
-`fyp/analysis/session_explorer.py` and `fyp/analysis/entropy_metrics.py`
-(Sessions tab build).
+`fyp/analysis/embedding_store.py` (dense random-access sidecar),
+`fyp/analysis/session_explorer.py`, `fyp/analysis/sessions/` and
+`fyp/analysis/entropy_metrics.py` (Sessions tab build), `fyp/core/artifacts.py`
+(shared artifact names and readers), and every module split out of a larger
+one below.
+
+**Split modules keep their old surface.** When a large module is split
+(`scrape` → `consolidate` / `failures` / `slideshow`; `machine_annotation`
+→ `gemini_calls` / `response_parsing` / `annotation_refinement`;
+`organize_datasets` → `datasets/`; `session_explorer` → `sessions/`;
+`ingest/base` → `transforms` / `ingestion_ledger`), the original module
+re-exports the moved public names, so its flat shim and any outside caller
+keep working. First-party code imports and patches each name where it now
+lives, and the split modules call their siblings through the module
+(`inputs.load_plays(...)`), so a test patches one place and reaches every
+caller.
 
 ## Back-compat mechanism
 
@@ -113,20 +126,6 @@ re-exports the old module surface and forwards stragglers via a module
    config boot and inside `import fyp.pca` — a real behavior change.
    Scrapers keep loading lazily via
    `platform_scraper._ensure_scrapers_imported()`.
-
-## Known seams
-
-- **`machine_annotation.py` stays one module.** Its internal structure
-  would split cleanly (orchestration → calls / parse / refine), but ~18 test
-  files plus the golden harness patch `ma._*` private names on the module
-  object, and a facade split would silently break those patch targets. A
-  split must relocate the test patch targets in the same change.
-- **Scraper helpers.** `_info_to_row` is genuinely platform-specific (TikTok
-  builds the full `_DEFAULTS` schema with dtype casts; Instagram and YouTube
-  emit small raw frames later renamed by `map_to_canonical`) — do not
-  force-share it. `_empty_fail` (byte-identical in the three `*_dl.py`
-  modules) and `_cleanup_temp_files` (identical except the parameter name)
-  are hoistable; nothing imports either from outside its module.
 
 ## The import matrix
 

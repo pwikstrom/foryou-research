@@ -296,14 +296,19 @@ foryou-research/
 │   │   ├── activity_versioning.py # Activity-contract version registry (acv_)
 │   │   └── derived_contract.py  # Loads/validates derived_contract.toml
 │   ├── ingest/                  # Ingestion; __init__ imports all platform modules eagerly (config boots)
-│   │   ├── base.py              # ForYouBaseCollection ABC, load loop, per-file intake stats, ledger
+│   │   ├── base.py              # ForYouBaseCollection ABC, load loop, per-file intake stats
+│   │   ├── transforms.py        # Row transforms: time zones, local-time features, session ids, play durations
+│   │   ├── ingestion_ledger.py  # The per-file ingestion ledger (skip outcomes + the collection's ledger methods)
 │   │   ├── raw_names.py         # Generated identities for raw uploads (stored names, collection ids, display ids)
 │   │   ├── migrations/          # One-off rewrites of stored activity data (testable half of scripts/migrate_*.py)
 │   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection
 │   │   ├── instagram.py         # InstagramDDPCollection
 │   │   └── youtube.py           # YouTubeDDPCollection
 │   ├── scrape/                  # Scraping; __init__ re-exports the old fyp.scrape API
-│   │   ├── scrape.py            # Platform-agnostic orchestration: queues, batching, guards, consolidation
+│   │   ├── scrape.py            # Platform-agnostic orchestration: queues, batching, guards
+│   │   ├── consolidate.py       # Fold scrape batches into the recoded scrapes frame
+│   │   ├── failures.py          # The failed-scrapes ledger
+│   │   ├── slideshow.py         # Photo-post slideshows (images + audio → MP4)
 │   │   ├── scrape_queues.py     # Per-platform queue files (to_scrape_<platform>.json) + retry-budget sidecars
 │   │   ├── platform_scraper.py  # BaseScraper ABC + registry + get_scraper(); ThrottleController; shared derivations
 │   │   ├── scrape_contract.py   # Loads/validates scrape_contract.toml; canonical field set + dtypes
@@ -316,7 +321,10 @@ foryou-research/
 │   │   └── scraper_cookies.py   # Per-platform cookie plumbing + cookie_health
 │   ├── annotation/
 │   │   ├── backends/                 # AnnotationBackend ABC + registry; gemini / qwen_api / qwen_local / minicpm_local, variants, settings
-│   │   ├── machine_annotation.py     # Annotation orchestration (queue batches, threading, backend dispatch)
+│   │   ├── machine_annotation.py     # Annotation entry points (queue batches, backend dispatch)
+│   │   ├── gemini_calls.py           # Gemini client, generation config, retries, threaded batch calls
+│   │   ├── response_parsing.py       # Raw responses → flat annotation rows (JSON repair, flattening)
+│   │   ├── annotation_refinement.py  # Refine raw batches; consolidate into the versioned dataset
 │   │   ├── machine_annotation_batch.py # Batch-mode annotation (Gemini Batch API only)
 │   │   ├── annotation_contract.py    # Loads/validates annotation_contract.toml; builds FIELD_SPECS
 │   │   ├── annotation_schema.py      # Generates prompt, response schema and flattener from the contract
@@ -327,7 +335,8 @@ foryou-research/
 │   │   ├── ab_eval.py                # Prompt/model A/B testing harness (arms, agreement metrics, reports)
 │   │   └── human_eval.py             # Human annotation input (coding tasks, ICR metrics, votes, invitations)
 │   └── analysis/
-│       ├── organize_datasets.py # Dataset filtering & organisation (incl. new_merge)
+│       ├── organize_datasets.py # Dataset build entry points (create_study_recoded_dataset ...)
+│       ├── datasets/            # Dataset build steps: loading, sampling, merge, refresh sidecars, enrichment status
 │       ├── donations.py         # Donation-level data handling (AIO/AWS fetch, collection metadata)
 │       ├── calc_collection_stats.py  # Donation-level statistics
 │       ├── activity_analysis.py # Activity-based analysis
@@ -336,7 +345,8 @@ foryou-research/
 │       ├── embedding_store.py   # Random-access dense sidecar over the shards (float16 parts, id index, corpus mean)
 │       ├── embedding_backends/  # EmbeddingBackend ABC + registry: gemini / qwen_api / qwen_local
 │       ├── video_map.py         # Niche clustering + 2D semantic map + per-video typicality/isolation percentiles
-│       ├── session_explorer.py  # Sessions tab build: session index + binge-episode segmentation
+│       ├── sessions/            # Sessions tab build: inputs, segmentation, refresh plan, publishing
+│       ├── session_explorer.py  # Re-export surface of sessions/
 │       ├── entropy_metrics.py   # Entropy/dispersion measures on dense embeddings
 │       ├── sequence_analysis.py # Sequence-windowing analysis (dwell→next-window lift)
 │       ├── timeline_analysis.py # Timeline metrics (linreg, anomalies, breaks, volatility)
