@@ -707,7 +707,7 @@ def collect_status(hours_back: int = 24) -> dict:
         # panel — reporting one as outstanding sends the reader to a page with
         # nothing on it. Quarantined files are held out of the activity data,
         # so they are the red; a warned file ingested and only wants a look.
-        from fyp.core.structure_sentinel import review_queue
+        from fyp.ingest.structure_sentinel import review_queue
 
         check(sec, "Structure sentinel", *_structure_review_check(review_queue()))
     except Exception as e:

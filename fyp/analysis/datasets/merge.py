@@ -17,6 +17,7 @@ from fyp.analysis.studies import init_study_defs
 from fyp.annotation.recode_variables import (
     derive_australian_relevance,
 )
+from fyp.core.activity_vocabulary import parse_extra_data_tokens
 from fyp.core.logging_setup import get_logger
 
 # Shared memory-probe implementations (fyp.core.memory); the module-private
@@ -27,7 +28,6 @@ from fyp.core.memory import peak_rss_mb as _peak_rss_mb
 from fyp.core.memory import rss_mb as _rss_mb
 from fyp.core.polars_ops import fast_join
 from fyp.core.runtime import cf as _cf
-from fyp.core.utils import parse_extra_data_tokens
 from fyp.scrape.failures import load_failed_scrapes
 
 logger = get_logger(__name__)

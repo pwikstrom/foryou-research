@@ -27,9 +27,9 @@ from fyp.annotation.annotation_schema import (
     build_response_schema,
 )
 from fyp.core.logging_setup import get_logger
+from fyp.core.progress_monitor import start_monitor
 from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import label
-from fyp.core.utils import start_monitor
 
 logger = get_logger(__name__)
 

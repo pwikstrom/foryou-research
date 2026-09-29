@@ -14,8 +14,12 @@ import pyarrow.compute as pc
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import create_study_recoded_dataset
+from fyp.core.activity_vocabulary import (
+    ENGAGEMENT_LABELS,
+    ENGAGEMENT_TYPES,
+    parse_extra_data_tokens,
+)
 from fyp.core.fyp_config import fyp_cf
-from fyp.core.utils import ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 
 def get_robust_bounds(series):

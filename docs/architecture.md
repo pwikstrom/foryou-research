@@ -113,7 +113,7 @@ zero orchestration edits:
   subdirectories all derive automatically.
 
 Supporting safety nets: the **structure sentinel**
-(`fyp/core/structure_sentinel.py`) learns each platform's export structure and
+(`fyp/ingest/structure_sentinel.py`) learns each platform's export structure and
 quarantines silently-drifted uploads for admin review instead of ingesting
 them (drift inside sections a file contains — sections a donor left out are
 noted, never flagged); parse failures leave files pending for retry rather

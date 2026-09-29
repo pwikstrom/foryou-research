@@ -103,7 +103,7 @@ def test_collection_metadata_without_participant_files(monkeypatch):
     the participant merge used to hard-drop AWS columns from an empty frame
     ("['url', 'iat', ...] not found in axis") and fail the whole ingest.
     """
-    from fyp.analysis import donations
+    from fyp.ingest import donations
 
     monkeypatch.setattr(donations.data_io, "listdir", lambda **kw: [])
     monkeypatch.setattr(donations, "generate_personas", lambda df: pd.DataFrame())

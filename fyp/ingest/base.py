@@ -15,28 +15,24 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 
 import fyp.core.data_io as data_io
-from fyp.analysis.donations import (
-    demographic_metadata_columns,
-    generate_collection_metadata,
-    strip_demographic_columns,
-)
-from fyp.annotation.recode_variables import infer_timezone_offset
 from fyp.core import activity_contract as _activity_contract
 from fyp.core import activity_versioning as _activity_versioning
-from fyp.core import structure_sentinel as _structure_sentinel
+from fyp.core.activity_vocabulary import KNOWN_ACTIVITY_TYPES, share_method_base
 from fyp.core.logging_setup import get_logger
 from fyp.core.polars_ops import fast_vertical_concat
 from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import label
 from fyp.core.types import convert_dtypes_to_pyarrow
-from fyp.core.utils import (
-    KNOWN_ACTIVITY_TYPES,
-    share_method_base,
-)
 from fyp.scrape import scrape_contract as _scrape_contract
 from fyp.scrape import scrape_versioning as _scrape_versioning
 
 from . import ingestion_ledger, transforms
+from . import structure_sentinel as _structure_sentinel
+from .donations import (
+    demographic_metadata_columns,
+    generate_collection_metadata,
+    strip_demographic_columns,
+)
 
 # Moved to .transforms and .ingestion_ledger; re-exported for callers of this
 # module's old surface.
@@ -267,7 +263,7 @@ class ForYouBaseCollection(ABC):
     raw_path: str | None = None
     ingestion_mode: str = "upload"
     # The activity_type values this platform's process_single can produce,
-    # all drawn from fyp.core.utils.KNOWN_ACTIVITY_TYPES. A registry test
+    # all drawn from activity_vocabulary.KNOWN_ACTIVITY_TYPES. A registry test
     # (tests/unit/test_ingest_activity_vocabulary.py) checks the declaration
     # against the class's section maps, and process() notes any file whose
     # rows fall outside it — a drifted export vintage shows up in the ledger
@@ -342,7 +338,7 @@ class ForYouBaseCollection(ABC):
         # Donor timezone for the file currently being loaded (from the manifest);
         # set per-file in load_raw so load_single_raw can honour it.
         self._current_file_tz = None
-        # Structure-drift detector for this run (fyp.core.structure_sentinel.
+        # Structure-drift detector for this run (fyp.ingest.structure_sentinel.
         # StructureSentinel), injected by run_ingest_refresh. When None, no
         # structure checks run and load_raw behaves exactly as before.
         self.sentinel = None
@@ -469,7 +465,7 @@ class ForYouBaseCollection(ABC):
             if tz is not None:
                 df["tz_offset"] = transforms.zone_offset_hours(df["utc_timestamp"], tz)
             else:
-                df["tz_offset"] = infer_timezone_offset(df["utc_timestamp"])
+                df["tz_offset"] = transforms.infer_timezone_offset(df["utc_timestamp"])
         df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
         df.reset_index(drop=True, inplace=True)
         return df
@@ -896,7 +892,7 @@ class ForYouBaseCollection(ABC):
             filename: The raw file's name within ``self.raw_path``.
 
         Returns:
-            A fingerprint dict (see :mod:`fyp.core.structure_sentinel`).
+            A fingerprint dict (see :mod:`fyp.ingest.structure_sentinel`).
         """
         lowered = filename.lower()
         if lowered.endswith(".json"):
@@ -1008,7 +1004,7 @@ class ForYouBaseCollection(ABC):
           shared tail (a donor zone from the manifest wins, otherwise it is
           inferred from the activity rhythm);
         * ``activity_type`` — a value from
-          ``fyp.core.utils.KNOWN_ACTIVITY_TYPES`` and from this class's
+          ``activity_vocabulary.KNOWN_ACTIVITY_TYPES`` and from this class's
           ``emitted_activity_types``: viewing rows (``play``, ``observe``,
           ``ad_play``) are what studies are built on; engagement rows
           (``fave`` = like, ``save`` = bookmark, ``comment``, ``share``) fold

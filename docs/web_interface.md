@@ -128,7 +128,7 @@ linked. `web_interface/services/collection_accounts.py` owns the format
 the AIO donor-data → account move (`link_aio_collections`, run by the
 ingest worker after `save_processed` and by the one-off migration
 `migrate_existing_collections`), and the rule that the AIO demographic
-fields (`fyp.analysis.donations.AIO_DEMOGRAPHIC_FIELDS`) are stripped by every
+fields (`fyp.ingest.donations.AIO_DEMOGRAPHIC_FIELDS`) are stripped by every
 writer of the collections metadata parquet. Pickers:
 `GET /api/manage/accounts`; the link is set via the upload route
 (`user_id` form field) and `POST /api/manage/collection/save_annotation`.

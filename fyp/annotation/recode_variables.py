@@ -21,6 +21,12 @@ from fyp.core.logging_setup import get_logger
 from fyp.core.runtime import cf as _cf
 from fyp.core.types import convert_dtypes_to_pyarrow
 from fyp.core.utils import record_dropped_columns
+from fyp.core.var_schema_vocab import (  # noqa: F401  (also re-exported for old callers)
+    LEGACY_ROLE_ALIASES,
+    VAR_SCHEMA_ROLES,
+    VAR_SCHEMA_SCALES,
+    normalize_role,
+)
 
 logger = get_logger(__name__)
 
@@ -60,10 +66,19 @@ _CONFIG_CONSTANT_ACCESSORS = {
 
 
 def __getattr__(name: str):
-    """Serve the config-derived module constants lazily (PEP 562)."""
+    """Serve the config-derived module constants lazily (PEP 562).
+
+    Also resolves ``infer_timezone_offset`` for callers of its old path; it
+    lives in :mod:`fyp.ingest.transforms` and is imported only on request,
+    because importing ``fyp.ingest`` boots the config this module is part of.
+    """
     accessor = _CONFIG_CONSTANT_ACCESSORS.get(name)
     if accessor is not None:
         return accessor()
+    if name == "infer_timezone_offset":
+        from fyp.ingest.transforms import infer_timezone_offset
+
+        return infer_timezone_offset
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -113,74 +128,6 @@ def rename_columns(some_events):
     return some_eventsC
 
 
-def infer_timezone_offset(timestamps: pd.Series) -> float:
-    """
-    Infers timezone offset by finding the 4-hour window with minimum activity.
-    Assumes this quietest window centers around 03:00 local time.
-
-    Args:
-        timestamps: Series of UTC timestamps
-
-    Returns:
-        Offset in hours (float) from UTC. e.g. +10.0 for Brisbane.
-    """
-    if len(timestamps) < 10:
-        return 0.0  # Not enough data to infer
-
-    # Create a DataFrame to aggregate by hour
-    df_ts = pd.DataFrame({"ts": timestamps})
-    df_ts["hour"] = df_ts["ts"].dt.hour
-
-    # Count activity per UTC hour (0-23)
-    hourly_counts = df_ts.groupby("hour").size().reindex(range(24), fill_value=0)
-
-    # We want a rolling 4-hour window sum.
-    # To handle wrap-around (e.g. 23:00 -> 02:00), we concat the counts
-    hourly_counts_ext = pd.concat([hourly_counts, hourly_counts.iloc[:3]], ignore_index=True)
-
-    # Calculate rolling sum
-    rolling_sum = hourly_counts_ext.rolling(window=4).sum()
-
-    # The result has length 24 + 3 = 27. Indices 0-2 are NaN (window size 4);
-    # index 3 covers hours [0,1,2,3] and index 26 covers [23,0,1,2].
-    # Keep the 24 valid windows (indices 3..26), one per start hour 0..23.
-    valid_sums = rolling_sum.iloc[3:].reset_index(drop=True)
-    # Index k of valid_sums sums hours [k, k+1, k+2, k+3] (mod 24).
-
-    min_val = valid_sums.min()
-    min_indices = valid_sums[valid_sums == min_val].index.tolist()
-
-    # Calculate circular mean of these indices
-    # Convert hours (indices) to angles, mean vector, convert back
-    angles = [2 * np.pi * idx / 24.0 for idx in min_indices]
-    y = np.sum(np.sin(angles))
-    x = np.sum(np.cos(angles))
-    avg_angle = np.arctan2(y, x)
-    avg_idx = avg_angle * 24.0 / (2 * np.pi)
-
-    if avg_idx < 0:
-        avg_idx += 24
-
-    # avg_idx is the start hour k of the window. Its center is taken as k + 2.0
-    # (e.g. window [2,3,4,5] -> center 4.0), and assumed to be 03:00 local.
-
-    center_utc = avg_idx + 2.0
-    if center_utc >= 24:
-        center_utc -= 24
-
-    # Offset = Local - UTC = 3.0 - Center
-    offset = 3.0 - center_utc
-
-    # Normalize to [-9, 15] to handle the date-line wrap (e.g. -11 maps to +13).
-    # The range covers West Coast US (-8) to NZ (+12/13).
-    while offset < -9:
-        offset += 24
-    while offset > 15:
-        offset -= 24
-
-    return round(offset)  # nearest hour: the inference is only a rough guess
-
-
 SEMANTIC_COLUMNS = (
     "role",
     "scale",
@@ -188,38 +135,6 @@ SEMANTIC_COLUMNS = (
 )
 
 VAR_SCHEMA_HASH_VERSION = "v3"
-
-
-# Analysis roles, keyed to the Correlations tab's unit of analysis (the
-# collection-day group):
-#   grouping   — defines the unit (collection_id, local_date)
-#   comparison — group-constant categorical compared across in the
-#                Group-differences sweep (ANOVA/PERMANOVA) and Colour-by
-#   measure    — per-item property aggregated to a group-level quantity
-#                (numeric -> day mean; categorical -> PCA components/entropy)
-#   descriptor — group-constant context carried alongside the PCA frame for
-#                hover/reference; excluded from the comparison sweep and the
-#                Colour-by dropdown
-#   skip       — hidden from analysis and recoding
-VAR_SCHEMA_ROLES = ("grouping", "comparison", "measure", "descriptor", "skip")
-
-# Legacy role vocabulary. Contract TOMLs are rewritten, but legacy
-# registry field_metadata snapshots keep the old strings on disk forever;
-# load_var_schema() normalizes every role through this map so downstream
-# matchers only ever see the new values.
-LEGACY_ROLE_ALIASES = {
-    "group_factor": "grouping",
-    "factor": "comparison",
-    "feature": "measure",
-}
-VAR_SCHEMA_SCALES = (
-    "categorical",
-    "datetime",
-    "list",
-    "numeric",
-    "raw",
-    "text",
-)
 
 
 _RECODE_FUNC_REGISTRY: dict | None = None
@@ -576,11 +491,6 @@ def compute_var_schema_hash() -> str:
         + legacy_activity_payload
     ).hexdigest()
     return f"{VAR_SCHEMA_HASH_VERSION}:{digest}"
-
-
-def normalize_role(value):
-    """Map a legacy role string to its current name (identity for new values)."""
-    return LEGACY_ROLE_ALIASES.get(value, value)
 
 
 def get_vars_by_role(

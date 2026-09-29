@@ -23,7 +23,7 @@ participant data).
 Donations arrive in three ways, all consent-first:
 
 - **External donation store**: where a study operates its own donation-intake
-  service, the automated fetch (`fyp/analysis/donations.py`) retrieves only
+  service, the automated fetch (`fyp/ingest/donations.py`) retrieves only
   records carrying an affirmative `consentProvided` flag, so a donation
   without that flag is never downloaded into the Hub. This route depends on
   an intake service that a particular deployment happens to run; a standard

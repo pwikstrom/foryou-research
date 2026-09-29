@@ -8,13 +8,13 @@ from fyp.analysis.studies import init_study_defs
 from fyp.annotation.recode_variables import (
     get_grouping_factors_from_var_schema,
 )
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.logging_setup import get_logger
 
 # Shared memory-probe implementations (fyp.core.memory); the module-private
 # aliases keep this file's many existing call sites and the
 # [RECODE][MEM]/[ENRICH PATCH][MEM] log lines unchanged.
 from fyp.core.runtime import cf as _cf
-from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = get_logger(__name__)
 

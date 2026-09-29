@@ -19,12 +19,12 @@ def run_collection_metadata_refresh(
     import pandas as pd
 
     import fyp.core.data_io as data_io
-    from fyp.analysis.donations import (
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.ingest.donations import (
         demographic_metadata_columns,
         generate_collection_metadata,
         strip_demographic_columns,
     )
-    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     _t_start = time.perf_counter()
 

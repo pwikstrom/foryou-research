@@ -1025,7 +1025,7 @@ def load_var_schema(cf, verbose=False):
     # means downstream matchers only ever see the new values.
     if "role" in cf["var_schema"].columns:
         try:
-            from fyp.annotation.recode_variables import normalize_role
+            from fyp.core.var_schema_vocab import normalize_role
 
             cf["var_schema"]["role"] = cf["var_schema"]["role"].map(
                 lambda r: normalize_role(r) if pd.notna(r) else r

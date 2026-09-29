@@ -111,7 +111,7 @@ def validate_contract(contract: dict) -> list[str]:
         errors.append("contract has no [[fields]]")
 
     try:
-        from fyp.annotation.recode_variables import (
+        from fyp.core.var_schema_vocab import (
             LEGACY_ROLE_ALIASES,
             VAR_SCHEMA_ROLES,
             VAR_SCHEMA_SCALES,

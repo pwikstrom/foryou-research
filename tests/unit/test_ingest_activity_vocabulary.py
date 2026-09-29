@@ -8,7 +8,7 @@ label map and the vocabulary drifting apart.
 """
 
 import fyp.ingest  # noqa: F401  (registers every platform class)
-from fyp.core.utils import (
+from fyp.core.activity_vocabulary import (
     ACTIVITY_TYPE_MAP,
     ENGAGEMENT_LABELS,
     ENGAGEMENT_TYPES,

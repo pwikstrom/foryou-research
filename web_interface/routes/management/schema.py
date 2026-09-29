@@ -5,14 +5,13 @@ from flask import jsonify, request
 
 from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
-    VAR_SCHEMA_ROLES,
-    VAR_SCHEMA_SCALES,
     compute_var_schema_hash,
 )
 from fyp.core.fyp_config import (
     fyp_cf,
     load_var_schema,
 )
+from fyp.core.var_schema_vocab import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
 
 from ...auth.permissions import permission_required
 from ...services import activity_log

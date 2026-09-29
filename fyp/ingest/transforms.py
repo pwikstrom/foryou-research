@@ -10,13 +10,11 @@ import re
 from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import numpy as np
 import pandas as pd
 
+from fyp.core.activity_vocabulary import ACTIVITY_TYPE_MAP, RECEIVED_ACTIVITY_TYPES
 from fyp.core.runtime import cf as _cf
-from fyp.core.utils import (
-    ACTIVITY_TYPE_MAP,
-    RECEIVED_ACTIVITY_TYPES,
-)
 
 WEEKDAY_MAPPER = {
     1: "monday",
@@ -34,6 +32,74 @@ WEEKDAY_MAPPER = {
 MANIFEST_TZ_COLUMN = "manifest_tz"
 
 _FIXED_OFFSET_RE = re.compile(r"^([+-])(\d{1,2})(?::?(\d{2}))?$")
+
+
+def infer_timezone_offset(timestamps: pd.Series) -> float:
+    """
+    Infers timezone offset by finding the 4-hour window with minimum activity.
+    Assumes this quietest window centers around 03:00 local time.
+
+    Args:
+        timestamps: Series of UTC timestamps
+
+    Returns:
+        Offset in hours (float) from UTC. e.g. +10.0 for Brisbane.
+    """
+    if len(timestamps) < 10:
+        return 0.0  # Not enough data to infer
+
+    # Create a DataFrame to aggregate by hour
+    df_ts = pd.DataFrame({"ts": timestamps})
+    df_ts["hour"] = df_ts["ts"].dt.hour
+
+    # Count activity per UTC hour (0-23)
+    hourly_counts = df_ts.groupby("hour").size().reindex(range(24), fill_value=0)
+
+    # We want a rolling 4-hour window sum.
+    # To handle wrap-around (e.g. 23:00 -> 02:00), we concat the counts
+    hourly_counts_ext = pd.concat([hourly_counts, hourly_counts.iloc[:3]], ignore_index=True)
+
+    # Calculate rolling sum
+    rolling_sum = hourly_counts_ext.rolling(window=4).sum()
+
+    # The result has length 24 + 3 = 27. Indices 0-2 are NaN (window size 4);
+    # index 3 covers hours [0,1,2,3] and index 26 covers [23,0,1,2].
+    # Keep the 24 valid windows (indices 3..26), one per start hour 0..23.
+    valid_sums = rolling_sum.iloc[3:].reset_index(drop=True)
+    # Index k of valid_sums sums hours [k, k+1, k+2, k+3] (mod 24).
+
+    min_val = valid_sums.min()
+    min_indices = valid_sums[valid_sums == min_val].index.tolist()
+
+    # Calculate circular mean of these indices
+    # Convert hours (indices) to angles, mean vector, convert back
+    angles = [2 * np.pi * idx / 24.0 for idx in min_indices]
+    y = np.sum(np.sin(angles))
+    x = np.sum(np.cos(angles))
+    avg_angle = np.arctan2(y, x)
+    avg_idx = avg_angle * 24.0 / (2 * np.pi)
+
+    if avg_idx < 0:
+        avg_idx += 24
+
+    # avg_idx is the start hour k of the window. Its center is taken as k + 2.0
+    # (e.g. window [2,3,4,5] -> center 4.0), and assumed to be 03:00 local.
+
+    center_utc = avg_idx + 2.0
+    if center_utc >= 24:
+        center_utc -= 24
+
+    # Offset = Local - UTC = 3.0 - Center
+    offset = 3.0 - center_utc
+
+    # Normalize to [-9, 15] to handle the date-line wrap (e.g. -11 maps to +13).
+    # The range covers West Coast US (-8) to NZ (+12/13).
+    while offset < -9:
+        offset += 24
+    while offset > 15:
+        offset -= 24
+
+    return round(offset)  # nearest hour: the inference is only a rough guess
 
 
 def parse_donor_timezone(tz_str: str | None):

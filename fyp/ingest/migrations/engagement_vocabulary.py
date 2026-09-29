@@ -35,8 +35,8 @@ from types import SimpleNamespace
 import pandas as pd
 
 from fyp.core import activity_versioning as _activity_versioning
+from fyp.core.activity_vocabulary import share_method_with_count
 from fyp.core.logging_setup import get_logger
-from fyp.core.utils import share_method_with_count
 from fyp.ingest.base import ForYouBaseCollection
 from fyp.ingest.tiktok import TikTokDDPCollection
 from fyp.ingest.transforms import assign_session_ids, derive_play_duration

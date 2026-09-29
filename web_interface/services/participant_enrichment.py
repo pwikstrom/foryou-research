@@ -41,7 +41,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
-from fyp.core.utils import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 
 logger = logging.getLogger(__name__)
 

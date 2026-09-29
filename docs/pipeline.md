@@ -187,7 +187,7 @@ only logged.
 
 ### Structure sentinel
 
-`fyp/core/structure_sentinel.py` quarantines silent format drift instead of
+`fyp/ingest/structure_sentinel.py` quarantines silent format drift instead of
 ingesting it. It learns each (platform, data_source)'s upload structure —
 zip members, typed JSON key paths (direct-message partner names and record
 ids used as keys collapse to `chat history with *` and `<id>`), HTML markers

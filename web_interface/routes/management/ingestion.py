@@ -451,7 +451,7 @@ def unskip_ingestion_ledger_entry():
 @permission_required("tab.data_management.ingestion")
 def structure_warnings():
     """List structure-drift verdicts awaiting review (quarantined + warned files)."""
-    from fyp.core import structure_sentinel
+    from fyp.ingest import structure_sentinel
 
     try:
         queue = structure_sentinel.review_queue()
@@ -472,7 +472,7 @@ def structure_approve():
     """Approve a quarantined file: fold its structure into the learned baseline
     and drop its ledger entry so the next ingestion run ingests it.
     """
-    from fyp.core import structure_sentinel
+    from fyp.ingest import structure_sentinel
 
     payload = request.get_json(silent=True) or {}
     filename = (payload.get("filename") or "").strip()
@@ -515,7 +515,7 @@ def structure_approve():
 @permission_required("tab.data_management.ingestion")
 def structure_reject():
     """Reject a quarantined file: mark it manually excluded so it never ingests."""
-    from fyp.core import structure_sentinel
+    from fyp.ingest import structure_sentinel
 
     payload = request.get_json(silent=True) or {}
     filename = (payload.get("filename") or "").strip()

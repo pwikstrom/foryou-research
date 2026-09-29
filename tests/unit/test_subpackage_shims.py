@@ -49,7 +49,7 @@ ALIASED_MOVES = {
     "fyp.activity_contract": "fyp.core.activity_contract",
     "fyp.activity_versioning": "fyp.core.activity_versioning",
     "fyp.derived_contract": "fyp.core.derived_contract",
-    "fyp.structure_sentinel": "fyp.core.structure_sentinel",
+    "fyp.structure_sentinel": "fyp.ingest.structure_sentinel",
     # scrape (satellites; fyp.scrape itself becomes a package, not an alias)
     "fyp.platform_scraper": "fyp.scrape.platform_scraper",
     "fyp.tiktok_dl": "fyp.scrape.tiktok_dl",
@@ -84,7 +84,7 @@ ALIASED_MOVES = {
     "fyp.calc_collection_stats": "fyp.analysis.calc_collection_stats",
     "fyp.studies": "fyp.analysis.studies",
     "fyp.organize_datasets": "fyp.analysis.organize_datasets",
-    "fyp.donations": "fyp.analysis.donations",
+    "fyp.donations": "fyp.ingest.donations",
 }
 
 # Functional probe: exercises exactly the bindings that shim poisoning would

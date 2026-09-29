@@ -14,8 +14,8 @@ from cachetools import LRUCache
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.studies import init_study_defs, is_composed_study, participant_me_name
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.fyp_config import fyp_cf
-from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from . import explorer_backend as explorer
 

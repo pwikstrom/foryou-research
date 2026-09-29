@@ -11,7 +11,7 @@ overwritten by that run's verdict commit. These tests pin both fixes.
 import pandas as pd
 import pytest
 
-import fyp.core.structure_sentinel as ss
+import fyp.ingest.structure_sentinel as ss
 
 
 class FakeCollection:

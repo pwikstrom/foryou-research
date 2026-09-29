@@ -111,7 +111,7 @@ def test_metadata_identical_to_pre_migration():
     frozen pre-rename snapshot ("feature"), and the 2026-08 vocabulary rename
     ("measure") was a deliberate, hash-versioned change (v3).
     """
-    from fyp.annotation.recode_variables import normalize_role
+    from fyp.core.var_schema_vocab import normalize_role
 
     old = json.loads(METADATA_V1.read_text(encoding="utf-8"))
     new = ac.contract_column_metadata(_baked_contract())

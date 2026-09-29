@@ -8,7 +8,7 @@ or run synchronously as a subprocess in local dev.
 import time
 from datetime import UTC, datetime
 
-from fyp.core.utils import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from web_interface.tasks.task_status import TaskStatusReporter
 
 

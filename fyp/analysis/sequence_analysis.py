@@ -29,7 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from fyp.core.utils import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 
 # --- Tuning constants -----------------------------------------------------
 

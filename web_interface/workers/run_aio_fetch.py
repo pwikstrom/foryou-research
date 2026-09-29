@@ -15,7 +15,7 @@ def run_aio_fetch(reporter: TaskStatusReporter, task_args: dict | None = None) -
     request. AWS credentials are read from environment variables (loaded
     from Secret Manager on Cloud Run, ~/.aws/credentials locally).
     """
-    from fyp.analysis.donations import (
+    from fyp.ingest.donations import (
         get_donation_metadata_from_aio_aws,
         get_recent_data_donations_from_aio_aws,
     )

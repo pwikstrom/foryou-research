@@ -18,7 +18,7 @@ import pandas as pd
 
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.core import data_io
-from fyp.core.utils import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 

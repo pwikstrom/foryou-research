@@ -15,8 +15,8 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.analysis.datasets.common import SAMPLE_NO_CAP, parse_sample_threshold
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL, create_study_recoded_dataset
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.artifacts import load_enrichment_status
-from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from ..tasks.process_manager import (
     load_process_stats,

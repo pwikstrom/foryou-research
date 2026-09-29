@@ -287,11 +287,14 @@ foryou-research/
 │   │   ├── types.py             # PyArrow dtype helpers and conversion
 │   │   ├── polars_ops.py        # Polars helpers for expensive pandas ops at scale
 │   │   ├── memory.py            # RSS/peak probes + mem_probe() ([<TAG>][MEM] log lines)
-│   │   ├── utils.py             # Shared utilities, incl. the activity vocabulary and zip/mojibake helpers
+│   │   ├── utils.py             # Shared utilities: connectivity probe, fuzzy matching, zip/mojibake helpers
+│   │   ├── activity_vocabulary.py # Activity types, engagement labels and tokens
+│   │   ├── progress_monitor.py  # Live progress bar for a batch of concurrent futures
+│   │   ├── var_schema_vocab.py  # var_schema roles, scales and legacy role names
+│   │   ├── artifacts.py         # Shared artifact names and readers (enrichment_status)
 │   │   ├── media_paths.py       # Platform-aware media paths + resolve_media() legacy fallback
 │   │   ├── logging_setup.py     # get_logger(): stdout logging, bare %(message)s, level from FYP_LOG_LEVEL
 │   │   ├── registry_metadata.py # Per-version field_metadata snapshots + union helpers for the registries
-│   │   ├── structure_sentinel.py  # DDP structure-drift detection, quarantine and review flow
 │   │   ├── activity_contract.py # Loads/validates activity_contract.toml
 │   │   ├── activity_versioning.py # Activity-contract version registry (acv_)
 │   │   └── derived_contract.py  # Loads/validates derived_contract.toml
@@ -299,6 +302,8 @@ foryou-research/
 │   │   ├── base.py              # ForYouBaseCollection ABC, load loop, per-file intake stats
 │   │   ├── transforms.py        # Row transforms: time zones, local-time features, session ids, play durations
 │   │   ├── ingestion_ledger.py  # The per-file ingestion ledger (skip outcomes + the collection's ledger methods)
+│   │   ├── structure_sentinel.py  # DDP structure-drift detection, quarantine and review flow
+│   │   ├── donations.py         # AIO/AWS donation fetch + participant metadata
 │   │   ├── raw_names.py         # Generated identities for raw uploads (stored names, collection ids, display ids)
 │   │   ├── migrations/          # One-off rewrites of stored activity data (testable half of scripts/migrate_*.py)
 │   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection
@@ -337,7 +342,6 @@ foryou-research/
 │   └── analysis/
 │       ├── organize_datasets.py # Dataset build entry points (create_study_recoded_dataset ...)
 │       ├── datasets/            # Dataset build steps: loading, sampling, merge, refresh sidecars, enrichment status
-│       ├── donations.py         # Donation-level data handling (AIO/AWS fetch, collection metadata)
 │       ├── calc_collection_stats.py  # Donation-level statistics
 │       ├── activity_analysis.py # Activity-based analysis
 │       ├── experimental/        # Research analyses the app does not use: niche_detection, session_profile, sequence_model

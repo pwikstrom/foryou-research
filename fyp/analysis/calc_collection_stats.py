@@ -7,8 +7,8 @@ events frame.
 import pandas as pd
 
 from fyp.analysis.activity_analysis import analyze_activity_peak
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.logging_setup import get_logger
-from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = get_logger(__name__)
 

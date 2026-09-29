@@ -8,10 +8,10 @@ import time
 
 import pandas as pd
 
-from fyp.core.structure_sentinel import StructureSentinel, findings_digest
-from fyp.core.utils import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
 from fyp.ingest.ingestion_ledger import BLOCKED_OUTCOME
+from fyp.ingest.structure_sentinel import StructureSentinel, findings_digest
 from web_interface.tasks.task_status import TaskStatusReporter
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.
@@ -523,7 +523,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # placeholder) and fill the profile. A failure here must not fail the
     # ingest — the link can be made later from Edit Collections.
     try:
-        from fyp.analysis.donations import load_aio_participant_metadata
+        from fyp.ingest.donations import load_aio_participant_metadata
         from web_interface.services.collection_accounts import (
             link_aio_collections,
             summarize_report,

@@ -191,7 +191,7 @@ platform requires an authenticated session.
 
 ### 8. Structure sentinel baselines
 
-The sentinel (`fyp/core/structure_sentinel.py`) learns donation-export
+The sentinel (`fyp/ingest/structure_sentinel.py`) learns donation-export
 structure per `(source_platform, data_source)` and quarantines drifted
 uploads. Drift means a change inside a section the file contains — a known
 field missing from a present record, or a path back with another type;

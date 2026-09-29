@@ -2029,7 +2029,7 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
     summary, the ledger update and the sentinel commit. Returns what the
     caller needs to describe the step.
     """
-    from fyp.core.structure_sentinel import StructureSentinel
+    from fyp.ingest.structure_sentinel import StructureSentinel
     from web_interface.workers.run_ingest_refresh import (
         build_per_file_summary,
         per_file_counts,
@@ -2170,8 +2170,8 @@ def replay(
     Returns:
         ``(steps, links, unification, main_collection)``.
     """
-    import fyp.core.structure_sentinel as sentinel_mod
     import fyp.ingest.instagram as instagram_mod
+    import fyp.ingest.structure_sentinel as sentinel_mod
     import fyp.ingest.tiktok as tiktok_mod
     import fyp.ingest.youtube as youtube_mod
     from fyp.core.fyp_config import get_config

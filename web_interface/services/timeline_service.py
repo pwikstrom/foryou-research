@@ -7,8 +7,13 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
+from fyp.core.activity_vocabulary import (
+    ACTIVITY_TYPE_MAP,
+    ENGAGEMENT_LABELS,
+    ENGAGEMENT_TYPES,
+    VIDEO_VIEW_TYPES,
+)
 from fyp.core.fyp_config import fyp_cf
-from fyp.core.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, VIDEO_VIEW_TYPES
 
 from . import explorer_backend as explorer
 from .study_data import get_study_sidecar

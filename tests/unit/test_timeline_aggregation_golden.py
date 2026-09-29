@@ -287,7 +287,7 @@ if __name__ == "__main__":
 def test_engagement_breakdown_columns_follow_the_vocabulary():
     """One int column per ENGAGEMENT_TYPES; tokens are counted per occurrence
     on the kept play rows; a context suffix ("share:copy_link") is ignored."""
-    from fyp.core.utils import ENGAGEMENT_TYPES
+    from fyp.core.activity_vocabulary import ENGAGEMENT_TYPES
 
     agg = ts.aggregate_timeline_frame(_frame(), VIZ, collection_id="t").set_index("period")
     assert set(ENGAGEMENT_TYPES) <= set(agg.columns)

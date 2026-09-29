@@ -10,9 +10,10 @@ import copy
 from datetime import datetime, timezone
 
 import fyp.core.data_io as data_io
-from fyp.core import structure_sentinel as _structure_sentinel
 from fyp.core.logging_setup import get_logger
 from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
+
+from . import structure_sentinel as _structure_sentinel
 
 logger = get_logger(__name__)
 

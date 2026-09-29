@@ -63,7 +63,7 @@ PARQUET_FILENAME = "collections_recoded.parquet"
 PARSER_PATHS = (
     "fyp/ingest",
     "fyp/ingest.py",
-    "fyp/core/structure_sentinel.py",
+    "fyp/ingest/structure_sentinel.py",
     "fyp/structure_sentinel.py",
 )
 SESSION_GAPS = (300, 900, 1800)
@@ -703,8 +703,7 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
     file's rows whose true offset differs from the offset at the median
     event, i.e. the rows a per-file constant gets wrong even when it agrees.
     """
-    from fyp.annotation.recode_variables import infer_timezone_offset
-    from fyp.ingest.transforms import parse_donor_timezone, zone_offset_hours
+    from fyp.ingest.transforms import infer_timezone_offset, parse_donor_timezone, zone_offset_hours
 
     # Materialise as a numpy tz-aware series: an Arrow-backed column from the
     # parquet reader compares per-row offsets differently and misreports the

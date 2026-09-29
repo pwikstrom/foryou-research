@@ -14,9 +14,10 @@ import numpy as np
 import pandas as pd
 
 import fyp.core.data_io as data_io
+from fyp.core.activity_vocabulary import share_method_with_count
 from fyp.core.logging_setup import get_logger
 from fyp.core.runtime import is_cloud_run
-from fyp.core.utils import clean_url, share_method_with_count
+from fyp.core.utils import clean_url
 from fyp.ingest.base import ForYouBaseCollection
 from fyp.ingest.transforms import derive_play_duration
 
@@ -592,7 +593,7 @@ class TikTokAIOCollection(TikTokDDPCollection):
         self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None
     ):
         """Fetch recent donations and participant metadata from AWS, then load files."""
-        from fyp.analysis.donations import (
+        from .donations import (
             get_donation_metadata_from_aio_aws,
             get_recent_data_donations_from_aio_aws,
         )

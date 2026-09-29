@@ -372,7 +372,7 @@ def test_cid_remap_carries_user_id():
 
 
 def test_strip_demographic_columns_handles_tuple_and_string_labels():
-    from fyp.analysis.donations import strip_demographic_columns
+    from fyp.ingest.donations import strip_demographic_columns
 
     df = pd.DataFrame(
         {

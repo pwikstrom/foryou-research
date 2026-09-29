@@ -545,9 +545,9 @@ def test_calibration_reports_the_other_dst_half_and_stored_offsets():
 
 
 def test_calibration_difference_wraps_around_the_day(monkeypatch):
-    import fyp.annotation.recode_variables as rv
+    import fyp.ingest.transforms as transforms
 
-    monkeypatch.setattr(rv, "infer_timezone_offset", lambda utc: -10.0)
+    monkeypatch.setattr(transforms, "infer_timezone_offset", lambda utc: -10.0)
     utc = pd.to_datetime(["2025-06-15 12:00:00"] * 5, utc=True)
     out = ir.calibrate_one_file(utc, "Australia/Brisbane")
     assert out["diff"] == 4.0  # -10 against +10 is four hours off, not twenty

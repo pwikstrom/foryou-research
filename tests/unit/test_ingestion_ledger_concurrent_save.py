@@ -97,7 +97,7 @@ def test_quarantine_reviewed_after_evaluation_is_not_written(recoded, monkeypatc
     """The run quarantines a NEW file; the admin approves it before the run
     saves. The approval's ledger removal found nothing to remove (the entry
     did not exist yet), so the run itself must hold the entry back."""
-    from fyp.core import structure_sentinel as ss
+    from fyp.ingest import structure_sentinel as ss
 
     _write(recoded, {})
     run = ForYouCollection(verbose=False)

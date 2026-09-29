@@ -19,6 +19,7 @@ from fyp.analysis.studies import init_study_defs
 from fyp.annotation.recode_variables import (
     compute_var_schema_hash,
 )
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.logging_setup import get_logger
 
@@ -26,7 +27,6 @@ from fyp.core.logging_setup import get_logger
 # aliases keep this file's many existing call sites and the
 # [RECODE][MEM]/[ENRICH PATCH][MEM] log lines unchanged.
 from fyp.core.runtime import cf as _cf
-from fyp.core.utils import VIDEO_VIEW_TYPES
 from fyp.scrape.failures import load_failed_scrapes
 
 logger = get_logger(__name__)

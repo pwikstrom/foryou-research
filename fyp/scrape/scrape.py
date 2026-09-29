@@ -20,9 +20,10 @@ import fyp.core.data_io as data_io
 import fyp.core.media_paths as media_paths
 from fyp.annotation.recode_variables import recode_events_df, rename_columns
 from fyp.core.logging_setup import get_logger
+from fyp.core.progress_monitor import start_monitor
 from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
-from fyp.core.utils import chunk_list, record_dropped_columns, start_monitor
+from fyp.core.utils import chunk_list, record_dropped_columns
 from fyp.scrape import connectivity, scrape_queues, scrape_versioning, scraper_alerts
 
 # Consolidation and the failed-scrapes ledger moved to their own modules;

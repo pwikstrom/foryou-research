@@ -444,7 +444,7 @@ def test_structure_sentinel_check_follows_the_review_queue(monkeypatch):
     pointing at a Structure review panel that (correctly) had nothing on it.
     The check must grade only what the panel shows: quarantined red (data
     held back), warn yellow (ingested, wants a look), reviewed nothing."""
-    import fyp.core.structure_sentinel as ss
+    import fyp.ingest.structure_sentinel as ss
     from web_interface.services.ops_report import _structure_review_check
 
     verdicts = {

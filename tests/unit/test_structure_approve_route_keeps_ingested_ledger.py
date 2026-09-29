@@ -50,7 +50,7 @@ class _Main:
 
 
 def _wire(monkeypatch, main):
-    from fyp.core import structure_sentinel as ss
+    from fyp.ingest import structure_sentinel as ss
     from web_interface.routes.management import ingestion as mod
 
     monkeypatch.setattr(

@@ -403,7 +403,7 @@ def get_annotation_contract_parsed():
             return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
         status = ac.contract_status()
         try:
-            from fyp.annotation.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+            from fyp.core.var_schema_vocab import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
 
             roles, scales = list(VAR_SCHEMA_ROLES), list(VAR_SCHEMA_SCALES)
         except Exception:

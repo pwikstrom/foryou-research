@@ -286,10 +286,9 @@ def validate_contract(contract: dict) -> list[str]:
     if not fields:
         errors.append("contract has no [[fields]]")
 
-    # var_schema role/scale vocabularies live in recode_variables; import lazily so
-    # this module never pulls in fyp_config (which recode_variables imports) at load.
+    # var_schema role/scale vocabularies (fyp.core.var_schema_vocab).
     try:
-        from fyp.annotation.recode_variables import (
+        from fyp.core.var_schema_vocab import (
             LEGACY_ROLE_ALIASES,
             VAR_SCHEMA_ROLES,
             VAR_SCHEMA_SCALES,

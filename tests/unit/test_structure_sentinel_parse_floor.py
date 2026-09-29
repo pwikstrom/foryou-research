@@ -12,7 +12,7 @@ Activity does not trip it once those rows are counted as such.
 import pandas as pd
 import pytest
 
-import fyp.core.structure_sentinel as ss
+import fyp.ingest.structure_sentinel as ss
 
 
 class FakeCollection:
