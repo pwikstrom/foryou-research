@@ -13,7 +13,7 @@ Also pins the ledger-note helper that carries a parser's per-file notes
 import pandas as pd
 
 from fyp.ingest.base import ForYouCollection
-from web_interface.run_ingest_refresh import _withheld_note
+from web_interface.workers.run_ingest_refresh import _withheld_note
 
 
 def _rows(raw_file: str, cid: str, tz: int, added: str, n: int = 20) -> pd.DataFrame:

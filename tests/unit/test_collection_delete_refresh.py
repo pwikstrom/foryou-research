@@ -13,7 +13,7 @@ import pytest
 
 
 def test_refresh_targets_skip_removed_and_composed_studies():
-    from web_interface.run_collection_delete import _refresh_targets
+    from web_interface.workers.run_collection_delete import _refresh_targets
 
     defs = {
         "kept": {"SELECTED_COLLECTIONS": []},
@@ -28,7 +28,7 @@ def test_reconciliation_runs_before_the_refresh_dispatch():
     """Order in the worker source: the participant sync precedes step 10."""
     import inspect
 
-    from web_interface import run_collection_delete as mod
+    from web_interface.workers import run_collection_delete as mod
 
     src = inspect.getsource(mod.run_collection_delete)
     assert src.index("sync_for_cids(") < src.index("_refresh_targets(affected_studies")
@@ -37,7 +37,7 @@ def test_reconciliation_runs_before_the_refresh_dispatch():
 def test_study_refresh_of_a_vanished_study_is_a_noop(monkeypatch):
     import fyp.analysis.studies as studies
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.run_study_refresh import run_study_refresh
+    from web_interface.workers.run_study_refresh import run_study_refresh
 
     monkeypatch.setattr(studies, "init_study_defs", lambda: None)
     monkeypatch.setitem(fyp_cf, "study_defs", {"other": {}})

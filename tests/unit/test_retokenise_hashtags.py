@@ -20,7 +20,7 @@ import pyarrow as pa
 
 from fyp.annotation import irrelevant_words as iw
 from fyp.annotation.recode_variables import recode_tokenise
-from web_interface import run_retokenise_hashtags as worker
+from web_interface.workers import run_retokenise_hashtags as worker
 
 _LIST_STR = pd.ArrowDtype(pa.list_(pa.string()))
 

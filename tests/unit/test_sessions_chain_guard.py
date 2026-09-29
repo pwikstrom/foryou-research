@@ -13,7 +13,7 @@ anti-partial-publish guard. Two defences:
 """
 
 import fyp.core.data_io as data_io
-from web_interface import run_sessions_refresh as rsr
+from web_interface.workers import run_sessions_refresh as rsr
 
 
 def _fake_update_json(store: dict):

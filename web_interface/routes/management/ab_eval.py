@@ -655,7 +655,7 @@ def start_ab_eval_run():
             task_args["arms_spec"] = arms_spec
         success, msg = start_process(
             "ab_eval",
-            worker_registry.worker_script("ab_eval"),
+            worker_registry.worker_module("ab_eval"),
             task_args=task_args,
             started_by=_actor(),
         )

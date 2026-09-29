@@ -53,7 +53,7 @@ sys.path.insert(0, str(project_root))
 import web_interface.services.refresh_pipeline as rp
 import web_interface.tasks.runtime as runtime
 from web_interface.routes.management_routes import PIPELINE_STEPS_ORDER
-from web_interface.tasks.process_manager import local_pipeline_script_map
+from web_interface.tasks.process_manager import local_pipeline_module_map
 
 PASS = 0
 FAIL = 0
@@ -131,7 +131,7 @@ def test_every_step_has_a_stage_label():
 
 
 def test_every_step_has_a_local_script():
-    script_map = local_pipeline_script_map()
+    script_map = local_pipeline_module_map()
     missing = [s for s in rp.DOWNSTREAM_ORDER if s not in script_map]
     extra = [s for s in script_map if s not in rp.DOWNSTREAM_ORDER]
     _check(

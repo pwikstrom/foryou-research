@@ -10,15 +10,8 @@ empty.
 """
 
 import os
-import sys
 import time
 import uuid
-from pathlib import Path
-
-# Add project root to sys.path
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
 
 from web_interface.tasks import worker_registry
 from web_interface.tasks.task_status import TaskStatusReporter

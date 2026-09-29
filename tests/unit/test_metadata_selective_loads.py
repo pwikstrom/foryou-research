@@ -4,7 +4,7 @@ expect after switching to load_parquet_selective().
 Mirrors the exact arguments used in:
   - web_interface/data_service.py:745
   - web_interface/routes/data_routes.py:1707
-  - web_interface/run_timelines_refresh.py:98
+  - web_interface/workers/run_timelines_refresh.py:98
 """
 
 import sys

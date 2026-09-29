@@ -369,8 +369,8 @@ def monitor_process_completion(name, proc):
             print(f"[{name}] Local refresh-run advance skipped: {exc}")
 
 
-def local_pipeline_script_map() -> dict:
-    """Map each downstream pipeline task name to its subprocess script path.
+def local_pipeline_module_map() -> dict:
+    """Map each downstream pipeline task name to the module its subprocess runs.
 
     Used by the local-dev sequential run driver (:func:`run_local_refresh_run`).
     Every dispatchable step of the refresh pipeline must have an entry here, or
@@ -378,7 +378,7 @@ def local_pipeline_script_map() -> dict:
     invariant is unit-testable against the registry.
     """
     return {
-        name: spec.script for name, spec in worker_registry.WORKERS.items() if spec.pipeline_step
+        name: spec.module for name, spec in worker_registry.WORKERS.items() if spec.pipeline_step
     }
 
 
@@ -410,7 +410,7 @@ def run_local_refresh_run(
         _publish_local_run_summary(run_id)
         return
 
-    script_map = local_pipeline_script_map()
+    module_map = local_pipeline_module_map()
 
     while True:
         record = refresh_pipeline.load_run()
@@ -447,14 +447,14 @@ def run_local_refresh_run(
         dispatched: dict[str, dict] = {}
         failed_at = None
         for step_name, step_args in targets:
-            script_path = script_map.get(step_name)
-            if script_path is None:
+            module = module_map.get(step_name)
+            if module is None:
                 print(f"[refresh-run] Unknown step {step_name}; stopping.")
                 failed_at = step_name
                 break
             success, msg = start_process(
                 step_name,
-                script_path,
+                module,
                 args=_task_args_to_cli(step_name, step_args),
                 started_by=f"auto-pipeline (after {record.get('origin')})",
             )
@@ -739,7 +739,7 @@ def _journal_worker_started(name: str, started_by: str, task_args: dict | None) 
 
 def start_process(
     name: str,
-    script_path,
+    module: str | None,
     args: list = [],
     study_name: str | None = None,
     task_args: dict | None = None,
@@ -751,7 +751,9 @@ def start_process(
 
     Args:
         name: Registered process name.
-        script_path: Path to the worker script (subprocess mode).
+        module: The worker's module, run as ``python -m`` in subprocess mode
+            (``worker_registry.worker_module(name)``); None from callers that
+            only ever dispatch on Cloud Run.
         args: CLI argument list for the worker.
         study_name: Study this run targets, when applicable.
         task_args: Pre-built Cloud Tasks arguments; derived from ``args`` when omitted.
@@ -914,7 +916,7 @@ def start_process(
     if not args and task_args:
         args = list(_task_args_to_cli(name, task_args))
 
-    cmd = [PYTHON_EXEC, "-u", str(script_path)] + args
+    cmd = [PYTHON_EXEC, "-u", "-m", module] + args
 
     try:
         proc = subprocess.Popen(

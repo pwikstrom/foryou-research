@@ -236,7 +236,7 @@ def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
         args = ["--platform", name[len("queue_scraper_") :]]
     return start_process(
         name,
-        worker_registry.worker_script(name),
+        worker_registry.worker_module(name),
         args,
         task_args=task_args or {},
         started_by="enrichment_supervisor",
@@ -1186,7 +1186,7 @@ def _auto_cycle_items(
         The effective cycle_items; 0 when pending work already covers the
         target, or the target is met (the caller tells the two apart).
     """
-    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+    from web_interface.workers.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
 
     settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     target = int(settings.get("annotation_target") or 0)

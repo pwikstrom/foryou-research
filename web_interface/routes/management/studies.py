@@ -422,8 +422,8 @@ def save_study():
         # in-process status via `/api/status/study_refresh/<name>`.
         import threading as _threading
 
-        from web_interface.run_study_refresh import run_study_refresh
         from web_interface.tasks.task_status import LocalThreadStatusReporter
+        from web_interface.workers.run_study_refresh import run_study_refresh
 
         status_key = f"study_refresh__{study_name}"
         reporter = LocalThreadStatusReporter(status_key)
@@ -446,7 +446,7 @@ def save_study():
             try:
                 ok, start_msg = start_process(
                     "sessions_refresh",
-                    worker_registry.worker_script("sessions_refresh"),
+                    worker_registry.worker_module("sessions_refresh"),
                     task_args={"stale_only": True, "skip_if_busy": True},
                     started_by=_actor_name,
                 )

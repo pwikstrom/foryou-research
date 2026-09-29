@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pytest
 
-import web_interface.run_consolidate_enrichment as rce
+import web_interface.workers.run_consolidate_enrichment as rce
 
 
 class _Reporter:

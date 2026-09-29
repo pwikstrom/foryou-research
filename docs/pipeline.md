@@ -662,7 +662,7 @@ Downloaded media is queued (`to_annotate.json`) and sent to the active
 annotation backend, driven by a prompt + structured response schema
 generated from `config/annotation_contract.toml` (`annotation_schema.py`).
 Annotation runs as a self-chaining Cloud Task
-(`web_interface/run_queue_annotator.py`), one batch per task.
+(`web_interface/workers/run_queue_annotator.py`), one batch per task.
 
 Annotation covers every platform. Eligibility is decided at queue entry
 (`management_routes`): `scraped_ok` AND `video_downloaded` AND under
@@ -840,7 +840,7 @@ operator enables it.
 ### Automatic per-collection enrichment
 
 An armed collection is enriched unattended by a *supervisor* loop
-(`web_interface/run_enrichment_supervisor.py` +
+(`web_interface/workers/run_enrichment_supervisor.py` +
 `web_interface/services/collection_enrichment.py`; how the worker itself
 runs is in [web_interface.md](web_interface.md#background-workers)). Each
 short tick either starts a queue worker, consolidates, hands newly scraped
@@ -1125,7 +1125,7 @@ The Sessions tab's artifacts (session index, binge episodes, low-entropy
 windows, and a `sessions_plays.parquet` detail fast path) are built by
 `fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a dense
 random-access embedding sidecar (`fyp/analysis/embedding_store.py`), by the
-`sessions_refresh` worker (`web_interface/run_sessions_refresh.py`), a
+`sessions_refresh` worker (`web_interface/workers/run_sessions_refresh.py`), a
 self-chaining Cloud Task with O(batch) memory. Each link segments a few
 collections against the sidecar and writes per-link shards; the final link
 folds them into the artifacts. The chain pins one corpus-mean fingerprint at

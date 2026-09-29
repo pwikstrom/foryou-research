@@ -3,13 +3,7 @@
 See :mod:`web_interface.services.ops_report`. Runs as a Cloud Task on the
 task-runner service, or as a local subprocess."""
 
-import sys
 import time
-from pathlib import Path
-
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
 
 from web_interface.tasks.task_status import TaskStatusReporter
 

@@ -1,5 +1,7 @@
 """Registration invariants for the sessions_refresh background worker."""
 
+import importlib.util
+
 
 def test_sessions_refresh_registered_everywhere():
     from web_interface.tasks import process_manager, runtime
@@ -14,7 +16,7 @@ def test_sessions_refresh_registered_everywhere():
 
 
 def test_sessions_refresh_script_constant():
-    from web_interface.tasks.worker_registry import worker_script
+    from web_interface.tasks.worker_registry import worker_module
 
-    assert worker_script("sessions_refresh").name == "run_sessions_refresh.py"
-    assert worker_script("sessions_refresh").exists()
+    assert worker_module("sessions_refresh") == "web_interface.workers.run_sessions_refresh"
+    assert importlib.util.find_spec(worker_module("sessions_refresh"))

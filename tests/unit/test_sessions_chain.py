@@ -18,7 +18,7 @@ import pytest
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
 from fyp.analysis import session_explorer as se
-from web_interface import run_sessions_refresh as worker
+from web_interface.workers import run_sessions_refresh as worker
 
 DIM = 8
 

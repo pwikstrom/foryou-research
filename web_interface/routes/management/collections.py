@@ -155,7 +155,7 @@ def delete_collection():
 
     success, msg = start_process(
         "collection_delete",
-        worker_registry.worker_script("collection_delete"),
+        worker_registry.worker_module("collection_delete"),
         task_args={"collection_ids": collection_ids},
         started_by=_actor(),
     )
@@ -623,7 +623,7 @@ def _tick_now(cid: str) -> dict:
             prev_start = (ce.last_tick() or {}).get("start_time")
             success, msg = start_process(
                 "enrichment_supervisor",
-                worker_registry.worker_script("enrichment_supervisor"),
+                worker_registry.worker_module("enrichment_supervisor"),
                 args=["--collection-id", cid],
                 task_args={"collection_id": cid},
                 started_by=_actor(),
@@ -633,7 +633,7 @@ def _tick_now(cid: str) -> dict:
                 "message": msg,
                 "prev_start_time": prev_start,
             }
-        from ...run_enrichment_supervisor import run_enrichment_supervisor
+        from ...workers.run_enrichment_supervisor import run_enrichment_supervisor
 
         outcome: dict = {}
 
@@ -889,7 +889,7 @@ def tick_collection_enrichment(collection_id):
         prev_start = (ce.last_tick() or {}).get("start_time")
         success, msg = start_process(
             "enrichment_supervisor",
-            worker_registry.worker_script("enrichment_supervisor"),
+            worker_registry.worker_module("enrichment_supervisor"),
             args=["--collection-id", cid],
             task_args={"collection_id": cid},
             started_by=_actor(),
@@ -904,7 +904,7 @@ def tick_collection_enrichment(collection_id):
     # threads (same reason _run_local_downstream_pipeline runs in a server
     # thread). The tick itself is a couple of parquet reads, so synchronous is
     # fine, and the response can say what the tick actually did.
-    from ...run_enrichment_supervisor import run_enrichment_supervisor
+    from ...workers.run_enrichment_supervisor import run_enrichment_supervisor
 
     class _InlineReporter:
         def __init__(self):

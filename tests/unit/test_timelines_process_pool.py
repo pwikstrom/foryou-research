@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import pandas as pd
 import pytest
 
-import web_interface.run_timelines_refresh as rtr
+import web_interface.workers.run_timelines_refresh as rtr
 
 
 class _Reporter:

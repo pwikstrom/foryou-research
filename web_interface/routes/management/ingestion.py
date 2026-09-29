@@ -122,7 +122,7 @@ def fetch_aio_data():
 
     success, msg = start_process(
         "aio_fetch",
-        worker_registry.worker_script("aio_fetch"),
+        worker_registry.worker_module("aio_fetch"),
         task_args={"hours_back": hours_back},
         started_by=_actor(),
     )
@@ -360,7 +360,7 @@ def refresh_collection_metadata():
 
     success, msg = start_process(
         "collection_metadata_refresh",
-        worker_registry.worker_script("collection_metadata_refresh"),
+        worker_registry.worker_module("collection_metadata_refresh"),
         started_by=_actor(),
     )
     if success:
@@ -373,7 +373,7 @@ def refresh_collection_metadata():
 def refresh_ingestion_collection():
 
     success, msg = start_process(
-        "ingest_refresh", worker_registry.worker_script("ingest_refresh"), started_by=_actor()
+        "ingest_refresh", worker_registry.worker_module("ingest_refresh"), started_by=_actor()
     )
     if success:
         activity_log.record(

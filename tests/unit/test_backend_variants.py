@@ -229,7 +229,7 @@ def test_runner_for_arm_variant_of_hosted_backend(variant_config):
 
 
 def test_estimate_seconds_classifies_gemini_variant(variant_config, monkeypatch):
-    from web_interface import run_queue_annotator as rqa
+    from web_interface.workers import run_queue_annotator as rqa
 
     variant_config({"gemini": {"gemini_35": {"model": "gemini-3.5-flash"}}})
     monkeypatch.setattr(

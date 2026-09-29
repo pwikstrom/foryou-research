@@ -1,15 +1,15 @@
 """The one table of background workers and everything each one is wired to.
 
-Every worker is a ``web_interface/run_<name>.py`` module with a
+Every worker is a ``web_interface/workers/run_<name>.py`` module with a
 ``run_<name>(reporter, task_args)`` entry point. It runs two ways:
 
 * **locally** — ``process_manager.start_process`` spawns the module as a
-  subprocess (:func:`worker_script`);
+  subprocess, ``python -m <module>`` (:func:`worker_module`);
 * **on Cloud Run** — ``start_process`` dispatches a Cloud Task, and the task
   runner's ``/internal/run-task/<name>`` calls the entry point
   (:func:`load_task_functions`).
 
-Everything the two paths need to know about a worker — its script, entry
+Everything the two paths need to know about a worker — its module, entry
 point, Cloud Tasks dispatch deadline, whether the queue may retry it, and
 which launch surfaces offer it — is declared once, in :data:`WORKERS`. The
 registries that used to repeat these facts in five modules are derived from it.
@@ -23,9 +23,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
-from fyp.core.paths import PROJECT_ROOT
 from fyp.scrape import scrape_queues
 
 # Cloud Tasks rejects any HTTP-target dispatchDeadline outside [15s, 30m] with
@@ -41,7 +39,7 @@ class WorkerSpec:
 
     Attributes:
         name: Process name (the status key, the Cloud Task name, the UI key).
-        module: Dotted path of the ``web_interface/run_*.py`` module.
+        module: Dotted path of the worker's ``run_<name>`` module.
         deadline: Cloud Tasks dispatch deadline in seconds, or None for the
             queue's 600s default. A property of the worker, not of whoever
             launches it (see ``process_manager.dispatch_deadline_for``).
@@ -53,7 +51,7 @@ class WorkerSpec:
         generic_start: Startable through the generic ``POST /api/start/<name>``
             card endpoint; the rest have dedicated endpoints.
         pipeline_step: A step the local refresh-run driver spawns
-            (``process_manager.local_pipeline_script_map``).
+            (``process_manager.local_pipeline_module_map``).
     """
 
     name: str
@@ -69,14 +67,9 @@ class WorkerSpec:
         """Entry-point function name: the module's own name (``run_<name>``)."""
         return self.module.rsplit(".", 1)[1]
 
-    @property
-    def script(self) -> Path:
-        """The worker's script path, spawned in local (subprocess) mode."""
-        return PROJECT_ROOT / "web_interface" / f"{self.function_name}.py"
-
 
 def _w(name: str, **kwargs) -> WorkerSpec:
-    return WorkerSpec(name=name, module=f"web_interface.run_{name}", **kwargs)
+    return WorkerSpec(name=name, module=f"web_interface.workers.run_{name}", **kwargs)
 
 
 # Deadlines: corpus-scale sweeps run well past Cloud Tasks' 600s default.
@@ -123,7 +116,7 @@ def _scraper_specs() -> list[WorkerSpec]:
     return [
         WorkerSpec(
             name=f"queue_scraper_{platform}",
-            module="web_interface.run_queue_scraper",
+            module="web_interface.workers.run_queue_scraper",
             deadline=_MAX,
             generic_start=True,
         )
@@ -194,7 +187,7 @@ WORKERS: dict[str, WorkerSpec] = {
 # 'queue_scraper' predates the per-platform split: a chain dispatched before it
 # still runs (the worker defaults to the contract's default platform). It is
 # never dispatched afresh, so it is not in WORKERS.
-_TASK_ALIASES: dict[str, str] = {"queue_scraper": "web_interface.run_queue_scraper"}
+_TASK_ALIASES: dict[str, str] = {"queue_scraper": "web_interface.workers.run_queue_scraper"}
 
 SCRAPER_PROCESS_NAMES: list[str] = [n for n in WORKERS if n.startswith("queue_scraper_")]
 
@@ -213,9 +206,9 @@ def deadline_for(name: str) -> int | None:
     return None
 
 
-def worker_script(name: str) -> Path:
-    """Subprocess script for worker ``name`` (local mode). KeyError if unknown."""
-    return WORKERS[name].script
+def worker_module(name: str) -> str:
+    """Module that local mode runs, ``python -m``, for worker ``name``. KeyError if unknown."""
+    return WORKERS[name].module
 
 
 def load_task_functions() -> dict[str, Callable]:

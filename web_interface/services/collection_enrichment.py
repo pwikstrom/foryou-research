@@ -7,7 +7,7 @@ that automatically: which videos of an armed collection to enrich next. The
 *execution* half stays entirely with the existing global machinery — the
 per-platform scrape queues, ``to_annotate.json``, the queue workers and the
 consolidation pipeline. Nothing here scrapes, annotates or consolidates;
-:mod:`web_interface.run_enrichment_supervisor` drives those.
+:mod:`web_interface.workers.run_enrichment_supervisor` drives those.
 
 TWO PROCESSES, AND WHY BOTH BUY WHOLE DAYS
 ------------------------------------------

@@ -7,14 +7,6 @@ a sample to 2D, names the niches with Gemini, and writes
 (see :mod:`fyp.video_map`).
 """
 
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
-
 from web_interface.tasks.task_status import TaskStatusReporter
 
 

@@ -358,7 +358,7 @@ def api_my_withdraw(collection_id):
 
     success, msg = start_process(
         "collection_delete",
-        worker_registry.worker_script("collection_delete"),
+        worker_registry.worker_module("collection_delete"),
         task_args={"collection_ids": [str(collection_id)]},
         started_by=current_user.username,
     )
@@ -426,7 +426,7 @@ def api_my_process():
 
     success, msg = start_process(
         "ingest_refresh",
-        worker_registry.worker_script("ingest_refresh"),
+        worker_registry.worker_module("ingest_refresh"),
         started_by=current_user.username,
     )
     if success:

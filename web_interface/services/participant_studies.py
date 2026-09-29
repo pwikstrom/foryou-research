@@ -195,8 +195,8 @@ def dispatch_me_refresh(username: str, *, wait: bool = False, log=logger.info) -
             log(f"Just Me refresh dispatch failed for {username}: {msg}")
         return ok
 
-    from web_interface.run_study_refresh import run_study_refresh
     from web_interface.tasks.task_status import LocalThreadStatusReporter
+    from web_interface.workers.run_study_refresh import run_study_refresh
 
     def _run():
         reporter = LocalThreadStatusReporter(f"study_refresh__{study_name}")

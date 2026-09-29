@@ -2030,7 +2030,7 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
     caller needs to describe the step.
     """
     from fyp.core.structure_sentinel import StructureSentinel
-    from web_interface.run_ingest_refresh import (
+    from web_interface.workers.run_ingest_refresh import (
         _build_per_file_summary,
         _per_file_counts,
         _removed_rows_breakdown,

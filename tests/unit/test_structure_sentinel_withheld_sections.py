@@ -155,7 +155,7 @@ def test_verdict_and_ledger_note_carry_withheld_sections(monkeypatch):
     assert verdict["status"] == "ok"
     assert verdict["withheld_sections"][0] == "Income+ Wallet"
 
-    from web_interface.run_ingest_refresh import _withheld_note
+    from web_interface.workers.run_ingest_refresh import _withheld_note
 
     assert (
         _withheld_note({"withheld_sections": ["Post", "TikTok Live"]})

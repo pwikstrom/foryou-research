@@ -8,7 +8,7 @@ provenance (AI-generated/ad/trend), or virality/recency (engagement counts).
 
 This module is the exploratory (Stage A) core: pure dataframe-in / artifact-out
 functions with no I/O and no Flask coupling, mirroring ``fyp/analysis/timeline_analysis.py``.
-The background worker (``web_interface/run_sequence_refresh.py``) loads study data,
+The background worker (``web_interface/workers/run_sequence_refresh.py``) loads study data,
 calls into here, and persists the results.
 
 Dwell signal (``play_duration``) is a forward-delta proxy available on TikTok

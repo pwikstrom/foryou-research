@@ -75,7 +75,7 @@ def test_accumulate_and_settle_lifecycle(store):
 
 
 def test_supervisor_quiet_finalize_dispatches_and_clears(store):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     calls = []
@@ -99,8 +99,8 @@ def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
     merely WAITING (scraper mid-run, jobs in flight, nothing to start) also
     falls through to the quiet path — it must not refresh then, or the
     pipeline blocks the loop for the rest of the cycle."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.worker_status as ws
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     class Rep:
         def log(self, m):
@@ -126,7 +126,7 @@ def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
 
 
 def test_supervisor_finalize_noops_without_debt(store):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     class Rep:
         def log(self, m):
@@ -138,7 +138,7 @@ def test_supervisor_finalize_noops_without_debt(store):
 
 
 def test_backstop_fires_only_after_the_window(store):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     class Rep:
         def log(self, m):
@@ -163,7 +163,7 @@ def test_backstop_fires_only_after_the_window(store):
 
 
 def test_failed_dispatch_keeps_the_debt(store):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     class Rep:
         def log(self, m):
@@ -178,7 +178,7 @@ def test_failed_dispatch_keeps_the_debt(store):
 def test_noop_dispatch_settles_an_unrefreshable_debt(store):
     # A debt whose pipeline builds empty (its studies were deleted) must not
     # make finalize retry forever.
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     class Rep:
         def log(self, m):

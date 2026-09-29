@@ -13,7 +13,7 @@ the slice again.
 import time
 
 import fyp.core.data_io as data_io
-from web_interface import run_embeddings_refresh as rer
+from web_interface.workers import run_embeddings_refresh as rer
 
 
 def _fake_update_json(store: dict):

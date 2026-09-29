@@ -1,5 +1,7 @@
 """Registration, rendering, and route gates for the daily ops report."""
 
+import importlib.util
+
 import pytest
 
 from tests._web import login, web_client
@@ -10,10 +12,10 @@ from tests._web import login, web_client
 def test_ops_report_registered_everywhere():
     """ops_report is a registered worker, and deliberately not queue-retry-safe."""
     from web_interface.tasks import process_manager, runtime
-    from web_interface.tasks.worker_registry import worker_script
+    from web_interface.tasks.worker_registry import worker_module
 
-    assert worker_script("ops_report").name == "run_ops_report.py"
-    assert worker_script("ops_report").exists()
+    assert worker_module("ops_report") == "web_interface.workers.run_ops_report"
+    assert importlib.util.find_spec(worker_module("ops_report"))
     assert "ops_report" in process_manager.CLOUD_TASK_ELIGIBLE
     assert "ops_report" in process_manager.processes
 

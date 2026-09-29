@@ -20,7 +20,7 @@ import pathlib
 
 import pytest
 
-from web_interface import run_timelines_refresh
+from web_interface.workers import run_timelines_refresh
 
 WORKER_SRC = pathlib.Path(run_timelines_refresh.__file__).read_text()
 TREE = ast.parse(WORKER_SRC)
@@ -28,7 +28,7 @@ TREE = ast.parse(WORKER_SRC)
 # Flat fyp.<name> modules that are alias shims doing the sys.modules swap.
 SHIMS = {
     p.stem
-    for p in (pathlib.Path(run_timelines_refresh.__file__).parents[1] / "fyp").glob("*.py")
+    for p in (pathlib.Path(__file__).resolve().parents[2] / "fyp").glob("*.py")
     if p.stem != "__init__" and "sys.modules[__name__]" in p.read_text()
 }
 

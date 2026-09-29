@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from fyp.core.fyp_config import PROJECT_ROOT, active_config_path
-from web_interface.tasks import process_manager
+from web_interface.tasks import process_manager, worker_registry
 
 ROOT = Path(PROJECT_ROOT).resolve()
 
@@ -138,10 +138,16 @@ def test_start_process_spawns_the_worker_with_the_pinned_env(monkeypatch, restor
     monkeypatch.setattr(process_manager.subprocess, "Popen", _fake_popen)
 
     ok, msg = process_manager.start_process(
-        name, ROOT / "web_interface" / "run_queue_scraper.py", args=["--platform", "tiktok"]
+        name, worker_registry.worker_module(name), args=["--platform", "tiktok"]
     )
 
     assert ok, msg
+    assert captured["cmd"][1:5] == [
+        "-u",
+        "-m",
+        "web_interface.workers.run_queue_scraper",
+        "--platform",
+    ]
     env = captured["kwargs"]["env"]
     assert env["FYP_CONFIG_PATH"] == active_config_path()
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(ROOT)

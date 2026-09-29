@@ -52,10 +52,10 @@ Pipeline tab or by hand (how the two execution modes work:
 [docs/web_interface.md](docs/web_interface.md#background-workers)):
 
 ```bash
-python web_interface/run_queue_annotator.py                   # annotation
-python web_interface/run_queue_scraper.py --platform tiktok   # scraping (one worker per platform)
-python web_interface/run_timelines_refresh.py                 # timelines refresh
-python web_interface/run_meta_refresh_groups.py               # group + Video Analysis metadata refresh
+python -m web_interface.workers.run_queue_annotator                   # annotation
+python -m web_interface.workers.run_queue_scraper --platform tiktok   # scraping (one worker per platform)
+python -m web_interface.workers.run_timelines_refresh                 # timelines refresh
+python -m web_interface.workers.run_meta_refresh_groups               # group + Video Analysis metadata refresh
 ```
 
 ---
@@ -566,7 +566,7 @@ dispatch, no `task_status/` or `process_stats.json` writes).
 ```bash
 export FYP_FORCE_GCS=1
 export FYP_GCS_BUCKET_NAME=<prod-bucket>
-caffeinate -i python web_interface/run_queue_scraper.py --platform youtube --batch-size 200
+caffeinate -i python -m web_interface.workers.run_queue_scraper --platform youtube --batch-size 200
 ```
 
 The boot log must show `FYP_FORCE_GCS set. Forcing all storage to GCS.` (the

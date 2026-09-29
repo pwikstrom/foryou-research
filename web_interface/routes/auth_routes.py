@@ -663,7 +663,7 @@ def api_admin_users():
 
             ok, pmsg = start_process(
                 "collection_delete",
-                worker_registry.worker_script("collection_delete"),
+                worker_registry.worker_module("collection_delete"),
                 task_args={"collection_ids": unlinked},
                 started_by=current_user.username,
             )
@@ -1056,7 +1056,7 @@ def api_irrelevant_words_apply():
 
     success, msg = start_process(
         "retokenise_hashtags",
-        worker_registry.worker_script("retokenise_hashtags"),
+        worker_registry.worker_module("retokenise_hashtags"),
         started_by=current_user.username,
     )
     if success:

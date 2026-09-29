@@ -215,7 +215,7 @@ def api_start(name):
 
     success, msg = start_process(
         name,
-        worker_registry.worker_script(name),
+        worker_registry.worker_module(name),
         args,
         study_name=study_name,
         started_by=started_by,

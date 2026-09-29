@@ -16,14 +16,8 @@ Defaults to the four recoded parquets that dominate the stats phase.
 import io
 import os
 import statistics
-import sys
 import tempfile
 import time
-from pathlib import Path
-
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
 
 from web_interface.tasks.task_status import TaskStatusReporter
 

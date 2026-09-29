@@ -655,9 +655,9 @@ def loop_owes_work() -> dict:
     """
     out = {"settle": False, "refresh": False, "settle_since": None, "deferred_since": None}
     try:
-        from web_interface.run_enrichment_supervisor import SETTLE_OWED_KEY
         from web_interface.services import collection_enrichment as ce
         from web_interface.services import downstream_refresh
+        from web_interface.workers.run_enrichment_supervisor import SETTLE_OWED_KEY
 
         owed = ce.get_meta(SETTLE_OWED_KEY)
         if owed:

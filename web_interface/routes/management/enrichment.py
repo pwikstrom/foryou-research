@@ -1605,7 +1605,7 @@ def api_consolidate_enrichment():
 
     success, msg = start_process(
         "consolidate_enrichment",
-        worker_registry.worker_script("consolidate_enrichment"),
+        worker_registry.worker_module("consolidate_enrichment"),
         task_args=task_args if task_args else None,
         started_by=_actor(),
         extra_task_args={

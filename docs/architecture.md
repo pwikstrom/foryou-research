@@ -145,7 +145,7 @@ Two additions keep the heavy analysis paths O(batch) rather than O(corpus):
   from ever centring on a stale mean. This is what made the sessions build
   batch-sized and fixed the PCA refresh's memory blow-up.
 - **Sessions subsystem**. `fyp/analysis/session_explorer.py` segments
-  sessions and binge episodes; `web_interface/run_sessions_refresh.py`
+  sessions and binge episodes; `web_interface/workers/run_sessions_refresh.py`
   is a self-chaining Cloud Task that segments a few collections per link
   against the sidecar and folds per-link shards into the Sessions-tab
   artifacts on the final link. The build is scoped to the collections and

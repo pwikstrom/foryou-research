@@ -41,11 +41,6 @@ import datetime as _dt
 import math
 import sys
 import time
-from pathlib import Path
-
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
 
 from web_interface.mail_utils import send_batch_annotation_email_async
 from web_interface.tasks import worker_registry

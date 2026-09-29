@@ -650,7 +650,7 @@ def test_normalize_settings_clamps_nonsense():
 @pytest.fixture
 def tick(monkeypatch, store):
     """A harness around run_enrichment_supervisor with the world stubbed out."""
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     world = {
         "enabled": True,
@@ -931,7 +931,7 @@ def test_tick_plans_one_collection_and_advances_cursors(tick):
 
 
 def test_tick_completes_an_exhausted_plan(tick, monkeypatch):
-    import web_interface.run_enrichment_supervisor as sup  # noqa: F401
+    import web_interface.workers.run_enrichment_supervisor as sup  # noqa: F401
 
     tick["plans"] = {"c1": _entry()}
     monkeypatch.setattr(
@@ -1011,8 +1011,8 @@ def test_auto_cycle_items_formula(monkeypatch, store):
     """min(target headroom − pending, ONE annotation job) — the loop serialises
     on consolidation, so a slice larger than the scraper can feed during one
     job's turnaround only delays the first annotation."""
-    import web_interface.run_enrichment_supervisor as sup
-    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+    import web_interface.workers.run_enrichment_supervisor as sup
+    from web_interface.workers.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
 
     cap = DEFAULT_BATCH_SIZE
 
@@ -1047,8 +1047,8 @@ def test_auto_cycle_items_is_sized_for_the_expected_yield(monkeypatch, store):
     annotations each lose a share) that cost a whole extra cycle — 2026-09-05's
     cycle 4 existed to cover 23 videos. The cut is inflated by the yield; the
     cap still applies."""
-    import web_interface.run_enrichment_supervisor as sup
-    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+    import web_interface.workers.run_enrichment_supervisor as sup
+    from web_interface.workers.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
 
     activity = _activity({"2026-08-27": 30})
     monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set())
@@ -1085,7 +1085,7 @@ def test_the_last_slice_is_never_smaller_than_the_floor(monkeypatch, store):
     134 → 51 → … → 3 → 1 → 1 → 1 videos, a full scrape-consolidate-tick cycle
     each. While anything is still needed the cut is at least the floor; the
     plan may overshoot its target by that much and ends in one cycle."""
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 200)
 
@@ -1171,8 +1171,8 @@ def test_small_handoff_waits_for_the_next_scrape(tick, monkeypatch):
     """A Gemini batch job costs ~8 minutes however small it is. A handoff
     below the batch floor waits while the next slice is being scraped, so
     the two go in one job — the annotator is NOT started, the scraper is."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.enrichment_journal as journal
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
@@ -1201,7 +1201,7 @@ def test_held_ticks_never_strike_the_stall_guard(tick, monkeypatch):
     evaluated before the hold and parked both plans although no annotator had
     run. The guard may only count runs the annotator was actually started for.
     """
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
@@ -1244,7 +1244,7 @@ def test_held_ticks_never_strike_the_stall_guard(tick, monkeypatch):
 
 def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
     """The plan's tail: nothing left to scrape, so the small queue goes now."""
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     monkeypatch.setattr(
@@ -1271,7 +1271,7 @@ def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
 def test_held_queue_starts_after_the_maximum_hold(tick, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
     stale = (
@@ -1290,8 +1290,8 @@ def test_loop_consolidations_get_a_run_record(monkeypatch):
     """The Refresh Pipeline chart draws the run record; the loop's own
     consolidations were started bare and the chart kept showing the run
     before (2026-09-05, 14:44)."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.refresh_pipeline as rp
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     seen = {}
     monkeypatch.setattr(rp, "seed_run", lambda record: seen.update(record) or record)
@@ -1319,8 +1319,8 @@ def test_loop_consolidations_get_a_run_record(monkeypatch):
 def test_expected_yield_is_measured_from_the_plans_history(store):
     """scrape OK/attempted x annotation OK/attempted over the last runs the
     plan shares; the default until there is enough history."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.enrichment_journal as journal
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     assert sup._expected_yield("c1", "tiktok") == sup.DEFAULT_EXPECTED_YIELD
     journal.record("scrape.finished", "x", platform="tiktok", ok=88, permanent=10, given_up=2)
@@ -1336,7 +1336,7 @@ def test_expected_yield_is_measured_from_the_plans_history(store):
 
 
 def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
-    import web_interface.run_enrichment_supervisor as sup  # noqa: F401
+    import web_interface.workers.run_enrichment_supervisor as sup  # noqa: F401
 
     seen = {}
 
@@ -1415,7 +1415,7 @@ def test_tick_settles_results_owed_after_the_plan_stopped(tick):
     """The 85 annotations of 2026-09-04: a batch the loop started finished after
     its plan was parked, and with nothing armed no tick ever consolidated it —
     the analysis refresh an hour later ran without those results."""
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["scrape_queues"] = {"tiktok": 12}
@@ -1444,7 +1444,7 @@ def test_tick_settles_results_owed_after_the_plan_stopped(tick):
 
 
 def test_settle_owed_is_forgotten_when_someone_consolidated_by_hand(tick):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
     tick["plans"] = {}
@@ -1456,7 +1456,7 @@ def test_settle_owed_is_forgotten_when_someone_consolidated_by_hand(tick):
 
 
 def test_settle_owed_waits_for_a_busy_worker(tick):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "scrape"})
     tick["plans"] = {}
@@ -1553,9 +1553,9 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
     used to dispatch no tick at all — so the settle_owed path never ran until
     the hourly heartbeat, and a plan's last batch sat unconsolidated on the
     Dataset Assembly page for the rest of the hour (2026-09-05, 12:44)."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.downstream_refresh as dr
     import web_interface.tasks.runtime as runtime
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     dispatched = []
     monkeypatch.setattr(
@@ -1987,8 +1987,8 @@ def test_an_exhausted_plan_stays_running_until_its_last_batch_settles(tick, monk
     the annotator and closed the plan in the same breath, so the history read
     "Idle" two seconds before "Annotator started". The plan now waits, Running,
     until those videos are annotated and consolidated."""
-    import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.enrichment_journal as journal
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     plan = {**_entry(), "platform": "tiktok"}
     # The fixture reads plans from `tick["plans"]` and writes patches to the
@@ -2034,7 +2034,7 @@ def test_an_exhausted_plan_stays_running_until_its_last_batch_settles(tick, monk
 def test_a_met_target_also_waits_for_the_videos_in_flight(tick, monkeypatch):
     """The Auto target-met exit closes the plan the same way: not while any of
     the collection's videos are inside an annotation job."""
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     tick["plans"] = {
         "c1": {**_entry(annotation_target=100, cycle_items_auto=True), "platform": "tiktok"}
@@ -2059,7 +2059,7 @@ def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
     plan open for ever."""
     from datetime import datetime, timedelta, timezone
 
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     stale = (datetime.now(timezone.utc) - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
     tick["plans"] = {
@@ -2074,7 +2074,7 @@ def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
 
 
 def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
-    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.workers.run_enrichment_supervisor as sup
 
     plan = {
         **_entry(),

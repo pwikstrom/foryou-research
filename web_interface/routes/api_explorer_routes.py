@@ -1332,7 +1332,7 @@ def ops_report_run():
 
     success, msg = start_process(
         "ops_report",
-        worker_registry.worker_script("ops_report"),
+        worker_registry.worker_module("ops_report"),
         [],
         started_by=getattr(current_user, "username", ""),
     )

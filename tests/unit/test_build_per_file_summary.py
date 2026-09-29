@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from web_interface.run_ingest_refresh import _build_per_file_summary
+from web_interface.workers.run_ingest_refresh import _build_per_file_summary
 
 
 def _main_collection(final_rows: dict[str, str], activity_type: str = "play") -> SimpleNamespace:

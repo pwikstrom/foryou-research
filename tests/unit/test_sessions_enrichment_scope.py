@@ -372,7 +372,7 @@ def test_explicit_scope_still_narrows_touched_collections():
 
 
 def test_merge_meta_records_shards_watermark_and_carries_the_baseline(monkeypatch):
-    from web_interface import run_sessions_refresh as rsr
+    from web_interface.workers import run_sessions_refresh as rsr
 
     monkeypatch.setattr(
         embedding_store,

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import fyp.annotation.machine_annotation_batch as batch
-import web_interface.run_queue_annotator_batch as worker
+import web_interface.workers.run_queue_annotator_batch as worker
 
 
 # --------------------------------------------------------------------------- #

@@ -10,7 +10,7 @@ cleared — the panel blamed the new upload).
 
 import pandas as pd
 
-from web_interface.run_ingest_refresh import _removed_rows_breakdown
+from web_interface.workers.run_ingest_refresh import _removed_rows_breakdown
 
 
 def _frame(rows: list[tuple[str, str, int]]) -> pd.DataFrame:

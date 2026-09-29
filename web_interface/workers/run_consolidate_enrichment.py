@@ -4,15 +4,8 @@ Publishes the consolidation's impact for the refresh pipeline and, when due,
 runs the weekly shadow verification against a full rebuild. Runs as a
 Cloud Task on the task-runner service, or as a local subprocess."""
 
-import sys
 import time
 from datetime import UTC, datetime
-from pathlib import Path
-
-# Add project root to sys.path
-current_dir = Path(__file__).resolve().parent
-project_root = current_dir.parent
-sys.path.append(str(project_root))
 
 from web_interface.tasks.task_status import TaskStatusReporter
 

@@ -479,7 +479,7 @@ python -c "from fyp.analysis.embedding_backends import get_backend, active_backe
 b = get_backend(active_backend_name()); print(b.name, b.model_id(), b.availability())"
 ```
 
-Then run `python web_interface/run_embeddings_refresh.py --batch-size 50` —
+Then run `python -m web_interface.workers.run_embeddings_refresh --batch-size 50` —
 the boot log names the backend and model, and a new
 `video_embeddings__*.parquet` shard appears with the model stamped per row.
 
@@ -565,9 +565,9 @@ Workers run as local subprocesses started from the Data Pipeline tab, or
 manually:
 
 ```bash
-python web_interface/run_queue_scraper.py --platform tiktok
-python web_interface/run_queue_annotator.py
-python web_interface/run_timelines_refresh.py
+python -m web_interface.workers.run_queue_scraper --platform tiktok
+python -m web_interface.workers.run_queue_annotator
+python -m web_interface.workers.run_timelines_refresh
 ```
 
 ## Verify the install
@@ -625,7 +625,7 @@ required for local use — Cloud Run/Cloud Tasks only matter for the
 production deployment described in
 [DEVELOPING.md](../DEVELOPING.md#cloud-run-deployment).
 
-**Daily ops report.** `python web_interface/run_ops_report.py` builds an
+**Daily ops report.** `python -m web_interface.workers.run_ops_report` builds an
 operational health report (supports `--hours-back` and `--no-email`); the
 written assessment uses Gemini with a deterministic fallback when Gemini is
 not configured. Emailing the report needs `[site] ops_report_email` (falls

@@ -368,7 +368,7 @@ class _Reporter:
 def test_the_cloud_run_worker_leaves_a_residential_queue_untouched(monkeypatch):
     import fyp.scrape as fyp_scrape
     from fyp.scrape import scrape_queues
-    from web_interface.run_queue_scraper import run_queue_scraper
+    from web_interface.workers.run_queue_scraper import run_queue_scraper
 
     monkeypatch.setenv("K_SERVICE", "fyp-data-hub")
     monkeypatch.setattr(
@@ -387,7 +387,7 @@ def test_the_cloud_run_worker_leaves_a_residential_queue_untouched(monkeypatch):
 
 def test_the_cloud_run_supervisor_leaves_a_residential_queue_to_the_local_install(monkeypatch):
     from fyp.scrape import scrape_queues
-    from web_interface import run_enrichment_supervisor as sup
+    from web_interface.workers import run_enrichment_supervisor as sup
 
     monkeypatch.setenv("K_SERVICE", "fyp-data-hub")
     monkeypatch.setattr(scrape_queues, "queue_lengths", lambda: {"youtube": 190})

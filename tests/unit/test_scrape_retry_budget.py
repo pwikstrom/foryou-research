@@ -9,7 +9,7 @@ MAX_ZERO_PROGRESS_STRIKES zero-progress runs; after that it is pruned and
 recorded in the failed-scrapes ledger like any other permanent failure.
 
 Covers the sidecar helpers in fyp.scrape.scrape_queues, the cloud batch path
-in web_interface.run_queue_scraper, and the "No video formats found"
+in web_interface.workers.run_queue_scraper, and the "No video formats found"
 classification fix in fyp.scrape.tiktok_dl.
 """
 
@@ -169,7 +169,7 @@ def _all_transient_threads(**kwargs):
 def _run_cloud_batch(io, threads_fn, recorded):
     """Run one run_queue_scraper batch against the fake queue store."""
     import fyp.scrape as fyp_scrape
-    from web_interface.run_queue_scraper import run_queue_scraper
+    from web_interface.workers.run_queue_scraper import run_queue_scraper
 
     reporter = _Reporter()
     with (

@@ -27,7 +27,7 @@ import pytest
 
 from fyp.scrape import scrape, scraper_alerts
 from fyp.scrape.platform_scraper import SESSION_EXPIRED
-from web_interface import run_enrichment_supervisor as sup
+from web_interface.workers import run_enrichment_supervisor as sup
 
 # Every guard pinned low so a batch trips it instantly — the transient-storm
 # guard above the breaker, as in production (25 vs 15): a run of throttle
@@ -249,7 +249,7 @@ def test_the_cloud_batch_emits_the_attrs_key(flag, tmp_path):
     import fyp.scrape as fyp_scrape
     from fyp.scrape import scrape_queues
     from tests.unit.test_scrape_retry_budget import _fake_data_io, _HealthyScraper
-    from web_interface.run_queue_scraper import run_queue_scraper
+    from web_interface.workers.run_queue_scraper import run_queue_scraper
 
     io = _fake_data_io(str(tmp_path))
     io.save_json(data=["v0", "v1"], filename=scrape_queues.queue_filename("tiktok"))
@@ -260,7 +260,9 @@ def test_the_cloud_batch_emits_the_attrs_key(flag, tmp_path):
         patch.object(fyp_scrape, "download_video_threads", _aborted_threads(flag)),
         patch.object(fyp_scrape, "record_failed_scrapes", lambda items, **kw: None),
         patch("fyp.scrape.platform_scraper.get_scraper", lambda platform: _HealthyScraper()),
-        patch("web_interface.run_queue_scraper._journal_scrape_finished", lambda **kw: None),
+        patch(
+            "web_interface.workers.run_queue_scraper._journal_scrape_finished", lambda **kw: None
+        ),
     ):
         assert run_queue_scraper(reporter, {"platform": "tiktok"}) is None
     assert _emitted_flags(reporter) == {flag}

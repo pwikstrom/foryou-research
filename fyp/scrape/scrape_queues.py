@@ -5,7 +5,7 @@ Each platform has its own queue — ``to_scrape_<platform>.json`` in the
 worker process. This module is the single owner of queue file naming, the
 one-time migration from the legacy single ``to_scrape.json``, and the
 load / save / append / prune operations previously duplicated across
-``fyp.scrape`` and ``web_interface.run_queue_scraper``.
+``fyp.scrape`` and ``web_interface.workers.run_queue_scraper``.
 
 Queue contents are plain lists of item-id strings; deduplication preserves
 first-seen order.
