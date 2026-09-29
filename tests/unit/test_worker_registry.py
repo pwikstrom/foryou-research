@@ -10,8 +10,7 @@ one of the two deployment modes.
 import inspect
 from pathlib import Path
 
-from web_interface.routes import process_routes
-from web_interface.tasks import process_manager, worker_registry
+from web_interface.tasks import process_manager, runtime, worker_registry
 
 WEB = Path(__file__).resolve().parents[2] / "web_interface"
 # run_*.py files that are not workers.
@@ -44,7 +43,7 @@ def test_derived_tables_agree_with_the_registry():
     workers = worker_registry.WORKERS
     assert process_manager.CLOUD_TASK_ELIGIBLE == set(workers)
     assert set(process_manager.processes) == {n for n, s in workers.items() if s.tracked}
-    assert process_routes.QUEUE_RETRY_SAFE == {n for n, s in workers.items() if s.retry_safe}
+    assert runtime.QUEUE_RETRY_SAFE == {n for n, s in workers.items() if s.retry_safe}
     assert set(process_manager.local_pipeline_script_map()) == {
         n for n, s in workers.items() if s.pipeline_step
     }

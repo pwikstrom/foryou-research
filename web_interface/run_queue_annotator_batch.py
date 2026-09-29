@@ -23,7 +23,7 @@ were in flight when this shape shipped.
 Claim/restore safety: claimed items are removed from the queue only after a
 successful submit, and restored if the job fails or an item comes back
 unprocessed. If a poll chain is orphaned (this worker is deliberately excluded
-from ``process_routes.QUEUE_RETRY_SAFE`` — a retried submit could pay for the
+from ``tasks.runtime.QUEUE_RETRY_SAFE`` — a retried submit could pay for the
 same batch job twice), the claimed-but-unannotated items are re-discovered by the next
 ``calculate_to_annotate`` (they remain scraped-but-not-annotated).
 

@@ -993,7 +993,7 @@ rules (see [decision 0015](decisions/0015-enrichment-loop-and-shared-queues.md))
    results that no tick would otherwise fold in, so the no-plans path settles
    that debt before the quiet finalize, and a worker completion still
    dispatches a tick while the loop owes a settle or its own deferred refresh
-   (`process_routes.loop_owes_work`), not only while a plan is armed. The
+   (`tasks/runtime.loop_owes_work`), not only while a plan is armed. The
    Dataset Assembly banner reads the same flag and says the loop has the
    consolidation in hand.
 4. **A plan with nothing more to scrape stays Running while its own videos

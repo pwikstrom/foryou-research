@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import pytest
 
-from web_interface.routes import process_routes as pr
+from web_interface.tasks import runtime
 
 T0 = datetime(2026, 9, 3, 0, 23, 20, tzinfo=UTC)
 T1 = datetime(2026, 9, 3, 0, 37, 0, tzinfo=UTC)
@@ -41,7 +41,7 @@ EXISTING = {
 
 
 def test_a_real_consolidation_refreshes_the_last_run_fields():
-    out = pr._merge_run_stats(
+    out = runtime._merge_run_stats(
         EXISTING,
         {"impact": {"n": 28}},
         name="consolidate_enrichment",
@@ -59,7 +59,7 @@ def test_a_real_consolidation_refreshes_the_last_run_fields():
 
 
 def test_a_shadow_verification_leaves_the_last_run_alone():
-    out = pr._merge_run_stats(
+    out = runtime._merge_run_stats(
         EXISTING,
         {"shadow_check": {"ok": True}},
         name="consolidate_enrichment",
@@ -78,7 +78,7 @@ def test_a_shadow_verification_leaves_the_last_run_alone():
 
 
 def test_a_failed_verification_does_not_dent_last_success_either_way():
-    out = pr._merge_run_stats(
+    out = runtime._merge_run_stats(
         EXISTING,
         {},
         name="consolidate_enrichment",
@@ -94,7 +94,7 @@ def test_a_failed_verification_does_not_dent_last_success_either_way():
 
 
 def test_a_failed_consolidation_keeps_the_previous_last_success():
-    out = pr._merge_run_stats(
+    out = runtime._merge_run_stats(
         EXISTING,
         {},
         name="consolidate_enrichment",
@@ -111,7 +111,7 @@ def test_a_failed_consolidation_keeps_the_previous_last_success():
 
 def test_other_tasks_ignore_the_flag():
     """Only the consolidate key carries a verify mode."""
-    out = pr._merge_run_stats(
+    out = runtime._merge_run_stats(
         {},
         {},
         name="pca_refresh",

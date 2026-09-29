@@ -9,7 +9,7 @@ the run's real origin; ``_chain_run_start`` prefers it.
 
 from datetime import UTC, datetime, timedelta
 
-from web_interface.routes.process_routes import _chain_run_start
+from web_interface.tasks.runtime import _chain_run_start
 
 
 def test_prefers_the_older_status_start_time():

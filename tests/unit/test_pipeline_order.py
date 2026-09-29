@@ -50,8 +50,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-import web_interface.routes.process_routes as pr
 import web_interface.services.refresh_pipeline as rp
+import web_interface.tasks.runtime as runtime
 from web_interface.routes.management_routes import PIPELINE_STEPS_ORDER
 from web_interface.tasks.process_manager import local_pipeline_script_map
 
@@ -393,7 +393,7 @@ def test_collection_only_impact_forks_from_consolidate():
 
 
 class _BarrierHarness:
-    """Monkeypatch process_routes so the barrier can be exercised in-process."""
+    """Monkeypatch the task runtime so the barrier can be exercised in-process."""
 
     def __init__(self, statuses: dict):
         self._statuses = statuses
@@ -401,30 +401,30 @@ class _BarrierHarness:
         self.stamp_calls: list = []
 
     def __enter__(self):
-        self._orig_read = pr.read_task_status
+        self._orig_read = runtime.read_task_status
         self._orig_finish = rp.finish_run
-        self._orig_publish = pr._publish_run_summary
-        self._orig_stamp = pr.stamp_task_status
-        pr.read_task_status = lambda name: self._statuses.get(name)
+        self._orig_publish = runtime._publish_run_summary
+        self._orig_stamp = runtime.stamp_task_status
+        runtime.read_task_status = lambda name: self._statuses.get(name)
 
         def _finish(partial=False, failed_at=None, reason=None, prunes=None, run_id=None):
             self.summary_calls.append({"partial": partial, "failed_at": failed_at})
             return {"partial": partial, "failed_at": failed_at}
 
         rp.finish_run = _finish
-        pr._publish_run_summary = lambda record: None
+        runtime._publish_run_summary = lambda record: None
 
         def _stamp(name, state, message="", error=None, stage=None):
             self.stamp_calls.append({"name": name, "state": state, "message": message})
 
-        pr.stamp_task_status = _stamp
+        runtime.stamp_task_status = _stamp
         return self
 
     def __exit__(self, *a):
-        pr.read_task_status = self._orig_read
+        runtime.read_task_status = self._orig_read
         rp.finish_run = self._orig_finish
-        pr._publish_run_summary = self._orig_publish
-        pr.stamp_task_status = self._orig_stamp
+        runtime._publish_run_summary = self._orig_publish
+        runtime.stamp_task_status = self._orig_stamp
 
     def stamped_failed(self, name: str) -> bool:
         return any(c["name"] == name and c["state"] == "failed" for c in self.stamp_calls)
@@ -435,7 +435,7 @@ class _BarrierHarness:
 
 
 _LEAVES = ["meta_refresh_groups", "pca_refresh", "timelines_refresh"]
-_GRACE = pr.FORK_START_GRACE_SECONDS
+_GRACE = runtime.FORK_START_GRACE_SECONDS
 
 
 def _ts(offset_s: int) -> str:
@@ -446,7 +446,7 @@ def test_barrier_fires_when_all_leaves_completed():
     fork = _ts(-10)
     statuses = {l: {"state": "completed", "updated_at": _ts(0)} for l in _LEAVES}
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     ok = h.fired and h.summary_calls[0]["partial"] is False
     _check("test_barrier_fires_when_all_leaves_completed", ok, str(h.summary_calls))
 
@@ -459,7 +459,7 @@ def test_barrier_waits_for_running_leaf():
         "timelines_refresh": {"state": "running", "updated_at": _ts(0)},
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     _check("test_barrier_waits_for_running_leaf", not h.fired, str(h.summary_calls))
 
 
@@ -473,7 +473,7 @@ def test_barrier_ignores_stale_status_before_fork():
         "timelines_refresh": {"state": "completed", "updated_at": _ts(-60)},  # stale
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     _check("test_barrier_ignores_stale_status_before_fork", not h.fired, str(h.summary_calls))
 
 
@@ -485,7 +485,7 @@ def test_barrier_marks_partial_on_leaf_failure():
         "timelines_refresh": {"state": "completed", "updated_at": _ts(0)},
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     call = h.summary_calls[0] if h.fired else {}
     ok = h.fired and call.get("partial") is True and "pca_refresh" in (call.get("failed_at") or "")
     _check("test_barrier_marks_partial_on_leaf_failure", ok, str(h.summary_calls))
@@ -500,7 +500,7 @@ def test_barrier_waits_for_missing_status():
         # timelines_refresh absent
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     _check("test_barrier_waits_for_missing_status", not h.fired, str(h.summary_calls))
 
 
@@ -515,7 +515,7 @@ def test_barrier_kills_queued_leaf_after_grace():
         "timelines_refresh": {"state": "queued", "updated_at": _ts(-(_GRACE + 30))},
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     call = h.summary_calls[0] if h.fired else {}
     ok = (
         h.fired
@@ -536,7 +536,7 @@ def test_barrier_spares_running_leaf_past_grace():
         "timelines_refresh": {"state": "running", "updated_at": _ts(-2)},
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     ok = (not h.fired) and (not h.stamped_failed("timelines_refresh"))
     _check("test_barrier_spares_running_leaf_past_grace", ok, str((h.summary_calls, h.stamp_calls)))
 
@@ -550,7 +550,7 @@ def test_barrier_waits_for_queued_leaf_within_grace():
         "timelines_refresh": {"state": "queued", "updated_at": _ts(-10)},
     }
     with _BarrierHarness(statuses) as h:
-        pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
+        runtime._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
     ok = (not h.fired) and (not h.stamped_failed("timelines_refresh"))
     _check("test_barrier_waits_for_queued_leaf_within_grace", ok, str(h.summary_calls))
 

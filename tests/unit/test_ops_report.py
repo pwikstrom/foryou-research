@@ -9,8 +9,7 @@ from tests._web import login, web_client
 
 def test_ops_report_registered_everywhere():
     """ops_report is a registered worker, and deliberately not queue-retry-safe."""
-    from web_interface.routes import process_routes
-    from web_interface.tasks import process_manager
+    from web_interface.tasks import process_manager, runtime
     from web_interface.tasks.worker_registry import worker_script
 
     assert worker_script("ops_report").name == "run_ops_report.py"
@@ -18,10 +17,10 @@ def test_ops_report_registered_everywhere():
     assert "ops_report" in process_manager.CLOUD_TASK_ELIGIBLE
     assert "ops_report" in process_manager.processes
 
-    process_routes._ensure_task_functions_loaded()
-    assert "ops_report" in process_routes.TASK_FUNCTIONS
+    runtime.ensure_task_functions_loaded()
+    assert "ops_report" in runtime.TASK_FUNCTIONS
     # Deliberate: a queue retry would re-send the report email.
-    assert "ops_report" not in process_routes.QUEUE_RETRY_SAFE
+    assert "ops_report" not in runtime.QUEUE_RETRY_SAFE
 
 
 def test_ops_report_permission_key_registered():

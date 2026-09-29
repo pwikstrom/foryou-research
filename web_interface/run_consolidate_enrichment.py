@@ -386,10 +386,10 @@ def run_consolidate_enrichment(
     # scrape/annotation outcomes visible, so it is also the moment the loop can
     # take its next step. The tick is NOT fired here: last_consolidation only
     # reaches process_stats.json after this function returns (in
-    # _run_task_with_stats), and a tick dispatched before that read a stale
+    # run_task_with_stats), and a tick dispatched before that read a stale
     # timestamp and re-ran a full no-op consolidation (~5 min wasted, observed
     # most cycles in prod). The task runner ticks once, after the stats save —
-    # see the consolidate_enrichment branch in process_routes.
+    # see the consolidate_enrichment branch in tasks/runtime.py.
 
     _maybe_schedule_shadow_check(reporter, incremental)
 
@@ -482,7 +482,7 @@ if __name__ == "__main__":
     from web_interface.tasks.worker_runner import run_worker
 
     # The dependent refreshes are dispatched by the refresh pipeline once this
-    # worker finishes — process_routes on Cloud Run, monitor_process_completion
+    # worker finishes — tasks/runtime.py on Cloud Run, monitor_process_completion
     # in local dev. This script only consolidates.
     run_worker(
         run_consolidate_enrichment,

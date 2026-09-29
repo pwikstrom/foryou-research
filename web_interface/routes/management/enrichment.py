@@ -325,7 +325,7 @@ def get_enrichment_stats():
     # No-op when no fan-out is active; Cloud Run only (local mode never forks).
     if is_cloud_run():
         try:
-            from ..process_routes import resolve_forked_pipeline
+            from ...tasks.runtime import resolve_forked_pipeline
 
             resolve_forked_pipeline()
         except Exception as e:
@@ -403,7 +403,7 @@ def get_enrichment_stats():
     # it started, its deferred refresh) — the Dataset Assembly banner says the
     # loop has it in hand instead of asking for a manual Consolidate.
     try:
-        from ..process_routes import loop_owes_work
+        from ...tasks.runtime import loop_owes_work
 
         loop_owes = loop_owes_work()
     except Exception:

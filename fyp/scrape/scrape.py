@@ -135,7 +135,7 @@ def _transient_storm_threshold() -> int:
 # back to the queue (see the memory safety valve in download_video_threads).
 # Last-line insurance against any unexpected memory spike: without it the
 # container is OOM-killed mid-drain and the whole batch is lost — the scrapers
-# are deliberately single-attempt (not in process_routes.QUEUE_RETRY_SAFE), so
+# are deliberately single-attempt (not in tasks.runtime.QUEUE_RETRY_SAFE), so
 # nothing re-delivers it. (The historical spike source — moviepy slideshow
 # assembly at native photo resolution — is bounded at the root by
 # SLIDESHOW_MAX_DIMENSION in make_slideshow.)

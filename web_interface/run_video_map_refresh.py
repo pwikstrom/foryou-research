@@ -102,7 +102,7 @@ if __name__ == "__main__":
         return task_args
 
     # The dependent steps are dispatched by the refresh pipeline once this
-    # worker finishes (process_routes on Cloud Run, monitor_process_completion
+    # worker finishes (tasks/runtime.py on Cloud Run, monitor_process_completion
     # locally) — this script only builds the map.
     run_worker(
         run_video_map_refresh,

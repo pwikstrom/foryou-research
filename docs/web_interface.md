@@ -24,7 +24,7 @@ Run (see `create_app` in `fyp_data_hub.py`):
 | `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences) |
 | `management/` (package; `management_routes.py` is a compatibility shim) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, data contracts, A/B evaluation, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
-| `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` |
+| `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` (the runtime behind it is `tasks/runtime.py`) |
 
 Shared backend helpers live next to the app: the `services/` package
 (study data + cache — note the double-checked locking in `StudyCache` —
@@ -136,7 +136,7 @@ variable.
 Each `run_<name>.py` script is dual-mode:
 
 - a `run_<name>(reporter, task_args)` function invoked by Cloud Tasks via
-  `process_routes.TASK_FUNCTIONS` (reporter = `GCSStatusReporter`, which
+  `tasks/runtime.TASK_FUNCTIONS` (reporter = `GCSStatusReporter`, which
   writes progress and data to GCS status files, `task_status/*.json`, with a
   background heartbeat thread every 30 s), and
 - a `__main__` block for local subprocess mode (reporter =
@@ -148,14 +148,14 @@ Everything the two modes need to know about a worker — its name, script,
 Cloud Tasks dispatch deadline, whether the queue may retry it, and which
 launch surfaces offer it — is declared once, in `WORKERS` in
 `web_interface/tasks/worker_registry.py`; `process_manager.CLOUD_TASK_ELIGIBLE`,
-`process_routes.TASK_FUNCTIONS` / `QUEUE_RETRY_SAFE` and the script paths are
+`tasks/runtime.TASK_FUNCTIONS` / `QUEUE_RETRY_SAFE` and the script paths are
 derived from it (guard: `tests/unit/test_worker_registry.py`). A new worker is
 one `run_<name>.py` module plus one `WORKERS` entry.
 
 **Dispatch.** `process_manager.start_process()` picks the mode: on Cloud Run
 it dispatches through `_dispatch_cloud_task()`, locally it spawns a
 subprocess. Cloud Tasks deliver to the CSRF-exempt `internal_bp` blueprint at
-`/internal/run-task/<name>`, where `_run_task_with_stats()` handles
+`/internal/run-task/<name>`, where `run_task_with_stats()` handles
 execution, stats and chaining.
 
 - **Subprocess mode pins the child's project root**
@@ -190,7 +190,7 @@ is older than 600 s is treated as dead by the UI and by `start_process()`.
 
 **Retries.** The Cloud Tasks queue (`fyp-background-tasks`) allows up to four
 attempts with backoff, but retry is **app-controlled**: only the idempotent
-refreshes in `process_routes.QUEUE_RETRY_SAFE` answer a failure with 503 (and
+refreshes in `tasks/runtime.QUEUE_RETRY_SAFE` answer a failure with 503 (and
 are retried); every other task answers 200 and its failure is terminal. All
 failures land in the task-failures ledger (`cache/task_failures.json`,
 `web_interface/tasks/task_failures.py`) — the dead-letter record, surfaced on
@@ -199,7 +199,7 @@ Admin → System Information. Queue setup: `scripts/configure_task_queue.sh`
 
 **Status and logs.** The reported `last_run_duration` spans the **whole** run
 of a self-chaining task, not just its final link:
-`process_routes._chain_run_start()` measures from the first link's start
+`tasks/runtime._chain_run_start()` measures from the first link's start
 (carried through `task_args`), and `api_status` forwards the queued/failed GCS
 states so the UI's status lights (one green/blue/amber/red vocabulary, see
 *Process UI* below) reflect them. Every run also lands in a **durable

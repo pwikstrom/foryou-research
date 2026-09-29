@@ -157,7 +157,7 @@ def test_record_never_raises(monkeypatch):
 
 def test_retry_safe_set_excludes_dangerous_tasks():
     """Non-idempotent workers must never be queue-retried."""
-    from web_interface.routes.process_routes import QUEUE_RETRY_SAFE
+    from web_interface.tasks.runtime import QUEUE_RETRY_SAFE
 
     for unsafe in (
         "queue_annotator",
@@ -196,15 +196,15 @@ def task_client(monkeypatch):
 
 
 def _stub_task(monkeypatch, name, raises=True):
-    from web_interface.routes import process_routes
+    from web_interface.tasks import runtime
 
     def _fn(reporter=None, task_args=None):
         if raises:
             raise RuntimeError("task blew up")
         return None
 
-    process_routes._ensure_task_functions_loaded()
-    monkeypatch.setitem(process_routes.TASK_FUNCTIONS, name, _fn)
+    runtime.ensure_task_functions_loaded()
+    monkeypatch.setitem(runtime.TASK_FUNCTIONS, name, _fn)
 
 
 def test_retry_safe_failure_returns_503(task_client, monkeypatch, ledger):
@@ -224,7 +224,7 @@ def test_retry_safe_failure_returns_503(task_client, monkeypatch, ledger):
 
 def test_retry_safe_exhausted_returns_200(task_client, monkeypatch, ledger):
     """Once the app-side attempt bound is hit, the failure is terminal."""
-    from web_interface.routes.process_routes import MAX_APP_RETRIES
+    from web_interface.tasks.runtime import MAX_APP_RETRIES
 
     _stub_task(monkeypatch, "pca_refresh")
     task_failures, _ = ledger

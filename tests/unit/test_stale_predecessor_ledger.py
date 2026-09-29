@@ -9,7 +9,7 @@ The check MUST live on the dispatch side (process_manager.start_process),
 because start_process writes a fresh 'running' placeholder immediately after
 dispatching the Cloud Task — so by the time the task runner boots, the corpse
 has already been overwritten and is unobservable from there. The
-process_routes-side check is a secondary net for paths that write no
+The runtime-side check is a secondary net for paths that write no
 placeholder (pipeline forks, direct Cloud Task dispatch).
 """
 
@@ -17,8 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from web_interface.routes import process_routes
-from web_interface.tasks import process_manager
+from web_interface.tasks import process_manager, runtime
 
 
 @pytest.fixture
@@ -28,7 +27,7 @@ def recorded(monkeypatch):
     def fake_record(**kwargs):
         calls.append(kwargs)
 
-    monkeypatch.setattr(process_routes.task_failures, "record_failure", fake_record)
+    monkeypatch.setattr(runtime.task_failures, "record_failure", fake_record)
     monkeypatch.setattr(process_manager.task_failures, "record_failure", fake_record)
     return calls
 
@@ -106,8 +105,8 @@ def test_ledger_failure_never_blocks_the_new_run(monkeypatch, cloud_dispatch):
 
 
 def test_runner_side_ledgers_a_stale_corpse(monkeypatch, recorded):
-    monkeypatch.setattr(process_routes, "read_task_status", lambda key: _status("running", 3600))
-    process_routes._ledger_stale_predecessor("pca_refresh", "pca_refresh")
+    monkeypatch.setattr(runtime, "read_task_status", lambda key: _status("running", 3600))
+    runtime._ledger_stale_predecessor("pca_refresh", "pca_refresh")
     assert len(recorded) == 1
     assert recorded[0]["phase"] == "presumed_oom"
 
@@ -121,25 +120,25 @@ def test_runner_side_ledgers_a_stale_corpse(monkeypatch, recorded):
     ],
 )
 def test_runner_side_ignores_non_corpses(monkeypatch, recorded, state, age):
-    monkeypatch.setattr(process_routes, "read_task_status", lambda key: _status(state, age))
-    process_routes._ledger_stale_predecessor("pca_refresh", "pca_refresh")
+    monkeypatch.setattr(runtime, "read_task_status", lambda key: _status(state, age))
+    runtime._ledger_stale_predecessor("pca_refresh", "pca_refresh")
     assert recorded == []
 
 
 def test_runner_side_is_safe_on_missing_or_malformed_status(monkeypatch, recorded):
-    monkeypatch.setattr(process_routes, "read_task_status", lambda key: None)
-    process_routes._ledger_stale_predecessor("x", "x")
+    monkeypatch.setattr(runtime, "read_task_status", lambda key: None)
+    runtime._ledger_stale_predecessor("x", "x")
 
     monkeypatch.setattr(
-        process_routes,
+        runtime,
         "read_task_status",
         lambda key: {"state": "running", "updated_at": "garbage"},
     )
-    process_routes._ledger_stale_predecessor("x", "x")
+    runtime._ledger_stale_predecessor("x", "x")
 
     def boom(key):
         raise OSError("gcs down")
 
-    monkeypatch.setattr(process_routes, "read_task_status", boom)
-    process_routes._ledger_stale_predecessor("x", "x")  # must not raise
+    monkeypatch.setattr(runtime, "read_task_status", boom)
+    runtime._ledger_stale_predecessor("x", "x")  # must not raise
     assert recorded == []

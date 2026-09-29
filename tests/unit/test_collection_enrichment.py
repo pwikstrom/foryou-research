@@ -1553,9 +1553,9 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
     used to dispatch no tick at all — so the settle_owed path never ran until
     the hourly heartbeat, and a plan's last batch sat unconsolidated on the
     Dataset Assembly page for the rest of the hour (2026-09-05, 12:44)."""
-    import web_interface.routes.process_routes as pr
     import web_interface.run_enrichment_supervisor as sup
     import web_interface.services.downstream_refresh as dr
+    import web_interface.tasks.runtime as runtime
 
     dispatched = []
     monkeypatch.setattr(
@@ -1565,13 +1565,13 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
     monkeypatch.setattr(ce, "armed_plans", lambda: {})
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: None)
 
-    pr._tick_enrichment_supervisor("queue_annotator_batch")
+    runtime._tick_enrichment_supervisor("queue_annotator_batch")
     assert dispatched == []  # nothing armed, nothing owed
 
     ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
-    pr._tick_enrichment_supervisor("queue_annotator_batch")
+    runtime._tick_enrichment_supervisor("queue_annotator_batch")
     assert dispatched == ["enrichment_supervisor"]  # owed a consolidation
-    assert pr.loop_owes_work()["settle"] is True
+    assert runtime.loop_owes_work()["settle"] is True
 
     ce.set_meta(sup.SETTLE_OWED_KEY, None)
     monkeypatch.setattr(
@@ -1579,13 +1579,13 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
         "get_deferred_impact",
         lambda: {"from_plan": True, "deferred_since": "2026-09-05T02:34:13+00:00"},
     )
-    pr._tick_enrichment_supervisor("consolidate_enrichment")
+    runtime._tick_enrichment_supervisor("consolidate_enrichment")
     assert dispatched == ["enrichment_supervisor"] * 2  # owed its deferred refresh
-    assert pr.loop_owes_work()["refresh"] is True
+    assert runtime.loop_owes_work()["refresh"] is True
 
     # An operator's own deferral is not the loop's to spend — no tick for it.
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: {"from_plan": False})
-    pr._tick_enrichment_supervisor("consolidate_enrichment")
+    runtime._tick_enrichment_supervisor("consolidate_enrichment")
     assert len(dispatched) == 2
 
 

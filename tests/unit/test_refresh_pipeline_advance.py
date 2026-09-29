@@ -21,8 +21,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-import web_interface.routes.process_routes as pr
 import web_interface.tasks.process_manager as pm
+import web_interface.tasks.runtime as runtime
 from web_interface.services import refresh_pipeline as rp
 
 
@@ -44,9 +44,9 @@ def runner(monkeypatch):
     monkeypatch.setattr(pm, "process_stats", live)
     monkeypatch.setattr(pm, "load_process_stats", fake_load)
     monkeypatch.setattr(pm, "save_process_stats", fake_save)
-    monkeypatch.setattr(pr, "process_stats", live)
-    monkeypatch.setattr(pr, "load_process_stats", fake_load)
-    monkeypatch.setattr(pr, "save_process_stats", fake_save)
+    monkeypatch.setattr(runtime, "process_stats", live)
+    monkeypatch.setattr(runtime, "load_process_stats", fake_load)
+    monkeypatch.setattr(runtime, "save_process_stats", fake_save)
 
     def fake_dispatch(name, args, **kwargs):
         dispatched.append((name, dict(args)))
@@ -54,11 +54,11 @@ def runner(monkeypatch):
 
     # The advance imports the dispatcher from process_manager at call time.
     monkeypatch.setattr(pm, "_dispatch_cloud_task", fake_dispatch)
-    monkeypatch.setattr(pr, "dispatch_deadline_for", lambda n, a: 1800)
-    monkeypatch.setattr(pr, "stamp_task_status", lambda *a, **kw: None)
-    monkeypatch.setattr(pr, "read_task_status", lambda n: statuses.get(n))
-    monkeypatch.setattr(pr.run_logs, "open_run", lambda *a, **kw: None)
-    monkeypatch.setattr(pr.run_logs, "new_run_id", lambda: "log-1")
+    monkeypatch.setattr(runtime, "dispatch_deadline_for", lambda n, a: 1800)
+    monkeypatch.setattr(runtime, "stamp_task_status", lambda *a, **kw: None)
+    monkeypatch.setattr(runtime, "read_task_status", lambda n: statuses.get(n))
+    monkeypatch.setattr(runtime.run_logs, "open_run", lambda *a, **kw: None)
+    monkeypatch.setattr(runtime.run_logs, "new_run_id", lambda: "log-1")
 
     class Harness:
         dispatched = None
@@ -108,7 +108,7 @@ def test_a_card_run_dispatches_its_dependents(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 3120})
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "video_map_refresh",
         {"pipeline_run_id": record["run_id"], "started_by": "patrik"},
         "Success",
@@ -127,7 +127,9 @@ def test_a_run_that_changed_nothing_dispatches_nothing(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 0, "map_cold_start": False})
 
-    pr._advance_refresh_run("video_map_refresh", {"pipeline_run_id": record["run_id"]}, "Success")
+    runtime._advance_refresh_run(
+        "video_map_refresh", {"pipeline_run_id": record["run_id"]}, "Success"
+    )
 
     assert runner.names() == []
     run = rp.load_run()
@@ -146,7 +148,7 @@ def test_the_fork_dispatches_every_remaining_leaf_at_once(runner):
     runner.finish("video_map_refresh", {"map_niche_changed": 12})
     runner.finish("recode_refresh_studies", {"studies_changed": ["s1"]})
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "recode_refresh_studies", {"pipeline_run_id": record["run_id"]}, "Success"
     )
 
@@ -164,7 +166,9 @@ def test_a_failed_step_stops_the_run(runner):
     record = runner.seed("embeddings_refresh", kind="card", started_by="patrik")
     runner.finish("embeddings_refresh", {}, outcome="Fail")
 
-    pr._advance_refresh_run("embeddings_refresh", {"pipeline_run_id": record["run_id"]}, "Fail")
+    runtime._advance_refresh_run(
+        "embeddings_refresh", {"pipeline_run_id": record["run_id"]}, "Fail"
+    )
 
     run = rp.load_run()
     assert runner.names() == []
@@ -180,7 +184,7 @@ def test_a_cancelled_step_stops_the_run(runner):
     record = runner.seed("video_map_refresh", kind="card", started_by="patrik")
     runner.finish("video_map_refresh", {"map_niche_changed": 500})
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "video_map_refresh", {"pipeline_run_id": record["run_id"]}, "Success", cancelled=True
     )
 
@@ -196,7 +200,7 @@ def test_a_stale_run_id_never_advances_a_newer_run(runner):
     new = runner.seed("consolidate_enrichment", kind="consolidate")
     runner.finish("video_map_refresh", {"map_niche_changed": 999})
 
-    pr._advance_refresh_run("video_map_refresh", {"pipeline_run_id": old["run_id"]}, "Success")
+    runtime._advance_refresh_run("video_map_refresh", {"pipeline_run_id": old["run_id"]}, "Success")
 
     assert runner.names() == []
     assert rp.load_run()["run_id"] == new["run_id"]
@@ -206,7 +210,7 @@ def test_a_chain_without_a_run_record_still_advances(runner):
     """The study save's own sessions chain predates the run record and stays."""
     record = runner.seed("consolidate_enrichment", kind="consolidate")
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "study_refresh",
         {
             "pipeline_remaining": [
@@ -233,7 +237,7 @@ def test_a_leaf_completion_runs_the_barrier_not_the_planner(runner):
     leaves = ["meta_refresh_groups", "pca_refresh"]
     runner.finish("meta_refresh_groups", {})
     # pca has not finished, so the barrier must wait and dispatch nothing.
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "meta_refresh_groups",
         {
             "pipeline_run_id": record["run_id"],
@@ -252,7 +256,9 @@ def test_the_shadow_verification_never_touches_a_run(runner):
     record = runner.seed("consolidate_enrichment", kind="consolidate")
     runner.finish("consolidate_enrichment", {})
 
-    pr._advance_refresh_run("consolidate_enrichment", {"verify_consolidation": True}, "Success")
+    runtime._advance_refresh_run(
+        "consolidate_enrichment", {"verify_consolidation": True}, "Success"
+    )
 
     assert runner.names() == []
     assert rp.load_run()["run_id"] == record["run_id"]
@@ -284,7 +290,7 @@ def test_a_consolidation_started_without_auto_refresh_plans_no_cascade(runner):
         },
     )
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
     )
 
@@ -316,7 +322,7 @@ def test_a_consolidate_only_run_keeps_the_impact_it_never_refreshed(runner):
     }
     runner.finish("consolidate_enrichment", {"consolidation_impact": impact})
 
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
     )
 
@@ -354,7 +360,7 @@ def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
         "steps": {"recode_refresh_studies": {"state": "dispatched"}},
     }
     assert rp.run_refreshed_anything(finished) is True
-    pr._publish_run_summary(finished)
+    runtime._publish_run_summary(finished)
 
     entry = pm.process_stats["consolidate_enrichment"]
     assert "consolidation_impact" not in entry
@@ -474,7 +480,9 @@ def test_a_spine_dispatch_is_stamped_queued(runner, monkeypatch):
     """The fork leaves were always stamped; the spine was not, which is why a
     delayed map was invisible. Every dispatch must leave a definitive mark."""
     stamped = []
-    monkeypatch.setattr(pr, "stamp_task_status", lambda n, st, *a, **k: stamped.append((n, st)))
+    monkeypatch.setattr(
+        runtime, "stamp_task_status", lambda n, st, *a, **k: stamped.append((n, st))
+    )
     record = runner.seed("consolidate_enrichment", kind="armed")
     runner.finish(
         "consolidate_enrichment",
@@ -491,7 +499,7 @@ def test_a_spine_dispatch_is_stamped_queued(runner, monkeypatch):
             },
         },
     )
-    pr._advance_refresh_run(
+    runtime._advance_refresh_run(
         "consolidate_enrichment", {"pipeline_run_id": record["run_id"]}, "Success"
     )
     assert ("embeddings_refresh", "queued") in stamped, stamped

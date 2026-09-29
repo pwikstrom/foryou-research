@@ -2,16 +2,15 @@
 
 
 def test_sessions_refresh_registered_everywhere():
-    from web_interface.routes import process_routes
-    from web_interface.tasks import process_manager
+    from web_interface.tasks import process_manager, runtime
 
     assert "sessions_refresh" in process_manager.CLOUD_TASK_ELIGIBLE
     assert "sessions_refresh" in process_manager.processes
     # Pure recomputation with fixed output filenames — queue retries are safe.
-    assert "sessions_refresh" in process_routes.QUEUE_RETRY_SAFE
+    assert "sessions_refresh" in runtime.QUEUE_RETRY_SAFE
 
-    process_routes._ensure_task_functions_loaded()
-    assert "sessions_refresh" in process_routes.TASK_FUNCTIONS
+    runtime.ensure_task_functions_loaded()
+    assert "sessions_refresh" in runtime.TASK_FUNCTIONS
 
 
 def test_sessions_refresh_script_constant():
