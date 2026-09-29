@@ -18,18 +18,18 @@ _TEST_ADMIN = "__settings_test_admin__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
             return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     # Snapshot + restore the settings file so the local store is untouched.
     fname = backend_settings.SETTINGS_FILENAME

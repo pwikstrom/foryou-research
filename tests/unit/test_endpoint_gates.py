@@ -35,7 +35,7 @@ _STUDY_ENDPOINTS = [
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_VIEWER
+    from web_interface.auth.accounts import ROLE_VIEWER
 
     with web_client(monkeypatch, {_TEST_VIEWER: ROLE_VIEWER}) as test_client:
         yield test_client
@@ -46,9 +46,9 @@ _login = login
 
 def _grant_permissions(monkeypatch, perms):
     """Make the viewer role hold exactly ``perms``."""
-    from web_interface import auth
+    from web_interface.auth import accounts
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
 def _request(client, method, path, payload):
@@ -117,15 +117,15 @@ def test_video_stream_requires_item_in_study(client, monkeypatch):
 
 def test_video_stream_lets_an_admin_play_items_outside_the_study(client, monkeypatch):
     """Admins stream any downloaded video; study access still applies."""
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.routes import _access
     from web_interface.routes import api_viewer_routes as viewer
 
     admin = "__gate_admin__"
-    orig_get = security.user_manager.get_user
+    orig_get = accounts.user_manager.get_user
     monkeypatch.setattr(
-        security.user_manager,
+        accounts.user_manager,
         "get_user",
         lambda uid: (
             User(username=admin, role=ROLE_ADMIN, password_hash="", approved=True)
@@ -233,7 +233,7 @@ def test_personal_write_surface_passes_with_permission(client, monkeypatch):
 
 def test_timelines_vote_requires_votes_key(client, monkeypatch):
     """tab.timelines alone no longer suffices for vote_annotation (AND gate)."""
-    from web_interface import security
+    from web_interface.auth import accounts
     from web_interface.routes import _access
 
     _grant_permissions(monkeypatch, ["tab.timelines"])
@@ -245,18 +245,18 @@ def test_timelines_vote_requires_votes_key(client, monkeypatch):
     monkeypatch.setattr(_access, "get_study_collections", lambda study: [{"collection_id": "c1"}])
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["s1"])
     monkeypatch.setattr(
-        security.user_manager, "register_annotation_vote", lambda *a, **k: (True, "ok")
+        accounts.user_manager, "register_annotation_vote", lambda *a, **k: (True, "ok")
     )
     res = client.post("/api/timelines/vote_annotation", json={"collection_id": "c1", "period": "p"})
     assert res.status_code == 200
 
 
 def test_user_settings_key_whitelist(client, monkeypatch):
-    from web_interface import security
+    from web_interface.auth import accounts
 
     _grant_permissions(monkeypatch, [])
     _login(client, _TEST_VIEWER)
-    monkeypatch.setattr(security.user_manager, "update_user_settings", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(accounts.user_manager, "update_user_settings", lambda *a, **k: (True, "ok"))
 
     res = client.post("/api/user/settings", json={"arbitrary_key": {"x": 1}})
     assert res.status_code == 400

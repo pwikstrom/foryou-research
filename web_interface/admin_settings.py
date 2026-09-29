@@ -369,7 +369,7 @@ def get_default_new_user_role() -> str:
     """
     name = get_setting("default_new_user_role") or "viewer"
     try:
-        from web_interface.auth import role_manager
+        from web_interface.auth.accounts import role_manager
 
         if not role_manager.role_exists(name):
             return "viewer"

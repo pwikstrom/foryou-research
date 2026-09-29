@@ -116,7 +116,7 @@ class _FakeBucket:
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_VIEWER
+    from web_interface.auth.accounts import ROLE_VIEWER
 
     with web_client(monkeypatch, {_TEST_VIEWER: ROLE_VIEWER}) as test_client:
         yield test_client
@@ -124,11 +124,11 @@ def client(monkeypatch):
 
 def _serve(monkeypatch, client, size):
     """Wire the eval stream path onto a fake blob of ``size`` bytes."""
-    from web_interface import auth
+    from web_interface.auth import accounts
     from web_interface.routes import api_viewer_routes as viewer
 
     monkeypatch.setattr(
-        auth.role_manager, "get_role_permissions", lambda role: ["tab.admin.ab_eval"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.admin.ab_eval"]
     )
     monkeypatch.setattr(
         viewer.media_paths,

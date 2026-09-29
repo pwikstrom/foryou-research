@@ -229,7 +229,7 @@ def check_first_batch_completions() -> list[str]:
             return notified
 
         from web_interface import mail_utils
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         for cid, entry in open_entries.items():
             items = [str(i) for i in (entry.get("item_ids") or [])]

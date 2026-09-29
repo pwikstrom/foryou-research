@@ -15,8 +15,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from web_interface import auth
 from web_interface import collection_accounts as ca
+from web_interface.auth import accounts
 
 # --------------------------------------------------------------------------
 # Harness
@@ -60,7 +60,7 @@ def env():
     # module object — patch each function ONCE (double-patching the same
     # attribute and unwinding in the wrong order would leak a mock into the
     # rest of the session).
-    modules = {id(m): m for m in (auth.data_io, ca.data_io, sd.data_io)}.values()
+    modules = {id(m): m for m in (accounts.data_io, ca.data_io, sd.data_io)}.values()
     patches = []
     for mod in modules:
         for name in (
@@ -78,7 +78,7 @@ def env():
         p.start()
     sd.invalidate_collection_tags_cache()
     try:
-        um = auth.UserManager(storage_location="users", bootstrap=False)
+        um = accounts.UserManager(storage_location="users", bootstrap=False)
         um.add_user("admin@admin.net", "pw", "admin", approved=True)
         yield store, um
     finally:
@@ -97,26 +97,26 @@ def _tags(store):
 
 
 def test_validate_profile_accepts_age_number_and_bracket():
-    cleaned, err = auth.validate_profile({"age": "34"})
+    cleaned, err = accounts.validate_profile({"age": "34"})
     assert err is None and cleaned["age"] == "34"
-    cleaned, err = auth.validate_profile({"age": "21 - 25"})
+    cleaned, err = accounts.validate_profile({"age": "21 - 25"})
     assert err is None and cleaned["age"] == "21 - 25"
-    cleaned, err = auth.validate_profile({"age": "21-25"})
+    cleaned, err = accounts.validate_profile({"age": "21-25"})
     assert cleaned["age"] == "21 - 25"
-    cleaned, err = auth.validate_profile({"age": 42})
+    cleaned, err = accounts.validate_profile({"age": 42})
     assert cleaned["age"] == "42"
 
 
 def test_validate_profile_rejects_bad_values_and_unknown_keys():
-    assert auth.validate_profile({"age": "twenty"})[1]
-    assert auth.validate_profile({"age": "130"})[1]
-    assert auth.validate_profile({"favourite_colour": "blue"})[1]
-    assert auth.validate_profile({"full_name": "x" * 101})[1]
-    assert auth.validate_profile({"consent_to_contact": "maybe"})[1]
+    assert accounts.validate_profile({"age": "twenty"})[1]
+    assert accounts.validate_profile({"age": "130"})[1]
+    assert accounts.validate_profile({"favourite_colour": "blue"})[1]
+    assert accounts.validate_profile({"full_name": "x" * 101})[1]
+    assert accounts.validate_profile({"consent_to_contact": "maybe"})[1]
 
 
 def test_validate_profile_clears_empty_and_maps_consent():
-    cleaned, err = auth.validate_profile(
+    cleaned, err = accounts.validate_profile(
         {"postcode": "  ", "consent_to_contact": "yes", "country": " AU "}
     )
     assert err is None
@@ -124,7 +124,7 @@ def test_validate_profile_clears_empty_and_maps_consent():
 
 
 def test_sanitize_profile_drops_only_bad_fields():
-    cleaned, dropped = auth.sanitize_profile({"age": "n/a", "country": "AU", "bogus": 1})
+    cleaned, dropped = accounts.sanitize_profile({"age": "n/a", "country": "AU", "bogus": 1})
     assert cleaned == {"country": "AU"}
     assert set(dropped) == {"age", "bogus"}
 
@@ -141,14 +141,14 @@ def test_participant_account_cannot_login_until_claimed(env):
         None,
         "viewer",
         approved=True,
-        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
+        account_kind=accounts.ACCOUNT_KIND_PARTICIPANT,
         profile={"age": "30"},
     )
     assert ok
     u = um.get_user("p@x.org")
     assert not u.can_login()
     assert um.verify_user("p@x.org", "") is None
-    assert auth.verify_password(None, "anything") is False
+    assert accounts.verify_password(None, "anything") is False
     assert store.files["users"]["p@x.org.json"]["profile"]["age"] == "30"
 
     ok, msg = um.claim_participant_account("p@x.org", "secret", "Pat")
@@ -156,7 +156,7 @@ def test_participant_account_cannot_login_until_claimed(env):
     # The claim proves nothing about the mailbox: login waits for the
     # emailed verification link (or an admin marking it verified).
     assert um.verify_user("p@x.org", "secret") is None
-    assert um.mark_email_verified("p@x.org", via=auth.EMAIL_VERIFIED_LINK)[0]
+    assert um.mark_email_verified("p@x.org", via=accounts.EMAIL_VERIFIED_LINK)[0]
     assert um.verify_user("p@x.org", "secret") is not None
     assert um.get_user("p@x.org").profile["age"] == "30"  # profile survives the claim
     # A claimed (login-capable) account is not claimable again.
@@ -170,7 +170,7 @@ def test_placeholder_cannot_be_claimed(env):
         None,
         "viewer",
         approved=True,
-        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
+        account_kind=accounts.ACCOUNT_KIND_PARTICIPANT,
         placeholder=True,
     )
     assert not um.claim_participant_account("p-1@example.test", "pw")[0]

@@ -36,8 +36,8 @@ import pandas as pd
 from fyp.annotation import var_presentation as vp
 from fyp.annotation.recode_variables import compute_var_schema_hash
 from fyp.core.fyp_config import fyp_cf, load_var_schema
-from web_interface import security
-from web_interface.auth import ROLE_ADMIN, User
+from web_interface.auth import accounts
+from web_interface.auth.accounts import ROLE_ADMIN, User
 
 PASS = 0
 FAIL = 0
@@ -84,7 +84,7 @@ def _viewer_user() -> User:
 
 def _install_auth_stub():
     """Replace user_manager.get_user with one that resolves our test users."""
-    orig = security.user_manager.get_user
+    orig = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN_USERNAME:
@@ -93,12 +93,12 @@ def _install_auth_stub():
             return _viewer_user()
         return orig(uid)
 
-    security.user_manager.get_user = _fake_get
+    accounts.user_manager.get_user = _fake_get
     return orig
 
 
 def _restore_auth(orig):
-    security.user_manager.get_user = orig
+    accounts.user_manager.get_user = orig
 
 
 def _build_app():

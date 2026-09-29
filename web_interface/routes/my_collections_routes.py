@@ -13,7 +13,7 @@ from flask_login import current_user
 
 from web_interface.tasks import worker_registry
 
-from ..permissions import permission_required
+from ..auth.permissions import permission_required
 from ._access import current_user_ctx, owned_collection_access_error
 
 my_collections_bp = Blueprint("my_collections_bp", __name__)
@@ -298,8 +298,8 @@ def api_my_withdraw(collection_id):
     import fyp.core.data_io as data_io
 
     from .. import activity_log
+    from ..auth.accounts import user_manager
     from ..mail_utils import is_email, send_withdrawal_email_async
-    from ..security import user_manager
     from ..services.my_collections_service import (
         RECODED_FILENAME,
         _load_metadata_personas,

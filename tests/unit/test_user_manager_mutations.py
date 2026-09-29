@@ -25,7 +25,7 @@ project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
 
-from web_interface import auth  # noqa: E402
+from web_interface.auth import accounts  # noqa: E402
 
 
 class _FakeStore:
@@ -53,16 +53,16 @@ class _FakeStore:
 def _manager_over(store: _FakeStore, bootstrap: bool = True):
     """Build a UserManager whose data_io is backed by ``store``."""
     patches = [
-        patch.object(auth.data_io, "exists", side_effect=store.exists),
-        patch.object(auth.data_io, "listdir", side_effect=store.listdir),
-        patch.object(auth.data_io, "load_json", side_effect=store.load_json),
-        patch.object(auth.data_io, "save_json", side_effect=store.save_json),
-        patch.object(auth.data_io, "remove", side_effect=store.remove),
+        patch.object(accounts.data_io, "exists", side_effect=store.exists),
+        patch.object(accounts.data_io, "listdir", side_effect=store.listdir),
+        patch.object(accounts.data_io, "load_json", side_effect=store.load_json),
+        patch.object(accounts.data_io, "save_json", side_effect=store.save_json),
+        patch.object(accounts.data_io, "remove", side_effect=store.remove),
     ]
     for p in patches:
         p.start()
     try:
-        um = auth.UserManager(storage_location="users", bootstrap=bootstrap)
+        um = accounts.UserManager(storage_location="users", bootstrap=bootstrap)
     except Exception:
         for p in patches:
             p.stop()

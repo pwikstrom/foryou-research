@@ -21,7 +21,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
-from web_interface import admin_notes, auth  # noqa: E402
+from web_interface import admin_notes
+from web_interface.auth import accounts  # noqa: E402
 
 
 class _FakeStore:
@@ -110,18 +111,18 @@ def test_validation() -> None:
 
 
 def test_notes_sidecar_is_not_a_user_file() -> None:
-    assert not auth._is_candidate_user_file("bob@example.com_notes.json")
-    assert auth._is_candidate_user_file("bob@example.com.json")
+    assert not accounts._is_candidate_user_file("bob@example.com_notes.json")
+    assert accounts._is_candidate_user_file("bob@example.com.json")
     print("test_notes_sidecar_is_not_a_user_file PASSED")
 
 
 def test_delete_user_removes_notes_sidecar() -> None:
     store = _FakeStore()
-    patches = _patched(store, auth)
+    patches = _patched(store, accounts)
     for p in patches:
         p.start()
     try:
-        um = auth.UserManager(storage_location="users", bootstrap=True)
+        um = accounts.UserManager(storage_location="users", bootstrap=True)
         ok, _ = um.add_user("alice", "pw", "viewer", approved=True)
         assert ok
         store.files["alice_notes.json"] = {

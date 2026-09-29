@@ -21,10 +21,10 @@ from fyp.core.fyp_config import (
 from web_interface.tasks import worker_registry
 
 from ... import activity_log
+from ...auth.permissions import permission_required
 from ...data_service import (
     study_cache,
 )
-from ...permissions import permission_required
 from ...services.preview_cache import (
     _collections_hash,
     get_preview_cells,
@@ -50,7 +50,7 @@ from ._blueprint import management_bp
 
 def _is_study_manager() -> bool:
     """Study managers see every study regardless of per-study USER_ACCESS."""
-    from web_interface.permissions import user_has_permission
+    from web_interface.auth.permissions import user_has_permission
 
     return current_user.is_admin() or user_has_permission(
         current_user, "tab.data_management.studies"

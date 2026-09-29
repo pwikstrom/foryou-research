@@ -50,7 +50,7 @@ from web_interface.data_service import (
     load_display_id_map,
 )
 
-from ..permissions import permission_required
+from ..auth.permissions import permission_required
 from ..tasks.task_status import is_cloud_run
 from ._access import study_access_error
 

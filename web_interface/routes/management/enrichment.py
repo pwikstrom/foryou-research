@@ -18,7 +18,7 @@ from fyp.scrape.platform_scraper import get_scraper
 from web_interface.tasks import worker_registry
 
 from ... import activity_log
-from ...permissions import permission_required
+from ...auth.permissions import permission_required
 from ...services import collection_enrichment, refresh_pipeline, system_health
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
@@ -771,7 +771,7 @@ def dismiss_scraper_alert():
 @permission_required("tab.data_management.scrape", "tab.data_management.annotation")
 def queue_voted_videos():
     try:
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         # 1. Gather all votes across all users
         all_votes = {}  # dict of collection_id -> set of periods

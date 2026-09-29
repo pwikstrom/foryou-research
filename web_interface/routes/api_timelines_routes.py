@@ -9,6 +9,8 @@ from flask_login import current_user
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
+from ..auth.accounts import user_manager
+from ..auth.permissions import permission_required
 from ..data_service import (
     compose_effective_variables,
     get_accessible_studies,
@@ -16,8 +18,6 @@ from ..data_service import (
     get_timeline_data,
     make_serializable,
 )
-from ..permissions import permission_required
-from ..security import user_manager
 from ._access import collection_access_error
 
 timelines_bp = Blueprint("timelines_bp", __name__)

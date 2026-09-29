@@ -2,8 +2,8 @@
 
 Defines the ``User`` model, ``RoleManager`` (roles.json and its boot-time
 permission migrations), ``UserManager`` (the per-user JSON store), password
-hashing, profile validation, and the ``role_required`` / ``admin_required``
-decorators."""
+hashing, profile validation, and the process's ``user_manager`` store. The
+route guards are in ``permissions``; the Flask-Login wiring is in ``security``."""
 
 import binascii
 import datetime
@@ -15,10 +15,8 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
 
-from flask import abort, current_app
-from flask_login import AnonymousUserMixin, UserMixin, current_user
+from flask_login import AnonymousUserMixin, UserMixin
 
 import fyp.core.data_io as data_io
 
@@ -127,7 +125,7 @@ class RoleManager:
         migration existing roles would silently lose access.
         Idempotent — saves only when something actually changed.
         """
-        from web_interface.permissions import (
+        from web_interface.auth.permissions import (
             PERMISSION_KEY_IMPLIED_GRANTS,
             PERMISSION_KEY_RENAMES,
             PERMISSION_KEYS_GRANT_ALL,
@@ -168,7 +166,7 @@ class RoleManager:
         default set the current viewer experience uses today, so existing
         installations don't see behavioural drift after upgrade.
         """
-        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+        from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
         migrated: dict[str, dict] = {}
         for name in legacy_list:
@@ -186,7 +184,7 @@ class RoleManager:
         Note a deleted built-in role is recreated with its default permission
         set at the next boot — deletion is a reset, not a removal.
         """
-        from web_interface.permissions import (
+        from web_interface.auth.permissions import (
             DEFAULT_NON_ADMIN_PERMISSIONS,
             STUDENT_PERMISSIONS,
         )
@@ -244,7 +242,7 @@ class RoleManager:
         return True, "Permissions updated"
 
     def add_role(self, role_name):
-        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+        from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
         if role_name in self.roles:
             return False, "Role already exists"
@@ -547,7 +545,7 @@ class User(UserMixin):
         sub-pages is granted — delegates to ``permissions.user_has_permission``.
         """
         # Imported here to avoid a circular import at module load.
-        from web_interface.permissions import user_has_permission
+        from web_interface.auth.permissions import user_has_permission
 
         return user_has_permission(self, perm_key)
 
@@ -923,7 +921,7 @@ class UserManager:
             logger.info(f"Saved user {username}.")
             # Function-level import: data_service imports parts of the web layer,
             # so a module-level import here would create a cycle.
-            from .data_service import invalidate_user_json_cache
+            from ..data_service import invalidate_user_json_cache
 
             invalidate_user_json_cache(username)
         except Exception as e:
@@ -1159,7 +1157,7 @@ class UserManager:
         # stale copy can't resurface in shared-annotation reads. Function-level
         # import to respect the auth<->data_service import cycle.
         try:
-            from .data_service import invalidate_user_json_cache
+            from ..data_service import invalidate_user_json_cache
 
             invalidate_user_json_cache(username)
         except Exception as e:
@@ -1299,7 +1297,7 @@ class UserManager:
         Returns:
             The usernames that were deleted.
         """
-        from .collection_accounts import collections_for_user
+        from ..collection_accounts import collections_for_user
 
         now = now or datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(days=max_age_days)
@@ -1435,30 +1433,50 @@ class UserManager:
         return None
 
 
-# --- Decorators ---
+# --- The user store ---
+
+# Neither service preloads the full user roster anymore — it is loaded lazily on
+# first access (get_all_users), so cold start is O(1) in the number of users on
+# both. The `bootstrap` flag only decides whether this instance runs the one-time
+# legacy-data migration and ensures a default admin exists: the web service owns
+# the user store (bootstrap=True); the task-runner serves only Cloud Tasks
+# internal routes, never authenticates browser traffic, and does not own user
+# data, so it skips both (bootstrap=False).
+_user_manager_lock = threading.Lock()
 
 
-def role_required(roles):
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if not current_user.is_authenticated:
-                return current_app.login_manager.unauthorized()
+def get_user_manager() -> UserManager:
+    """The process's user store, built (and bootstrapped) on first use.
 
-            # Allow admin to access everything
-            if current_user.is_admin():
-                return f(*args, **kwargs)
+    Importing this module does not build it — a worker or script that only
+    needs a constant pays nothing. The web app builds it at boot
+    (``security``), as it always has. Also reachable as ``user_manager``.
+    """
+    manager = globals().get("user_manager")
+    if manager is not None:
+        return manager
+    with _user_manager_lock:
+        manager = globals().get("user_manager")
+        if manager is None:
+            k_service = os.environ.get("K_SERVICE", "")
+            is_task_runner = k_service == "fyp-task-runner"
+            # Always log the decision so "does this instance bootstrap the user
+            # store?" is provable from a single grep, independent of whether
+            # downstream prints buffer.
+            print(
+                f"[AUTH] boot K_SERVICE={k_service!r} "
+                f"is_task_runner={is_task_runner} "
+                f"bootstrap={not is_task_runner}",
+                flush=True,
+            )
+            manager = UserManager(storage_location="users", bootstrap=not is_task_runner)
+            globals()["user_manager"] = manager
+    return manager
 
-            # Check if user's role is in the allowed list
-            if current_user.role not in roles:
-                abort(403)  # Forbidden
 
-            return f(*args, **kwargs)
-
-        return decorated_function
-
-    return decorator
-
-
-def admin_required(f):
-    return role_required([ROLE_ADMIN])(f)
+def __getattr__(name: str):
+    # ``accounts.user_manager`` / ``from ...accounts import user_manager`` build
+    # the store on first access; after that it is a plain module attribute.
+    if name == "user_manager":
+        return get_user_manager()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

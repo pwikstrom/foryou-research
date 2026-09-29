@@ -79,22 +79,21 @@ def test_deleted_default_study_reverts_to_the_old_behaviour(study_defs, monkeypa
 @pytest.fixture
 def viewer_client(monkeypatch):
     """A non-manager user whose only permission is the My Studies listing."""
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_USER:
             return User(username=_TEST_USER, role="student", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
     )
     # The route reloads defs from disk — keep the fixture's dict in place.
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
@@ -126,18 +125,19 @@ def test_my_studies_without_a_default_denies_unshared(study_defs, viewer_client,
 def admin_client(monkeypatch):
     """Admin test client with the admin settings file snapshotted/restored."""
     import fyp.core.data_io as data_io
-    from web_interface import admin_settings, security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface import admin_settings
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
             return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     fname = admin_settings.SETTINGS_FILENAME
     had_file = data_io.exists(storage_location="users", filename=fname)

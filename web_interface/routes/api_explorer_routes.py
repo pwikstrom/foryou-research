@@ -13,12 +13,13 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
 import fyp.core.data_io as data_io
-import web_interface.auth as auth
 from fyp.core.fyp_config import fyp_cf
 from fyp.scrape import scraper_alerts
 from web_interface.tasks import task_failures, worker_registry
 
 from .. import explorer_backend as explorer
+from ..auth.accounts import user_manager
+from ..auth.permissions import admin_required, permission_required
 from ..data_service import (
     TOTAL_STATS_PROVISIONAL_KEY,
     _get_recoded_mtime,
@@ -36,8 +37,6 @@ from ..data_service import (
     make_serializable,
     search_column_value_counts,
 )
-from ..permissions import permission_required
-from ..security import user_manager
 from ..services import system_health
 from ..services.study_data import resolve_compose
 from ..services.user_variables import compose_effective_variables
@@ -1282,7 +1281,7 @@ def get_system_health():
 
 
 @explorer_bp.route("/api/system-health/task-failures/ack", methods=["POST"])
-@auth.admin_required
+@admin_required
 def ack_task_failures():
     """Acknowledge one ledger entry (``{"id": ...}``) or all of them."""
     data = request.json or {}

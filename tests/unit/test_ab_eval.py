@@ -813,18 +813,18 @@ def test_source_isolation_guard():
 
 
 def test_api_smoke():
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
 
     admin = "__abe_test_admin__"
-    orig = security.user_manager.get_user
+    orig = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == admin:
             return User(username=admin, role=ROLE_ADMIN, password_hash="", approved=True)
         return orig(uid)
 
-    security.user_manager.get_user = _fake_get
+    accounts.user_manager.get_user = _fake_get
     set_snap = ab_eval.load_eval_set()
     try:
         from web_interface.fyp_data_hub import app
@@ -903,7 +903,7 @@ def test_api_smoke():
                 f" est={b7}",
             )
     finally:
-        security.user_manager.get_user = orig
+        accounts.user_manager.get_user = orig
         try:
             ab_eval.delete_eval_set("api-smoke-set")
         except (FileNotFoundError, ValueError):

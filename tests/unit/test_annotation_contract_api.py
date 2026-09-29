@@ -29,8 +29,8 @@ sys.path.insert(0, str(project_root))
 from fyp.annotation import annotation_contract as ac
 from fyp.core import data_io
 from fyp.core.fyp_config import fyp_cf, load_var_schema
-from web_interface import security
-from web_interface.auth import ROLE_ADMIN, User
+from web_interface.auth import accounts
+from web_interface.auth.accounts import ROLE_ADMIN, User
 
 PASS = 0
 FAIL = 0
@@ -51,7 +51,7 @@ _TEST_VIEWER = "__ac_test_viewer__"
 
 
 def _install_auth_stub():
-    orig = security.user_manager.get_user
+    orig = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
@@ -60,7 +60,7 @@ def _install_auth_stub():
             return User(username=_TEST_VIEWER, role="viewer", password_hash="", approved=True)
         return orig(uid)
 
-    security.user_manager.get_user = _fake_get
+    accounts.user_manager.get_user = _fake_get
     return orig
 
 
@@ -232,7 +232,7 @@ def main():
                     traceback.print_exc()
     finally:
         _restore_runtime(snap)
-        security.user_manager.get_user = orig
+        accounts.user_manager.get_user = orig
         for username in (_TEST_ADMIN, _TEST_VIEWER):
             fname = f"{username}_log.json"
             try:

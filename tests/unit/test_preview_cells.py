@@ -380,24 +380,23 @@ def test_issues_severity_around_cap():
 
 
 def _study_client(monkeypatch, study_defs):
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
     from fyp.core.fyp_config import fyp_cf
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
     user = "cap_test_user"
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == user:
             return User(username=user, role="manager", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
     )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
     monkeypatch.setattr(studies_mod, "save_study_defs", lambda: None)

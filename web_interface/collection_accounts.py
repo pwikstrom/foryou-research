@@ -66,7 +66,7 @@ def _um(um=None):
         return um
     # Function-level import: the security module builds the Flask login
     # manager, which the ingest worker must not pull in at import time.
-    from .security import user_manager
+    from .auth.accounts import user_manager
 
     return user_manager
 
@@ -329,7 +329,7 @@ def resolve_or_create_account(
         if dry_run:
             return email, "created", {"profile": profile}
         from .admin_settings import get_default_new_user_role
-        from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
+        from .auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
 
         ok, msg = um.add_user(
             email,
@@ -352,7 +352,7 @@ def resolve_or_create_account(
     if dry_run:
         return username, "placeholder", {"profile": profile}
     from .admin_settings import get_default_new_user_role
-    from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
+    from .auth.accounts import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
 
     ok, msg = um.add_user(
         username,

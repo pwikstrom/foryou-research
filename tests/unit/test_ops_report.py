@@ -26,7 +26,7 @@ def test_ops_report_registered_everywhere():
 
 
 def test_ops_report_permission_key_registered():
-    from web_interface.permissions import (
+    from web_interface.auth.permissions import (
         ALL_PERMISSION_KEYS,
         PERMISSION_KEY_IMPLIED_GRANTS,
     )
@@ -275,7 +275,7 @@ _TEST_VIEWER = "__ops_report_test_viewer__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_ADMIN
+    from web_interface.auth.accounts import ROLE_ADMIN
 
     with web_client(monkeypatch, {_TEST_ADMIN: ROLE_ADMIN, _TEST_VIEWER: "viewer"}) as test_client:
         yield test_client
@@ -285,9 +285,9 @@ _login = login
 
 
 def test_ops_report_routes_require_permission(client, monkeypatch):
-    from web_interface import auth
+    from web_interface.auth import accounts
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: [])
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: [])
     _login(client, _TEST_VIEWER)
     assert client.get("/api/admin/ops-report").status_code == 403
     assert client.get("/api/admin/ops-report/html").status_code == 403

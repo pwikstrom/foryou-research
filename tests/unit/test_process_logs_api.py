@@ -59,7 +59,7 @@ def _fake_io(store: dict):
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_ADMIN, ROLE_VIEWER
+    from web_interface.auth.accounts import ROLE_ADMIN, ROLE_VIEWER
 
     with web_client(
         monkeypatch, {_TEST_ADMIN: ROLE_ADMIN, _TEST_VIEWER: ROLE_VIEWER}

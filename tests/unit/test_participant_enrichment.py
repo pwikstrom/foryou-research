@@ -168,7 +168,7 @@ def _completion_env(
     class FakeUser:
         profile = {"consent_to_contact": consent}
 
-    from web_interface.security import user_manager
+    from web_interface.auth.accounts import user_manager
 
     monkeypatch.setattr(
         user_manager,

@@ -21,7 +21,7 @@ _ENDPOINTS = [
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_VIEWER
+    from web_interface.auth.accounts import ROLE_VIEWER
 
     with web_client(monkeypatch, {_TEST_VIEWER: ROLE_VIEWER}) as test_client:
         yield test_client
@@ -32,9 +32,9 @@ _login = login
 
 def _grant_permissions(monkeypatch, perms):
     """Make the viewer role hold exactly ``perms``."""
-    from web_interface import auth
+    from web_interface.auth import accounts
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
 def test_unauthenticated_is_rejected(client):

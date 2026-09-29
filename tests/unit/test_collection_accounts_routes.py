@@ -12,8 +12,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from web_interface import auth
 from web_interface import collection_accounts as ca
+from web_interface.auth import accounts
 
 _ADMIN = "route.admin@example.test"
 
@@ -64,7 +64,7 @@ def _metadata():
 def env(monkeypatch):
     import fyp.core.data_io as core_io
     import web_interface.services.study_data as sd
-    from web_interface import security
+    from web_interface.auth import accounts
     from web_interface.fyp_data_hub import app
 
     store = _Store()
@@ -88,12 +88,12 @@ def env(monkeypatch):
 
     # A fresh manager over the in-memory store, swapped into the security
     # singleton so every route sees the same roster.
-    um = auth.UserManager(storage_location="users", bootstrap=False)
+    um = accounts.UserManager(storage_location="users", bootstrap=False)
     um.add_user(_ADMIN, "pw", "admin", approved=True)
     um.add_user("member@example.test", "pw", "viewer", approved=True, display_username="Mem Ber")
     for attr in ("users", "_loaded", "storage_location"):
-        monkeypatch.setattr(security.user_manager, attr, getattr(um, attr))
-    security.user_manager.users = um.users
+        monkeypatch.setattr(accounts.user_manager, attr, getattr(um, attr))
+    accounts.user_manager.users = um.users
 
     store.files["recoded"]["collections_metadata.parquet"] = _metadata()
     store.files["recoded"]["collections_tags.json"] = {
@@ -107,7 +107,7 @@ def env(monkeypatch):
             with client.session_transaction() as sess:
                 sess["_user_id"] = _ADMIN
                 sess["_fresh"] = True
-            yield store, client, security.user_manager
+            yield store, client, accounts.user_manager
     finally:
         for p in reversed(patches):
             p.stop()
@@ -289,7 +289,7 @@ def test_user_profile_roundtrip(env):
     r = client.get("/api/user/profile")
     assert r.status_code == 200
     body = r.get_json()
-    assert body["email"] == _ADMIN and set(body["profile"]) == set(auth.PROFILE_FIELDS)
+    assert body["email"] == _ADMIN and set(body["profile"]) == set(accounts.PROFILE_FIELDS)
 
     r = client.post(
         "/api/user/profile",

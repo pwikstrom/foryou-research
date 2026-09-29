@@ -52,8 +52,8 @@ def _restore_file(location: str, filename: str, snap) -> None:
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
     # These tests exercise the runtime-contract upload flow (save → refresh →
@@ -63,14 +63,14 @@ def client(monkeypatch):
     monkeypatch.delenv("FYP_BAKED_CONTRACTS_ONLY", raising=False)
     ac.refresh_runtime_contract()
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
             return User(username=_TEST_ADMIN, role=ROLE_ADMIN, password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     settings_snap = _snapshot_file("users", backend_settings.SETTINGS_FILENAME)
     registry_snap = _snapshot_file(
@@ -204,7 +204,7 @@ def test_dry_run_unknown_backend_rejected(client):
 
 def test_confirm_switch_backend_requires_permission(client, monkeypatch):
     """A switch_backend confirm without the Backends permission → 403, no write."""
-    import web_interface.permissions as permissions
+    import web_interface.auth.permissions as permissions
 
     orig = permissions.user_has_permission
 

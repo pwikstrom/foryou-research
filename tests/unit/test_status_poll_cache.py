@@ -27,11 +27,11 @@ _TEST_VIEWER = "__status_test_viewer__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, ROLE_VIEWER, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, ROLE_VIEWER, User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_ADMIN:
@@ -40,7 +40,7 @@ def client(monkeypatch):
             return User(username=uid, role=ROLE_VIEWER, password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False

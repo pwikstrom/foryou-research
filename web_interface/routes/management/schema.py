@@ -15,7 +15,7 @@ from fyp.core.fyp_config import (
 )
 
 from ... import activity_log
-from ...permissions import permission_required
+from ...auth.permissions import permission_required
 from ...services.worker_status import (
     _actor,
 )

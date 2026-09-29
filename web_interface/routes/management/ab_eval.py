@@ -6,7 +6,7 @@ import fyp.annotation.annotation_versioning as annotation_versioning
 from web_interface.tasks import worker_registry
 
 from ... import activity_log
-from ...permissions import permission_required
+from ...auth.permissions import permission_required
 from ...services.worker_status import (
     _actor,
     _is_worker_running,
@@ -234,7 +234,7 @@ def activate_ab_candidate(name):
         from fyp.annotation import annotation_contract as ac
         from fyp.annotation.backends import variants
 
-        from ...permissions import user_has_permission
+        from ...auth.permissions import user_has_permission
 
         builtin_default = False
         try:

@@ -330,23 +330,22 @@ def test_compose_resolution_and_unions(participant_defs, monkeypatch):
 
 
 def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch):
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
     manager = "__ps_manager__"
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == manager:
             return User(username=manager, role="team", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
     )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 
@@ -398,24 +397,23 @@ def test_list_studies_keeps_presentation_keys_off_the_shared_defs(participant_de
     definition leaked whichever viewer was bound at request time into the
     next ``save_study_defs()`` write of studies.json.
     """
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
     defs, _cache_files = participant_defs
     manager = "__ps_manager__"
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == manager:
             return User(username=manager, role="team", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
     )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
 

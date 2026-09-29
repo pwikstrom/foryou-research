@@ -15,12 +15,12 @@ import fyp.analysis.embeddings as embeddings
 import fyp.analysis.video_map as video_map
 import fyp.core.data_io as data_io
 import web_interface.semantic_trajectory as semantic_trajectory
+from web_interface.auth.permissions import permission_required
 from web_interface.data_service import (
     get_accessible_studies,
     get_study_collections,
     load_display_id_map,
 )
-from web_interface.permissions import permission_required
 from web_interface.tasks.task_status import is_cloud_run
 
 semantic_space_bp = Blueprint("semantic_space_bp", __name__)

@@ -52,15 +52,16 @@ hand-roll their own `__main__`),
 
 ## Auth & permissions
 
-Flask-Login over a JSON-file user store (`security.py`, `auth.py`; user
-records are JSON files under `{local_data}/users/`), with a tab/sub-page
-permission catalog in `permissions.py`. Route guards:
+Flask-Login over a JSON-file user store, all in `web_interface/auth/`:
+`accounts.py` is the store (`UserManager`, `RoleManager`, the `user_manager`
+singleton; user records are JSON files under `{local_data}/users/`),
+`security.py` wires it into Flask-Login, and `permissions.py` holds the
+tab/sub-page permission catalog and the route guards. Route guards:
 `@permission_required("<key>")` with a key from `PERMISSION_CATALOG` (admins
 pass every check; it already sends an unauthenticated request to the login
 flow, so it is never stacked with `@login_required`), `@login_required` alone
-for any-signed-in-user routes, and `auth.admin_required` /
-`auth.role_required` for the few admin-only endpoints that have no catalog
-key. CSRF is
+for any-signed-in-user routes, and `@admin_required` for the few admin-only
+endpoints that have no catalog key. CSRF is
 globally enabled (Flask-WTF); only the OIDC-authenticated internal task
 blueprint is exempt. `WTF_CSRF_TIME_LIMIT = None` is deliberate (long-open
 research sessions).

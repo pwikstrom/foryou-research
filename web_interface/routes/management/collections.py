@@ -21,12 +21,12 @@ from fyp.ingest.raw_names import (
 from web_interface.tasks import worker_registry
 
 from ... import activity_log
+from ...auth.accounts import user_manager
+from ...auth.permissions import permission_required
 from ...collection_accounts import collection_counts_by_user
 from ...data_service import (
     invalidate_collection_tags_cache,
 )
-from ...permissions import permission_required
-from ...security import user_manager
 from ...services.worker_status import (
     _actor,
 )
@@ -738,7 +738,7 @@ def preview_collection_enrichment_queues(collection_id):
 
     from fyp.scrape import scrape_queues
 
-    from ...permissions import user_has_permission
+    from ...auth.permissions import user_has_permission
     from ...services import collection_enrichment as ce
     from .enrichment import _annotation_cost_estimate, _collection_display_ids
 

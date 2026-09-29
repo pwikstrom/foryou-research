@@ -13,10 +13,10 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from flask_login import current_user, login_required, login_user, logout_user
 
 import fyp.core.data_io as data_io
-import web_interface.auth as auth
 from fyp.core.fyp_config import fyp_cf
+from web_interface.auth import accounts
 
-from .. import activity_log, admin_notes, email_verification
+from .. import activity_log, admin_notes
 from ..admin_settings import (
     DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
 )
@@ -34,6 +34,9 @@ from ..admin_settings import (
 from ..admin_settings import (
     study_names as admin_study_names,
 )
+from ..auth import email_verification
+from ..auth.accounts import user_manager
+from ..auth.permissions import permission_required
 from ..collection_accounts import (
     collections_for_user,
     load_owner_map,
@@ -46,8 +49,6 @@ from ..mail_utils import (
     send_new_user_pending_email_async,
     send_welcome_email_async,
 )
-from ..permissions import permission_required
-from ..security import user_manager
 
 auth_bp = Blueprint("auth_bp", __name__)
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ def login():
 
         if user_obj:
             # Verify password first (Mitigates timing attacks by always checking password)
-            if auth.verify_password(user_obj.password_hash, password):
+            if accounts.verify_password(user_obj.password_hash, password):
                 if not user_obj.email_verified():
                     # The resend form on the login page keys off this category.
                     flash(
@@ -115,7 +116,7 @@ def login():
             dummy_hash = (
                 "77d9c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6c0e5a6" + "a" * 128
             )
-            auth.verify_password(dummy_hash, "dummy_password")
+            accounts.verify_password(dummy_hash, "dummy_password")
             flash("Invalid username or password")
 
     slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
@@ -155,7 +156,7 @@ def signup():
             flash(f"Invalid email: {e!s}")
             return render_template("signup.html", next_target=next_target)
 
-        cleaned_display, display_err = auth.validate_display_username(display_username)
+        cleaned_display, display_err = accounts.validate_display_username(display_username)
         if display_err:
             flash(display_err)
             return render_template("signup.html", next_target=next_target)
@@ -218,7 +219,7 @@ def signup():
                 email_verification.send_verification_link(user_manager, new_user, next_target)
                 flash(VERIFY_FLASH)
             else:
-                if skip == auth.EMAIL_VERIFIED_MAIL_UNCONFIGURED:
+                if skip == accounts.EMAIL_VERIFIED_MAIL_UNCONFIGURED:
                     logger.warning(
                         f"Signup {username} admitted WITHOUT email verification: "
                         f"outgoing mail is not configured (MAIL_PASSWORD / mail sender)."
@@ -282,7 +283,7 @@ def verify_email(token):
     user, next_target = parsed
     next_target = _safe_next(next_target)
     if not user.email_verified():
-        user_manager.mark_email_verified(user.username, via=auth.EMAIL_VERIFIED_LINK)
+        user_manager.mark_email_verified(user.username, via=accounts.EMAIL_VERIFIED_LINK)
         if not user.approved:
             _notify_admin_of_pending_signup(user.username, user.display_username or None)
     if user.approved:
@@ -459,7 +460,7 @@ def api_admin_users():
         except EmailNotValidError as e:
             return jsonify({"error": f"Invalid email: {e!s}"}), 400
 
-        cleaned_display, display_err = auth.validate_display_username(display_username)
+        cleaned_display, display_err = accounts.validate_display_username(display_username)
         if display_err:
             return jsonify({"error": display_err}), 400
 
@@ -474,7 +475,7 @@ def api_admin_users():
                 "at": datetime.now(timezone.utc).isoformat(),
                 "by": current_user.username,
             },
-            email_verified_via=auth.EMAIL_VERIFIED_ADMIN,
+            email_verified_via=accounts.EMAIL_VERIFIED_ADMIN,
         )
         if success:
             activity_log.record(
@@ -565,7 +566,9 @@ def api_admin_users():
                 return jsonify({"error": msg}), 400
 
         elif action == "mark_verified":
-            success, msg = user_manager.mark_email_verified(username, via=auth.EMAIL_VERIFIED_ADMIN)
+            success, msg = user_manager.mark_email_verified(
+                username, via=accounts.EMAIL_VERIFIED_ADMIN
+            )
             if success:
                 activity_log.record(
                     actor=current_user.username,
@@ -773,10 +776,10 @@ def api_admin_user_note_delete(username, note_id):
     "tab.admin.roles", "tab.admin.active_users", "tab.admin.new_users", "tab.admin.general"
 )
 def api_admin_roles():
-    from ..permissions import user_has_permission
+    from ..auth.permissions import user_has_permission
 
     if request.method == "GET":
-        return jsonify(auth.role_manager.get_roles_with_permissions())
+        return jsonify(accounts.role_manager.get_roles_with_permissions())
 
     # POST / DELETE manage the role catalog itself — only the Roles sub-page.
     if not user_has_permission(current_user, "tab.admin.roles"):
@@ -790,7 +793,7 @@ def api_admin_roles():
 
         role_name = role_name.strip().lower()
 
-        success, msg = auth.role_manager.add_role(role_name)
+        success, msg = accounts.role_manager.add_role(role_name)
         if success:
             return jsonify({"status": "success", "message": msg})
         else:
@@ -801,7 +804,7 @@ def api_admin_roles():
         if not role_name:
             return jsonify({"error": "Missing role name"}), 400
 
-        success, msg = auth.role_manager.delete_role(role_name, user_manager)
+        success, msg = accounts.role_manager.delete_role(role_name, user_manager)
         if success:
             return jsonify({"status": "success", "message": msg})
         else:
@@ -811,7 +814,7 @@ def api_admin_roles():
 @auth_bp.route("/api/admin/permissions/catalog", methods=["GET"])
 @permission_required("tab.admin.roles")
 def api_admin_permissions_catalog():
-    from ..permissions import PERMISSION_CATALOG
+    from ..auth.permissions import PERMISSION_CATALOG
 
     return jsonify(PERMISSION_CATALOG)
 
@@ -819,7 +822,7 @@ def api_admin_permissions_catalog():
 @auth_bp.route("/api/admin/roles/<role_name>/permissions", methods=["PUT"])
 @permission_required("tab.admin.roles")
 def api_admin_role_permissions(role_name):
-    from ..permissions import ALL_PERMISSION_KEYS
+    from ..auth.permissions import ALL_PERMISSION_KEYS
 
     data = request.json or {}
     perms = data.get("permissions")
@@ -830,7 +833,7 @@ def api_admin_role_permissions(role_name):
     if invalid:
         return jsonify({"error": f"Unknown permission keys: {invalid}"}), 400
 
-    success, msg = auth.role_manager.set_role_permissions(role_name, perms)
+    success, msg = accounts.role_manager.set_role_permissions(role_name, perms)
     if success:
         return jsonify({"status": "success", "message": msg})
     return jsonify({"error": msg}), 400
@@ -862,7 +865,7 @@ def api_admin_settings():
         # Choices for the default-study picker. Only Site Settings holders get
         # them — the other two sub-pages that may read this endpoint have no
         # business learning every study name.
-        from ..permissions import user_has_permission
+        from ..auth.permissions import user_has_permission
 
         if user_has_permission(current_user, "tab.admin.general"):
             payload["study_names"] = admin_study_names()
@@ -873,7 +876,7 @@ def api_admin_settings():
 
     # PUT — the backend selections belong to the Backends sub-page, every
     # other setting to Site Settings (tab.admin.general).
-    from ..permissions import user_has_permission
+    from ..auth.permissions import user_has_permission
 
     data = request.json or {}
     if not isinstance(data, dict):
@@ -900,7 +903,7 @@ def api_admin_settings():
             )
             return jsonify({"error": f"Setting '{k}' must be a {names}"}), 400
         # Extra check: the default-role setting must reference an existing role.
-        if k == "default_new_user_role" and not auth.role_manager.role_exists(v):
+        if k == "default_new_user_role" and not accounts.role_manager.role_exists(v):
             return jsonify({"error": f"Unknown role: {v!r}"}), 400
         semantic_error = validate_setting_value(k, v)
         if semantic_error:
@@ -1158,7 +1161,7 @@ def api_user_profile():
                 "email": current_user.username,
                 "display_username": current_user.display_username,
                 "profile": current_user.profile,
-                "profile_fields": list(auth.PROFILE_FIELDS),
+                "profile_fields": list(accounts.PROFILE_FIELDS),
                 "collections": collections_for_user(current_user.username),
             }
         )

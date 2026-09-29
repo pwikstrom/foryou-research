@@ -27,7 +27,7 @@ if __name__ == "__main__" and __package__ is None:
 # Imports
 from flask_wtf.csrf import CSRFProtect
 
-from .security import login_manager  # Import shared auth objects
+from .auth.security import login_manager  # Import shared auth objects
 from .tasks.process_manager import load_process_stats  # Import load function
 
 csrf = CSRFProtect()
@@ -138,7 +138,7 @@ def _register_web_ui(app):
         """
         if request.endpoint == "static" or not current_user.is_authenticated:
             return
-        from .security import user_manager
+        from .auth.accounts import user_manager
 
         user_manager.touch_activity(current_user.get_id())
 
@@ -232,7 +232,7 @@ def _register_web_ui(app):
     def handle_forbidden(error):
         """Return JSON for API routes so client-side ``res.json()`` doesn't choke.
 
-        ``permission_required`` and ``role_required`` raise ``abort(403)``, which
+        ``permission_required`` and ``admin_required`` raise ``abort(403)``, which
         by default renders an HTML error page. A ``fetch().then(res => res.json())``
         on that page throws "Unexpected token '<'". Mirror the 401 handler in
         ``security.py``: send JSON for ``/api/`` paths, keep the default HTML page
@@ -259,7 +259,7 @@ def _register_web_ui(app):
         from fyp.core.fyp_config import get_config
         from fyp.ingest import platform_url_templates
 
-        from .permissions import get_user_permissions, visible_pipeline_steps
+        from .auth.permissions import get_user_permissions, visible_pipeline_steps
         from .slack_service import get_recent_messages
 
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
@@ -369,8 +369,8 @@ def _migrate_study_access_defaults():
     restricted roles (student) whose exclusion is the point of the flip.
     Idempotent; a storage failure is logged and never blocks boot.
     """
-    from .auth import ROLE_ADMIN, role_manager
-    from .permissions import PERMISSION_MIGRATION_SKIP_ROLES
+    from .auth.accounts import ROLE_ADMIN, role_manager
+    from .auth.permissions import PERMISSION_MIGRATION_SKIP_ROLES
 
     try:
         from fyp.analysis.studies import migrate_user_access_defaults

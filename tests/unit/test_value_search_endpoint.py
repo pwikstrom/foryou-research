@@ -18,20 +18,20 @@ _TEST_VIEWER = "__value_search_test_viewer__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import auth, security
-    from web_interface.auth import ROLE_VIEWER, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_VIEWER, User
     from web_interface.fyp_data_hub import app
     from web_interface.routes import _access
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_VIEWER:
             return User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: ["tab.explore"])
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: ["tab.explore"])
     monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["s1"])
 
     app.testing = True

@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 from flask import current_app, url_for
 from itsdangerous import BadData, URLSafeTimedSerializer
 
-from .admin_settings import get_signup_email_verification_required
-from .mail_utils import mail_configured, send_verification_email_async
+from ..admin_settings import get_signup_email_verification_required
+from ..mail_utils import mail_configured, send_verification_email_async
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def skip_reason() -> str | None:
     :func:`verification_required` would stamp instead of gating:
     ``"setting_off"`` or ``"mail_unconfigured"``.
     """
-    from .auth import EMAIL_VERIFIED_MAIL_UNCONFIGURED, EMAIL_VERIFIED_SETTING_OFF
+    from .accounts import EMAIL_VERIFIED_MAIL_UNCONFIGURED, EMAIL_VERIFIED_SETTING_OFF
 
     if not get_signup_email_verification_required():
         return EMAIL_VERIFIED_SETTING_OFF
@@ -142,7 +142,7 @@ def _absolute_verify_url(token: str) -> str:
     Prefers ``[site].app_url`` (the public hostname; on Cloud Run the request
     host may be the internal run.app one) and falls back to the request host.
     """
-    from .mail_utils import _site
+    from ..mail_utils import _site
 
     path = url_for("auth_bp.verify_email", token=token)
     app_url = str(_site().get("app_url", "") or "").strip().rstrip("/")

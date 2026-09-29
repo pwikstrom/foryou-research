@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from web_interface import auth
+from web_interface.auth import accounts
 
 _ADMIN = "subset.admin@example.test"
 
@@ -19,7 +19,6 @@ _ADMIN = "subset.admin@example.test"
 @pytest.fixture
 def env(monkeypatch):
     from web_interface import collection_accounts as ca
-    from web_interface import security
     from web_interface.fyp_data_hub import app
     from web_interface.services import my_collections_service as svc
 
@@ -31,12 +30,12 @@ def env(monkeypatch):
         lambda cids: calls.append(list(cids)) or {"ok": True, "cids": list(cids)},
     )
 
-    um = auth.UserManager(storage_location="users", bootstrap=False)
-    with patch.object(auth, "data_io") as fake_io:
+    um = accounts.UserManager(storage_location="users", bootstrap=False)
+    with patch.object(accounts, "data_io") as fake_io:
         fake_io.exists.return_value = False
         um.add_user(_ADMIN, "pw", "admin", approved=True)
     for attr in ("users", "_loaded", "storage_location"):
-        monkeypatch.setattr(security.user_manager, attr, getattr(um, attr))
+        monkeypatch.setattr(accounts.user_manager, attr, getattr(um, attr))
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False

@@ -15,7 +15,7 @@ _TEST_ADMIN = "__sessions_test_admin__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_ADMIN
+    from web_interface.auth.accounts import ROLE_ADMIN
 
     with web_client(monkeypatch, {_TEST_ADMIN: ROLE_ADMIN}, login_as=_TEST_ADMIN) as test_client:
         yield test_client

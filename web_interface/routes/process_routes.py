@@ -13,11 +13,10 @@ from datetime import UTC
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
-import web_interface.auth as auth
 from web_interface import activity_log
 from web_interface.tasks import run_logs, worker_registry
 
-from ..permissions import user_has_permission
+from ..auth.permissions import admin_required, user_has_permission
 from ..services import refresh_pipeline
 from ..tasks import runtime
 from ..tasks.process_manager import (
@@ -40,7 +39,7 @@ process_bp = Blueprint("process_bp", __name__)
 
 
 @process_bp.route("/api/start/<name>", methods=["POST"])
-@auth.admin_required
+@admin_required
 def api_start(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -239,7 +238,7 @@ def api_start(name):
 
 
 @process_bp.route("/api/stop/<name>", methods=["POST"])
-@auth.admin_required
+@admin_required
 def api_stop(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -256,7 +255,7 @@ def api_stop(name):
 
 
 @process_bp.route("/api/stop_graceful/<name>", methods=["POST"])
-@auth.admin_required
+@admin_required
 def api_stop_graceful(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
@@ -544,7 +543,7 @@ def _resolve_log_key(name: str) -> str | None:
 
 
 @process_bp.route("/api/logs/clear/<name>", methods=["POST"])
-@auth.admin_required
+@admin_required
 def api_clear_logs(name):
     """Delete a process's whole run history (all retained runs)."""
     key = _resolve_log_key(name)
@@ -558,7 +557,7 @@ def api_clear_logs(name):
 
 
 @process_bp.route("/api/logs/<name>", methods=["GET"])
-@auth.admin_required
+@admin_required
 def api_logs(name):
     """Return a run's log lines, plus the run list for the modal's picker.
 

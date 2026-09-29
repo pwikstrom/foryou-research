@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import flask_login.utils as fl_utils
 import pytest
 
-from web_interface.auth import User
+from web_interface.auth.accounts import User
 
 
 @pytest.fixture(scope="module")

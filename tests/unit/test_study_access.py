@@ -62,23 +62,22 @@ def test_analysis_side_admin_sees_everything(study_defs):
 
 
 def test_my_studies_matches_username_and_denies_unshared(study_defs, monkeypatch):
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_USER:
             return User(username=_TEST_USER, role="student", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     # Not a study manager: no permissions at all beyond the listing gate.
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.my_stuff.my_studies"]
     )
     # The route reloads defs from disk — keep the fixture's dict in place.
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
@@ -124,23 +123,22 @@ def test_migration_backfills_only_unshared_studies(monkeypatch):
 
 
 def test_save_study_rejects_empty_collections(monkeypatch):
-    import web_interface.auth as auth_mod
     import web_interface.routes.management.studies as studies_mod
     from fyp.core.fyp_config import fyp_cf
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_USER:
             return User(username=_TEST_USER, role="manager", password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
     monkeypatch.setattr(
-        auth_mod.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
+        accounts.role_manager, "get_role_permissions", lambda role: ["tab.data_management.studies"]
     )
     monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
     monkeypatch.setitem(fyp_cf, "study_defs", {})

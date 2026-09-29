@@ -7,22 +7,22 @@ password printed once to the console, and a non-empty store creates nothing.
 
 from __future__ import annotations
 
-import web_interface.auth as auth
+from web_interface.auth import accounts
 
 
 def _manager_with_files(
     monkeypatch, files: list[str], contents: dict | None = None
-) -> auth.UserManager:
+) -> accounts.UserManager:
     """Build a lazy UserManager and stub the user-store listing + reads.
 
     ``contents`` maps filename → parsed JSON for the content-aware default-admin
     check; unlisted candidate files load as ``{}`` (no ``username`` → not a user).
     """
     contents = contents or {}
-    manager = auth.UserManager(bootstrap=False)
-    monkeypatch.setattr(auth.data_io, "listdir", lambda **kwargs: files)
+    manager = accounts.UserManager(bootstrap=False)
+    monkeypatch.setattr(accounts.data_io, "listdir", lambda **kwargs: files)
     monkeypatch.setattr(
-        auth.data_io,
+        accounts.data_io,
         "load_json",
         lambda storage_location, filename, **kwargs: contents.get(filename, {}),
     )
@@ -41,7 +41,7 @@ def test_empty_store_creates_admin_with_random_password(monkeypatch, capsys):
     manager._ensure_default_admin()
 
     assert created["username"] == "admin@admin.net"
-    assert created["role"] == auth.ROLE_ADMIN
+    assert created["role"] == accounts.ROLE_ADMIN
     assert created["approved"] is True
     assert created["password"] != "admin"
     assert len(created["password"]) >= 16
@@ -100,18 +100,18 @@ def test_reset_store_with_only_sidecar_files_creates_admin(monkeypatch, capsys):
     manager._ensure_default_admin()
 
     assert created.get("username") == "admin@admin.net"
-    assert created.get("role") == auth.ROLE_ADMIN
+    assert created.get("role") == accounts.ROLE_ADMIN
     assert "admin@admin.net" in capsys.readouterr().out
 
 
 def test_listing_failure_creates_nothing(monkeypatch):
     """A failed listing must never fabricate an admin."""
-    manager = auth.UserManager(bootstrap=False)
+    manager = accounts.UserManager(bootstrap=False)
 
     def boom(**kwargs):
         raise OSError("storage down")
 
-    monkeypatch.setattr(auth.data_io, "listdir", boom)
+    monkeypatch.setattr(accounts.data_io, "listdir", boom)
     monkeypatch.setattr(
         manager,
         "add_user",

@@ -13,11 +13,11 @@ _TEST_USER = "__pipeline_guide_test__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_VIEWER, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_VIEWER, User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid == _TEST_USER:
@@ -32,7 +32,7 @@ def client(monkeypatch):
             )
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
@@ -41,9 +41,9 @@ def client(monkeypatch):
 
 
 def _render(client, monkeypatch, perms):
-    from web_interface import auth
+    from web_interface.auth import accounts
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: list(perms))
     with client.session_transaction() as sess:
         sess["_user_id"] = _TEST_USER
         sess["_fresh"] = True
@@ -53,7 +53,7 @@ def _render(client, monkeypatch, perms):
 
 
 def test_analysis_only_user_sees_only_the_analyse_stage(client, monkeypatch):
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     html = _render(client, monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
 
@@ -98,7 +98,7 @@ def test_pipeline_stage_needs_a_page_inside_it(client, monkeypatch):
 
 
 def test_home_pane_ends_with_the_public_footer_and_a_citation(client, monkeypatch):
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     html = _render(client, monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
 
@@ -116,7 +116,7 @@ def test_home_pane_ends_with_the_public_footer_and_a_citation(client, monkeypatc
 
 def test_home_pane_no_longer_advertises_the_retired_sample_dataset(client, monkeypatch):
     """The synthetic demo dataset was removed in 023185c6; the copy followed it."""
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     html = _render(client, monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     assert "sample study" not in html
@@ -124,8 +124,8 @@ def test_home_pane_no_longer_advertises_the_retired_sample_dataset(client, monke
 
 def test_visible_pipeline_steps_are_returned_in_pipeline_order(monkeypatch):
     """Grants arrive in arbitrary order; the stepper needs pipeline order."""
-    from web_interface import auth
-    from web_interface.permissions import visible_pipeline_steps
+    from web_interface.auth import accounts
+    from web_interface.auth.permissions import visible_pipeline_steps
 
     class _User:
         is_authenticated = True
@@ -135,7 +135,7 @@ def test_visible_pipeline_steps_are_returned_in_pipeline_order(monkeypatch):
             return False
 
     monkeypatch.setattr(
-        auth.role_manager,
+        accounts.role_manager,
         "get_role_permissions",
         lambda role: [
             "tab.admin.roles",

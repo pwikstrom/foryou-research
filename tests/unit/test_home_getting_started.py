@@ -14,11 +14,11 @@ _TEST_VIEWER = "__home_test_viewer__"
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface import security
-    from web_interface.auth import ROLE_VIEWER, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_VIEWER, User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
     state = {"settings": {}}
 
     def _fake_get(uid):
@@ -33,7 +33,7 @@ def client(monkeypatch):
             return user
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False
@@ -46,13 +46,13 @@ _login = login
 
 
 def _grant_permissions(monkeypatch, perms):
-    from web_interface import auth
+    from web_interface.auth import accounts
 
-    monkeypatch.setattr(auth.role_manager, "get_role_permissions", lambda role: list(perms))
+    monkeypatch.setattr(accounts.role_manager, "get_role_permissions", lambda role: list(perms))
 
 
 def test_panel_renders_for_default_viewer(client, monkeypatch):
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     _login(client, _TEST_VIEWER)
@@ -82,7 +82,7 @@ def test_upload_pointer_needs_ingestion_permission(client, monkeypatch):
 
 
 def test_panel_hidden_after_dismissal(client, monkeypatch):
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     client._settings_state["settings"] = {"getting_started_dismissed": True}
@@ -94,7 +94,7 @@ def test_panel_hidden_after_dismissal(client, monkeypatch):
 
 def test_dismissed_panel_can_be_restored_from_preferences(client, monkeypatch):
     """The dismissal used to be one-way — nothing ever wrote the flag back."""
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     client._settings_state["settings"] = {"getting_started_dismissed": True}
@@ -113,7 +113,7 @@ def test_shell_carries_the_platform_url_templates(client, monkeypatch):
     per-platform URL, which is how the hardcoded TikTok link survived.
     """
     from fyp.ingest import platform_url_templates
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     _login(client, _TEST_VIEWER)
@@ -126,7 +126,7 @@ def test_shell_carries_the_platform_url_templates(client, monkeypatch):
 
 def test_shell_renders_the_relocated_surfaces_for_a_plain_viewer(client, monkeypatch):
     """Markup that moved or is new must reach a non-admin, not just an admin."""
-    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+    from web_interface.auth.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
 
     _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
     _login(client, _TEST_VIEWER)

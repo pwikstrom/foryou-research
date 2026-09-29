@@ -1,17 +1,18 @@
-"""Tab + sub-page permission catalog and Flask decorator.
+"""Tab + sub-page permission catalog and the Flask route guards.
 
 Permissions are persisted per role in ``users/roles.json`` (see
-``auth.RoleManager``). The catalog defined here is the single source of truth
-for the admin permission-matrix UI and for the ``permission_required``
-decorator used to gate Flask routes.
+``accounts.RoleManager``). The catalog defined here is the single source of
+truth for the admin permission-matrix UI and for the ``permission_required``
+decorator used to gate Flask routes; ``admin_required`` gates the few
+admin-only endpoints that have no catalog key.
 
 Permission keys are strings of the form ``tab.<tab_id>`` or
 ``tab.<tab_id>.<sub_page_id>``. Hierarchy is logical only — granting
 ``tab.data_management`` does NOT auto-grant its sub-pages. Each box on the
 matrix is independent so admins can hide specific sub-pages.
 
-The admin role bypasses all checks (see ``role_required`` in ``auth.py``); a
-role with ``"*"`` in its permission list also has implicit full access.
+The admin role bypasses all checks; a role with ``"*"`` in its permission
+list also has implicit full access.
 """
 
 from functools import wraps
@@ -244,7 +245,7 @@ def user_has_permission(user, perm_key: str) -> bool:
         return True
 
     # Imported lazily to avoid a circular import with auth.py at module load.
-    from web_interface.auth import role_manager
+    from web_interface.auth.accounts import role_manager
 
     perms = role_manager.get_role_permissions(getattr(user, "role", None))
     if "*" in perms:
@@ -271,7 +272,7 @@ def get_user_permissions(user) -> list[str]:
     if hasattr(user, "is_admin") and user.is_admin():
         return sorted(ALL_PERMISSION_KEYS | PARENT_TAB_KEYS)
 
-    from web_interface.auth import role_manager
+    from web_interface.auth.accounts import role_manager
 
     perms = role_manager.get_role_permissions(getattr(user, "role", None))
     if "*" in perms:
@@ -285,12 +286,29 @@ def get_user_permissions(user) -> list[str]:
     return sorted(effective)
 
 
+def _guard(allowed):
+    """Route decorator: the login flow when signed out, 403 unless ``allowed(user)``."""
+
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return current_app.login_manager.unauthorized()
+            if not allowed(current_user):
+                abort(403)
+            return f(*args, **kwargs)
+
+        return decorated_function
+
+    return decorator
+
+
 def permission_required(*perm_keys: str):
     """Decorator that gates a Flask route on one or more permission keys.
 
-    Mirrors ``auth.role_required``: redirects unauthenticated users to the
-    login flow, lets admins through unconditionally, and otherwise enforces
-    that the user holds **at least one** of the listed permissions. Pass a
+    Redirects unauthenticated users to the login flow, lets admins through
+    unconditionally, and otherwise enforces that the user holds **at least
+    one** of the listed permissions. Pass a
     single key for the common case; pass several to cover an endpoint that
     serves multiple sub-pages (e.g. ``/api/admin/users`` powers both
     "New Users" and "Active Users").
@@ -298,16 +316,14 @@ def permission_required(*perm_keys: str):
     Args:
         *perm_keys: One or more permission keys from the catalog.
     """
+    return _guard(lambda user: any(user_has_permission(user, key) for key in perm_keys))
 
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if not current_user.is_authenticated:
-                return current_app.login_manager.unauthorized()
-            if not any(user_has_permission(current_user, key) for key in perm_keys):
-                abort(403)
-            return f(*args, **kwargs)
 
-        return decorated_function
+def admin_required(f):
+    """Decorator that gates a Flask route on the admin role.
 
-    return decorator
+    For the few admin-only endpoints with no catalog key. A signed-in user
+    passes when ``is_admin()`` holds or their role is ``admin`` (so an
+    unapproved admin-role session passes too).
+    """
+    return _guard(lambda user: user.is_admin() or user.role == "admin")(f)

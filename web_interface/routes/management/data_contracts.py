@@ -16,7 +16,7 @@ from fyp.core import activity_contract, activity_versioning, derived_contract
 from fyp.core.fyp_config import PROJECT_ROOT
 from fyp.scrape import scrape_contract, scrape_versioning
 
-from ...permissions import permission_required
+from ...auth.permissions import permission_required
 from ._blueprint import management_bp
 
 # kind -> (contract module, versioning module or None, version-id key or None)

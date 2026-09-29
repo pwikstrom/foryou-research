@@ -19,18 +19,18 @@ def web_client(monkeypatch, users: dict[str, str], login_as: str | None = None):
     Yields:
         The Flask test client.
     """
-    from web_interface import security
-    from web_interface.auth import User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import User
     from web_interface.fyp_data_hub import app
 
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
 
     def _fake_get(uid):
         if uid in users:
             return User(username=uid, role=users[uid], password_hash="", approved=True)
         return orig_get_user(uid)
 
-    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(accounts.user_manager, "get_user", _fake_get)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False

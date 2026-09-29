@@ -37,7 +37,7 @@ def _frame():
 
 @pytest.fixture
 def client(monkeypatch):
-    from web_interface.auth import ROLE_VIEWER
+    from web_interface.auth.accounts import ROLE_VIEWER
 
     with web_client(monkeypatch, {_TEST_VIEWER: ROLE_VIEWER}) as test_client:
         yield test_client
@@ -46,11 +46,11 @@ def client(monkeypatch):
 @pytest.fixture
 def viewer(client, monkeypatch):
     """Logged-in viewer with the tab permission and one accessible study."""
-    from web_interface import auth
+    from web_interface.auth import accounts
     from web_interface.routes import api_viewer_routes as routes
 
     monkeypatch.setattr(
-        auth.role_manager,
+        accounts.role_manager,
         "get_role_permissions",
         lambda role: ["tab.video_analysis"],
     )

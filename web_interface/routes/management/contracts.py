@@ -14,10 +14,10 @@ from fyp.core.fyp_config import (
 )
 
 from ... import activity_log
+from ...auth.permissions import permission_required
 from ...data_service import (
     study_cache,
 )
-from ...permissions import permission_required
 from ...services.worker_status import (
     _actor,
 )
@@ -101,7 +101,7 @@ def get_annotation_version(version):
         # variant/backend (gemini when unset).
         from flask_login import current_user
 
-        from ...permissions import user_has_permission
+        from ...auth.permissions import user_has_permission
 
         restorable = (
             bool(info.get("contract_text")) and version != annotation_versioning.LEGACY_VERSION
@@ -556,7 +556,7 @@ def upload_annotation_contract():
             from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
 
             from ...admin_settings import validate_setting_value
-            from ...permissions import user_has_permission
+            from ...auth.permissions import user_has_permission
 
             if not user_has_permission(current_user, "tab.admin.backends"):
                 return jsonify(

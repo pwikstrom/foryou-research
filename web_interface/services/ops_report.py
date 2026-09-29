@@ -186,7 +186,7 @@ def collect_status(hours_back: int = 24) -> dict:
     usernames = []
     real = []
     try:
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         all_users = user_manager.get_all_users()
         real = [u for u in all_users.values() if not getattr(u, "placeholder", False)]
@@ -1897,7 +1897,7 @@ UNVERIFIED_PRUNE_DAYS = 7
 def _prune_unverified_signups() -> list[str]:
     """Delete stale unverified signups; returns the usernames removed."""
     try:
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         removed = user_manager.prune_unverified_signups(max_age_days=UNVERIFIED_PRUNE_DAYS)
     except Exception as e:

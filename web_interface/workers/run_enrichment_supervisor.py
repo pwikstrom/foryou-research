@@ -1670,7 +1670,7 @@ def _notify_owner(reporter, cid: str, entry: dict) -> None:
         return
     try:
         from web_interface import mail_utils
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         user = user_manager.get_user(owner)
         if not user:

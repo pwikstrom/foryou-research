@@ -21,8 +21,8 @@ import fyp.annotation.ab_eval as ab_eval
 import fyp.annotation.human_eval as human_eval
 
 from .. import activity_log, mail_utils
-from ..permissions import permission_required
-from ..security import user_manager
+from ..auth.accounts import user_manager
+from ..auth.permissions import permission_required
 
 human_eval_bp = Blueprint("human_eval", __name__)
 

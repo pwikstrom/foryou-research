@@ -17,6 +17,8 @@ from fyp.core.fyp_config import fyp_cf
 from fyp.ingest import platform_url_templates
 
 from .. import explorer_backend as explorer
+from ..auth.accounts import user_manager
+from ..auth.permissions import permission_required, user_has_permission
 from ..data_service import (
     enrich_with_user_tags,
     get_explorer_data,
@@ -26,8 +28,6 @@ from ..data_service import (
     load_display_id_map,
     load_shared_tags,
 )
-from ..permissions import permission_required, user_has_permission
-from ..security import user_manager
 from ._access import require_accessible_study, study_access_error
 
 viewer_bp = Blueprint("viewer_bp", __name__)

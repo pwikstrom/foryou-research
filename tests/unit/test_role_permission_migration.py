@@ -34,15 +34,15 @@ class _StubDataIO:
 
 
 def _make_role_manager(payload):
-    import web_interface.auth as auth_mod
+    from web_interface.auth import accounts
 
     stub = _StubDataIO(payload)
-    original = auth_mod.data_io
-    auth_mod.data_io = stub
+    original = accounts.data_io
+    accounts.data_io = stub
     try:
-        rm = auth_mod.RoleManager()
+        rm = accounts.RoleManager()
     finally:
-        auth_mod.data_io = original
+        accounts.data_io = original
     return rm, stub
 
 
@@ -69,7 +69,7 @@ def test_umbrella_keys_imply_split_out_pages():
 
 
 def test_migration_is_idempotent_and_skips_wildcard():
-    from web_interface.permissions import (
+    from web_interface.auth.permissions import (
         PERMISSION_KEYS_GRANT_ALL,
         STUDENT_PERMISSIONS,
     )
@@ -137,7 +137,7 @@ def test_votes_key_granted_to_existing_roles_but_not_student():
 
 
 def test_ensure_defaults_seeds_student_role():
-    from web_interface.permissions import STUDENT_PERMISSIONS
+    from web_interface.auth.permissions import STUDENT_PERMISSIONS
 
     rm, stub = _make_role_manager(
         {

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from web_interface import auth, email_verification
+from web_interface.auth import accounts, email_verification
 
 # --- helpers ---------------------------------------------------------------
 
@@ -49,17 +49,17 @@ def store():
 @pytest.fixture
 def manager(store):
     patches = [
-        patch.object(auth.data_io, "exists", store.exists),
-        patch.object(auth.data_io, "listdir", store.listdir),
-        patch.object(auth.data_io, "load_json", store.load_json),
-        patch.object(auth.data_io, "save_json", store.save_json),
-        patch.object(auth.data_io, "remove", store.remove),
-        patch.object(auth.role_manager, "role_exists", lambda role: True),
+        patch.object(accounts.data_io, "exists", store.exists),
+        patch.object(accounts.data_io, "listdir", store.listdir),
+        patch.object(accounts.data_io, "load_json", store.load_json),
+        patch.object(accounts.data_io, "save_json", store.save_json),
+        patch.object(accounts.data_io, "remove", store.remove),
+        patch.object(accounts.role_manager, "role_exists", lambda role: True),
     ]
     for p in patches:
         p.start()
     try:
-        yield auth.UserManager(storage_location="users", bootstrap=False)
+        yield accounts.UserManager(storage_location="users", bootstrap=False)
     finally:
         for p in patches:
             p.stop()
@@ -88,13 +88,13 @@ def _signup_user(**over):
     kw = {
         "username": "someone@example.org",
         "role": "viewer",
-        "password_hash": auth.hash_password("pw"),
+        "password_hash": accounts.hash_password("pw"),
         "approved": True,
         "origin": {"source": "signup", "at": "2026-09-01T00:00:00+00:00"},
         "created_at": "2026-09-01T00:00:00+00:00",
     }
     kw.update(over)
-    return auth.User(**kw)
+    return accounts.User(**kw)
 
 
 # --- user record -------------------------------------------------------------
@@ -102,13 +102,13 @@ def _signup_user(**over):
 
 def test_record_without_the_field_loads_as_legacy_verified():
     """An account that predates the feature must not be locked out."""
-    u = auth._user_from_record({"username": "old@example.org", "password_hash": "x"})
-    assert u.email_verified_via == auth.EMAIL_VERIFIED_LEGACY
+    u = accounts._user_from_record({"username": "old@example.org", "password_hash": "x"})
+    assert u.email_verified_via == accounts.EMAIL_VERIFIED_LEGACY
     assert u.email_verified()
 
 
 def test_record_with_null_field_is_unverified():
-    u = auth._user_from_record(
+    u = accounts._user_from_record(
         {"username": "new@example.org", "password_hash": "x", "email_verified_via": None}
     )
     assert not u.email_verified()
@@ -120,7 +120,7 @@ def test_roundtrip_keeps_verification_fields():
         email_verified_at="2026-09-02T00:00:00+00:00",
         email_verification_sent_at="2026-09-01T00:00:01+00:00",
     )
-    back = auth._user_from_record(u.to_dict())
+    back = accounts._user_from_record(u.to_dict())
     assert back.email_verified_via == "link"
     assert back.email_verified_at == "2026-09-02T00:00:00+00:00"
     assert back.email_verification_sent_at == "2026-09-01T00:00:01+00:00"
@@ -129,7 +129,9 @@ def test_roundtrip_keeps_verification_fields():
 def test_add_user_defaults_to_unverified_and_admin_via_is_verified(manager):
     manager.add_user("s@example.org", "pw", "viewer")
     assert not manager.get_user("s@example.org").email_verified()
-    manager.add_user("a@example.org", "pw", "viewer", email_verified_via=auth.EMAIL_VERIFIED_ADMIN)
+    manager.add_user(
+        "a@example.org", "pw", "viewer", email_verified_via=accounts.EMAIL_VERIFIED_ADMIN
+    )
     a = manager.get_user("a@example.org")
     assert a.email_verified() and a.email_verified_at == a.created_at
 
@@ -140,8 +142,8 @@ def test_claim_resets_verification(manager):
         None,
         "viewer",
         approved=True,
-        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
-        email_verified_via=auth.EMAIL_VERIFIED_INGEST,
+        account_kind=accounts.ACCOUNT_KIND_PARTICIPANT,
+        email_verified_via=accounts.EMAIL_VERIFIED_INGEST,
     )
     ok, _ = manager.claim_participant_account("p@example.org", "pw")
     assert ok
@@ -153,7 +155,7 @@ def test_mark_and_record_sent(manager):
     assert manager.mark_email_verified("s@example.org", via="")[0] is False
     ok, _ = manager.record_verification_sent("s@example.org")
     assert ok and manager.get_user("s@example.org").email_verification_sent_at
-    ok, _ = manager.mark_email_verified("s@example.org", via=auth.EMAIL_VERIFIED_LINK)
+    ok, _ = manager.mark_email_verified("s@example.org", via=accounts.EMAIL_VERIFIED_LINK)
     assert ok
     u = manager.get_user("s@example.org")
     assert u.email_verified_via == "link" and u.email_verified_at
@@ -162,7 +164,7 @@ def test_mark_and_record_sent(manager):
 def test_verify_user_refuses_unverified(manager):
     manager.add_user("s@example.org", "pw", "viewer", approved=True)
     assert manager.verify_user("s@example.org", "pw") is None
-    manager.mark_email_verified("s@example.org", via=auth.EMAIL_VERIFIED_LINK)
+    manager.mark_email_verified("s@example.org", via=accounts.EMAIL_VERIFIED_LINK)
     assert manager.verify_user("s@example.org", "pw") is not None
 
 
@@ -184,7 +186,7 @@ def test_token_rejected_when_tampered_expired_or_password_changed(client):
         tok = email_verification.make_token(u)
         assert email_verification.parse_token(tok + "x", lambda n: u) is None
         assert email_verification.parse_token(tok, lambda n: None) is None
-        changed = _signup_user(password_hash=auth.hash_password("other"))
+        changed = _signup_user(password_hash=accounts.hash_password("other"))
         assert email_verification.parse_token(tok, lambda n: changed) is None
         with patch.object(email_verification, "TOKEN_MAX_AGE_S", -1):
             assert email_verification.parse_token(tok, lambda n: u) is None
@@ -197,8 +199,8 @@ def test_token_rejected_when_tampered_expired_or_password_changed(client):
     "setting, mail, expected",
     [
         (True, True, None),
-        (False, True, auth.EMAIL_VERIFIED_SETTING_OFF),
-        (True, False, auth.EMAIL_VERIFIED_MAIL_UNCONFIGURED),
+        (False, True, accounts.EMAIL_VERIFIED_SETTING_OFF),
+        (True, False, accounts.EMAIL_VERIFIED_MAIL_UNCONFIGURED),
     ],
 )
 def test_skip_reason(monkeypatch, setting, mail, expected):
@@ -283,7 +285,7 @@ def test_resignup_on_unverified_account_only_resends(client, signup_env, monkeyp
     assert len(signup_env["sent"]) == 2
     after = m.get_user("someone@example.org").to_dict()
     assert after["password_hash"] == before["password_hash"]
-    assert auth.verify_password(after["password_hash"], FORM["password"])
+    assert accounts.verify_password(after["password_hash"], FORM["password"])
 
 
 def test_signup_without_mail_admits_with_stamp_and_notifies(
@@ -293,7 +295,7 @@ def test_signup_without_mail_admits_with_stamp_and_notifies(
     with caplog.at_level("WARNING"):
         client.post("/signup", data=FORM)
     u = signup_env["manager"].get_user("someone@example.org")
-    assert u.email_verified_via == auth.EMAIL_VERIFIED_MAIL_UNCONFIGURED
+    assert u.email_verified_via == accounts.EMAIL_VERIFIED_MAIL_UNCONFIGURED
     assert signup_env["sent"] == []
     assert len(signup_env["notified"]) == 1
     assert "WITHOUT email verification" in caplog.text
@@ -303,7 +305,7 @@ def test_signup_with_setting_off_keeps_old_flow(client, signup_env, monkeypatch)
     monkeypatch.setattr(email_verification, "get_signup_email_verification_required", lambda: False)
     client.post("/signup", data=FORM)
     u = signup_env["manager"].get_user("someone@example.org")
-    assert u.email_verified_via == auth.EMAIL_VERIFIED_SETTING_OFF
+    assert u.email_verified_via == accounts.EMAIL_VERIFIED_SETTING_OFF
     assert signup_env["sent"] == [] and len(signup_env["notified"]) == 1
 
 
@@ -320,7 +322,7 @@ def test_login_blocked_until_verified_then_approval_applies(client, signup_env):
     with client.session_transaction() as sess:
         assert "_user_id" not in sess
 
-    m.mark_email_verified(FORM["username"], via=auth.EMAIL_VERIFIED_LINK)
+    m.mark_email_verified(FORM["username"], via=accounts.EMAIL_VERIFIED_LINK)
     r = client.post(
         "/login",
         data={"username": FORM["username"], "password": FORM["password"]},
@@ -338,7 +340,7 @@ def test_verify_route_stamps_notifies_and_threads_next(client, signup_env):
     assert r.status_code == 302
     assert r.headers["Location"].endswith("/login?next=/participate/go-upload")
     u = m.get_user(FORM["username"])
-    assert u.email_verified_via == auth.EMAIL_VERIFIED_LINK
+    assert u.email_verified_via == accounts.EMAIL_VERIFIED_LINK
     assert len(signup_env["notified"]) == 1
 
     # Opening it again is harmless and does not re-notify.
@@ -407,18 +409,18 @@ def test_prune_unverified_signups(manager, monkeypatch):
     add("stale@example.org")
     add("recent@example.org")
     add("owner@example.org")
-    add("verified@example.org", email_verified_via=auth.EMAIL_VERIFIED_LINK)
+    add("verified@example.org", email_verified_via=accounts.EMAIL_VERIFIED_LINK)
     add(
         "claimed@example.org",
         origin={"source": "aio_ingest", "at": old},
-        account_kind=auth.ACCOUNT_KIND_PARTICIPANT,
+        account_kind=accounts.ACCOUNT_KIND_PARTICIPANT,
     )
     manager.add_user(
         "admin@example.org",
         "pw",
-        auth.ROLE_ADMIN,
+        accounts.ROLE_ADMIN,
         approved=True,
-        email_verified_via=auth.EMAIL_VERIFIED_ADMIN,
+        email_verified_via=accounts.EMAIL_VERIFIED_ADMIN,
     )
     # created_at is stamped "now" by add_user; backdate the ones that matter.
     for name in (

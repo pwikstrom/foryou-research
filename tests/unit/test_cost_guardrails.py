@@ -13,7 +13,7 @@ _TEST_VIEWER = "__guardrail_test_viewer__"
 @pytest.fixture
 def app_ctx(monkeypatch):
     """Flask request context with a stubbed non-admin current_user."""
-    from web_interface.auth import ROLE_VIEWER, User
+    from web_interface.auth.accounts import ROLE_VIEWER, User
     from web_interface.fyp_data_hub import app
 
     user = User(username=_TEST_VIEWER, role=ROLE_VIEWER, password_hash="", approved=True)
@@ -128,14 +128,14 @@ def test_cost_estimate_scales_and_degrades(monkeypatch):
 
 def test_api_start_rejects_bad_numeric_args(monkeypatch):
     """batch_size / max_batches are validated before reaching a worker argv."""
-    from web_interface import security
-    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.auth import accounts
+    from web_interface.auth.accounts import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
     admin = User(username="__guardrail_admin__", role=ROLE_ADMIN, password_hash="", approved=True)
-    orig_get_user = security.user_manager.get_user
+    orig_get_user = accounts.user_manager.get_user
     monkeypatch.setattr(
-        security.user_manager,
+        accounts.user_manager,
         "get_user",
         lambda uid: admin if uid == admin.username else orig_get_user(uid),
     )

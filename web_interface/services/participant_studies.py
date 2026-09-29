@@ -230,7 +230,7 @@ def _account_has_logged_in(username: str) -> bool:
         # Function-level import: the security module builds the Flask login
         # manager, which worker processes must not pull in at import time
         # (same pattern as collection_accounts._um).
-        from web_interface.security import user_manager
+        from web_interface.auth.accounts import user_manager
 
         user = user_manager.get_user(username)
         return bool(user and user.last_login)

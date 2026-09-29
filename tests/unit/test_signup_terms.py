@@ -13,7 +13,7 @@ Pins the recruitment-funnel additions to ``signup()``:
 
 import pytest
 
-from web_interface.auth import User
+from web_interface.auth.accounts import User
 from web_interface.routes import auth_routes
 from web_interface.routes.auth_routes import _safe_next
 
@@ -137,7 +137,7 @@ def test_safe_next_allows_only_relative_paths(target, expected):
 
 
 def test_user_record_roundtrips_terms_accepted_at():
-    from web_interface.auth import _user_from_record
+    from web_interface.auth.accounts import _user_from_record
 
     user = User(
         "t@example.org", "viewer", password_hash="x", terms_accepted_at="2026-08-26T00:00:00+00:00"
@@ -148,7 +148,7 @@ def test_user_record_roundtrips_terms_accepted_at():
 
 
 def test_email_check_endpoint(client, monkeypatch):
-    from web_interface.security import user_manager
+    from web_interface.auth.accounts import user_manager
 
     taken = User(
         "t@example.org", "viewer", password_hash="x", approved=True, email_verified_via="legacy"
