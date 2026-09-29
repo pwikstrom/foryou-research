@@ -771,7 +771,7 @@ select,
 
 
 /* ============================================================
-   Buttons
+   Buttons: the base button variants
    ============================================================ */
 
 button {
@@ -782,13 +782,11 @@ button {
     font-weight: var(--weight-bold);
 }
 
-.btn-start,
 .btn-primary {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);
 }
 
-.btn-start:disabled,
 .btn-primary:disabled {
     opacity: 0.35;
     cursor: default;
@@ -828,8 +826,12 @@ button {
     color: var(--btn-danger-text);
 }
 
-/* ── Collection and studies tables, ingest card, upload modal, tag chips,
-   account badges ── */
+
+/* ============================================================
+   Collection and studies tables, ingest card, upload modal, tag chips,
+   account badges
+   ============================================================ */
+
 .collection-table {
     min-width: 100%;
     width: max-content;
@@ -973,7 +975,11 @@ button {
     background: var(--color-bg-hover);
 }
 
-/* ── Attention states: pending-action and armed pulses, sidebar stale dot ── */
+
+/* ============================================================
+   Attention states: pending-action and armed pulses, sidebar stale dot
+   ============================================================ */
+
 
 /* Action is needed (e.g. new enrichment data awaiting Consolidate & Refresh):
    a strong amber pulse so the state is unmissable at a glance. */
@@ -1029,8 +1035,12 @@ button {
     opacity: 0.92;
 }
 
-/* ── Refresh pipeline (Dataset Assembly): worker cards, Gantt timeline,
-   start dialog ── */
+
+/* ============================================================
+   Refresh pipeline (Dataset Assembly): worker cards, Gantt timeline,
+   start dialog
+   ============================================================ */
+
 
 /* Dataset Assembly worker cards: one full-width column, in pipeline order, so
    the dispatch order does not read as a grid and the progress bars share one
@@ -1359,7 +1369,11 @@ span.gantt-run { cursor: default; }
     .gantt-axis { grid-template-columns: 3.4rem 1.3rem 7rem minmax(0, 1fr) 4.5rem; }
 }
 
-/* ── Scraper cards: cookie-status pills, alert and setup banners ── */
+
+/* ============================================================
+   Scraper cards: cookie-status pills, alert and setup banners
+   ============================================================ */
+
 
 /* Per-platform cookie-status pill on the enrichment scraper cards. A colored dot
    + short label; the full message/age/expiry rides in the .meta-tooltip. Colors
@@ -1444,8 +1458,12 @@ span.gantt-run { cursor: default; }
     line-height: var(--leading-normal);
 }
 
-/* ── Buttons (continued): action buttons, segmented toggles, discreet /
-   compact / row-state buttons, row badges ── */
+
+/* ============================================================
+   Buttons (continued): action buttons, segmented toggles, discreet /
+   compact / row-state buttons, row badges
+   ============================================================ */
+
 .action-btn {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);
@@ -1650,12 +1668,6 @@ span.gantt-run { cursor: default; }
 .status-error {
     background: var(--status-error);
     box-shadow: 0 0 5px var(--status-error);
-}
-
-.tiny-text {
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-    white-space: nowrap;
 }
 
 
@@ -2091,26 +2103,6 @@ span.gantt-run { cursor: default; }
 
 .myc-steps li { margin-bottom: 8px; }
 
-/* Responsive 16:9 video embed */
-.myc-video-frame {
-    position: relative;
-    padding-bottom: 56.25%;
-    height: 0;
-    overflow: hidden;
-    border-radius: 8px;
-    margin-bottom: 14px;
-    background: rgba(128, 128, 128, 0.1);
-}
-
-.myc-video-frame iframe {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    border: 0;
-}
-
 .myc-howto-note {
     color: var(--color-text-muted);
     border-top: 1px solid var(--color-border);
@@ -2448,21 +2440,6 @@ body.is-focus-mode { padding-top: 12px; }
 
 
 /* ============================================================
-   Section (collapsible blocks used in data_management, admin)
-   ============================================================ */
-
-
-.section-header {
-    padding: 20px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    user-select: none;
-}
-
-
-/* ============================================================
    Cards
    ============================================================ */
 
@@ -2766,25 +2743,11 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
-   Collection detail layout, stats table, percentile strips
+   Collection detail layout and stats table
    ============================================================ */
 
 .pe-edit-activity-section {
     padding: 10px 20px;
-}
-
-.pe-container {
-    display: flex;
-    gap: 20px;
-    padding: 0 20px 20px 20px;
-    height: calc(100vh - 370px);
-    overflow: hidden;
-}
-
-.pe-main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
 }
 
 .stats-table {
@@ -2807,73 +2770,6 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 .hidden {
     display: none;
-}
-
-.helper-text {
-    font-size: var(--text-sm);
-    color: var(--color-text-tertiary);
-    margin-bottom: 15px;
-}
-
-.strips-container {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.strip-row {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.strip-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-}
-
-.strip-label {
-    font-weight: var(--weight-semibold);
-    font-size: var(--text-sm);
-    color: var(--color-text-primary);
-}
-
-.strip-right-info {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-}
-
-.strip-selected-value {
-    font-size: var(--text-xs);
-    color: var(--color-accent);
-    font-weight: var(--weight-medium);
-}
-
-.strip-percentile-badge {
-    font-size: var(--text-xs);
-    color: var(--color-danger);
-    font-weight: var(--weight-semibold);
-    background: rgba(179, 90, 94, 0.15);
-    padding: 1px 5px;
-    border-radius: 3px;
-    min-width: 28px;
-    text-align: center;
-}
-
-.strip-swarm {
-    width: 100%;
-    height: 44px;
-    display: block;
-}
-
-.strip-axis {
-    display: flex;
-    justify-content: space-between;
-    font-size: var(--text-xxs);
-    color: var(--color-text-faint);
-    margin-top: 0;
 }
 
 
@@ -3059,32 +2955,6 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 /* ============================================================
    Auth Pages (login / signup shared styles)
    ============================================================ */
-
-.auth-container {
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-    background-color: var(--color-bg-primary);
-    color: var(--color-text-primary);
-}
-
-.auth-sidebar {
-    width: 400px;
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--color-border-subtle);
-    background-color: var(--color-bg-surface);
-    overflow-y: auto;
-}
-
-.auth-content {
-    flex: 1;
-    padding: 40px 60px;
-    overflow-y: auto;
-    background-color: var(--color-bg-primary);
-    position: relative;
-}
 
 .auth-form-container {
     padding: 30px 20px;
@@ -4674,25 +4544,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
         overflow-x: hidden;
     }
 
-    /* ----- Login page: stack sidebar (form) above content ----- */
-    .auth-container {
-        flex-direction: column;
-        height: auto;
-        min-height: 100vh;
-        overflow: visible;
-    }
-
-    .auth-sidebar {
-        width: 100%;
-        border-right: none;
-        border-bottom: 1px solid var(--color-border-subtle);
-        overflow-y: visible;
-    }
-
-    .auth-content {
-        padding: 24px 18px;
-        overflow-y: visible;
-    }
+    /* ----- Login page ----- */
 
     .auth-form-container {
         padding: 24px 18px;
@@ -4713,8 +4565,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
         padding: 18px 14px !important;
     }
 
-    #home img,
-    .auth-content img {
+    #home img {
         max-width: 100% !important;
         height: auto;
     }
@@ -5102,13 +4953,6 @@ body:has(.public-page) {
     padding: 40px 0 20px;
 }
 
-.landing-hero-img {
-    max-width: 420px;
-    width: 100%;
-    height: auto;
-    margin-bottom: 26px;
-}
-
 .landing-hero-sub {
     max-width: 640px;
     margin-left: auto;
@@ -5249,34 +5093,7 @@ body:has(.public-page) {
     }
 }
 
-/* ----- Image / logo placeholders (swapped for real assets later) ----- */
-
-.img-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    min-height: 220px;
-    padding: 20px;
-    border: 2px dashed var(--color-border-strong);
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--color-bg-surface) 88%, var(--fyr-teal));
-}
-
-.img-placeholder span {
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
-    max-width: 320px;
-}
-
-.img-placeholder--pink { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-pink)); }
-.img-placeholder--orange { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-orange)); }
-.img-placeholder--teal { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-teal)); }
-.img-placeholder--violet { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-violet)); }
-
-.img-placeholder--wide {
-    min-height: 260px;
-}
+/* ----- Logo strip ----- */
 
 .logo-strip {
     display: grid;
@@ -5830,38 +5647,6 @@ body:has(.public-page) {
     margin-right: auto;
 }
 
-.public-footer-inner {
-    max-width: 1060px;
-    margin: 0 auto;
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr;
-    gap: 30px;
-}
-
-.public-footer-title {
-    font-weight: var(--weight-semibold);
-    color: var(--color-text-primary);
-    margin-bottom: 10px;
-}
-
-.public-footer-col p {
-    color: var(--color-text-muted);
-    line-height: var(--leading-relaxed);
-    margin: 0 0 10px;
-}
-
-.public-footer-link {
-    display: block;
-    color: var(--color-text-secondary);
-    text-decoration: none;
-    font-size: var(--text-sm);
-    margin-bottom: 7px;
-}
-
-.public-footer-link:hover {
-    color: var(--color-accent);
-}
-
 /* ----- "How to cite" (footer disclosure, /thehub section, FAQ entry) -----
    One partial (public/_how_to_cite.html) renders in all three places, so the
    styles have to survive both a bare page section and the .faq-accordion
@@ -6037,11 +5822,6 @@ body:has(.public-page) {
         order: 0;
     }
 
-    .public-footer-inner {
-        grid-template-columns: 1fr;
-        gap: 22px;
-    }
-
     .landing-hero {
         padding-top: 20px;
     }
@@ -6062,65 +5842,12 @@ body:has(.public-page) {
    Semantic tokens only.
    ============================================================ */
 
-.kicker {
-    display: inline-block;
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-wide, 0.08em);
-    text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: 14px;
-}
-
-/* Standalone researcher CTA button between hero and pipeline */
-.researcher-cta-inline {
-    text-align: center;
-    margin-top: 44px;
-}
-
 /* "What is data donation?" link under the hero subtitle */
 .hero-donation-link {
     text-align: center;
     margin: 4px 0 0;
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
-}
-
-/* Wider hero lead for the problem statement */
-.landing-hero-lead {
-    max-width: 720px;
-    margin: 18px auto 0;
-    font-size: var(--text-body);
-    line-height: var(--leading-relaxed);
-    color: var(--color-text-secondary);
-    text-align: center;
-}
-
-/* Big pull-quote for the thesis */
-.pullquote {
-    max-width: 820px;
-    margin: 0 auto;
-    text-align: center;
-}
-
-.pullquote blockquote {
-    margin: 0 0 18px;
-    font-size: var(--text-h2);
-    line-height: var(--leading-tight);
-    font-weight: var(--weight-semibold);
-    color: var(--color-text-heading);
-}
-
-.pullquote .pullquote-answer {
-    font-size: var(--text-body);
-    line-height: var(--leading-relaxed);
-    color: var(--color-text-secondary);
-    margin: 0 auto;
-    max-width: 640px;
-}
-
-.pullquote .pullquote-answer strong {
-    color: var(--color-text-primary);
 }
 
 /* Two-column comparison (donated feeds vs platform libraries) */
@@ -6254,45 +5981,10 @@ body:has(.public-page) {
     font-weight: var(--weight-bold);
 }
 
-/* Burden cards punchline */
-.landing-punchline {
-    margin-top: 22px;
-    text-align: center;
-    font-size: var(--text-body);
-    font-weight: var(--weight-semibold);
-    color: var(--color-text-primary);
-}
-
-/* Infrastructure note strip */
-.infra-note {
-    margin-top: 26px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: center;
-}
-
-.infra-chip {
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-    background: var(--color-bg-surface);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 999px;
-    padding: 8px 16px;
-}
-
-.infra-chip strong {
-    color: var(--color-text-primary);
-}
-
 @media (max-width: 1100px) {
     .compare-grid,
     .canuse-grid {
         grid-template-columns: 1fr;
-    }
-
-    .pullquote blockquote {
-        font-size: var(--text-h3);
     }
 }
 
@@ -6505,37 +6197,6 @@ body:has(.public-page) {
    Sessions tab — session list, strip, episode inspector
    ============================================================ */
 
-.sess-row {
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--color-border-subtle);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.sess-row:hover { background: var(--color-bg-elevated); }
-
-.sess-row.active {
-    background: var(--color-bg-elevated);
-    border-left: 3px solid var(--color-accent);
-    padding-left: 11px;
-}
-
-.sess-row-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-}
-
-.sess-row-metrics {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    color: var(--color-text-tertiary);
-}
-
 /* Thin horizontal coverage bar inside a list row */
 .sess-cov-bar {
     width: 64px;
@@ -6615,83 +6276,6 @@ body:has(.public-page) {
     display: block;
     margin-top: 3px;
     color: var(--color-text-muted);
-}
-
-/* Horizontally-scrollable row of episode member cards */
-.sess-cards-row {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    padding: 6px 2px 10px 2px;
-}
-
-.sess-card {
-    flex: 0 0 190px;
-    width: 190px;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    background: var(--color-bg-surface);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.sess-card.highlight { border-color: var(--color-accent); }
-
-.sess-card-media {
-    position: relative;
-    width: 100%;
-    height: 280px;
-    background: var(--color-bg-elevated);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.sess-card-media video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: var(--color-bg-elevated);
-}
-
-.sess-card-play {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-}
-
-.sess-card-play span {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--color-bg-surface);
-    border: 1px solid var(--color-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow-sm);
-}
-
-.sess-card-meta {
-    padding: 7px 9px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.sess-card-story {
-    color: var(--color-text-tertiary);
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
 }
 
 /* Full play-sequence table rows */
@@ -7990,29 +7574,7 @@ body:has(.public-page) {
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
 }
-.dm-enrich-sublabel {
-    display: block;
-    margin-bottom: 4px;
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-}
 .dm-enrich-settings .control-input { padding: 6px; }
-.dm-enrich-inline {
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
-    flex-wrap: wrap;
-}
-.dm-enrich-sub { display: block; }
-.dm-enrich-check {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding-bottom: 6px;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-}
-.dm-enrich-check input { width: auto; cursor: pointer; }
 .dm-enrich-range-ends {
     display: flex;
     justify-content: space-between;

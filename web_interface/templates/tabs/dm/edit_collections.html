@@ -1,12 +1,6 @@
 <!-- Edit Collections sub-page -->
 
-{# The (i) affordance next to a section heading. One argument feeds both the
-   visual tooltip and the accessible name, so the two can never drift apart.
-   Same macro as Dataset Assembly (tabs/dm/refresh.html). #}
-{% macro card_info(text) -%}
-<span class="card-info meta-tooltip tooltip-wide" tabindex="0" role="note"
-    aria-label="{{ text }}" data-tooltip="{{ text }}">&#9432;</span>
-{%- endmacro %}
+{% from "_macros.html" import card_info %}
 
 <h2 style="margin: 0 0 16px 0; display: flex; align-items: center; gap: 15px;">
     Edit Collections

@@ -1,15 +1,6 @@
 <!-- Dataset Assembly sub-page -->
 
-{# The (i) affordance next to a card title. One argument feeds both the visual
-   tooltip and the accessible name, so the two can never drift apart. Passing a
-   step name stamps data-step, which is how the Refresh Pipeline chart finds the
-   text to put on that worker's row — harvested from this element rather than
-   copied, so the two can never disagree. #}
-{% macro card_info(text, step='') -%}
-<span class="card-info meta-tooltip tooltip-wide" tabindex="0" role="note"
-    {% if step %}data-step="{{ step }}" {% endif %}aria-label="{{ text }}"
-    data-tooltip="{{ text }}">&#9432;</span>
-{%- endmacro %}
+{% from "_macros.html" import card_info %}
 
 <h2 style="margin: 0 0 16px 0;">Dataset Assembly</h2>
 
