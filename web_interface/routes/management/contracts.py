@@ -64,66 +64,58 @@ def list_annotation_versions():
     the promoted version studies read. ``counts`` maps each version to the
     number of videos annotated under it (``None`` when unavailable).
     """
-    try:
-        return jsonify(
-            {
-                "versions": annotation_versioning.list_versions(),
-                "preferred": annotation_versioning.get_preferred_version(),
-                "active": annotation_versioning.active_annotation_version(),
-                "counts": _annotation_counts_by_version(),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(
+        {
+            "versions": annotation_versioning.list_versions(),
+            "preferred": annotation_versioning.get_preferred_version(),
+            "active": annotation_versioning.active_annotation_version(),
+            "counts": _annotation_counts_by_version(),
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-versions/<version>", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
 def get_annotation_version(version):
     """Return one version's full record, including its prompt + schema snapshot."""
-    try:
-        registry = annotation_versioning.load_registry()
-        info = registry.get("versions", {}).get(version)
-        if info is None:
-            return jsonify({"error": "unknown version"}), 404
-        # The legacy version predates per-version prompt snapshots; surface the
-        # historical file-based prompt so "View" isn't empty for it.
-        if version == annotation_versioning.LEGACY_VERSION and not info.get("prompt_text"):
-            legacy_prompt = annotation_versioning.legacy_prompt_text()
-            if legacy_prompt:
-                info = {**info, "prompt_text": legacy_prompt}
+    registry = annotation_versioning.load_registry()
+    info = registry.get("versions", {}).get(version)
+    if info is None:
+        return jsonify({"error": "unknown version"}), 404
+    # The legacy version predates per-version prompt snapshots; surface the
+    # historical file-based prompt so "View" isn't empty for it.
+    if version == annotation_versioning.LEGACY_VERSION and not info.get("prompt_text"):
+        legacy_prompt = annotation_versioning.legacy_prompt_text()
+        if legacy_prompt:
+            info = {**info, "prompt_text": legacy_prompt}
 
-        # Restore ("Make current") support: the record must carry its source
-        # contract TOML, and the backend selection it ran under must still be
-        # switchable-to for an exact restore. The target is the version's
-        # variant/backend (gemini when unset).
-        from flask_login import current_user
+    # Restore ("Make current") support: the record must carry its source
+    # contract TOML, and the backend selection it ran under must still be
+    # switchable-to for an exact restore. The target is the version's
+    # variant/backend (gemini when unset).
+    from flask_login import current_user
 
-        from ...auth.permissions import user_has_permission
+    from ...auth.permissions import user_has_permission
 
-        restorable = (
-            bool(info.get("contract_text")) and version != annotation_versioning.LEGACY_VERSION
-        )
-        target = info.get("variant") or info.get("backend") or "gemini"
-        restore = {
-            "restorable": restorable,
-            "target": target,
-            "backend": {
-                **_backend_target_info(target),
-                "can_switch_backend": user_has_permission(current_user, "tab.admin.backends"),
-            },
+    restorable = bool(info.get("contract_text")) and version != annotation_versioning.LEGACY_VERSION
+    target = info.get("variant") or info.get("backend") or "gemini"
+    restore = {
+        "restorable": restorable,
+        "target": target,
+        "backend": {
+            **_backend_target_info(target),
+            "can_switch_backend": user_has_permission(current_user, "tab.admin.backends"),
+        },
+    }
+    return jsonify(
+        {
+            "version": version,
+            "preferred": registry.get("preferred") == version,
+            "active": annotation_versioning.active_annotation_version(),
+            "record": info,
+            "restore": restore,
         }
-        return jsonify(
-            {
-                "version": version,
-                "preferred": registry.get("preferred") == version,
-                "active": annotation_versioning.active_annotation_version(),
-                "record": info,
-                "restore": restore,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    )
 
 
 @management_bp.route("/api/manage/annotation-versions/promote", methods=["POST"])
@@ -137,62 +129,59 @@ def promote_annotation_version():
     re-refinement), and clears the study RAM cache. Per-study datasets still
     need a study refresh to fully reflect the promotion.
     """
+    body = request.get_json(force=True, silent=True) or {}
+    version = body.get("version")
+    if not version:
+        return jsonify({"error": "version is required"}), 400
+    previous_version = annotation_versioning.get_preferred_version()
     try:
-        body = request.get_json(force=True, silent=True) or {}
-        version = body.get("version")
-        if not version:
-            return jsonify({"error": "version is required"}), 400
-        previous_version = annotation_versioning.get_preferred_version()
-        try:
-            annotation_versioning.promote_version(version)
-        except KeyError:
-            return jsonify({"error": f"unknown version: {version}"}), 404
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
+        annotation_versioning.promote_version(version)
+    except KeyError:
+        return jsonify({"error": f"unknown version: {version}"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
-        rebuilt = rebuild_preferred_annotations_from_archive(verbose=False)
-        with study_cache.lock:
-            study_cache.cache.clear()
+    rebuilt = rebuild_preferred_annotations_from_archive(verbose=False)
+    with study_cache.lock:
+        study_cache.cache.clear()
 
-        # Persist a promotion marker so the "studies need refresh" signal
-        # survives page reloads; the staleness evaluator clears it once
-        # recode_refresh_studies succeeds after this timestamp. Reload the
-        # shared stats first (cross-service file — never clobber the runner).
-        try:
-            from ...tasks.process_manager import (
-                load_process_stats,
-                process_stats,
-                save_process_stats,
-            )
-
-            load_process_stats()
-            entry = process_stats.setdefault("annotation_versions", {})
-            entry["promotion_impact"] = {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "version": version,
-                "previous_version": previous_version,
-            }
-            save_process_stats()
-        except Exception:
-            pass
-
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="annotation_version.promote",
-            details={"version": version, "preferred_rows": rebuilt},
+    # Persist a promotion marker so the "studies need refresh" signal
+    # survives page reloads; the staleness evaluator clears it once
+    # recode_refresh_studies succeeds after this timestamp. Reload the
+    # shared stats first (cross-service file — never clobber the runner).
+    try:
+        from ...tasks.process_manager import (
+            load_process_stats,
+            process_stats,
+            save_process_stats,
         )
-        return jsonify(
-            {
-                "ok": True,
-                "preferred": version,
-                "preferred_rows": rebuilt,
-                "staleness": {"studies_stale": True},
-                "note": "Global preferred annotations rebuilt. Refresh studies to apply to per-study datasets.",
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+        load_process_stats()
+        entry = process_stats.setdefault("annotation_versions", {})
+        entry["promotion_impact"] = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": version,
+            "previous_version": previous_version,
+        }
+        save_process_stats()
+    except Exception:
+        pass
+
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="annotation_version.promote",
+        details={"version": version, "preferred_rows": rebuilt},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "preferred": version,
+            "preferred_rows": rebuilt,
+            "staleness": {"studies_stale": True},
+            "note": "Global preferred annotations rebuilt. Refresh studies to apply to per-study datasets.",
+        }
+    )
 
 
 def candidate_version_descriptor(cand_contract: dict, target_backend: str | None = None) -> tuple:
@@ -350,38 +339,32 @@ def _backend_target_info(target: str | None) -> dict:
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
 def get_annotation_contract():
     """Return the effective-contract status for the admin card."""
-    try:
-        from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
-        status = ac.contract_status()
-        return jsonify(
-            {
-                **status,
-                "active_version": annotation_versioning.active_annotation_version(),
-                "runtime_filename": ac.RUNTIME_FILENAME,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    status = ac.contract_status()
+    return jsonify(
+        {
+            **status,
+            "active_version": annotation_versioning.active_annotation_version(),
+            "runtime_filename": ac.RUNTIME_FILENAME,
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract/download", methods=["GET"])
 @permission_required("tab.admin.versions", "tab.admin.ab_eval")
 def download_annotation_contract():
     """Download the effective contract (runtime file if present, else baked)."""
-    try:
-        from flask import Response
+    from flask import Response
 
-        from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
-        text = ac.effective_contract_text()
-        return Response(
-            text,
-            mimetype="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{ac.RUNTIME_FILENAME}"'},
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    text = ac.effective_contract_text()
+    return Response(
+        text,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{ac.RUNTIME_FILENAME}"'},
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract/parsed", methods=["GET"])
@@ -394,33 +377,30 @@ def get_annotation_contract_parsed():
     ``build_response_schema`` see. ``help`` carries the editor's per-input help
     texts (``config/annotation_contract_help.toml``).
     """
+    from fyp.annotation import annotation_contract as ac
+
+    text = ac.effective_contract_text()
+    contract, errors = ac.parse_and_validate(text)
+    if contract is None:
+        return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
+    status = ac.contract_status()
     try:
-        from fyp.annotation import annotation_contract as ac
+        from fyp.core.var_schema_vocab import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
 
-        text = ac.effective_contract_text()
-        contract, errors = ac.parse_and_validate(text)
-        if contract is None:
-            return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
-        status = ac.contract_status()
-        try:
-            from fyp.core.var_schema_vocab import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
-
-            roles, scales = list(VAR_SCHEMA_ROLES), list(VAR_SCHEMA_SCALES)
-        except Exception:
-            roles, scales = [], []
-        return jsonify(
-            {
-                "contract": contract,
-                "etag": status.get("etag"),
-                "source": status.get("source"),
-                "errors": errors,
-                "help": ac.contract_help(),
-                "roles": roles,
-                "scales": scales,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        roles, scales = list(VAR_SCHEMA_ROLES), list(VAR_SCHEMA_SCALES)
+    except Exception:
+        roles, scales = [], []
+    return jsonify(
+        {
+            "contract": contract,
+            "etag": status.get("etag"),
+            "source": status.get("source"),
+            "errors": errors,
+            "help": ac.contract_help(),
+            "roles": roles,
+            "scales": scales,
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract/rendered", methods=["GET"])
@@ -432,26 +412,23 @@ def rendered_annotation_contract():
     before any version has been minted (versions are only registered when
     annotation actually runs).
     """
-    try:
-        from fyp.annotation import annotation_contract as ac
-        from fyp.annotation import annotation_schema as sch
+    from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_schema as sch
 
-        text = ac.effective_contract_text()
-        contract, errors = ac.parse_and_validate(text)
-        if contract is None:
-            return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
-        return jsonify(
-            {
-                "version": annotation_versioning.active_annotation_version(),
-                "prompt": sch.build_prompt(contract),
-                "schema": sch.get_annotation_json_schema(contract),
-                # Model + generation settings the next run would be stamped with —
-                # lets the Versions page show settings for the not-yet-minted row.
-                "descriptor": annotation_versioning.active_version_descriptor(),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    text = ac.effective_contract_text()
+    contract, errors = ac.parse_and_validate(text)
+    if contract is None:
+        return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
+    return jsonify(
+        {
+            "version": annotation_versioning.active_annotation_version(),
+            "prompt": sch.build_prompt(contract),
+            "schema": sch.get_annotation_json_schema(contract),
+            # Model + generation settings the next run would be stamped with —
+            # lets the Versions page show settings for the not-yet-minted row.
+            "descriptor": annotation_versioning.active_version_descriptor(),
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract/preview", methods=["POST"])
@@ -465,26 +442,23 @@ def preview_annotation_contract():
     debounced live preview can show errors inline without console noise.
     Never touches the live snapshot (explicit-contract rendering seam).
     """
-    try:
-        from fyp.annotation import annotation_contract as ac
-        from fyp.annotation import annotation_schema as sch
+    from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_schema as sch
 
-        body = request.get_json(silent=True) or {}
-        cand = body.get("contract")
-        if not isinstance(cand, dict):
-            return jsonify({"error": "body must include a 'contract' object"}), 400
-        errors = ac.validate_contract(cand)
-        if errors:
-            return jsonify({"valid": False, "errors": errors})
-        return jsonify(
-            {
-                "valid": True,
-                "prompt": sch.build_prompt(cand),
-                "schema": sch.get_annotation_json_schema(cand),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    body = request.get_json(silent=True) or {}
+    cand = body.get("contract")
+    if not isinstance(cand, dict):
+        return jsonify({"error": "body must include a 'contract' object"}), 400
+    errors = ac.validate_contract(cand)
+    if errors:
+        return jsonify({"valid": False, "errors": errors})
+    return jsonify(
+        {
+            "valid": True,
+            "prompt": sch.build_prompt(cand),
+            "schema": sch.get_annotation_json_schema(cand),
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract", methods=["POST"])
@@ -504,189 +478,182 @@ def upload_annotation_contract():
     global fyp_cf
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
-    try:
-        from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
-        json_body = request.get_json(silent=True) or {}
+    json_body = request.get_json(silent=True) or {}
 
-        # 1. Candidate TOML text — multipart file wins, else a raw text field,
-        #    else a parsed-dict 'contract' payload serialized server-side.
-        text = None
-        original_filename = None
-        files = [
-            f
-            for f in (request.files.getlist("file") + request.files.getlist("files"))
-            if f and f.filename
-        ]
-        if files:
-            original_filename = secure_filename(files[0].filename)
+    # 1. Candidate TOML text — multipart file wins, else a raw text field,
+    #    else a parsed-dict 'contract' payload serialized server-side.
+    text = None
+    original_filename = None
+    files = [
+        f
+        for f in (request.files.getlist("file") + request.files.getlist("files"))
+        if f and f.filename
+    ]
+    if files:
+        original_filename = secure_filename(files[0].filename)
+        try:
+            text = files[0].read().decode("utf-8")
+        except UnicodeDecodeError:
+            return jsonify({"error": "file is not valid UTF-8 text"}), 400
+    else:
+        text = request.form.get("text") or json_body.get("text")
+        if not text and isinstance(json_body.get("contract"), dict):
             try:
-                text = files[0].read().decode("utf-8")
-            except UnicodeDecodeError:
-                return jsonify({"error": "file is not valid UTF-8 text"}), 400
-        else:
-            text = request.form.get("text") or json_body.get("text")
-            if not text and isinstance(json_body.get("contract"), dict):
-                try:
-                    text = ac.serialize_contract(
-                        json_body["contract"], base_text=ac.effective_contract_text()
-                    )
-                except ValueError as e:
-                    return jsonify({"valid": False, "errors": [str(e)]}), 400
-                original_filename = "(form editor)"
-        if not text or not text.strip():
-            return jsonify({"error": "no contract text provided"}), 400
+                text = ac.serialize_contract(
+                    json_body["contract"], base_text=ac.effective_contract_text()
+                )
+            except ValueError as e:
+                return jsonify({"valid": False, "errors": [str(e)]}), 400
+            original_filename = "(form editor)"
+    if not text or not text.strip():
+        return jsonify({"error": "no contract text provided"}), 400
 
-        # 2. Validate before doing anything else.
-        cand, errors = ac.parse_and_validate(text)
-        if errors:
-            return jsonify({"valid": False, "errors": errors}), 400
+    # 2. Validate before doing anything else.
+    cand, errors = ac.parse_and_validate(text)
+    if errors:
+        return jsonify({"valid": False, "errors": errors}), 400
 
-        # 3. Optional backend switch (the Playground graduation path) — resolve
-        #    and validate BEFORE any write, and compute the impact against the
-        #    backend the contract will actually run on.
-        switch_backend = (
-            request.form.get("switch_backend") or json_body.get("switch_backend") or ""
-        ).strip() or None
-        if switch_backend:
-            from flask_login import current_user
+    # 3. Optional backend switch (the Playground graduation path) — resolve
+    #    and validate BEFORE any write, and compute the impact against the
+    #    backend the contract will actually run on.
+    switch_backend = (
+        request.form.get("switch_backend") or json_body.get("switch_backend") or ""
+    ).strip() or None
+    if switch_backend:
+        from flask_login import current_user
 
-            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+        from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
 
-            from ...auth.permissions import user_has_permission
-            from ...services.admin_settings import validate_setting_value
+        from ...auth.permissions import user_has_permission
+        from ...services.admin_settings import validate_setting_value
 
-            if not user_has_permission(current_user, "tab.admin.backends"):
-                return jsonify(
-                    {
-                        "error": "forbidden",
-                        "message": "Switching the annotation backend requires the Backends admin permission.",
-                    }
-                ), 403
-            err = validate_setting_value(ANNOTATION_BACKEND_KEY, switch_backend)
-            if err:
-                return jsonify({"error": err}), 400
-            binfo = _backend_target_info(switch_backend)
-            if not binfo["target_available"]:
-                return jsonify(
-                    {
-                        "error": f"backend '{switch_backend}' cannot be activated: "
-                        f"{binfo['target_unavailable_reason']}",
-                    }
-                ), 400
-
-        # Version-impact dry-run report (against the target backend).
-        impact = _annotation_contract_impact(cand, target_backend=switch_backend)
-
-        def _flag(v) -> bool:
-            return str(v).strip().lower() in ("1", "true", "yes")
-
-        confirm = _flag(request.form.get("confirm", "")) or bool(json_body.get("confirm"))
-        if not confirm:
-            return jsonify({"valid": True, "confirm_required": True, "impact": impact})
-
-        # 4. Confirm: etag guard against a concurrent change.
-        expected_etag = request.form.get("expected_etag") or json_body.get("expected_etag")
-        current_etag = ac.contract_status().get("etag")
-        if expected_etag and current_etag and expected_etag != current_etag:
+        if not user_has_permission(current_user, "tab.admin.backends"):
             return jsonify(
                 {
-                    "error": "conflict",
-                    "message": "The contract changed since you loaded it. Reload and retry.",
-                    "etag": current_etag,
+                    "error": "forbidden",
+                    "message": "Switching the annotation backend requires the Backends admin permission.",
                 }
-            ), 409
+            ), 403
+        err = validate_setting_value(ANNOTATION_BACKEND_KEY, switch_backend)
+        if err:
+            return jsonify({"error": err}), 400
+        binfo = _backend_target_info(switch_backend)
+        if not binfo["target_available"]:
+            return jsonify(
+                {
+                    "error": f"backend '{switch_backend}' cannot be activated: "
+                    f"{binfo['target_unavailable_reason']}",
+                }
+            ), 400
 
-        # 5. Back up the existing runtime contract (if any) before overwriting.
-        backup_name = None
-        if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
-            prev = data_io.load_text(
-                storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
-            )
-            if prev is not None:
-                ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-                backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
-                data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
+    # Version-impact dry-run report (against the target backend).
+    impact = _annotation_contract_impact(cand, target_backend=switch_backend)
 
-        # 6. Persist the new contract + audit metadata.
-        data_io.save_text(text, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
-        data_io.save_json(
-            data={
-                "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                "updated_by": current_actor(),
-                "original_filename": original_filename,
-            },
-            storage_location=ac.RUNTIME_LOCATION,
-            filename=ac.RUNTIME_META_FILENAME,
-        )
+    def _flag(v) -> bool:
+        return str(v).strip().lower() in ("1", "true", "yes")
 
-        # 6b. Apply the requested backend switch (validated above) alongside
-        #     the contract write, so the deployed contract × backend pair
-        #     matches what was tested in the Playground.
-        backend_switched = None
-        if switch_backend:
-            from fyp.annotation.backends import active_backend_name
-            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+    confirm = _flag(request.form.get("confirm", "")) or bool(json_body.get("confirm"))
+    if not confirm:
+        return jsonify({"valid": True, "confirm_required": True, "impact": impact})
 
-            from ...services.admin_settings import load_admin_settings, save_admin_settings
-
-            prev_backend = active_backend_name()
-            if switch_backend != prev_backend:
-                settings = load_admin_settings()
-                settings[ANNOTATION_BACKEND_KEY] = switch_backend
-                save_admin_settings(settings)
-                backend_switched = {"from": prev_backend, "to": switch_backend}
-
-        # 7. Refresh the snapshot + rebuild the schema so overlays pick up new
-        #    metadata; clear the study RAM cache (recode/metadata may change).
-        ac.refresh_runtime_contract()
-        fyp_cf = load_var_schema(fyp_cf, verbose=False)
-        with study_cache.lock:
-            study_cache.cache.clear()
-
-        # 8. Mint the new version eagerly so it appears on the Versions page
-        #    (and can be preferred) without waiting for the first annotation
-        #    run. The descriptor cache self-busts on the new contract etag /
-        #    backend; ensure_active_version_registered is idempotent and
-        #    never raises.
-        minted_version = annotation_versioning.ensure_active_version_registered()
-
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="annotation_contract.upload",
-            details={
-                "impact": impact,
-                "backup": backup_name,
-                "original_filename": original_filename,
-                **({"switch_backend": backend_switched} if backend_switched else {}),
-            },
-        )
-        new_status = ac.contract_status()
-        switch_note = (
-            f" Annotation backend switched to '{backend_switched['to']}'."
-            if backend_switched
-            else ""
-        )
+    # 4. Confirm: etag guard against a concurrent change.
+    expected_etag = request.form.get("expected_etag") or json_body.get("expected_etag")
+    current_etag = ac.contract_status().get("etag")
+    if expected_etag and current_etag and expected_etag != current_etag:
         return jsonify(
             {
-                "ok": True,
-                "source": new_status.get("source"),
-                "etag": new_status.get("etag"),
-                "impact": impact,
-                "backup": backup_name,
-                "backend_switched": backend_switched,
-                "minted_version": minted_version,
-                "note": (
-                    f"Contract activated. New annotation version {minted_version} has been "
-                    f"registered — make it preferred under Versions when ready.{switch_note}"
-                    if impact.get("version_changed")
-                    else f"Contract activated (metadata-only change — no new annotation version).{switch_note}"
-                ),
+                "error": "conflict",
+                "message": "The contract changed since you loaded it. Reload and retry.",
+                "etag": current_etag,
             }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        ), 409
+
+    # 5. Back up the existing runtime contract (if any) before overwriting.
+    backup_name = None
+    if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
+        prev = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+        if prev is not None:
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
+            data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
+
+    # 6. Persist the new contract + audit metadata.
+    data_io.save_text(text, storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+    data_io.save_json(
+        data={
+            "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "updated_by": current_actor(),
+            "original_filename": original_filename,
+        },
+        storage_location=ac.RUNTIME_LOCATION,
+        filename=ac.RUNTIME_META_FILENAME,
+    )
+
+    # 6b. Apply the requested backend switch (validated above) alongside
+    #     the contract write, so the deployed contract × backend pair
+    #     matches what was tested in the Playground.
+    backend_switched = None
+    if switch_backend:
+        from fyp.annotation.backends import active_backend_name
+        from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+
+        from ...services.admin_settings import load_admin_settings, save_admin_settings
+
+        prev_backend = active_backend_name()
+        if switch_backend != prev_backend:
+            settings = load_admin_settings()
+            settings[ANNOTATION_BACKEND_KEY] = switch_backend
+            save_admin_settings(settings)
+            backend_switched = {"from": prev_backend, "to": switch_backend}
+
+    # 7. Refresh the snapshot + rebuild the schema so overlays pick up new
+    #    metadata; clear the study RAM cache (recode/metadata may change).
+    ac.refresh_runtime_contract()
+    fyp_cf = load_var_schema(fyp_cf, verbose=False)
+    with study_cache.lock:
+        study_cache.cache.clear()
+
+    # 8. Mint the new version eagerly so it appears on the Versions page
+    #    (and can be preferred) without waiting for the first annotation
+    #    run. The descriptor cache self-busts on the new contract etag /
+    #    backend; ensure_active_version_registered is idempotent and
+    #    never raises.
+    minted_version = annotation_versioning.ensure_active_version_registered()
+
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="annotation_contract.upload",
+        details={
+            "impact": impact,
+            "backup": backup_name,
+            "original_filename": original_filename,
+            **({"switch_backend": backend_switched} if backend_switched else {}),
+        },
+    )
+    new_status = ac.contract_status()
+    switch_note = (
+        f" Annotation backend switched to '{backend_switched['to']}'." if backend_switched else ""
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "source": new_status.get("source"),
+            "etag": new_status.get("etag"),
+            "impact": impact,
+            "backup": backup_name,
+            "backend_switched": backend_switched,
+            "minted_version": minted_version,
+            "note": (
+                f"Contract activated. New annotation version {minted_version} has been "
+                f"registered — make it preferred under Versions when ready.{switch_note}"
+                if impact.get("version_changed")
+                else f"Contract activated (metadata-only change — no new annotation version).{switch_note}"
+            ),
+        }
+    )
 
 
 @management_bp.route("/api/manage/annotation-contract/revert", methods=["POST"])
@@ -696,50 +663,45 @@ def revert_annotation_contract():
     global fyp_cf
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
-    try:
-        from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
-        if not data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
-            return jsonify(
-                {"ok": True, "source": "baked", "note": "Already on the baked contract."}
-            )
+    if not data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
+        return jsonify({"ok": True, "source": "baked", "note": "Already on the baked contract."})
 
-        backup_name = None
-        prev = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
-        if prev is not None:
-            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
-            data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
+    backup_name = None
+    prev = data_io.load_text(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+    if prev is not None:
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        backup_name = f"{ac.BACKUP_PREFIX}{ts}.toml"
+        data_io.save_text(prev, storage_location=ac.RUNTIME_LOCATION, filename=backup_name)
 
-        data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
-        if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME):
-            data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME)
+    data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME)
+    if data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME):
+        data_io.remove(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_META_FILENAME)
 
-        ac.refresh_runtime_contract()
-        fyp_cf = load_var_schema(fyp_cf, verbose=False)
-        with study_cache.lock:
-            study_cache.cache.clear()
+    ac.refresh_runtime_contract()
+    fyp_cf = load_var_schema(fyp_cf, verbose=False)
+    with study_cache.lock:
+        study_cache.cache.clear()
 
-        # Mint the (restored) baked contract's version eagerly — same
-        # rationale as the upload path.
-        annotation_versioning.ensure_active_version_registered()
+    # Mint the (restored) baked contract's version eagerly — same
+    # rationale as the upload path.
+    annotation_versioning.ensure_active_version_registered()
 
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="annotation_contract.revert",
-            details={"backup": backup_name},
-        )
-        return jsonify(
-            {
-                "ok": True,
-                "source": ac.contract_status().get("source"),
-                "backup": backup_name,
-                "note": "Reverted to the baked contract.",
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="annotation_contract.revert",
+        details={"backup": backup_name},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "source": ac.contract_status().get("source"),
+            "backup": backup_name,
+            "note": "Reverted to the baked contract.",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

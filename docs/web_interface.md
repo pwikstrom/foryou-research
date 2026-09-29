@@ -376,11 +376,21 @@ newly invited users, which also links into the public `/thehub` page
 
 ## Conventions & known warts
 
-- Error responses are mostly `{"error": "..."}` with an appropriate 4xx; a
-  minority of endpoints (in `auth_routes/`, `process_routes.py`,
-  `my_collections_routes.py` and the `management/` submodules) answer
-  `{"status": "error", "message": "..."}` instead (mostly the 409
-  "already running" refusals of process starts). Success envelopes are historically inconsistent (bare payload,
+- Every error response carries an `"error"` key with a message for the
+  user, with an appropriate 4xx. Some endpoints (mostly the 409 "already
+  running" refusals of process starts) also send the older
+  `"status": "error"` and `"message"` keys, which the JS still reads; a
+  guard test (`tests/unit/test_api_error_hygiene.py`) keeps `"error"` on
+  every one of them.
+- An unexpected exception never reaches the client as text. A route lets it
+  escape (no broad `except Exception` returning `str(e)`), and the app-wide
+  handler in `fyp_data_hub.py` logs the traceback under a short reference id
+  and answers `/api/*` with `{"error": "Internal error (ref <id>)"}`, 500;
+  search the logs for the id. A handler that must keep its own response
+  shape calls `routes/_errors.py`'s `log_unexpected`. Narrow handlers for
+  our own exception types (a `ValueError` raised for bad input, a conflict
+  error) may show their message. The same guard test enforces this.
+- Success envelopes are historically inconsistent (bare payload,
   `{"success": true}`, `{"ok": true}`, `{"status": "success"}`) — match the
   file you are editing; a unification is planned but is a breaking change
   for the JS.

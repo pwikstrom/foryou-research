@@ -179,22 +179,19 @@ def study_set_viz(study):
     study_config = dict(config)
     study_config["STUDY_NAME"] = study
 
-    try:
-        cells, coll_stats = get_preview_cells()
-        stats, _included_per_day, _sparse, _total, _report = estimate_from_cells(
-            cells, coll_stats, study_config
-        )
-        _pot_activities, _pot_days, universe, _has_days = universe_from_cells(cells, study_config)
-        return jsonify(
-            {
-                "status": "success",
-                "stats": stats,
-                "universe": universe,
-                "frame": study_config.get("SAMPLE_FRAME"),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    cells, coll_stats = get_preview_cells()
+    stats, _included_per_day, _sparse, _total, _report = estimate_from_cells(
+        cells, coll_stats, study_config
+    )
+    _pot_activities, _pot_days, universe, _has_days = universe_from_cells(cells, study_config)
+    return jsonify(
+        {
+            "status": "success",
+            "stats": stats,
+            "universe": universe,
+            "frame": study_config.get("SAMPLE_FRAME"),
+        }
+    )
 
 
 @management_bp.route("/api/manage/studies/save", methods=["POST"])
@@ -556,9 +553,6 @@ def calculate_study_stats():
             }
         )
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
     finally:
         # 4. Revert config + persist fresh stats (skipped entirely for live previews,
         # which never touched the global config). Persisting seeds the mosaic on reopen.
@@ -622,10 +616,7 @@ def daily_activities():
     if not selected:
         return jsonify({"status": "success", "total_per_day": []})
 
-    try:
-        cells, _coll = get_preview_cells()
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    cells, _coll = get_preview_cells()
 
     # Per-day in-event-window play/observe counts straight off the corpus cells
     # (the frame-based path read a 20+ MB timestamp column for the same numbers).
@@ -804,35 +795,32 @@ def set_study_annotation_version(study):
     the archive) instead of the active dataset. Pass a falsy ``version`` to clear
     the pin. The study must be refreshed to rebuild its dataset.
     """
-    try:
-        body = request.get_json(force=True, silent=True) or {}
-        version = body.get("version")  # falsy clears the pin
-        if "study_defs" not in fyp_cf:
-            init_study_defs()
-        if study not in fyp_cf["study_defs"]:
-            return jsonify({"error": f"unknown study: {study}"}), 404
-        if version:
-            registry = annotation_versioning.load_registry()
-            if version not in registry.get("versions", {}):
-                return jsonify({"error": f"unknown version: {version}"}), 404
-            fyp_cf["study_defs"][study]["annotation_version"] = version
-        else:
-            fyp_cf["study_defs"][study].pop("annotation_version", None)
-        save_study_defs()
-        study_cache.invalidate(study)
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="study.pin_annotation_version",
-            details={"study": study, "version": version or None},
-        )
-        return jsonify(
-            {
-                "ok": True,
-                "study": study,
-                "annotation_version": version or None,
-                "note": "Refresh the study to rebuild its dataset against this version.",
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    body = request.get_json(force=True, silent=True) or {}
+    version = body.get("version")  # falsy clears the pin
+    if "study_defs" not in fyp_cf:
+        init_study_defs()
+    if study not in fyp_cf["study_defs"]:
+        return jsonify({"error": f"unknown study: {study}"}), 404
+    if version:
+        registry = annotation_versioning.load_registry()
+        if version not in registry.get("versions", {}):
+            return jsonify({"error": f"unknown version: {version}"}), 404
+        fyp_cf["study_defs"][study]["annotation_version"] = version
+    else:
+        fyp_cf["study_defs"][study].pop("annotation_version", None)
+    save_study_defs()
+    study_cache.invalidate(study)
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="study.pin_annotation_version",
+        details={"study": study, "version": version or None},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "study": study,
+            "annotation_version": version or None,
+            "note": "Refresh the study to rebuild its dataset against this version.",
+        }
+    )

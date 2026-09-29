@@ -238,7 +238,9 @@ def api_irrelevant_words_apply():
     from web_interface.tasks.process_manager import start_process
 
     if is_worker_running("retokenise_hashtags"):
-        return jsonify({"status": "error", "message": "Already running"}), 409
+        return jsonify(
+            {"status": "error", "error": "Already running", "message": "Already running"}
+        ), 409
 
     blocking = workers_blocking_consolidate()
     if is_worker_running("consolidate_enrichment"):
@@ -247,6 +249,7 @@ def api_irrelevant_words_apply():
         return jsonify(
             {
                 "status": "error",
+                "error": f"Cannot run while {', '.join(blocking)} running.",
                 "message": f"Cannot run while {', '.join(blocking)} running.",
             }
         ), 409
@@ -263,7 +266,7 @@ def api_irrelevant_words_apply():
             action="irrelevant_words.apply",
         )
         return jsonify({"status": "started", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @auth_bp.route("/api/admin/annotations", methods=["GET"])

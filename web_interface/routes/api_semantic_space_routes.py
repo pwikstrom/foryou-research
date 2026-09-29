@@ -505,14 +505,11 @@ def api_semantic_space_trajectory():
     start = (request.args.get("start") or "").strip() or None
     end = (request.args.get("end") or "").strip() or None
 
-    try:
-        payload = semantic_trajectory.build_trajectory(
-            collection_id,
-            interval=interval,
-            start=start,
-            end=end,
-        )
-    except Exception as exc:
-        return jsonify({"error": f"Failed to build trajectory: {exc}"}), 500
+    payload = semantic_trajectory.build_trajectory(
+        collection_id,
+        interval=interval,
+        start=start,
+        end=end,
+    )
 
     return jsonify(payload)

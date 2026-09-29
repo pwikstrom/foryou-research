@@ -198,51 +198,48 @@ def get_schema():
     outside the UI (e.g. ``gsutil cp``).  The initial tab load and the
     post-save refresh omit the flag — they only need in-memory state.
     """
-    try:
-        from fyp.annotation import annotation_contract as ac
-        from fyp.annotation import var_presentation as vp
+    from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import var_presentation as vp
 
-        if request.args.get("force_reload") in ("1", "true", "yes"):
-            global fyp_cf
-            fyp_cf = load_var_schema(fyp_cf, verbose=False)
-        df = fyp_cf["var_schema"]
-        presentation = vp.load_presentation() or vp.empty_presentation()
-        # The annotation contract can be edited at runtime; reflect its live
-        # source so the read-only tooltips point at the right place.
-        ac_source = ac.contract_status().get("source")
-        contract_path = (
-            f"{ac.RUNTIME_FILENAME} (runtime)"
-            if ac_source == "runtime"
-            else "config/annotation_contract.toml (baked)"
-        )
-        sets = _ownership_sets()
-        rows = _df_to_records(df)
-        # ``origin`` is computed provenance (which contract / registry owns the
-        # field), replacing the retired stored ``source`` column.
-        for rec in rows:
-            rec["origin"] = _row_origin(rec.get("variable_name", ""), sets)
-        return jsonify(
-            {
-                "rows": rows,
-                "columns": ["origin"] + [c for c in df.columns if c != "origin"],
-                "semantic_columns": list(SEMANTIC_COLUMNS),
-                "enums": {
-                    "role": sorted(VAR_SCHEMA_ROLES),
-                    "scale": sorted(VAR_SCHEMA_SCALES),
-                },
-                "contract_locked": _contract_locked_map(df, sets),
-                "contract_path": contract_path,
-                "scrape_contract_path": "config/scrape_contract.toml",
-                # The presentation store is the only admin-editable payload left
-                # (the metadata is contract-owned); its etag guards saves.
-                "presentation": presentation.get("surfaces", {}),
-                "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
-                "etag": vp.compute_presentation_etag(presentation),
-                "current_hash": compute_var_schema_hash(),
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if request.args.get("force_reload") in ("1", "true", "yes"):
+        global fyp_cf
+        fyp_cf = load_var_schema(fyp_cf, verbose=False)
+    df = fyp_cf["var_schema"]
+    presentation = vp.load_presentation() or vp.empty_presentation()
+    # The annotation contract can be edited at runtime; reflect its live
+    # source so the read-only tooltips point at the right place.
+    ac_source = ac.contract_status().get("source")
+    contract_path = (
+        f"{ac.RUNTIME_FILENAME} (runtime)"
+        if ac_source == "runtime"
+        else "config/annotation_contract.toml (baked)"
+    )
+    sets = _ownership_sets()
+    rows = _df_to_records(df)
+    # ``origin`` is computed provenance (which contract / registry owns the
+    # field), replacing the retired stored ``source`` column.
+    for rec in rows:
+        rec["origin"] = _row_origin(rec.get("variable_name", ""), sets)
+    return jsonify(
+        {
+            "rows": rows,
+            "columns": ["origin"] + [c for c in df.columns if c != "origin"],
+            "semantic_columns": list(SEMANTIC_COLUMNS),
+            "enums": {
+                "role": sorted(VAR_SCHEMA_ROLES),
+                "scale": sorted(VAR_SCHEMA_SCALES),
+            },
+            "contract_locked": _contract_locked_map(df, sets),
+            "contract_path": contract_path,
+            "scrape_contract_path": "config/scrape_contract.toml",
+            # The presentation store is the only admin-editable payload left
+            # (the metadata is contract-owned); its etag guards saves.
+            "presentation": presentation.get("surfaces", {}),
+            "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
+            "etag": vp.compute_presentation_etag(presentation),
+            "current_hash": compute_var_schema_hash(),
+        }
+    )
 
 
 @management_bp.route("/api/manage/schema/validate", methods=["POST"])
@@ -284,56 +281,53 @@ def save_presentation_endpoint():
     global fyp_cf
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
+    from fyp.annotation import var_presentation as vp
+
+    body = request.get_json(force=True, silent=False) or {}
+    surfaces = body.get("surfaces")
+    etag = body.get("etag")
+    if not isinstance(surfaces, dict):
+        return jsonify({"error": "surfaces must be an object"}), 400
+    known = set(fyp_cf["var_schema"]["variable_name"].astype("string"))
+    unknown = sorted(
+        {
+            n
+            for names in surfaces.values()
+            if isinstance(names, list)
+            for n in names
+            if n not in known
+        }
+    )
+    if unknown:
+        return jsonify({"error": "unknown variables", "unknown": unknown}), 400
+
+    old_hash = compute_var_schema_hash()
     try:
-        from fyp.annotation import var_presentation as vp
-
-        body = request.get_json(force=True, silent=False) or {}
-        surfaces = body.get("surfaces")
-        etag = body.get("etag")
-        if not isinstance(surfaces, dict):
-            return jsonify({"error": "surfaces must be an object"}), 400
-        known = set(fyp_cf["var_schema"]["variable_name"].astype("string"))
-        unknown = sorted(
+        result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=current_actor())
+    except vp.PresentationConflict as e:
+        return jsonify(
             {
-                n
-                for names in surfaces.values()
-                if isinstance(names, list)
-                for n in names
-                if n not in known
+                "error": "conflict",
+                "message": str(e),
+                "etag": vp.compute_presentation_etag(),
             }
-        )
-        if unknown:
-            return jsonify({"error": "unknown variables", "unknown": unknown}), 400
+        ), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
-        old_hash = compute_var_schema_hash()
-        try:
-            result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=current_actor())
-        except vp.PresentationConflict as e:
-            return jsonify(
-                {
-                    "error": "conflict",
-                    "message": str(e),
-                    "etag": vp.compute_presentation_etag(),
-                }
-            ), 409
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-
-        fyp_cf = load_var_schema(fyp_cf, verbose=False)
-        new_hash = compute_var_schema_hash()
-        hash_changed = new_hash != old_hash
-        if hash_changed:
-            # Presentation flags are excluded from the hash by design; a change
-            # here means something else drifted — surface it loudly.
-            print(
-                f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]})."
-            )
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="var_presentation.save",
-            details={"hash_changed": hash_changed},
+    fyp_cf = load_var_schema(fyp_cf, verbose=False)
+    new_hash = compute_var_schema_hash()
+    hash_changed = new_hash != old_hash
+    if hash_changed:
+        # Presentation flags are excluded from the hash by design; a change
+        # here means something else drifted — surface it loudly.
+        print(
+            f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]})."
         )
-        return jsonify({"etag": result["etag"], "hash_changed": hash_changed})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="var_presentation.save",
+        details={"hash_changed": hash_changed},
+    )
+    return jsonify({"etag": result["etag"], "hash_changed": hash_changed})

@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 from flask_login import current_user
+from werkzeug.exceptions import HTTPException, InternalServerError
 
 if __name__ == "__main__" and __package__ is None:
     file_path = Path(__file__).resolve()
@@ -247,6 +248,31 @@ def _register_web_ui(app):
         if request.path.startswith("/api/"):
             return jsonify({"error": "forbidden"}), 403
         return error
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        """Log an unhandled exception with a reference id; never show it to the client.
+
+        HTTP errors (``abort(404)``, the 403 above, redirects) pass through
+        unchanged. Anything else is logged once, with its traceback and a short
+        reference id, and the client gets only that id: a JSON 500 on ``/api/``
+        paths, Flask's plain 500 page elsewhere (including the task-runner's
+        ``/internal`` endpoints, whose 500 still makes Cloud Tasks retry).
+
+        Args:
+            error: The exception the request raised.
+
+        Returns:
+            The HTTP error itself, or a 500 response carrying the reference id.
+        """
+        from .routes._errors import internal_error_message, log_unexpected
+
+        if isinstance(error, HTTPException):
+            return error
+        ref = log_unexpected(error, f"on {request.method} {request.path}")
+        if request.path.startswith("/api/"):
+            return jsonify({"error": internal_error_message(ref)}), 500
+        return InternalServerError(original_exception=error)
 
     @app.route("/")
     def index():

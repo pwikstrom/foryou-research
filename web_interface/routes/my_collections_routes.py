@@ -436,7 +436,7 @@ def api_my_process():
             action="my_collections.process",
         )
         return jsonify({"status": "started", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @my_collections_bp.route("/api/my/collections/combined/personality")

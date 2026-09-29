@@ -44,57 +44,53 @@ def _aws_credentials_available() -> bool:
 @management_bp.route("/api/manage/ingestion/sources", methods=["GET"])
 @permission_required("tab.data_management.ingestion")
 def get_ingestion_sources():
-    try:
-        main_collection = get_main_collection(verbose=False)
-        aws_available = _aws_credentials_available()
-        sources = []
-        total_pending = 0
-        for col in main_collection.collections:
-            if getattr(col, "ingestion_mode", "upload") == "fetch" and not aws_available:
-                continue
-            files: list[dict] = []
-            manifest_fn = "ingestion_manifest.json"
-            if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
-                manifest = (
-                    data_io.load_json(
-                        storage_location=col.raw_path, filename=manifest_fn, verbose=False
-                    )
-                    or {}
+    main_collection = get_main_collection(verbose=False)
+    aws_available = _aws_credentials_available()
+    sources = []
+    total_pending = 0
+    for col in main_collection.collections:
+        if getattr(col, "ingestion_mode", "upload") == "fetch" and not aws_available:
+            continue
+        files: list[dict] = []
+        manifest_fn = "ingestion_manifest.json"
+        if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
+            manifest = (
+                data_io.load_json(
+                    storage_location=col.raw_path, filename=manifest_fn, verbose=False
                 )
-                for fn, meta in manifest.items():
-                    files.append(
-                        {
-                            "filename": fn,
-                            "original_filename": (meta or {}).get("original_filename"),
-                            "display_collection_id": (meta or {}).get("display_collection_id"),
-                            "collection_id": (meta or {}).get("collection_id"),
-                            "tags": (meta or {}).get("tags") or [],
-                            "tz": (meta or {}).get("tz"),
-                            "user_id": (meta or {}).get("user_id"),
-                            "uploaded_at": (meta or {}).get("uploaded_at"),
-                            "uploaded_by": (meta or {}).get("uploaded_by"),
-                        }
-                    )
-            files.sort(key=lambda f: f["filename"])
-            pending = len(files)
-            total_pending += pending
-            sources.append(
-                {
-                    "source_platform": col.source_platform,
-                    "data_source": col.data_source,
-                    "raw_path": col.raw_path,
-                    "class_name": col.__class__.__name__,
-                    "pending_files": pending,
-                    "files": files,
-                    "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
-                    "zip_member_suffixes": col.zip_member_suffixes(),
-                    "accepted_upload_suffixes": col.accepted_upload_suffixes(),
-                }
+                or {}
             )
-        return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
-    except Exception as e:
-        print(f"Error getting ingestion sources: {e}")
-        return jsonify({"error": str(e)}), 500
+            for fn, meta in manifest.items():
+                files.append(
+                    {
+                        "filename": fn,
+                        "original_filename": (meta or {}).get("original_filename"),
+                        "display_collection_id": (meta or {}).get("display_collection_id"),
+                        "collection_id": (meta or {}).get("collection_id"),
+                        "tags": (meta or {}).get("tags") or [],
+                        "tz": (meta or {}).get("tz"),
+                        "user_id": (meta or {}).get("user_id"),
+                        "uploaded_at": (meta or {}).get("uploaded_at"),
+                        "uploaded_by": (meta or {}).get("uploaded_by"),
+                    }
+                )
+        files.sort(key=lambda f: f["filename"])
+        pending = len(files)
+        total_pending += pending
+        sources.append(
+            {
+                "source_platform": col.source_platform,
+                "data_source": col.data_source,
+                "raw_path": col.raw_path,
+                "class_name": col.__class__.__name__,
+                "pending_files": pending,
+                "files": files,
+                "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
+                "zip_member_suffixes": col.zip_member_suffixes(),
+                "accepted_upload_suffixes": col.accepted_upload_suffixes(),
+            }
+        )
+    return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
 
 
 @management_bp.route("/api/manage/ingestion/fetch_aio", methods=["POST"])
@@ -106,6 +102,8 @@ def fetch_aio_data():
         return jsonify(
             {
                 "status": "error",
+                "error": "No AWS credentials available - the AIO fetch needs the "
+                "standard boto3 credential chain (see docs/installation.md).",
                 "message": "No AWS credentials available - the AIO fetch needs the "
                 "standard boto3 credential chain (see docs/installation.md).",
             }
@@ -123,7 +121,7 @@ def fetch_aio_data():
     )
     if success:
         return jsonify({"status": "started", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @management_bp.route("/api/manage/ingestion/upload", methods=["POST"])
@@ -252,100 +250,96 @@ def upload_ingestion_file():
             or {}
         )
 
-    try:
-        uploaded = []
-        uploaded_detail = []
-        for file in files:
-            if file.filename == "":
-                continue
-            original_name = os.path.basename(file.filename)
-            filename, generated_cid, display_id = allocate_upload_identity(
-                target_platform,
-                target_source,
-                original_name,
-                raw_path_key,
-                known_ids=known_ids,
-                known_displays=known_displays,
-            )
-            temp_path = os.path.join(temp_dir, filename)
-            file.save(temp_path)
+    uploaded = []
+    uploaded_detail = []
+    for file in files:
+        if file.filename == "":
+            continue
+        original_name = os.path.basename(file.filename)
+        filename, generated_cid, display_id = allocate_upload_identity(
+            target_platform,
+            target_source,
+            original_name,
+            raw_path_key,
+            known_ids=known_ids,
+            known_displays=known_displays,
+        )
+        temp_path = os.path.join(temp_dir, filename)
+        file.save(temp_path)
 
-            data_io.move(
-                src_storage_location="temp",
-                dst_storage_location=raw_path_key,
-                filename=filename,
-                verbose=False,
-            )
-            # data_io.move() swallows GCS upload failures silently, so confirm
-            # the file actually landed before we record it in the manifest.
-            if not data_io.exists(storage_location=raw_path_key, filename=filename):
-                return jsonify(
-                    {
-                        "error": f"Upload of '{original_name}' to '{raw_path_key}' did not persist.",
-                    }
-                ), 500
-
-            if collection_id_mode == "single" and collection_id:
-                file_collection_id = collection_id
-                file_display = None  # an admin-chosen id is its own label
-            else:
-                file_collection_id = generated_cid
-                file_display = display_id
-
-            manifest[filename] = manifest_entry(
-                file_collection_id,
-                original_name,
-                display_collection_id=file_display,
-                user_id=owner_user_id,
-                tags=tags,
-                tz=donor_tz or None,
-                uploaded_by=current_actor(),
-            )
-            uploaded.append(filename)
-            uploaded_detail.append(
+        data_io.move(
+            src_storage_location="temp",
+            dst_storage_location=raw_path_key,
+            filename=filename,
+            verbose=False,
+        )
+        # data_io.move() swallows GCS upload failures silently, so confirm
+        # the file actually landed before we record it in the manifest.
+        if not data_io.exists(storage_location=raw_path_key, filename=filename):
+            return jsonify(
                 {
-                    "filename": filename,
-                    "original_filename": original_name,
-                    "collection_id": file_collection_id,
-                    "display_id": file_display,
+                    "error": f"Upload of '{original_name}' to '{raw_path_key}' did not persist.",
                 }
-            )
+            ), 500
 
-        # Save updated manifest
-        data_io.save_json(
-            data=manifest, storage_location=raw_path_key, filename=manifest_fn, verbose=False
+        if collection_id_mode == "single" and collection_id:
+            file_collection_id = collection_id
+            file_display = None  # an admin-chosen id is its own label
+        else:
+            file_collection_id = generated_cid
+            file_display = display_id
+
+        manifest[filename] = manifest_entry(
+            file_collection_id,
+            original_name,
+            display_collection_id=file_display,
+            user_id=owner_user_id,
+            tags=tags,
+            tz=donor_tz or None,
+            uploaded_by=current_actor(),
         )
-
-        # Pre-populate the collections sidecar (display label, tags, account
-        # link) for each collection id uploaded in this batch.
-        _prepopulate_annotations({fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
-
-        activity_log.record(
-            actor=current_actor(),
-            category=activity_log.CATEGORY_DATA_MANAGEMENT,
-            action="ingestion.upload",
-            target=raw_path_key,
-            details={
-                "files": uploaded,
-                "original_files": [d["original_filename"] for d in uploaded_detail],
-                "collection_ids": [d["collection_id"] for d in uploaded_detail],
-                "tags": tags,
-                "collection_id_mode": collection_id_mode,
-                "tz": donor_tz or None,
-                "user_id": owner_user_id,
-            },
-        )
-        return jsonify(
+        uploaded.append(filename)
+        uploaded_detail.append(
             {
-                "status": "success",
-                "message": f"{len(uploaded)} file(s) uploaded.",
-                "files": uploaded,
-                "uploaded": uploaded_detail,
+                "filename": filename,
+                "original_filename": original_name,
+                "collection_id": file_collection_id,
+                "display_id": file_display,
             }
         )
-    except Exception as e:
-        print(f"Error uploading file: {e}")
-        return jsonify({"error": str(e)}), 500
+
+    # Save updated manifest
+    data_io.save_json(
+        data=manifest, storage_location=raw_path_key, filename=manifest_fn, verbose=False
+    )
+
+    # Pre-populate the collections sidecar (display label, tags, account
+    # link) for each collection id uploaded in this batch.
+    _prepopulate_annotations({fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
+
+    activity_log.record(
+        actor=current_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="ingestion.upload",
+        target=raw_path_key,
+        details={
+            "files": uploaded,
+            "original_files": [d["original_filename"] for d in uploaded_detail],
+            "collection_ids": [d["collection_id"] for d in uploaded_detail],
+            "tags": tags,
+            "collection_id_mode": collection_id_mode,
+            "tz": donor_tz or None,
+            "user_id": owner_user_id,
+        },
+    )
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"{len(uploaded)} file(s) uploaded.",
+            "files": uploaded,
+            "uploaded": uploaded_detail,
+        }
+    )
 
 
 @management_bp.route("/api/manage/refresh-collection-metadata", methods=["POST"])
@@ -360,7 +354,7 @@ def refresh_collection_metadata():
     )
     if success:
         return jsonify({"status": "started", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @management_bp.route("/api/manage/ingestion/refresh", methods=["POST"])
@@ -379,7 +373,7 @@ def refresh_ingestion_collection():
             action="ingestion.refresh",
         )
         return jsonify({"status": "started", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @management_bp.route("/api/manage/ingestion/ledger", methods=["GET"])
@@ -453,17 +447,13 @@ def structure_warnings():
     """List structure-drift verdicts awaiting review (quarantined + warned files)."""
     from fyp.ingest import structure_sentinel
 
-    try:
-        queue = structure_sentinel.review_queue()
-        # Verdicts are keyed by the stored (generated) name; show the
-        # original upload name alongside it where the manifest still has it.
-        originals = _pending_original_names()
-        for row in queue.get("files", []):
-            row["original_filename"] = originals.get(row.get("filename"))
-        return jsonify(queue)
-    except Exception as e:
-        print(f"Error loading structure warnings: {e}")
-        return jsonify({"error": str(e)}), 500
+    queue = structure_sentinel.review_queue()
+    # Verdicts are keyed by the stored (generated) name; show the
+    # original upload name alongside it where the manifest still has it.
+    originals = _pending_original_names()
+    for row in queue.get("files", []):
+        row["original_filename"] = originals.get(row.get("filename"))
+    return jsonify(queue)
 
 
 @management_bp.route("/api/manage/ingestion/structure/approve", methods=["POST"])

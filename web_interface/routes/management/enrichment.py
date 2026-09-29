@@ -676,69 +676,64 @@ def get_embedding_backends():
 @management_bp.route("/api/manage/enrichment/empty_queue/<queue_type>", methods=["POST"])
 @permission_required("tab.data_management.scrape", "tab.data_management.annotation")
 def empty_enrichment_queue(queue_type):
-    try:
-        if queue_type == "scrape":
-            # Optional {"platform": ...} in the body targets one platform's
-            # queue; default empties every registered platform's queue.
-            body = request.get_json(silent=True) or {}
-            requested = body.get("platform")
-            targets = [requested] if requested else scrape_queues.registered_platforms()
-            for platform in targets:
-                dropped = len(scrape_queues.load_scrape_queue(platform))
-                scrape_queues.remove_scrape_queue(platform)
-                if dropped:
-                    from ...services.enrichment_journal import platform_label
+    if queue_type == "scrape":
+        # Optional {"platform": ...} in the body targets one platform's
+        # queue; default empties every registered platform's queue.
+        body = request.get_json(silent=True) or {}
+        requested = body.get("platform")
+        targets = [requested] if requested else scrape_queues.registered_platforms()
+        for platform in targets:
+            dropped = len(scrape_queues.load_scrape_queue(platform))
+            scrape_queues.remove_scrape_queue(platform)
+            if dropped:
+                from ...services.enrichment_journal import platform_label
 
-                    _journal(
-                        "queue.emptied",
-                        f"{platform_label(platform)} scrape queue emptied by {current_actor()} — "
-                        f"{dropped:,} queued video(s) dropped",
-                        platform=platform,
-                        queue="scrape",
-                        dropped=dropped,
-                        reason=body.get("reason") or None,
-                    )
-            load_process_stats()
-            stats_changed = False
-            for platform in targets:
-                entry = process_stats.get(f"queue_scraper_{platform}", {})
-                if "scrape_queue_len" in entry:
-                    entry["scrape_queue_len"] = 0
-                    stats_changed = True
-            # Legacy pre-rename entry, harmless to zero alongside.
-            if "scrape_queue_len" in process_stats.get("queue_scraper", {}):
-                process_stats["queue_scraper"]["scrape_queue_len"] = 0
+                _journal(
+                    "queue.emptied",
+                    f"{platform_label(platform)} scrape queue emptied by {current_actor()} — "
+                    f"{dropped:,} queued video(s) dropped",
+                    platform=platform,
+                    queue="scrape",
+                    dropped=dropped,
+                    reason=body.get("reason") or None,
+                )
+        load_process_stats()
+        stats_changed = False
+        for platform in targets:
+            entry = process_stats.get(f"queue_scraper_{platform}", {})
+            if "scrape_queue_len" in entry:
+                entry["scrape_queue_len"] = 0
                 stats_changed = True
-            if stats_changed:
-                save_process_stats()
-        elif queue_type == "annotate":
-            if data_io.exists(storage_location="cache", filename="to_annotate.json"):
-                queued = data_io.load_json(storage_location="cache", filename="to_annotate.json")
-                dropped = len(queued) if isinstance(queued, list) else 0
-                data_io.remove(storage_location="cache", filename="to_annotate.json")
-                if dropped:
-                    body = request.get_json(silent=True) or {}
-                    _journal(
-                        "queue.emptied",
-                        f"Annotation queue emptied by {current_actor()} — "
-                        f"{dropped:,} queued video(s) dropped",
-                        queue="annotate",
-                        dropped=dropped,
-                        reason=body.get("reason") or None,
-                    )
-            load_process_stats()
-            if "annotate_queue_len" in process_stats.get("queue_annotator", {}):
-                process_stats["queue_annotator"]["annotate_queue_len"] = 0
-                save_process_stats()
-        else:
-            return jsonify({"error": "Invalid queue type"}), 400
+        # Legacy pre-rename entry, harmless to zero alongside.
+        if "scrape_queue_len" in process_stats.get("queue_scraper", {}):
+            process_stats["queue_scraper"]["scrape_queue_len"] = 0
+            stats_changed = True
+        if stats_changed:
+            save_process_stats()
+    elif queue_type == "annotate":
+        if data_io.exists(storage_location="cache", filename="to_annotate.json"):
+            queued = data_io.load_json(storage_location="cache", filename="to_annotate.json")
+            dropped = len(queued) if isinstance(queued, list) else 0
+            data_io.remove(storage_location="cache", filename="to_annotate.json")
+            if dropped:
+                body = request.get_json(silent=True) or {}
+                _journal(
+                    "queue.emptied",
+                    f"Annotation queue emptied by {current_actor()} — "
+                    f"{dropped:,} queued video(s) dropped",
+                    queue="annotate",
+                    dropped=dropped,
+                    reason=body.get("reason") or None,
+                )
+        load_process_stats()
+        if "annotate_queue_len" in process_stats.get("queue_annotator", {}):
+            process_stats["queue_annotator"]["annotate_queue_len"] = 0
+            save_process_stats()
+    else:
+        return jsonify({"error": "Invalid queue type"}), 400
 
-        _log_dm("empty_queue", target=queue_type)
-        return jsonify(
-            {"status": "success", "message": f"{queue_type.capitalize()} queue emptied."}
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    _log_dm("empty_queue", target=queue_type)
+    return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
 
 
 @management_bp.route("/api/manage/enrichment/scraper_alert/dismiss", methods=["POST"])
@@ -761,175 +756,164 @@ def dismiss_scraper_alert():
 @management_bp.route("/api/manage/enrichment/queue_voted", methods=["POST"])
 @permission_required("tab.data_management.scrape", "tab.data_management.annotation")
 def queue_voted_videos():
-    try:
-        from web_interface.auth.accounts import user_manager
+    from web_interface.auth.accounts import user_manager
 
-        # 1. Gather all votes across all users
-        all_votes = {}  # dict of collection_id -> set of periods
-        for user in user_manager.get_all_users().values():
-            if not user.machine_annotation_votes:
-                continue
-            for coll_id, periods in user.machine_annotation_votes.items():
-                if coll_id not in all_votes:
-                    all_votes[coll_id] = set()
-                all_votes[coll_id].update(periods)
+    # 1. Gather all votes across all users
+    all_votes = {}  # dict of collection_id -> set of periods
+    for user in user_manager.get_all_users().values():
+        if not user.machine_annotation_votes:
+            continue
+        for coll_id, periods in user.machine_annotation_votes.items():
+            if coll_id not in all_votes:
+                all_votes[coll_id] = set()
+            all_votes[coll_id].update(periods)
 
-        if not all_votes:
-            return jsonify(
-                {"status": "no_votes", "message": "No votes found for machine annotation."}
-            )
+    if not all_votes:
+        return jsonify({"status": "no_votes", "message": "No votes found for machine annotation."})
 
-        # 2. Map periods to item_ids
-        import pandas as pd
+    # 2. Map periods to item_ids
+    import pandas as pd
 
-        from fyp.analysis.organize_datasets import create_collection_unified_dataset
+    from fyp.analysis.organize_datasets import create_collection_unified_dataset
 
-        target_item_ids = set()
+    target_item_ids = set()
 
-        for coll_id, periods in all_votes.items():
-            try:
-                # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
-                df_collection = create_collection_unified_dataset(
-                    collection_id=coll_id, verbose=False
-                )
+    for coll_id, periods in all_votes.items():
+        try:
+            # Need to load using standard DDP logic since timeline cache aggregates and removes item_id
+            df_collection = create_collection_unified_dataset(collection_id=coll_id, verbose=False)
 
-                if (
-                    df_collection is not None
-                    and not df_collection.empty
-                    and "item_id" in df_collection.columns
-                    and "local_date" in df_collection.columns
-                ):
-                    # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
-                    ts_series = pd.to_datetime(df_collection["local_date"], errors="coerce")
+            if (
+                df_collection is not None
+                and not df_collection.empty
+                and "item_id" in df_collection.columns
+                and "local_date" in df_collection.columns
+            ):
+                # Time periods can be 'YYYY-MM-DD' or 'YYYY-Wxx' or 'YYYY-MM'
+                ts_series = pd.to_datetime(df_collection["local_date"], errors="coerce")
 
-                    for p in periods:
-                        # yyyy-mm-dd
-                        if len(p) == 10 and p.count("-") == 2:
-                            match_mask = ts_series.dt.strftime("%Y-%m-%d") == p
-                        # yyyy-mm
-                        elif len(p) == 7 and p.count("-") == 1:
-                            match_mask = ts_series.dt.strftime("%Y-%m") == p
-                        # yyyy-Wxx
-                        elif "W" in p:
-                            # pandas isocalendar week
-                            def format_week(dt):
-                                if pd.isna(dt):
-                                    return ""
-                                iso = dt.isocalendar()
-                                return f"{iso.year}-W{iso.week:02d}"
+                for p in periods:
+                    # yyyy-mm-dd
+                    if len(p) == 10 and p.count("-") == 2:
+                        match_mask = ts_series.dt.strftime("%Y-%m-%d") == p
+                    # yyyy-mm
+                    elif len(p) == 7 and p.count("-") == 1:
+                        match_mask = ts_series.dt.strftime("%Y-%m") == p
+                    # yyyy-Wxx
+                    elif "W" in p:
+                        # pandas isocalendar week
+                        def format_week(dt):
+                            if pd.isna(dt):
+                                return ""
+                            iso = dt.isocalendar()
+                            return f"{iso.year}-W{iso.week:02d}"
 
-                            match_mask = ts_series.apply(format_week) == p
-                        else:
-                            continue  # Unknown format
+                        match_mask = ts_series.apply(format_week) == p
+                    else:
+                        continue  # Unknown format
 
-                        hits = df_collection.loc[match_mask, "item_id"].dropna().unique().tolist()
-                        target_item_ids.update(hits)
+                    hits = df_collection.loc[match_mask, "item_id"].dropna().unique().tolist()
+                    target_item_ids.update(hits)
 
-            except Exception as e:
-                print(f"Error processing timeline for collection {coll_id}: {e}")
+        except Exception as e:
+            print(f"Error processing timeline for collection {coll_id}: {e}")
 
-        if not target_item_ids:
-            return jsonify(
-                {
-                    "status": "no_matches",
-                    "message": "No specific videos matched the voted time periods.",
-                }
-            )
-
-        # 3. Check Enrichment Status
-        df_status = load_enrichment_status()
-
-        default_platform = scrape_queues.default_platform()
-        new_scrape = []
-        new_annotate = []
-        item_platform: dict[str, str] = {}
-
-        if df_status is not None and not df_status.empty:
-            if "item_id" not in df_status.columns:
-                df_status = df_status.reset_index()
-                if "index" in df_status.columns and "item_id" not in df_status.columns:
-                    df_status = df_status.rename(columns={"index": "item_id"})
-
-            # Convert status ids to set for fast lookup
-            status_records = df_status.set_index("item_id").to_dict("index")
-
-            for item in target_item_ids:
-                if item in status_records:
-                    rec = status_records[item]
-                    is_scraped = rec.get("scraped_ok", False)
-                    is_annotated = rec.get("annotated_ok", False)
-                    scrape_fail = rec.get("scrape_fail", False)
-                    annotated_fail = rec.get("annotated_fail", False)
-                    has_media = rec.get("video_downloaded", False)
-                    plat = rec.get("source_platform")
-                    item_platform[item] = (
-                        plat if isinstance(plat, str) and plat else default_platform
-                    )
-
-                    # Annotation needs an mp4: metadata-only items (e.g.
-                    # YouTube long-form past the media duration cap) are not
-                    # annotatable and stay out of the queue.
-                    if not is_scraped and not scrape_fail:
-                        new_scrape.append(item)
-                    elif is_scraped and has_media and not is_annotated and not annotated_fail:
-                        new_annotate.append(item)
-                else:
-                    # Item not in enrichment status -> hasn't been scraped yet
-                    new_scrape.append(item)
-        else:
-            # No enrichment file -> everything needs scraping
-            new_scrape = list(target_item_ids)
-
-        new_scrape = list(set(new_scrape))
-        new_annotate = list(set(new_annotate))
-
-        new_scrape, scrape_cap_info = _apply_queue_cap(new_scrape, "scrape")
-        new_annotate, annotate_cap_info = _apply_queue_cap(new_annotate, "annotation")
-
-        # 4. Append to Queues (scrape queues are per-platform). Platforms
-        # without a scrape-contract block have no worker to drain a queue, so
-        # their items are skipped instead of stranded in an orphan file.
-        added_to_scrape: dict[str, int] = {}
-        if new_scrape:
-            scrapeable = set(scrape_queues.registered_platforms())
-            by_platform: dict[str, list[str]] = {}
-            for item in new_scrape:
-                by_platform.setdefault(item_platform.get(item, default_platform), []).append(item)
-            for platform, items in by_platform.items():
-                if platform not in scrapeable:
-                    print(
-                        f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
-                    )
-                    continue
-                scrape_queues.append_to_scrape_queue(platform, items)
-                added_to_scrape[platform] = len(items)
-
-        if new_annotate:
-            # Atomic append: ids claimed/pruned meanwhile by an annotation
-            # worker are never clobbered by this write.
-            data_io.update_json(
-                storage_location="cache",
-                filename="to_annotate.json",
-                mutate=lambda current: list(
-                    set(current if isinstance(current, list) else []) | set(new_annotate)
-                ),
-                default=[],
-            )
-
+    if not target_item_ids:
         return jsonify(
             {
-                "status": "success",
-                "added_to_scrape": len(new_scrape),
-                "added_to_scrape_by_platform": added_to_scrape,
-                "added_to_annotate": len(new_annotate),
-                "scrape_capped": scrape_cap_info.get("capped", False),
-                "annotate_capped": annotate_cap_info.get("capped", False),
+                "status": "no_matches",
+                "message": "No specific videos matched the voted time periods.",
             }
         )
 
-    except Exception as e:
-        print(f"Error queueing voted videos: {e}")
-        return jsonify({"error": str(e)}), 500
+    # 3. Check Enrichment Status
+    df_status = load_enrichment_status()
+
+    default_platform = scrape_queues.default_platform()
+    new_scrape = []
+    new_annotate = []
+    item_platform: dict[str, str] = {}
+
+    if df_status is not None and not df_status.empty:
+        if "item_id" not in df_status.columns:
+            df_status = df_status.reset_index()
+            if "index" in df_status.columns and "item_id" not in df_status.columns:
+                df_status = df_status.rename(columns={"index": "item_id"})
+
+        # Convert status ids to set for fast lookup
+        status_records = df_status.set_index("item_id").to_dict("index")
+
+        for item in target_item_ids:
+            if item in status_records:
+                rec = status_records[item]
+                is_scraped = rec.get("scraped_ok", False)
+                is_annotated = rec.get("annotated_ok", False)
+                scrape_fail = rec.get("scrape_fail", False)
+                annotated_fail = rec.get("annotated_fail", False)
+                has_media = rec.get("video_downloaded", False)
+                plat = rec.get("source_platform")
+                item_platform[item] = plat if isinstance(plat, str) and plat else default_platform
+
+                # Annotation needs an mp4: metadata-only items (e.g.
+                # YouTube long-form past the media duration cap) are not
+                # annotatable and stay out of the queue.
+                if not is_scraped and not scrape_fail:
+                    new_scrape.append(item)
+                elif is_scraped and has_media and not is_annotated and not annotated_fail:
+                    new_annotate.append(item)
+            else:
+                # Item not in enrichment status -> hasn't been scraped yet
+                new_scrape.append(item)
+    else:
+        # No enrichment file -> everything needs scraping
+        new_scrape = list(target_item_ids)
+
+    new_scrape = list(set(new_scrape))
+    new_annotate = list(set(new_annotate))
+
+    new_scrape, scrape_cap_info = _apply_queue_cap(new_scrape, "scrape")
+    new_annotate, annotate_cap_info = _apply_queue_cap(new_annotate, "annotation")
+
+    # 4. Append to Queues (scrape queues are per-platform). Platforms
+    # without a scrape-contract block have no worker to drain a queue, so
+    # their items are skipped instead of stranded in an orphan file.
+    added_to_scrape: dict[str, int] = {}
+    if new_scrape:
+        scrapeable = set(scrape_queues.registered_platforms())
+        by_platform: dict[str, list[str]] = {}
+        for item in new_scrape:
+            by_platform.setdefault(item_platform.get(item, default_platform), []).append(item)
+        for platform, items in by_platform.items():
+            if platform not in scrapeable:
+                print(
+                    f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
+                )
+                continue
+            scrape_queues.append_to_scrape_queue(platform, items)
+            added_to_scrape[platform] = len(items)
+
+    if new_annotate:
+        # Atomic append: ids claimed/pruned meanwhile by an annotation
+        # worker are never clobbered by this write.
+        data_io.update_json(
+            storage_location="cache",
+            filename="to_annotate.json",
+            mutate=lambda current: list(
+                set(current if isinstance(current, list) else []) | set(new_annotate)
+            ),
+            default=[],
+        )
+
+    return jsonify(
+        {
+            "status": "success",
+            "added_to_scrape": len(new_scrape),
+            "added_to_scrape_by_platform": added_to_scrape,
+            "added_to_annotate": len(new_annotate),
+            "scrape_capped": scrape_cap_info.get("capped", False),
+            "annotate_capped": annotate_cap_info.get("capped", False),
+        }
+    )
 
 
 @management_bp.route("/api/manage/enrichment/calculate_to_scrape", methods=["POST"])
@@ -942,200 +926,191 @@ def calculate_to_scrape():
     if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
-    try:
-        # Check for cached recoded dataset first
-        recoded_fn = f"{study_name}_recoded.parquet"
-        df_study = None
+    # Check for cached recoded dataset first
+    recoded_fn = f"{study_name}_recoded.parquet"
+    df_study = None
 
-        if data_io.exists(storage_location="cache", filename=recoded_fn):
-            # calculate_to_scrape needs only item_id, but recoded study files
-            # are small enough that loading the whole file is fine.
-            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+    if data_io.exists(storage_location="cache", filename=recoded_fn):
+        # calculate_to_scrape needs only item_id, but recoded study files
+        # are small enough that loading the whole file is fine.
+        df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
 
-        if df_study is None or df_study.empty:
-            # If not cached or empty, generate from scratch
-            df_study = create_study_recoded_dataset(
-                study_name=study_name, save_to_cache=True, verbose=False
-            )
-
-        if df_study is None or df_study.empty:
-            return jsonify(
-                {"error": f"Dataset for study '{study_name}' could not be generated."}
-            ), 400
-
-        # Load global enrichment status
-        df_status = load_enrichment_status()
-
-        unscraped_videos = []
-        if df_status is not None and not df_status.empty:
-            # item_id is usually the index in enrichment_status
-            if "item_id" not in df_status.columns:
-                df_status = df_status.reset_index()
-                # If index was unnamed, it might become 'index'
-                if "index" in df_status.columns and "item_id" not in df_status.columns:
-                    df_status = df_status.rename(columns={"index": "item_id"})
-
-            # Map enrichment_status to our study videos
-            study_videos = df_study[["item_id"]].copy()
-            study_status = study_videos.merge(df_status, on="item_id", how="left")
-
-            # Find videos where scraped_ok is fundamentally False or NaN AND scrape_fail is fundamentally False or NaN
-            not_scraped = pd.isna(study_status["scraped_ok"]) | (
-                study_status["scraped_ok"] == False
-            )
-
-            # When retry_failed is set, include items that previously failed
-            # by dropping the scrape_fail filter — the user is asking us to
-            # re-attempt them regardless of past outcome.
-            if retry_failed:
-                unscraped_mask = not_scraped
-            elif "scrape_fail" in study_status.columns:
-                not_failed = pd.isna(study_status["scrape_fail"]) | (
-                    study_status["scrape_fail"] == False
-                )
-                unscraped_mask = not_scraped & not_failed
-            elif "scraped_fail" in study_status.columns:
-                not_failed = pd.isna(study_status["scraped_fail"]) | (
-                    study_status["scraped_fail"] == False
-                )
-                unscraped_mask = not_scraped & not_failed
-            else:
-                unscraped_mask = not_scraped
-
-            unscraped_videos = study_status.loc[unscraped_mask, "item_id"].dropna().tolist()
-        else:
-            unscraped_videos = df_study["item_id"].dropna().tolist()
-
-        # Ensure all values are plain Python strings (not PyArrow scalars)
-        unscraped_videos = list({str(v) for v in unscraped_videos})
-
-        # Media-gap backfill: items scraped OK but whose media never landed
-        # (e.g. a rate-limited media phase saved metadata-only) can't be found
-        # via scraped_ok — pick them straight from the study frame. Items over
-        # the platform's media duration cap are metadata-only by design and
-        # excluded; unknown durations pass (the media phase decides).
-        if retry_missing_media and {"scraped_ok", "video_downloaded", "item_id"} <= set(
-            df_study.columns
-        ):
-            per_item = df_study.drop_duplicates(subset=["item_id"])
-            gap_mask = (per_item["scraped_ok"].fillna(False) == True) & ~(
-                per_item["video_downloaded"].fillna(False) == True
-            )
-            gap = per_item[gap_mask]
-            gap_platforms = (
-                gap["source_platform"].fillna(scrape_queues.default_platform())
-                if "source_platform" in gap.columns
-                else pd.Series(scrape_queues.default_platform(), index=gap.index)
-            )
-            media_gap_videos: set[str] = set()
-            for gap_platform, grp in gap.groupby(gap_platforms):
-                try:
-                    cap = get_scraper(str(gap_platform)).media_duration_cap()
-                except Exception:
-                    continue  # no scraper registered for this platform
-                if "duration" in grp.columns:
-                    dur = pd.to_numeric(grp["duration"], errors="coerce")
-                    grp = grp[dur.isna() | (dur <= cap)]
-                media_gap_videos |= {str(v) for v in grp["item_id"].dropna()}
-            if media_gap_videos:
-                print(
-                    f"Retry-missing-media: adding {len(media_gap_videos)} scraped-ok "
-                    f"items without media to the queue(s)."
-                )
-            unscraped_videos = list(set(unscraped_videos) | media_gap_videos)
-
-        unscraped_videos, cap_info = _apply_queue_cap(unscraped_videos, "scrape")
-
-        # Append to the per-platform scrape queues. The study frame carries
-        # source_platform per event row; an item never spans platforms.
-        default_platform = scrape_queues.default_platform()
-        item_platform: dict[str, str] = {}
-        if "source_platform" in df_study.columns:
-            plat_map = (
-                df_study[["item_id", "source_platform"]]
-                .dropna(subset=["item_id"])
-                .drop_duplicates(subset=["item_id"])
-            )
-            item_platform = {
-                str(i): (str(p) if isinstance(p, str) and p else default_platform)
-                for i, p in zip(plat_map["item_id"], plat_map["source_platform"])
-            }
-
-        by_platform: dict[str, list[str]] = {}
-        for vid in unscraped_videos:
-            by_platform.setdefault(item_platform.get(vid, default_platform), []).append(vid)
-
-        # Platforms without a scrape-contract block have no worker to drain a
-        # queue, so their items are skipped instead of stranded in an orphan file.
-        scrapeable = set(scrape_queues.registered_platforms())
-
-        # Dry run: report what WOULD be queued per platform without appending.
-        if bool(data.get("dry_run", False)):
-            would_queue = {p: len(items) for p, items in by_platform.items() if p in scrapeable}
-            skipped = {p: len(items) for p, items in by_platform.items() if p not in scrapeable}
-            return jsonify(
-                {
-                    "status": "success",
-                    "dry_run": True,
-                    "would_queue": sum(would_queue.values()),
-                    "would_queue_by_platform": would_queue,
-                    "skipped_unscrapeable_by_platform": skipped,
-                    **cap_info,
-                }
-            )
-
-        queue_len_by_platform: dict[str, int] = {}
-        skipped_by_platform: dict[str, int] = {}
-        for platform, items in by_platform.items():
-            if platform not in scrapeable:
-                skipped_by_platform[platform] = len(items)
-                print(
-                    f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
-                )
-                continue
-            queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
-
-        _log_dm(
-            "build_scrape_queue",
-            target=study_name,
-            details={
-                "newly_queued": len(unscraped_videos),
-                "retry_failed": retry_failed,
-                "retry_missing_media": retry_missing_media,
-                **cap_info,
-            },
+    if df_study is None or df_study.empty:
+        # If not cached or empty, generate from scratch
+        df_study = create_study_recoded_dataset(
+            study_name=study_name, save_to_cache=True, verbose=False
         )
-        for platform, n in sorted(queue_len_by_platform.items()):
-            added = len(by_platform.get(platform) or [])
-            if not added:
-                continue
-            from ...services.enrichment_journal import platform_label
 
-            _journal(
-                "queue.built",
-                f"Scrape queue built from study '{study_name}' by {current_actor()} — "
-                f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
-                platform=platform,
-                study=study_name,
-                added=added,
-                queued=n,
-                retry_failed=retry_failed,
-                retry_missing_media=retry_missing_media,
+    if df_study is None or df_study.empty:
+        return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+
+    # Load global enrichment status
+    df_status = load_enrichment_status()
+
+    unscraped_videos = []
+    if df_status is not None and not df_status.empty:
+        # item_id is usually the index in enrichment_status
+        if "item_id" not in df_status.columns:
+            df_status = df_status.reset_index()
+            # If index was unnamed, it might become 'index'
+            if "index" in df_status.columns and "item_id" not in df_status.columns:
+                df_status = df_status.rename(columns={"index": "item_id"})
+
+        # Map enrichment_status to our study videos
+        study_videos = df_study[["item_id"]].copy()
+        study_status = study_videos.merge(df_status, on="item_id", how="left")
+
+        # Find videos where scraped_ok is fundamentally False or NaN AND scrape_fail is fundamentally False or NaN
+        not_scraped = pd.isna(study_status["scraped_ok"]) | (study_status["scraped_ok"] == False)
+
+        # When retry_failed is set, include items that previously failed
+        # by dropping the scrape_fail filter — the user is asking us to
+        # re-attempt them regardless of past outcome.
+        if retry_failed:
+            unscraped_mask = not_scraped
+        elif "scrape_fail" in study_status.columns:
+            not_failed = pd.isna(study_status["scrape_fail"]) | (
+                study_status["scrape_fail"] == False
             )
+            unscraped_mask = not_scraped & not_failed
+        elif "scraped_fail" in study_status.columns:
+            not_failed = pd.isna(study_status["scraped_fail"]) | (
+                study_status["scraped_fail"] == False
+            )
+            unscraped_mask = not_scraped & not_failed
+        else:
+            unscraped_mask = not_scraped
 
+        unscraped_videos = study_status.loc[unscraped_mask, "item_id"].dropna().tolist()
+    else:
+        unscraped_videos = df_study["item_id"].dropna().tolist()
+
+    # Ensure all values are plain Python strings (not PyArrow scalars)
+    unscraped_videos = list({str(v) for v in unscraped_videos})
+
+    # Media-gap backfill: items scraped OK but whose media never landed
+    # (e.g. a rate-limited media phase saved metadata-only) can't be found
+    # via scraped_ok — pick them straight from the study frame. Items over
+    # the platform's media duration cap are metadata-only by design and
+    # excluded; unknown durations pass (the media phase decides).
+    if retry_missing_media and {"scraped_ok", "video_downloaded", "item_id"} <= set(
+        df_study.columns
+    ):
+        per_item = df_study.drop_duplicates(subset=["item_id"])
+        gap_mask = (per_item["scraped_ok"].fillna(False) == True) & ~(
+            per_item["video_downloaded"].fillna(False) == True
+        )
+        gap = per_item[gap_mask]
+        gap_platforms = (
+            gap["source_platform"].fillna(scrape_queues.default_platform())
+            if "source_platform" in gap.columns
+            else pd.Series(scrape_queues.default_platform(), index=gap.index)
+        )
+        media_gap_videos: set[str] = set()
+        for gap_platform, grp in gap.groupby(gap_platforms):
+            try:
+                cap = get_scraper(str(gap_platform)).media_duration_cap()
+            except Exception:
+                continue  # no scraper registered for this platform
+            if "duration" in grp.columns:
+                dur = pd.to_numeric(grp["duration"], errors="coerce")
+                grp = grp[dur.isna() | (dur <= cap)]
+            media_gap_videos |= {str(v) for v in grp["item_id"].dropna()}
+        if media_gap_videos:
+            print(
+                f"Retry-missing-media: adding {len(media_gap_videos)} scraped-ok "
+                f"items without media to the queue(s)."
+            )
+        unscraped_videos = list(set(unscraped_videos) | media_gap_videos)
+
+    unscraped_videos, cap_info = _apply_queue_cap(unscraped_videos, "scrape")
+
+    # Append to the per-platform scrape queues. The study frame carries
+    # source_platform per event row; an item never spans platforms.
+    default_platform = scrape_queues.default_platform()
+    item_platform: dict[str, str] = {}
+    if "source_platform" in df_study.columns:
+        plat_map = (
+            df_study[["item_id", "source_platform"]]
+            .dropna(subset=["item_id"])
+            .drop_duplicates(subset=["item_id"])
+        )
+        item_platform = {
+            str(i): (str(p) if isinstance(p, str) and p else default_platform)
+            for i, p in zip(plat_map["item_id"], plat_map["source_platform"])
+        }
+
+    by_platform: dict[str, list[str]] = {}
+    for vid in unscraped_videos:
+        by_platform.setdefault(item_platform.get(vid, default_platform), []).append(vid)
+
+    # Platforms without a scrape-contract block have no worker to drain a
+    # queue, so their items are skipped instead of stranded in an orphan file.
+    scrapeable = set(scrape_queues.registered_platforms())
+
+    # Dry run: report what WOULD be queued per platform without appending.
+    if bool(data.get("dry_run", False)):
+        would_queue = {p: len(items) for p, items in by_platform.items() if p in scrapeable}
+        skipped = {p: len(items) for p, items in by_platform.items() if p not in scrapeable}
         return jsonify(
             {
                 "status": "success",
-                "videos_to_scrape": sum(queue_len_by_platform.values()),
-                "videos_to_scrape_by_platform": queue_len_by_platform,
-                "skipped_unscrapeable_by_platform": skipped_by_platform,
+                "dry_run": True,
+                "would_queue": sum(would_queue.values()),
+                "would_queue_by_platform": would_queue,
+                "skipped_unscrapeable_by_platform": skipped,
                 **cap_info,
             }
         )
 
-    except Exception as e:
-        print(f"Error calculating scrape targets: {e}")
-        return jsonify({"error": str(e)}), 500
+    queue_len_by_platform: dict[str, int] = {}
+    skipped_by_platform: dict[str, int] = {}
+    for platform, items in by_platform.items():
+        if platform not in scrapeable:
+            skipped_by_platform[platform] = len(items)
+            print(
+                f"Skipped {len(items)} '{platform}' item(s): no scraper registered for that platform yet."
+            )
+            continue
+        queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
+
+    _log_dm(
+        "build_scrape_queue",
+        target=study_name,
+        details={
+            "newly_queued": len(unscraped_videos),
+            "retry_failed": retry_failed,
+            "retry_missing_media": retry_missing_media,
+            **cap_info,
+        },
+    )
+    for platform, n in sorted(queue_len_by_platform.items()):
+        added = len(by_platform.get(platform) or [])
+        if not added:
+            continue
+        from ...services.enrichment_journal import platform_label
+
+        _journal(
+            "queue.built",
+            f"Scrape queue built from study '{study_name}' by {current_actor()} — "
+            f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
+            platform=platform,
+            study=study_name,
+            added=added,
+            queued=n,
+            retry_failed=retry_failed,
+            retry_missing_media=retry_missing_media,
+        )
+
+    return jsonify(
+        {
+            "status": "success",
+            "videos_to_scrape": sum(queue_len_by_platform.values()),
+            "videos_to_scrape_by_platform": queue_len_by_platform,
+            "skipped_unscrapeable_by_platform": skipped_by_platform,
+            **cap_info,
+        }
+    )
 
 
 def _select_annotated_item_ids(
@@ -1215,22 +1190,19 @@ def enrichment_annotation_versions():
     (no prompt/schema payloads), restricted to versions that actually occur in
     the annotation archive when that snapshot is available.
     """
-    try:
-        from fyp.annotation import annotation_versioning
+    from fyp.annotation import annotation_versioning
 
-        summaries = annotation_versioning.list_versions()
-        in_data = annotation_versioning.versions_in_data() or set()
-        if in_data:
-            known = {s.get("annotation_version") for s in summaries}
-            summaries = [s for s in summaries if s.get("annotation_version") in in_data]
-            # Archive versions with no registry record (e.g. the legacy
-            # pre-versioning id) still need to be selectable.
-            for version in sorted(in_data - known):
-                summaries.append({"annotation_version": version, "label": version})
-        active = annotation_versioning.get_preferred_version()
-        return jsonify({"status": "success", "versions": summaries, "active": active})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    summaries = annotation_versioning.list_versions()
+    in_data = annotation_versioning.versions_in_data() or set()
+    if in_data:
+        known = {s.get("annotation_version") for s in summaries}
+        summaries = [s for s in summaries if s.get("annotation_version") in in_data]
+        # Archive versions with no registry record (e.g. the legacy
+        # pre-versioning id) still need to be selectable.
+        for version in sorted(in_data - known):
+            summaries.append({"annotation_version": version, "label": version})
+    active = annotation_versioning.get_preferred_version()
+    return jsonify({"status": "success", "versions": summaries, "active": active})
 
 
 @management_bp.route("/api/manage/enrichment/calculate_to_annotate", methods=["POST"])
@@ -1245,108 +1217,101 @@ def calculate_to_annotate():
     if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
-    try:
-        from fyp.core.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
-        # Check for cached recoded dataset first. Every selection mode operates
-        # within the target study; the re-annotation modes (version/timeframe)
-        # intersect their archive selection with it.
-        recoded_fn = f"{study_name}_recoded.parquet"
-        df_study = None
-        if data_io.exists(storage_location="cache", filename=recoded_fn):
-            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+    # Check for cached recoded dataset first. Every selection mode operates
+    # within the target study; the re-annotation modes (version/timeframe)
+    # intersect their archive selection with it.
+    recoded_fn = f"{study_name}_recoded.parquet"
+    df_study = None
+    if data_io.exists(storage_location="cache", filename=recoded_fn):
+        df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
 
-        if df_study is None or df_study.empty:
-            df_study = create_study_recoded_dataset(
-                study_name=study_name, save_to_cache=True, verbose=False
-            )
-
-        if df_study is None or df_study.empty:
-            return jsonify(
-                {"error": f"Dataset for study '{study_name}' could not be generated."}
-            ), 400
-
-        # Load global enrichment status
-        df_status = load_enrichment_status()
-
-        if selection_mode in ("version", "timeframe"):
-            return _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status)
-
-        # The scraped-and-annotatable predicate lives in one place only — see
-        # collection_enrichment.annotation_eligible for why a second copy is
-        # dangerous (an unscraped id in this queue is burnt permanently).
-        durations = None
-        if "duration" in df_study.columns:
-            dur = df_study[["item_id", "duration"]].dropna(subset=["item_id"]).copy()
-            dur["item_id"] = dur["item_id"].astype(str)
-            dur = dur.drop_duplicates(subset=["item_id"])
-            durations = dict(zip(dur["item_id"], dur["duration"]))
-        unannotated_videos = collection_enrichment.annotation_eligible(
-            df_study["item_id"].dropna().tolist(),
-            df_status,
-            durations=durations,
-            retry_failed=retry_failed,
-            max_duration=fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600),
+    if df_study is None or df_study.empty:
+        df_study = create_study_recoded_dataset(
+            study_name=study_name, save_to_cache=True, verbose=False
         )
 
-        unannotated_videos, cap_info = _apply_queue_cap(unannotated_videos, "annotation")
-        cost = _annotation_cost_estimate(len(unannotated_videos))
+    if df_study is None or df_study.empty:
+        return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
-        # Dry run: report what WOULD be queued (count, cap, cost) without
-        # touching the queue — the UI uses it for its confirm step.
-        if bool(data.get("dry_run", False)):
-            return jsonify(
-                {
-                    "status": "success",
-                    "dry_run": True,
-                    "would_queue": len(unannotated_videos),
-                    "cost_estimate": cost,
-                    **cap_info,
-                }
-            )
+    # Load global enrichment status
+    df_status = load_enrichment_status()
 
-        # Append target payload to global annotate queue (atomic — never
-        # clobbers ids claimed/pruned meanwhile by an annotation worker).
-        current_queue = data_io.update_json(
-            storage_location="cache",
-            filename="to_annotate.json",
-            mutate=lambda current: list(
-                {str(v) for v in (current if isinstance(current, list) else [])}
-                | set(unannotated_videos)
-            ),
-            default=[],
-        )
+    if selection_mode in ("version", "timeframe"):
+        return _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status)
 
-        _log_dm(
-            "build_annotation_queue",
-            target=study_name,
-            details={"newly_queued": len(unannotated_videos), **cap_info},
-        )
-        if unannotated_videos:
-            _journal(
-                "queue.built",
-                f"Annotation queue built from study '{study_name}' by {current_actor()} — "
-                f"{len(unannotated_videos):,} video(s) added, "
-                f"{len(current_queue):,} now queued",
-                study=study_name,
-                added=len(unannotated_videos),
-                queued=len(current_queue),
-                cost_estimate=cost,
-            )
+    # The scraped-and-annotatable predicate lives in one place only — see
+    # collection_enrichment.annotation_eligible for why a second copy is
+    # dangerous (an unscraped id in this queue is burnt permanently).
+    durations = None
+    if "duration" in df_study.columns:
+        dur = df_study[["item_id", "duration"]].dropna(subset=["item_id"]).copy()
+        dur["item_id"] = dur["item_id"].astype(str)
+        dur = dur.drop_duplicates(subset=["item_id"])
+        durations = dict(zip(dur["item_id"], dur["duration"]))
+    unannotated_videos = collection_enrichment.annotation_eligible(
+        df_study["item_id"].dropna().tolist(),
+        df_status,
+        durations=durations,
+        retry_failed=retry_failed,
+        max_duration=fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600),
+    )
 
+    unannotated_videos, cap_info = _apply_queue_cap(unannotated_videos, "annotation")
+    cost = _annotation_cost_estimate(len(unannotated_videos))
+
+    # Dry run: report what WOULD be queued (count, cap, cost) without
+    # touching the queue — the UI uses it for its confirm step.
+    if bool(data.get("dry_run", False)):
         return jsonify(
             {
                 "status": "success",
-                "videos_to_annotate": len(current_queue),
-                "newly_queued": len(unannotated_videos),
+                "dry_run": True,
+                "would_queue": len(unannotated_videos),
                 "cost_estimate": cost,
                 **cap_info,
             }
         )
 
-    except Exception as e:
-        print(f"Error calculating annotate targets: {e}")
-        return jsonify({"error": str(e)}), 500
+    # Append target payload to global annotate queue (atomic — never
+    # clobbers ids claimed/pruned meanwhile by an annotation worker).
+    current_queue = data_io.update_json(
+        storage_location="cache",
+        filename="to_annotate.json",
+        mutate=lambda current: list(
+            {str(v) for v in (current if isinstance(current, list) else [])}
+            | set(unannotated_videos)
+        ),
+        default=[],
+    )
+
+    _log_dm(
+        "build_annotation_queue",
+        target=study_name,
+        details={"newly_queued": len(unannotated_videos), **cap_info},
+    )
+    if unannotated_videos:
+        _journal(
+            "queue.built",
+            f"Annotation queue built from study '{study_name}' by {current_actor()} — "
+            f"{len(unannotated_videos):,} video(s) added, "
+            f"{len(current_queue):,} now queued",
+            study=study_name,
+            added=len(unannotated_videos),
+            queued=len(current_queue),
+            cost_estimate=cost,
+        )
+
+    return jsonify(
+        {
+            "status": "success",
+            "videos_to_annotate": len(current_queue),
+            "newly_queued": len(unannotated_videos),
+            "cost_estimate": cost,
+            **cap_info,
+        }
+    )
 
 
 def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status):
@@ -1498,7 +1463,13 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 def api_consolidate_enrichment():
 
     if is_worker_running("consolidate_enrichment"):
-        return jsonify({"status": "error", "message": "Consolidation already running"}), 409
+        return jsonify(
+            {
+                "status": "error",
+                "error": "Consolidation already running",
+                "message": "Consolidation already running",
+            }
+        ), 409
 
     data = request.json or {}
     force = bool(data.get("force"))
@@ -1526,6 +1497,7 @@ def api_consolidate_enrichment():
             return jsonify(
                 {
                     "status": "error",
+                    "error": f"Cannot run a full rebuild while {', '.join(blocking)} running.",
                     "message": f"Cannot run a full rebuild while {', '.join(blocking)} running.",
                 }
             ), 409
@@ -1603,7 +1575,7 @@ def api_consolidate_enrichment():
     else:
         # Nothing started — don't leave a phantom run locking every card.
         refresh_pipeline.clear_run()
-        return jsonify({"status": "error", "message": msg}), 409
+        return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @management_bp.route("/api/manage/enrichment/consolidate/disarm", methods=["POST"])
@@ -1644,9 +1616,9 @@ def api_refresh_downstream():
         impact, started_by=current_actor()
     )
     if status == "busy":
-        return jsonify({"status": "error", "message": message}), 409
+        return jsonify({"status": "error", "error": message, "message": message}), 409
     if status == "error":
-        return jsonify({"status": "error", "message": message}), 409
+        return jsonify({"status": "error", "error": message, "message": message}), 409
     return jsonify({"status": status, "message": message})
 
 

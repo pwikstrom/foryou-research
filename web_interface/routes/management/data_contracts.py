@@ -56,40 +56,37 @@ def get_data_contract(kind):
         return jsonify({"error": f"unknown contract kind: {kind}"}), 404
     module, versioning, _ = _KINDS[kind]
     try:
-        try:
-            contract = module.load_contract()
-            validation_errors: list[str] = []
-        except (ValueError, FileNotFoundError) as e:
-            # load_contract validates internally; surface the failure instead
-            # of a bare 500 so the page can show what is wrong with the file.
-            return jsonify(
-                {
-                    "kind": kind,
-                    "path": _contract_rel_path(module),
-                    "fields": [],
-                    "validation_errors": [str(e)],
-                    "active_version": None,
-                }
-            )
+        contract = module.load_contract()
+        validation_errors: list[str] = []
+    except (ValueError, FileNotFoundError) as e:
+        # load_contract validates internally; surface the failure instead
+        # of a bare 500 so the page can show what is wrong with the file.
+        return jsonify(
+            {
+                "kind": kind,
+                "path": _contract_rel_path(module),
+                "fields": [],
+                "validation_errors": [str(e)],
+                "active_version": None,
+            }
+        )
 
-        meta = contract.get("meta", {}) or {}
-        payload = {
-            "kind": kind,
-            "path": _contract_rel_path(module),
-            "meta_version": str(meta.get("version", "")),
-            "fields": list(contract.get("fields", []) or []),
-            "validation_errors": validation_errors,
-            "active_version": _active_version(kind),
-        }
-        if hasattr(module, "platforms"):
-            payload["platforms"] = module.platforms(contract)
-        if hasattr(module, "default_platform"):
-            payload["default_platform"] = module.default_platform(contract)
-        if versioning is not None:
-            payload["preferred_version"] = versioning.get_preferred_version()
-        return jsonify(payload)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    meta = contract.get("meta", {}) or {}
+    payload = {
+        "kind": kind,
+        "path": _contract_rel_path(module),
+        "meta_version": str(meta.get("version", "")),
+        "fields": list(contract.get("fields", []) or []),
+        "validation_errors": validation_errors,
+        "active_version": _active_version(kind),
+    }
+    if hasattr(module, "platforms"):
+        payload["platforms"] = module.platforms(contract)
+    if hasattr(module, "default_platform"):
+        payload["default_platform"] = module.default_platform(contract)
+    if versioning is not None:
+        payload["preferred_version"] = versioning.get_preferred_version()
+    return jsonify(payload)
 
 
 @management_bp.route("/api/manage/data-contracts/<kind>/raw", methods=["GET"])
@@ -99,11 +96,8 @@ def get_data_contract_raw(kind):
     if kind not in _KINDS:
         return jsonify({"error": f"unknown contract kind: {kind}"}), 404
     module, _, _ = _KINDS[kind]
-    try:
-        text = Path(module.default_contract_path()).read_text(encoding="utf-8")
-        return jsonify({"toml": text, "path": _contract_rel_path(module)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    text = Path(module.default_contract_path()).read_text(encoding="utf-8")
+    return jsonify({"toml": text, "path": _contract_rel_path(module)})
 
 
 @management_bp.route("/api/manage/data-contracts/<kind>/download", methods=["GET"])
@@ -113,16 +107,13 @@ def download_data_contract(kind):
     if kind not in _KINDS:
         return jsonify({"error": f"unknown contract kind: {kind}"}), 404
     module, _, _ = _KINDS[kind]
-    try:
-        path = Path(module.default_contract_path())
-        text = path.read_text(encoding="utf-8")
-        return Response(
-            text,
-            mimetype="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    path = Path(module.default_contract_path())
+    text = path.read_text(encoding="utf-8")
+    return Response(
+        text,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+    )
 
 
 @management_bp.route("/api/manage/data-contracts/<kind>/versions", methods=["GET"])
@@ -134,23 +125,20 @@ def list_data_contract_versions(kind):
     _, versioning, id_key = _KINDS[kind]
     if versioning is None:
         return jsonify({"error": f"the {kind} contract has no version registry"}), 404
-    try:
-        versions = []
-        for summary in versioning.list_versions():
-            summary = dict(summary)
-            summary["version"] = summary.pop(id_key, None)
-            versions.append(summary)
-        versions.sort(key=lambda v: v.get("created_at") or "", reverse=True)
-        active = _active_version(kind)
-        return jsonify(
-            {
-                "versions": versions,
-                "preferred": versioning.get_preferred_version(),
-                "active": active.get("version") if active else None,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    versions = []
+    for summary in versioning.list_versions():
+        summary = dict(summary)
+        summary["version"] = summary.pop(id_key, None)
+        versions.append(summary)
+    versions.sort(key=lambda v: v.get("created_at") or "", reverse=True)
+    active = _active_version(kind)
+    return jsonify(
+        {
+            "versions": versions,
+            "preferred": versioning.get_preferred_version(),
+            "active": active.get("version") if active else None,
+        }
+    )
 
 
 @management_bp.route("/api/manage/data-contracts/<kind>/versions/<version>", methods=["GET"])
@@ -162,14 +150,11 @@ def get_data_contract_version(kind, version):
     _, versioning, id_key = _KINDS[kind]
     if versioning is None:
         return jsonify({"error": f"the {kind} contract has no version registry"}), 404
-    try:
-        registry = versioning.load_registry()
-        record = registry.get("versions", {}).get(version)
-        if record is None:
-            return jsonify({"error": f"unknown version: {version}"}), 404
-        record = dict(record)
-        record["version"] = record.pop(id_key, version)
-        record["preferred"] = version == registry.get("preferred")
-        return jsonify(record)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    registry = versioning.load_registry()
+    record = registry.get("versions", {}).get(version)
+    if record is None:
+        return jsonify({"error": f"unknown version: {version}"}), 404
+    record = dict(record)
+    record["version"] = record.pop(id_key, version)
+    record["preferred"] = version == registry.get("preferred")
+    return jsonify(record)

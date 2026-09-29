@@ -67,7 +67,9 @@ def api_start(name):
                 ),
             )
         if not gemini_ok:
-            return jsonify({"status": "error", "message": gemini_reason}), 400
+            return jsonify(
+                {"status": "error", "error": gemini_reason, "message": gemini_reason}
+            ), 400
 
     # Same gate for the embeddings worker: refuse to start it when the active
     # embedding backend isn't usable (missing credentials for Gemini, missing
@@ -82,7 +84,7 @@ def api_start(name):
         except Exception as exc:
             embed_ok, embed_reason = False, f"Embedding backend unavailable: {exc}"
         if not embed_ok:
-            return jsonify({"status": "error", "message": embed_reason}), 400
+            return jsonify({"status": "error", "error": embed_reason, "message": embed_reason}), 400
 
     # One refresh run at a time. Two runs would interleave writes to the same
     # caches — and the second would plan against inputs the first is still
@@ -129,10 +131,22 @@ def api_start(name):
             try:
                 value = int(str(raw).strip())
             except (TypeError, ValueError):
-                return jsonify({"status": "error", "message": f"{key} must be an integer"}), 400
+                return jsonify(
+                    {
+                        "status": "error",
+                        "error": f"{key} must be an integer",
+                        "message": f"{key} must be an integer",
+                    }
+                ), 400
             if value < 1 or (upper is not None and value > upper):
                 bound = f"1-{upper}" if upper is not None else ">= 1"
-                return jsonify({"status": "error", "message": f"{key} must be {bound}"}), 400
+                return jsonify(
+                    {
+                        "status": "error",
+                        "error": f"{key} must be {bound}",
+                        "message": f"{key} must be {bound}",
+                    }
+                ), 400
             args.extend([flag, str(value)])
 
     # Capture the launching user (their username is their email) so the async
@@ -234,7 +248,7 @@ def api_start(name):
         )
         return jsonify({"status": "success", "message": msg})
     else:
-        return jsonify({"status": "error", "message": msg}), 409
+        return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @process_bp.route("/api/stop/<name>", methods=["POST"])

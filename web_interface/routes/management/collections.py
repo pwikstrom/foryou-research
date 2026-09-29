@@ -26,6 +26,7 @@ from ...services.worker_status import (
 from ...tasks.process_manager import (
     start_process,
 )
+from .._errors import internal_error_message, log_unexpected
 from ._blueprint import management_bp
 
 
@@ -109,7 +110,7 @@ def delete_collection():
                 "message": msg,
             }
         )
-    return jsonify({"status": "error", "message": msg}), 409
+    return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
 
 @management_bp.route("/api/manage/collections/coverage", methods=["GET"])
@@ -263,90 +264,86 @@ def save_collection_annotation():
         if not isinstance(user_id, str) or user_manager.get_user(user_id) is None:
             return jsonify({"error": f"Unknown user account: {user_id!r}"}), 400
 
-    try:
-        annotations = {}
-        if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
-            annotations = data_io.load_json(
-                storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"
+    annotations = {}
+    if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
+        annotations = data_io.load_json(
+            storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"
+        )
+
+    # Update in place so keys this endpoint doesn't own (the account
+    # link, anything added later) survive a tag edit.
+    entry = annotations.get(str(collection_id))
+    if not isinstance(entry, dict):
+        entry = {}
+
+    # Display IDs are unique across the Hub: two collections answering to
+    # one name make every picker, legend and study selection ambiguous.
+    # Only a RENAME is checked — the bulk edit and the modal's autosave
+    # both resend the name a collection already has on every tag tick, and
+    # a collection that predates this guard must stay editable.
+    display_id = normalize_display_id(data.get("display_collection_id", None))
+    # An empty box is not "no name": the collection then shows its own id,
+    # so clearing a label is a rename onto that id and is checked as one.
+    new_display = display_id or str(collection_id)
+    previous_display = entry_display_id(collection_id, entry)
+    if display_key(new_display) != display_key(previous_display):
+        clash = display_id_owner(new_display, annotations, exclude=collection_id)
+        if clash:
+            return jsonify(
+                {
+                    "error": (
+                        f"Clearing the display ID would show this collection as '{new_display}'"
+                        if not display_id
+                        else f"Display ID '{new_display}'"
+                    )
+                    + f", which collection '{clash}' already uses. "
+                    + "Display IDs name one collection each — pick another.",
+                }
+            ), 409
+    entry["display_collection_id"] = display_id or None
+    entry["annotation_tags"] = data.get("tags", [])
+    entry["hidden"] = data.get("hidden", False)
+    previous_user = entry.get("user_id")
+    if set_user:
+        entry["user_id"] = user_id
+    annotations[str(collection_id)] = entry
+
+    data_io.save_json(
+        data=annotations,
+        storage_location="recoded",
+        filename=f"{COLLECTIONS_LABEL}_tags.json",
+        verbose=False,
+    )
+    invalidate_collection_tags_cache()
+
+    activity_log.record(
+        actor=current_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="collection.annotation.save",
+        target=str(collection_id),
+        details={
+            "tags": data.get("tags", []),
+            "hidden": bool(data.get("hidden", False)),
+            **({"user_id": {"from": previous_user, "to": user_id}} if set_user else {}),
+        },
+    )
+
+    # An ownership change moves the collection between accounts' auto-
+    # managed study pairs — reconcile both sides (new owner gains it,
+    # previous owner loses it) on a background thread so the save stays
+    # snappy. Never fails the save.
+    if set_user and user_id != previous_user:
+        try:
+            from ...services.participant_studies import sync_for_cids
+
+            sync_for_cids(
+                [str(collection_id)],
+                usernames=[u for u in (previous_user,) if u],
             )
+        except Exception as exc:
+            print(f"[save_collection_annotation] participant-study sync failed: {exc}")
 
-        # Update in place so keys this endpoint doesn't own (the account
-        # link, anything added later) survive a tag edit.
-        entry = annotations.get(str(collection_id))
-        if not isinstance(entry, dict):
-            entry = {}
-
-        # Display IDs are unique across the Hub: two collections answering to
-        # one name make every picker, legend and study selection ambiguous.
-        # Only a RENAME is checked — the bulk edit and the modal's autosave
-        # both resend the name a collection already has on every tag tick, and
-        # a collection that predates this guard must stay editable.
-        display_id = normalize_display_id(data.get("display_collection_id", None))
-        # An empty box is not "no name": the collection then shows its own id,
-        # so clearing a label is a rename onto that id and is checked as one.
-        new_display = display_id or str(collection_id)
-        previous_display = entry_display_id(collection_id, entry)
-        if display_key(new_display) != display_key(previous_display):
-            clash = display_id_owner(new_display, annotations, exclude=collection_id)
-            if clash:
-                return jsonify(
-                    {
-                        "error": (
-                            f"Clearing the display ID would show this collection as '{new_display}'"
-                            if not display_id
-                            else f"Display ID '{new_display}'"
-                        )
-                        + f", which collection '{clash}' already uses. "
-                        + "Display IDs name one collection each — pick another.",
-                    }
-                ), 409
-        entry["display_collection_id"] = display_id or None
-        entry["annotation_tags"] = data.get("tags", [])
-        entry["hidden"] = data.get("hidden", False)
-        previous_user = entry.get("user_id")
-        if set_user:
-            entry["user_id"] = user_id
-        annotations[str(collection_id)] = entry
-
-        data_io.save_json(
-            data=annotations,
-            storage_location="recoded",
-            filename=f"{COLLECTIONS_LABEL}_tags.json",
-            verbose=False,
-        )
-        invalidate_collection_tags_cache()
-
-        activity_log.record(
-            actor=current_actor(),
-            category=activity_log.CATEGORY_DATA_MANAGEMENT,
-            action="collection.annotation.save",
-            target=str(collection_id),
-            details={
-                "tags": data.get("tags", []),
-                "hidden": bool(data.get("hidden", False)),
-                **({"user_id": {"from": previous_user, "to": user_id}} if set_user else {}),
-            },
-        )
-
-        # An ownership change moves the collection between accounts' auto-
-        # managed study pairs — reconcile both sides (new owner gains it,
-        # previous owner loses it) on a background thread so the save stays
-        # snappy. Never fails the save.
-        if set_user and user_id != previous_user:
-            try:
-                from ...services.participant_studies import sync_for_cids
-
-                sync_for_cids(
-                    [str(collection_id)],
-                    usernames=[u for u in (previous_user,) if u],
-                )
-            except Exception as exc:
-                print(f"[save_collection_annotation] participant-study sync failed: {exc}")
-
-        return jsonify({"status": "success"})
-    except Exception as e:
-        print(f"Error saving annotation: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"status": "success"})
 
 
 @management_bp.route("/api/manage/accounts", methods=["GET"])
@@ -592,7 +589,12 @@ def _tick_now(cid: str) -> dict:
             "message": outcome.get("message"),
         }
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        ref = log_unexpected(exc, f"in the supervisor tick for {cid}")
+        return {
+            "status": "error",
+            "error": internal_error_message(ref),
+            "message": internal_error_message(ref),
+        }
 
 
 def _journal_plan_save(
@@ -833,7 +835,7 @@ def tick_collection_enrichment(collection_id):
         )
         if success:
             return jsonify({"status": "started", "message": msg, "prev_start_time": prev_start})
-        return jsonify({"status": "error", "message": msg}), 409
+        return jsonify({"status": "error", "error": msg, "message": msg}), 409
 
     # Local mode: run the tick INLINE rather than as a subprocess. A worker the
     # tick starts must be spawned (and monitored) by this server process — a
@@ -863,7 +865,11 @@ def tick_collection_enrichment(collection_id):
     try:
         run_enrichment_supervisor(rep, {"collection_id": cid})
     except Exception as exc:
-        return jsonify({"status": "error", "message": str(exc), "log": rep.lines}), 500
+        # Keep the tick's own log lines: they say how far it got.
+        message = internal_error_message(log_unexpected(exc, f"in the supervisor tick for {cid}"))
+        return jsonify(
+            {"status": "error", "error": message, "message": message, "log": rep.lines}
+        ), 500
     return jsonify(
         {
             "status": "completed",

@@ -60,53 +60,50 @@ def list_ab_candidates():
     ``default_contract`` and the ``active_contract``, which the table pins as
     rows so every contract in play is visible in one place.
     """
+    from fyp.annotation import ab_eval
+    from fyp.annotation import annotation_contract as ac
+
+    candidates = []
+    for meta in ab_eval.list_candidates():
+        version = None
+        try:
+            version = _live_version_of(ab_eval.load_candidate(meta["name"])["contract"])
+        except Exception:
+            pass
+        candidates.append({**meta, "version": version or meta.get("candidate_version")})
+
+    default_summary = None
     try:
-        from fyp.annotation import ab_eval
-        from fyp.annotation import annotation_contract as ac
+        payload = _default_candidate_payload()
+        default_summary = {
+            "name": DEFAULT_CANDIDATE,
+            "version": _live_version_of(payload["contract"]),
+            "n_fields": len(payload["contract"].get("fields", [])),
+        }
+    except Exception:
+        pass
 
-        candidates = []
-        for meta in ab_eval.list_candidates():
-            version = None
-            try:
-                version = _live_version_of(ab_eval.load_candidate(meta["name"])["contract"])
-            except Exception:
-                pass
-            candidates.append({**meta, "version": version or meta.get("candidate_version")})
+    active_summary = None
+    try:
+        status = ac.contract_status()
+        active_contract = ac.load_contract()
+        active_summary = {
+            "version": annotation_versioning.active_annotation_version(),
+            "n_fields": len(active_contract.get("fields", [])),
+            "source": status.get("source"),
+            "updated_at": status.get("updated_at"),
+            "updated_by": status.get("updated_by"),
+        }
+    except Exception:
+        pass
 
-        default_summary = None
-        try:
-            payload = _default_candidate_payload()
-            default_summary = {
-                "name": DEFAULT_CANDIDATE,
-                "version": _live_version_of(payload["contract"]),
-                "n_fields": len(payload["contract"].get("fields", [])),
-            }
-        except Exception:
-            pass
-
-        active_summary = None
-        try:
-            status = ac.contract_status()
-            active_contract = ac.load_contract()
-            active_summary = {
-                "version": annotation_versioning.active_annotation_version(),
-                "n_fields": len(active_contract.get("fields", [])),
-                "source": status.get("source"),
-                "updated_at": status.get("updated_at"),
-                "updated_by": status.get("updated_by"),
-            }
-        except Exception:
-            pass
-
-        return jsonify(
-            {
-                "candidates": candidates,
-                "default_contract": default_summary,
-                "active_contract": active_summary,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(
+        {
+            "candidates": candidates,
+            "default_contract": default_summary,
+            "active_contract": active_summary,
+        }
+    )
 
 
 @management_bp.route("/api/manage/ab-candidates", methods=["POST"])
@@ -119,58 +116,53 @@ def save_ab_candidate():
     effective text (the form editor's save-as-candidate path). The candidate
     is validated and stamped with its etag + predicted ``av_`` version.
     """
-    try:
-        from fyp.annotation import ab_eval
-        from fyp.annotation import annotation_contract as ac
+    from fyp.annotation import ab_eval
+    from fyp.annotation import annotation_contract as ac
 
-        body = request.get_json(silent=True) or {}
-        name = str(body.get("name") or "").strip()
-        if name == DEFAULT_CANDIDATE:
-            return jsonify(
-                {
-                    "error": f"'{DEFAULT_CANDIDATE}' is reserved for the "
-                    f"shipped default contract — pick another name"
-                }
-            ), 400
-        text = body.get("text")
-        if not text and isinstance(body.get("contract"), dict):
-            try:
-                text = ac.serialize_contract(
-                    body["contract"], base_text=ac.effective_contract_text()
-                )
-            except ValueError as e:
-                return jsonify({"valid": False, "errors": [str(e)]}), 400
-        if not text or not str(text).strip():
-            return jsonify({"error": "no contract text provided"}), 400
-
-        cand, errors = ac.parse_and_validate(text)
-        if errors:
-            return jsonify({"valid": False, "errors": errors}), 400
-
-        candidate_version = _annotation_contract_impact(cand).get("candidate_version")
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()
+    if name == DEFAULT_CANDIDATE:
+        return jsonify(
+            {
+                "error": f"'{DEFAULT_CANDIDATE}' is reserved for the "
+                f"shipped default contract — pick another name"
+            }
+        ), 400
+    text = body.get("text")
+    if not text and isinstance(body.get("contract"), dict):
         try:
-            meta = ab_eval.save_candidate(
-                name,
-                text,
-                actor=current_actor(),
-                note=str(body.get("note") or ""),
-                overwrite=bool(body.get("overwrite")),
-                candidate_version=candidate_version,
-            )
-        except FileExistsError:
-            return jsonify({"error": f"candidate '{name}' exists — pass overwrite=true"}), 409
+            text = ac.serialize_contract(body["contract"], base_text=ac.effective_contract_text())
         except ValueError as e:
-            return jsonify({"error": str(e)}), 400
+            return jsonify({"valid": False, "errors": [str(e)]}), 400
+    if not text or not str(text).strip():
+        return jsonify({"error": "no contract text provided"}), 400
 
-        activity_log.record(
+    cand, errors = ac.parse_and_validate(text)
+    if errors:
+        return jsonify({"valid": False, "errors": errors}), 400
+
+    candidate_version = _annotation_contract_impact(cand).get("candidate_version")
+    try:
+        meta = ab_eval.save_candidate(
+            name,
+            text,
             actor=current_actor(),
-            category="admin",
-            action="ab_candidate.save",
-            details={"name": name},
+            note=str(body.get("note") or ""),
+            overwrite=bool(body.get("overwrite")),
+            candidate_version=candidate_version,
         )
-        return jsonify({"ok": True, "meta": meta})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except FileExistsError:
+        return jsonify({"error": f"candidate '{name}' exists — pass overwrite=true"}), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_candidate.save",
+        details={"name": name},
+    )
+    return jsonify({"ok": True, "meta": meta})
 
 
 @management_bp.route("/api/manage/ab-candidates/<name>", methods=["GET"])
@@ -181,39 +173,33 @@ def get_ab_candidate(name):
     The reserved ``default`` name serves the shipped baked contract when no
     stored candidate shadows it (pre-reservation back-compat).
     """
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        try:
-            return jsonify(ab_eval.load_candidate(name))
-        except FileNotFoundError:
-            if name == DEFAULT_CANDIDATE:
-                return jsonify(_default_candidate_payload())
-            return jsonify({"error": f"candidate '{name}' not found"}), 404
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 422
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    try:
+        return jsonify(ab_eval.load_candidate(name))
+    except FileNotFoundError:
+        if name == DEFAULT_CANDIDATE:
+            return jsonify(_default_candidate_payload())
+        return jsonify({"error": f"candidate '{name}' not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 422
 
 
 @management_bp.route("/api/manage/ab-candidates/<name>", methods=["DELETE"])
 @permission_required("tab.admin.ab_eval")
 def delete_ab_candidate(name):
     """Delete a candidate contract."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        removed = ab_eval.delete_candidate(name)
-        if removed:
-            activity_log.record(
-                actor=current_actor(),
-                category="admin",
-                action="ab_candidate.delete",
-                details={"name": name},
-            )
-        return jsonify({"ok": removed})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    removed = ab_eval.delete_candidate(name)
+    if removed:
+        activity_log.record(
+            actor=current_actor(),
+            category="admin",
+            action="ab_candidate.delete",
+            details={"name": name},
+        )
+    return jsonify({"ok": removed})
 
 
 @management_bp.route("/api/manage/ab-candidates/<name>/activate", methods=["POST"])
@@ -230,223 +216,199 @@ def activate_ab_candidate(name):
     modal can offer the "also switch backend" checkbox, and the impact is
     computed against the backend the contract would actually run on.
     """
+    from flask_login import current_user
+
+    from fyp.annotation import ab_eval
+    from fyp.annotation import annotation_contract as ac
+    from fyp.annotation.backends import variants
+
+    from ...auth.permissions import user_has_permission
+
+    builtin_default = False
     try:
-        from flask_login import current_user
+        cand = ab_eval.load_candidate(name)
+    except FileNotFoundError:
+        if name == DEFAULT_CANDIDATE:
+            cand = _default_candidate_payload()
+            builtin_default = True
+        else:
+            return jsonify({"error": f"candidate '{name}' not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 422
 
-        from fyp.annotation import ab_eval
-        from fyp.annotation import annotation_contract as ac
-        from fyp.annotation.backends import variants
+    body = request.get_json(force=True, silent=True) or {}
+    requested = str(body.get("backend") or "").strip() or None
+    if requested and requested not in variants.selection_ids():
+        return jsonify({"error": f"unknown backend selection: {requested}"}), 400
 
-        from ...auth.permissions import user_has_permission
-
-        builtin_default = False
-        try:
-            cand = ab_eval.load_candidate(name)
-        except FileNotFoundError:
-            if name == DEFAULT_CANDIDATE:
-                cand = _default_candidate_payload()
-                builtin_default = True
-            else:
-                return jsonify({"error": f"candidate '{name}' not found"}), 404
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 422
-
-        body = request.get_json(force=True, silent=True) or {}
-        requested = str(body.get("backend") or "").strip() or None
-        if requested and requested not in variants.selection_ids():
-            return jsonify({"error": f"unknown backend selection: {requested}"}), 400
-
-        binfo = _backend_target_info(requested)
-        can_switch = user_has_permission(current_user, "tab.admin.backends")
-        # Impact reflects the backend the contract will actually run on:
-        # the target only when the switch can really happen.
-        switchable = binfo["mismatch"] and can_switch and binfo["target_available"]
-        impact = _annotation_contract_impact(
-            cand["contract"],
-            target_backend=binfo["target"] if switchable or not binfo["mismatch"] else None,
-        )
-        return jsonify(
-            {
-                "name": name,
-                "text": cand["text"],
-                "impact": impact,
-                "backend": {**binfo, "can_switch_backend": can_switch},
-                "current_etag": ac.contract_status().get("etag"),
-                # The builtin default graduates via the revert endpoint (removes
-                # the runtime override so future shipped updates apply), not via
-                # a contract upload — the client branches on this flag.
-                "builtin_default": builtin_default,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    binfo = _backend_target_info(requested)
+    can_switch = user_has_permission(current_user, "tab.admin.backends")
+    # Impact reflects the backend the contract will actually run on:
+    # the target only when the switch can really happen.
+    switchable = binfo["mismatch"] and can_switch and binfo["target_available"]
+    impact = _annotation_contract_impact(
+        cand["contract"],
+        target_backend=binfo["target"] if switchable or not binfo["mismatch"] else None,
+    )
+    return jsonify(
+        {
+            "name": name,
+            "text": cand["text"],
+            "impact": impact,
+            "backend": {**binfo, "can_switch_backend": can_switch},
+            "current_etag": ac.contract_status().get("etag"),
+            # The builtin default graduates via the revert endpoint (removes
+            # the runtime override so future shipped updates apply), not via
+            # a contract upload — the client branches on this flag.
+            "builtin_default": builtin_default,
+        }
+    )
 
 
 @management_bp.route("/api/manage/ab-eval-sets", methods=["GET"])
 @permission_required("tab.admin.ab_eval")
 def list_ab_eval_sets():
     """Return every named evaluation set plus the active one."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        return jsonify(ab_eval.list_eval_sets())
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(ab_eval.list_eval_sets())
 
 
 @management_bp.route("/api/manage/ab-eval-sets", methods=["POST"])
 @permission_required("tab.admin.ab_eval")
 def create_ab_eval_set():
     """Create a new (optionally cloned) evaluation set. Body: ``{name, copy_from?}``."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        body = request.get_json(silent=True) or {}
-        name = str(body.get("name") or "").strip()
-        try:
-            record = ab_eval.create_eval_set(
-                name, copy_from=body.get("copy_from") or None, actor=current_actor()
-            )
-        except FileExistsError as e:
-            return jsonify({"error": str(e)}), 409
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="ab_eval_set.create",
-            details={"name": name},
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()
+    try:
+        record = ab_eval.create_eval_set(
+            name, copy_from=body.get("copy_from") or None, actor=current_actor()
         )
-        return jsonify({"ok": True, **record})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except FileExistsError as e:
+        return jsonify({"error": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_eval_set.create",
+        details={"name": name},
+    )
+    return jsonify({"ok": True, **record})
 
 
 @management_bp.route("/api/manage/ab-eval-sets/<name>/rename", methods=["POST"])
 @permission_required("tab.admin.ab_eval")
 def rename_ab_eval_set(name):
     """Rename an evaluation set. Body: ``{new_name}``."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        body = request.get_json(silent=True) or {}
-        new_name = str(body.get("new_name") or "").strip()
-        try:
-            record = ab_eval.rename_eval_set(name, new_name)
-        except FileNotFoundError as e:
-            return jsonify({"error": str(e)}), 404
-        except FileExistsError as e:
-            return jsonify({"error": str(e)}), 409
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="ab_eval_set.rename",
-            details={"name": name, "new_name": new_name},
-        )
-        return jsonify({"ok": True, **record})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    body = request.get_json(silent=True) or {}
+    new_name = str(body.get("new_name") or "").strip()
+    try:
+        record = ab_eval.rename_eval_set(name, new_name)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except FileExistsError as e:
+        return jsonify({"error": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_eval_set.rename",
+        details={"name": name, "new_name": new_name},
+    )
+    return jsonify({"ok": True, **record})
 
 
 @management_bp.route("/api/manage/ab-eval-sets/<name>/activate", methods=["POST"])
 @permission_required("tab.admin.ab_eval")
 def activate_ab_eval_set(name):
     """Make ``name`` the active evaluation set (the one a run uses)."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        try:
-            ab_eval.set_active_eval_set(name)
-        except FileNotFoundError as e:
-            return jsonify({"error": str(e)}), 404
-        stored = ab_eval.load_eval_set()
-        return jsonify(
-            {
-                **stored,
-                "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
-                "max_items": ab_eval.MAX_EVAL_ITEMS,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    try:
+        ab_eval.set_active_eval_set(name)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    stored = ab_eval.load_eval_set()
+    return jsonify(
+        {
+            **stored,
+            "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
+            "max_items": ab_eval.MAX_EVAL_ITEMS,
+        }
+    )
 
 
 @management_bp.route("/api/manage/ab-eval-sets/<name>", methods=["DELETE"])
 @permission_required("tab.admin.ab_eval")
 def delete_ab_eval_set(name):
     """Delete an evaluation set (never the last remaining one)."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        try:
-            result = ab_eval.delete_eval_set(name)
-        except FileNotFoundError as e:
-            return jsonify({"error": str(e)}), 404
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="ab_eval_set.delete",
-            details={"name": name},
-        )
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    try:
+        result = ab_eval.delete_eval_set(name)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_eval_set.delete",
+        details={"name": name},
+    )
+    return jsonify({"ok": True, **result})
 
 
 @management_bp.route("/api/manage/ab-eval-set", methods=["GET"])
 @permission_required("tab.admin.ab_eval")
 def get_ab_eval_set():
     """Return one eval set (``?name=`` or the active one) with per-item flags."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        stored = ab_eval.load_eval_set(request.args.get("name") or None)
-        return jsonify(
-            {
-                **stored,
-                "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
-                "max_items": ab_eval.MAX_EVAL_ITEMS,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    stored = ab_eval.load_eval_set(request.args.get("name") or None)
+    return jsonify(
+        {
+            **stored,
+            "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
+            "max_items": ab_eval.MAX_EVAL_ITEMS,
+        }
+    )
 
 
 @management_bp.route("/api/manage/ab-eval-set", methods=["POST"])
 @permission_required("tab.admin.ab_eval")
 def save_ab_eval_set():
     """Persist one eval set's items. Body: ``{item_ids, name?, note?}``. Capped."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        body = request.get_json(silent=True) or {}
-        item_ids = body.get("item_ids")
-        if not isinstance(item_ids, list):
-            return jsonify({"error": "body must include an 'item_ids' list"}), 400
-        try:
-            stored = ab_eval.save_eval_set(
-                item_ids,
-                actor=current_actor(),
-                note=str(body.get("note") or ""),
-                name=body.get("name") or None,
-            )
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        resolved = ab_eval.resolve_items(stored["item_ids"])
-        not_downloaded = [r["item_id"] for r in resolved if r["downloaded"] is False]
-        activity_log.record(
+    body = request.get_json(silent=True) or {}
+    item_ids = body.get("item_ids")
+    if not isinstance(item_ids, list):
+        return jsonify({"error": "body must include an 'item_ids' list"}), 400
+    try:
+        stored = ab_eval.save_eval_set(
+            item_ids,
             actor=current_actor(),
-            category="admin",
-            action="ab_eval_set.save",
-            details={"name": stored["name"], "n_items": len(stored["item_ids"])},
+            note=str(body.get("note") or ""),
+            name=body.get("name") or None,
         )
-        return jsonify({**stored, "resolved": resolved, "not_downloaded": not_downloaded})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    resolved = ab_eval.resolve_items(stored["item_ids"])
+    not_downloaded = [r["item_id"] for r in resolved if r["downloaded"] is False]
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_eval_set.save",
+        details={"name": stored["name"], "n_items": len(stored["item_ids"])},
+    )
+    return jsonify({**stored, "resolved": resolved, "not_downloaded": not_downloaded})
 
 
 @management_bp.route("/api/manage/ab-eval-set/sample", methods=["POST"])
@@ -457,22 +419,19 @@ def sample_ab_eval_set():
     Body: ``{n, platforms?, seed?}``. The UI merges/edits the returned ids and
     then saves the set explicitly.
     """
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        body = request.get_json(silent=True) or {}
-        try:
-            n = int(body.get("n") or 10)
-        except (TypeError, ValueError):
-            return jsonify({"error": "'n' must be an integer"}), 400
-        platforms = body.get("platforms") if isinstance(body.get("platforms"), list) else None
-        seed = body.get("seed")
-        item_ids = ab_eval.sample_items(
-            n, platforms=platforms, seed=int(seed) if seed is not None else None
-        )
-        return jsonify({"item_ids": item_ids, "resolved": ab_eval.resolve_items(item_ids)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    body = request.get_json(silent=True) or {}
+    try:
+        n = int(body.get("n") or 10)
+    except (TypeError, ValueError):
+        return jsonify({"error": "'n' must be an integer"}), 400
+    platforms = body.get("platforms") if isinstance(body.get("platforms"), list) else None
+    seed = body.get("seed")
+    item_ids = ab_eval.sample_items(
+        n, platforms=platforms, seed=int(seed) if seed is not None else None
+    )
+    return jsonify({"item_ids": item_ids, "resolved": ab_eval.resolve_items(item_ids)})
 
 
 @management_bp.route("/api/manage/ab-eval/estimate", methods=["POST"])
@@ -483,28 +442,25 @@ def estimate_ab_eval():
     Body: ``{n_arms}`` (preferred) or the legacy
     ``{candidate_names, include_live}``.
     """
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        body = request.get_json(silent=True) or {}
-        if body.get("n_arms") is not None:
-            n_arms = max(0, int(body["n_arms"]))
-        else:
-            names = body.get("candidate_names") or []
-            n_arms = len(names) + (1 if body.get("include_live") else 0)
-        stored = ab_eval.load_eval_set()
-        n_items = len(stored.get("item_ids", []))
-        return jsonify(
-            {
-                "n_items": n_items,
-                "n_arms": n_arms,
-                "n_calls": n_items * n_arms,
-                "eval_set": stored.get("name"),
-                "max_items": ab_eval.MAX_EVAL_ITEMS,
-            }
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    body = request.get_json(silent=True) or {}
+    if body.get("n_arms") is not None:
+        n_arms = max(0, int(body["n_arms"]))
+    else:
+        names = body.get("candidate_names") or []
+        n_arms = len(names) + (1 if body.get("include_live") else 0)
+    stored = ab_eval.load_eval_set()
+    n_items = len(stored.get("item_ids", []))
+    return jsonify(
+        {
+            "n_items": n_items,
+            "n_arms": n_arms,
+            "n_calls": n_items * n_arms,
+            "eval_set": stored.get("name"),
+            "max_items": ab_eval.MAX_EVAL_ITEMS,
+        }
+    )
 
 
 def _clean_arm_params(raw) -> tuple[dict, str | None]:
@@ -611,114 +567,109 @@ def start_ab_eval_run():
     the UI can follow the run immediately; the worker snapshots each arm's
     contract text at start.
     """
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        # Explicit gate on top of start_process's own check: one A/B run at a
-        # time (a second concurrent run would double the annotation spend and
-        # race on the runs index).
-        if is_worker_running("ab_eval"):
-            return jsonify(
-                {"status": "error", "message": "A test run is already in progress."}
-            ), 409
-
-        body = request.get_json(silent=True) or {}
-        arms_spec = body.get("arms_spec")
-        names: list = []
-        include_live = False
-        arm_params: dict = {}
-        if arms_spec is not None:
-            arms_spec, spec_error = _clean_arms_spec(arms_spec)
-            if spec_error:
-                return jsonify({"error": spec_error}), 400
-        else:
-            names = body.get("candidate_names") or []
-            if isinstance(names, str):
-                names = [n.strip() for n in names.split(",") if n.strip()]
-            include_live = bool(body.get("include_live"))
-            if not names and not include_live:
-                return jsonify({"error": "add at least one contract to the test"}), 400
-            for name in names:
-                if not ab_eval.validate_candidate_name(name):
-                    return jsonify({"error": f"invalid candidate name '{name}'"}), 400
-            arm_params, param_error = _clean_arm_params(body.get("arm_params"))
-            if param_error:
-                return jsonify({"error": param_error}), 400
-        stored = ab_eval.load_eval_set(body.get("eval_set") or None)
-        item_ids = stored.get("item_ids", [])
-        if not item_ids:
-            return jsonify({"error": "the test set is empty — curate it first"}), 400
-
-        run_id = ab_eval.new_run_id()
-        run_name = str(body.get("name") or "").strip()[:60]
-        task_args = {
-            "run_id": run_id,
-            "name": run_name,
-            "candidate_names": names,
-            "include_live": include_live,
-            "arm_params": arm_params,
-            "eval_set": stored.get("name"),
-            "started_by": current_actor(),
-        }
-        if arms_spec is not None:
-            task_args["arms_spec"] = arms_spec
-        success, msg = start_process(
-            "ab_eval",
-            worker_registry.worker_module("ab_eval"),
-            task_args=task_args,
-            started_by=current_actor(),
-        )
-        if not success:
-            return jsonify({"status": "error", "message": msg}), 409
-        activity_log.record(
-            actor=current_actor(),
-            category="admin",
-            action="ab_eval.run",
-            details={
-                "run_id": run_id,
-                "candidates": names,
-                "include_live": include_live,
-                "arms_spec": arms_spec,
-                "eval_set": stored.get("name"),
-                "n_items": len(item_ids),
-            },
-        )
+    # Explicit gate on top of start_process's own check: one A/B run at a
+    # time (a second concurrent run would double the annotation spend and
+    # race on the runs index).
+    if is_worker_running("ab_eval"):
         return jsonify(
-            {"status": "started", "run_id": run_id, "message": msg, "eval_set": stored.get("name")}
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            {
+                "status": "error",
+                "error": "A test run is already in progress.",
+                "message": "A test run is already in progress.",
+            }
+        ), 409
+
+    body = request.get_json(silent=True) or {}
+    arms_spec = body.get("arms_spec")
+    names: list = []
+    include_live = False
+    arm_params: dict = {}
+    if arms_spec is not None:
+        arms_spec, spec_error = _clean_arms_spec(arms_spec)
+        if spec_error:
+            return jsonify({"error": spec_error}), 400
+    else:
+        names = body.get("candidate_names") or []
+        if isinstance(names, str):
+            names = [n.strip() for n in names.split(",") if n.strip()]
+        include_live = bool(body.get("include_live"))
+        if not names and not include_live:
+            return jsonify({"error": "add at least one contract to the test"}), 400
+        for name in names:
+            if not ab_eval.validate_candidate_name(name):
+                return jsonify({"error": f"invalid candidate name '{name}'"}), 400
+        arm_params, param_error = _clean_arm_params(body.get("arm_params"))
+        if param_error:
+            return jsonify({"error": param_error}), 400
+    stored = ab_eval.load_eval_set(body.get("eval_set") or None)
+    item_ids = stored.get("item_ids", [])
+    if not item_ids:
+        return jsonify({"error": "the test set is empty — curate it first"}), 400
+
+    run_id = ab_eval.new_run_id()
+    run_name = str(body.get("name") or "").strip()[:60]
+    task_args = {
+        "run_id": run_id,
+        "name": run_name,
+        "candidate_names": names,
+        "include_live": include_live,
+        "arm_params": arm_params,
+        "eval_set": stored.get("name"),
+        "started_by": current_actor(),
+    }
+    if arms_spec is not None:
+        task_args["arms_spec"] = arms_spec
+    success, msg = start_process(
+        "ab_eval",
+        worker_registry.worker_module("ab_eval"),
+        task_args=task_args,
+        started_by=current_actor(),
+    )
+    if not success:
+        return jsonify({"status": "error", "error": msg, "message": msg}), 409
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="ab_eval.run",
+        details={
+            "run_id": run_id,
+            "candidates": names,
+            "include_live": include_live,
+            "arms_spec": arms_spec,
+            "eval_set": stored.get("name"),
+            "n_items": len(item_ids),
+        },
+    )
+    return jsonify(
+        {"status": "started", "run_id": run_id, "message": msg, "eval_set": stored.get("name")}
+    )
 
 
 @management_bp.route("/api/manage/ab-eval/runs", methods=["GET"])
 @permission_required("tab.admin.ab_eval")
 def list_ab_eval_runs():
     """Return the runs index (newest first)."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        return jsonify({"runs": ab_eval.load_runs_index()})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"runs": ab_eval.load_runs_index()})
 
 
 @management_bp.route("/api/manage/ab-eval/runs/<run_id>", methods=["GET"])
 @permission_required("tab.admin.ab_eval")
 def get_ab_eval_run(run_id):
     """Return one run's manifest + comparison report + human-input block."""
-    try:
-        from fyp.annotation import ab_eval, human_eval
+    from fyp.annotation import ab_eval, human_eval
 
-        run = ab_eval.load_run(run_id)
-        if not run.get("manifest"):
-            return jsonify({"error": f"run '{run_id}' not found"}), 404
-        try:
-            run["human"] = human_eval.load_human(run_id)
-        except Exception:
-            run["human"] = None
-        return jsonify(run)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    run = ab_eval.load_run(run_id)
+    if not run.get("manifest"):
+        return jsonify({"error": f"run '{run_id}' not found"}), 404
+    try:
+        run["human"] = human_eval.load_human(run_id)
+    except Exception:
+        run["human"] = None
+    return jsonify(run)
 
 
 @management_bp.route("/api/manage/ab-eval/runs/<run_id>/rows", methods=["GET"])
@@ -729,43 +680,37 @@ def get_ab_eval_run_rows(run_id):
     ``arm`` may also be ``human:<username>`` — a submitted coder of the run's
     coding task, served as rows so human input renders like any other arm.
     """
-    try:
-        from fyp.annotation import ab_eval, human_eval
+    from fyp.annotation import ab_eval, human_eval
 
-        arm = str(request.args.get("arm") or "").strip()
-        if not arm:
-            return jsonify({"error": "pass ?arm=<arm name>"}), 400
-        if arm.startswith("human:"):
-            username = arm[len("human:") :]
-            task = human_eval.load_task(run_id, "coding")
-            if task is None or username not in task.get("coders", {}):
-                return jsonify({"error": f"no coder '{username}' on run '{run_id}'"}), 404
-            rows = human_eval.coder_rows(run_id, "coding", username)
-        else:
-            try:
-                rows = ab_eval.load_run_rows(run_id, arm)
-            except Exception:
-                return jsonify({"error": f"no rows for run '{run_id}' arm '{arm}'"}), 404
-        return jsonify({"run_id": run_id, "arm": arm, "rows": rows})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    arm = str(request.args.get("arm") or "").strip()
+    if not arm:
+        return jsonify({"error": "pass ?arm=<arm name>"}), 400
+    if arm.startswith("human:"):
+        username = arm[len("human:") :]
+        task = human_eval.load_task(run_id, "coding")
+        if task is None or username not in task.get("coders", {}):
+            return jsonify({"error": f"no coder '{username}' on run '{run_id}'"}), 404
+        rows = human_eval.coder_rows(run_id, "coding", username)
+    else:
+        try:
+            rows = ab_eval.load_run_rows(run_id, arm)
+        except Exception:
+            return jsonify({"error": f"no rows for run '{run_id}' arm '{arm}'"}), 404
+    return jsonify({"run_id": run_id, "arm": arm, "rows": rows})
 
 
 @management_bp.route("/api/manage/ab-eval/runs/<run_id>", methods=["DELETE"])
 @permission_required("tab.admin.ab_eval")
 def delete_ab_eval_run(run_id):
     """Delete a run's artifacts."""
-    try:
-        from fyp.annotation import ab_eval
+    from fyp.annotation import ab_eval
 
-        removed = ab_eval.delete_run(run_id)
-        if removed:
-            activity_log.record(
-                actor=current_actor(),
-                category="admin",
-                action="ab_eval.run_delete",
-                details={"run_id": run_id},
-            )
-        return jsonify({"ok": removed})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    removed = ab_eval.delete_run(run_id)
+    if removed:
+        activity_log.record(
+            actor=current_actor(),
+            category="admin",
+            action="ab_eval.run_delete",
+            details={"run_id": run_id},
+        )
+    return jsonify({"ok": removed})
