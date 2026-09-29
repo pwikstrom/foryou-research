@@ -3,7 +3,7 @@
 ``sessions_plays.parquet`` exists so the detail endpoint's per-collection read
 prunes row groups instead of decoding the whole consolidated activity file.
 These tests pin the contract: the shard is sorted, publish verifies row
-counts (with a grace skip for pre-upgrade runs), and ``_session_plays``
+counts (with a grace skip for pre-upgrade runs), and ``sessions_data.session_plays``
 returns identical frames from the artifact and the activity-file fallback.
 """
 
@@ -13,6 +13,7 @@ import pytest
 
 import fyp.core.data_io as data_io
 from fyp.analysis import session_explorer as se
+from web_interface.services import sessions_data
 
 
 @pytest.fixture
@@ -229,8 +230,8 @@ def test_session_plays_artifact_matches_fallback(storage):
     _write_activity_file(plays)
 
     # Fallback first (no artifact yet).
-    mod._STAT_CACHE.clear()
-    fb = mod._session_plays("collA", _session_row("collA__0"))
+    sessions_data._STAT_CACHE.clear()
+    fb = sessions_data.session_plays("collA", _session_row("collA__0"))
     assert list(fb["item_id"]) == ["v1", "v2"]
 
     # Now publish the artifact and read again — identical rows.
@@ -238,8 +239,8 @@ def test_session_plays_artifact_matches_fallback(storage):
     data_io.write_parquet_stream(
         storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
     )
-    mod._STAT_CACHE.clear()
-    art = mod._session_plays("collA", _session_row("collA__0"))
+    sessions_data._STAT_CACHE.clear()
+    art = sessions_data.session_plays("collA", _session_row("collA__0"))
     assert list(art["item_id"]) == list(fb["item_id"])
     assert [t.isoformat() for t in art["_ts"]] == [t.isoformat() for t in fb["_ts"]]
     assert list(art["play_duration"]) == list(fb["play_duration"])
@@ -254,8 +255,8 @@ def test_session_plays_recovers_na_sessions_from_the_artifact(storage):
     data_io.write_parquet_stream(
         storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
     )
-    mod._STAT_CACHE.clear()
-    got = mod._session_plays(
+    sessions_data._STAT_CACHE.clear()
+    got = sessions_data.session_plays(
         "collA", _session_row("na_0", start="2026-03-05 08:00:00", end="2026-03-05 10:00:00")
     )
     assert list(got["item_id"]) == ["v9"]
@@ -272,6 +273,6 @@ def test_session_plays_falls_back_when_artifact_lacks_the_collection(storage):
     data_io.write_parquet_stream(
         storage_location="cache", filename=se.PLAYS_FILE, batches=[tbl], schema=tbl.schema
     )
-    mod._STAT_CACHE.clear()
-    got = mod._session_plays("collA", _session_row("collA__0"))
+    sessions_data._STAT_CACHE.clear()
+    got = sessions_data.session_plays("collA", _session_row("collA__0"))
     assert list(got["item_id"]) == ["v1", "v2"]

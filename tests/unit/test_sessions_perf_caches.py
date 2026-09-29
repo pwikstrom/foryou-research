@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import web_interface.routes.api_sessions_routes as mod
+from web_interface.services import sessions_data
 
 
 @pytest.fixture
@@ -30,37 +31,37 @@ def cached_index(monkeypatch):
         }
     )
     df["_start_dt"] = pd.to_datetime(df["start_ts"])
-    mod._INDEX_CACHE.update({"df": df, "search": None, "fingerprint": "fp1"})
+    sessions_data._INDEX_CACHE.update({"df": df, "search": None, "fingerprint": "fp1"})
     return df
 
 
 def test_filter_ranges_cache_hits_and_invalidation(cached_index, monkeypatch):
     calls = {"n": 0}
-    real = mod._filter_ranges
+    real = sessions_data._filter_ranges
 
     def counting(df):
         calls["n"] += 1
         return real(df)
 
-    monkeypatch.setattr(mod, "_filter_ranges", counting)
+    monkeypatch.setattr(sessions_data, "_filter_ranges", counting)
     pop = pd.Series([True, True]).to_numpy()
     sig = (4, 0.0, 0.0, 0, 2, 123, ("a", "b"))
 
-    r1 = mod._cached_filter_ranges(cached_index, pop, "studyA", sig)
-    r2 = mod._cached_filter_ranges(cached_index, pop, "studyA", sig)
+    r1 = sessions_data.cached_filter_ranges(cached_index, pop, "studyA", sig)
+    r2 = sessions_data.cached_filter_ranges(cached_index, pop, "studyA", sig)
     assert calls["n"] == 1 and r1 is r2
 
     # A different floors/scope signature is a different population.
-    mod._cached_filter_ranges(cached_index, pop, "studyA", (5,) + sig[1:])
+    sessions_data.cached_filter_ranges(cached_index, pop, "studyA", (5,) + sig[1:])
     assert calls["n"] == 2
     # A different study likewise.
-    mod._cached_filter_ranges(cached_index, pop, "studyB", sig)
+    sessions_data.cached_filter_ranges(cached_index, pop, "studyB", sig)
     assert calls["n"] == 3
 
     # An index reload (new fingerprint) clears the cache.
-    mod._INDEX_CACHE["fingerprint"] = "fp2"
-    mod._RANGES_CACHE.clear()  # what _load_index does on reload
-    mod._cached_filter_ranges(cached_index, pop, "studyA", sig)
+    sessions_data._INDEX_CACHE["fingerprint"] = "fp2"
+    sessions_data._RANGES_CACHE.clear()  # what load_index does on reload
+    sessions_data.cached_filter_ranges(cached_index, pop, "studyA", sig)
     assert calls["n"] == 4
 
 
@@ -68,23 +69,23 @@ def test_filter_ranges_uncached_for_an_injected_frame(cached_index):
     """A frame that is not the cached index computes directly (test stubs)."""
     other = cached_index.copy()
     pop = pd.Series([True, True]).to_numpy()
-    before = dict(mod._RANGES_CACHE)
-    out = mod._cached_filter_ranges(other, pop, "studyA", (1,))
+    before = dict(sessions_data._RANGES_CACHE)
+    out = sessions_data.cached_filter_ranges(other, pop, "studyA", (1,))
     assert out["duration_min"] == [10.0, 20.0]
-    assert mod._RANGES_CACHE == before
+    assert sessions_data._RANGES_CACHE == before
 
 
 def test_search_blob_serves_cached_or_inline_column(cached_index):
     # The cached index holds the blob out-of-frame.
     blob = pd.Series(["alpha", "beta"], dtype="string")
-    mod._INDEX_CACHE["search"] = blob
-    assert mod._search_blob(cached_index) is blob
+    sessions_data._INDEX_CACHE["search"] = blob
+    assert sessions_data.search_blob(cached_index) is blob
     # An injected frame carrying the column is served from it directly.
     inline = cached_index.copy()
     inline["search_text"] = ["x", "y"]
-    assert list(mod._search_blob(inline)) == ["x", "y"]
+    assert list(sessions_data.search_blob(inline)) == ["x", "y"]
     # An injected frame without the column: search unavailable.
-    assert mod._search_blob(cached_index.copy()) is None
+    assert sessions_data.search_blob(cached_index.copy()) is None
 
 
 def test_load_index_splits_search_text_and_parses_start(monkeypatch):
@@ -96,15 +97,15 @@ def test_load_index_splits_search_text_and_parses_start(monkeypatch):
             "search_text": ["recipes pasta"],
         }
     )
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: "fpX")
-    monkeypatch.setattr(mod.data_io, "load_parquet_selective", lambda **kw: raw.copy())
-    df = mod._load_index()
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: "fpX")
+    monkeypatch.setattr(sessions_data.data_io, "load_parquet_selective", lambda **kw: raw.copy())
+    df = sessions_data.load_index()
     assert "search_text" not in df.columns
     assert "_start_dt" in df.columns
     assert df["_start_dt"].iloc[0] == pd.Timestamp("2026-01-01T10:00:00")
-    assert list(mod._INDEX_CACHE["search"]) == ["recipes pasta"]
-    # The blob is row-aligned and reachable through _search_blob.
-    assert mod._search_blob(df) is mod._INDEX_CACHE["search"]
+    assert list(sessions_data._INDEX_CACHE["search"]) == ["recipes pasta"]
+    # The blob is row-aligned and reachable through search_blob.
+    assert sessions_data.search_blob(df) is sessions_data._INDEX_CACHE["search"]
 
 
 def test_artifact_frame_reloads_on_fingerprint_change(monkeypatch):
@@ -120,26 +121,26 @@ def test_artifact_frame_reloads_on_fingerprint_change(monkeypatch):
         loads["n"] += 1
         return next(frames)
 
-    monkeypatch.setattr(mod.data_io, "load_parquet_selective", fake_load)
+    monkeypatch.setattr(sessions_data.data_io, "load_parquet_selective", fake_load)
     fps = {"fp": "A"}
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps["fp"])
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: fps["fp"])
 
     cache = {"fingerprint": None, "df": None}
     import threading
 
     lock = threading.Lock()
-    f1 = mod._artifact_frame("whatever.parquet", cache, lock)
-    f2 = mod._artifact_frame("whatever.parquet", cache, lock)
+    f1 = sessions_data._artifact_frame("whatever.parquet", cache, lock)
+    f2 = sessions_data._artifact_frame("whatever.parquet", cache, lock)
     assert loads["n"] == 1 and f1 is f2
     fps["fp"] = "B"
-    f3 = mod._artifact_frame("whatever.parquet", cache, lock)
+    f3 = sessions_data._artifact_frame("whatever.parquet", cache, lock)
     assert loads["n"] == 2
     assert list(f3["collection_id"].astype(str)) == ["c2"]
 
 
 def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
     # Injected flags (tests / legacy) win.
-    got = mod._embedded_ids({"a", "b"}, {"embedded": {"b", "z"}})
+    got = sessions_data.embedded_ids({"a", "b"}, {"embedded": {"b", "z"}})
     assert got == {"b"}
 
     # Production shape: empty embedded set -> sidecar id-index lookup.
@@ -150,17 +151,17 @@ def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
             found = np.array([i == "a" for i in ids])
             return None, found
 
-    mod._FLAGS_CACHE["emb_index"] = FakeIndex()
-    got = mod._embedded_ids({"a", "b"}, {"embedded": set()})
+    sessions_data._FLAGS_CACHE["emb_index"] = FakeIndex()
+    got = sessions_data.embedded_ids({"a", "b"}, {"embedded": set()})
     assert got == {"a"}
 
     # No dense store: nothing embedded.
-    mod._FLAGS_CACHE["emb_index"] = None
-    assert mod._embedded_ids({"a"}, {"embedded": set()}) == set()
+    sessions_data._FLAGS_CACHE["emb_index"] = None
+    assert sessions_data.embedded_ids({"a"}, {"embedded": set()}) == set()
 
 
 def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
-    """_features reloads only when video_map/scrapes actually change — never
+    """features() reloads only when video_map/scrapes actually change — never
     on a timer (the rebuild is a corpus-scale read)."""
     loads = {"n": 0}
 
@@ -171,16 +172,16 @@ def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
     monkeypatch.setattr(mod.session_explorer, "load_video_features", fake_load)
     monkeypatch.setattr(mod.session_explorer, "trend_numeric_columns", lambda: [])
     fps = {"video_map.parquet": "m1", mod.embeddings.SCRAPES_FILE: "s1"}
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps[fn])
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: fps[fn])
 
-    f1 = mod._features()
-    f2 = mod._features()
+    f1 = sessions_data.features()
+    f2 = sessions_data.features()
     assert loads["n"] == 1 and f1 is f2
     fps["video_map.parquet"] = "m2"
-    mod._features()
+    sessions_data.features()
     assert loads["n"] == 2
     fps[mod.embeddings.SCRAPES_FILE] = "s2"
-    mod._features()
+    sessions_data.features()
     assert loads["n"] == 3
 
 
@@ -197,15 +198,15 @@ def test_flag_sets_cache_invalidates_on_source_fingerprints(monkeypatch):
 
     monkeypatch.setattr(mod.session_explorer, "enrichment_id_sets", fake_sets)
     monkeypatch.setattr(mod.embeddings, "active_embedding_backend", lambda: FakeBackend())
-    monkeypatch.setattr(mod.embedding_store, "load_index", lambda model: None)
+    monkeypatch.setattr(sessions_data.embedding_store, "load_index", lambda model: None)
     fps = {"fp": "A"}
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps["fp"])
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: fps["fp"])
 
-    s1 = mod._flag_sets()
-    s2 = mod._flag_sets()
+    s1 = sessions_data.flag_sets()
+    s2 = sessions_data.flag_sets()
     assert builds["n"] == 1 and s1 is s2
     fps["fp"] = "B"
-    mod._flag_sets()
+    sessions_data.flag_sets()
     assert builds["n"] == 2
 
 

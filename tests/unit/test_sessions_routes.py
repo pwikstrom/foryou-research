@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from tests._web import web_client
+from web_interface.services import sessions_data, sessions_stats
 
 _TEST_ADMIN = "__sessions_test_admin__"
 
@@ -108,15 +109,17 @@ def patched_routes(monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(mod, "study_access_error", lambda study: None)
-    monkeypatch.setattr(mod, "_load_index", _index_df)
-    # Patch the two sources rather than _study_collection_ids itself, so every
+    monkeypatch.setattr(sessions_data, "load_index", _index_df)
+    # Patch the two sources rather than sessions_data.study_collection_ids itself, so every
     # test exercises the real selected-AND-in-frame scoping.
     monkeypatch.setattr(
-        mod,
+        sessions_data,
         "get_study_collections",
         lambda study: [{"collection_id": "colA"}, {"collection_id": "colB"}],
     )
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colB"})
+    monkeypatch.setattr(
+        sessions_data, "get_study_frame_collections", lambda study: {"colA", "colB"}
+    )
     # A wide-open window by default — the date axis of study scoping is
     # exercised explicitly below, and stubbing it keeps every other test off
     # the study-defs store (which the real helper reads from disk).
@@ -125,13 +128,18 @@ def patched_routes(monkeypatch):
         "get_study_date_window",
         lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")),
     )
+    monkeypatch.setattr(
+        sessions_data,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")),
+    )
     # No day sampling by default — the third scoping axis is exercised
     # explicitly below (the real helper reads the study sidecar from disk).
-    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: None)
+    monkeypatch.setattr(sessions_data, "get_study_selected_cells", lambda study: None)
     monkeypatch.setattr(mod, "load_display_id_map", lambda: {"colA": "Donor A"})
     monkeypatch.setattr(
-        mod,
-        "_load_meta",
+        sessions_data,
+        "load_meta",
         lambda: {
             "built_at": "2026-08-01T00:00:00+00:00",
             "embedding_model": "gemini-embedding-001",
@@ -151,30 +159,34 @@ def test_study_collection_ids_intersects_the_built_frame(monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod,
+        sessions_data,
         "get_study_collections",
         lambda study: [{"collection_id": c} for c in ("colA", "colB", "colC")],
     )
 
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colC", "colZ"})
-    assert mod._study_collection_ids("s") == {"colA", "colC"}
+    monkeypatch.setattr(
+        sessions_data, "get_study_frame_collections", lambda study: {"colA", "colC", "colZ"}
+    )
+    assert sessions_data.study_collection_ids("s") == {"colA", "colC"}
 
     # Frame missing (study never built) => the raw selection, the only honest answer.
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: None)
-    assert mod._study_collection_ids("s") == {"colA", "colB", "colC"}
+    monkeypatch.setattr(sessions_data, "get_study_frame_collections", lambda study: None)
+    assert sessions_data.study_collection_ids("s") == {"colA", "colB", "colC"}
 
     # Frame present but empty => empty, NOT a fallback to the selection.
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: set())
-    assert mod._study_collection_ids("s") == set()
+    monkeypatch.setattr(sessions_data, "get_study_frame_collections", lambda study: set())
+    assert sessions_data.study_collection_ids("s") == set()
 
 
 def test_overview_excludes_collections_outside_the_study_frame(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod, "get_study_collections", lambda study: [{"collection_id": c} for c in ("colA", "colB")]
+        sessions_data,
+        "get_study_collections",
+        lambda study: [{"collection_id": c} for c in ("colA", "colB")],
     )
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
+    monkeypatch.setattr(sessions_data, "get_study_frame_collections", lambda study: {"colA"})
 
     res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
     assert res.status_code == 200
@@ -188,8 +200,8 @@ def test_overview_reports_effective_limits(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod,
-        "_load_meta",
+        sessions_data,
+        "load_meta",
         lambda: {
             "built_at": "2026-08-01T00:00:00+00:00",
             "embedding_model": "gemini-embedding-001",
@@ -203,7 +215,7 @@ def test_overview_reports_effective_limits(client, patched_routes, monkeypatch):
             },
         },
     )
-    monkeypatch.setattr(mod, "_context_plays", lambda: 5)
+    monkeypatch.setattr(sessions_data, "context_plays", lambda: 5)
 
     res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
     params = res.get_json()["params"]
@@ -222,8 +234,8 @@ def test_config_floors_hide_short_sessions_but_still_count_them(
 
     # colA__1 has 12 plays / 10 min; colA__0 has 40 / 30; colB__0 has 80 / 60.
     monkeypatch.setattr(
-        mod,
-        "_session_floors",
+        sessions_data,
+        "session_floors",
         lambda: {"min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0},
     )
 
@@ -239,8 +251,8 @@ def test_minutes_floor_is_applied_independently(client, patched_routes, monkeypa
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod,
-        "_session_floors",
+        sessions_data,
+        "session_floors",
         lambda: {"min_plays": 0, "min_session_minutes": 45.0, "min_coverage": 0.0},
     )
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
@@ -255,8 +267,8 @@ def test_coverage_floor_is_applied_and_counted_as_a_floor(client, patched_routes
 
     # coverage_embedded: colA__0 0.71, colA__1 0.17, colB__0 0.80.
     monkeypatch.setattr(
-        mod,
-        "_session_floors",
+        sessions_data,
+        "session_floors",
         lambda: {"min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.75},
     )
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
@@ -271,8 +283,8 @@ def test_query_params_override_the_admin_floors(client, patched_routes, monkeypa
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod,
-        "_session_floors",
+        sessions_data,
+        "session_floors",
         lambda: {"min_plays": 20, "min_session_minutes": 15.0, "min_coverage": 0.9},
     )
     body = client.get(
@@ -300,7 +312,7 @@ def test_session_floors_come_from_the_admin_store_in_endpoint_units(monkeypatch)
             "sessions_min_coverage_pct": 60.0,
         },
     )
-    assert mod._session_floors() == {
+    assert sessions_data.session_floors() == {
         "min_plays": 9,
         "min_session_minutes": 2.5,
         "min_coverage": 0.6,
@@ -323,14 +335,14 @@ def test_display_params_fall_back_to_config_for_an_older_artifact():
     import web_interface.routes.api_sessions_routes as mod
     from fyp.analysis import session_explorer
 
-    assert mod._display_params(None) == {
+    assert sessions_data.display_params(None) == {
         **session_explorer.default_params(),
-        "context_plays": mod._context_plays(),
-        "drift_p": mod._drift_p(),
-        "trend_min_videos": mod._trend_min_videos(),
+        "context_plays": sessions_data.context_plays(),
+        "drift_p": sessions_data._drift_p(),
+        "trend_min_videos": sessions_data.trend_min_videos(),
     }
     assert (
-        mod._display_params({"params": {}})["window_n"]
+        sessions_data.display_params({"params": {}})["window_n"]
         == session_explorer.default_params()["window_n"]
     )
 
@@ -435,6 +447,11 @@ def test_overview_excludes_sessions_outside_the_study_date_window(
         "get_study_date_window",
         lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
     )
+    monkeypatch.setattr(
+        sessions_data,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
+    )
 
     body = client.get(_BASE).get_json()
     assert [s["session_id"] for s in body["sessions"]] == ["colA__1"]
@@ -460,6 +477,11 @@ def test_study_date_window_end_is_inclusive_through_that_day(client, patched_rou
         "get_study_date_window",
         lambda study: (pd.Timestamp("2026-01-03"), pd.Timestamp("2026-01-04")),
     )
+    monkeypatch.setattr(
+        sessions_data,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-03"), pd.Timestamp("2026-01-04")),
+    )
 
     # colB__0 starts 10:00 on the closing day.
     body = client.get(_BASE).get_json()
@@ -474,6 +496,11 @@ def test_detail_refuses_a_session_outside_the_study_date_window(
 
     monkeypatch.setattr(
         mod,
+        "get_study_date_window",
+        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
+    )
+    monkeypatch.setattr(
+        sessions_data,
         "get_study_date_window",
         lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")),
     )
@@ -499,7 +526,7 @@ def test_overview_excludes_sessions_on_days_the_sample_dropped(client, patched_r
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod,
+        sessions_data,
         "get_study_selected_cells",
         lambda study: {"colA": {"2026-01-02"}, "colB": {"2026-01-03"}},
     )
@@ -514,7 +541,9 @@ def test_overview_excludes_sessions_on_days_the_sample_dropped(client, patched_r
 def test_detail_refuses_a_session_on_a_day_the_sample_dropped(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: {"colA": {"2026-01-02"}})
+    monkeypatch.setattr(
+        sessions_data, "get_study_selected_cells", lambda study: {"colA": {"2026-01-02"}}
+    )
 
     res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
     assert res.status_code == 404
@@ -526,8 +555,10 @@ def test_admin_all_scope_lists_the_whole_index_and_marks_outside_rows(
     """``scope=all`` (admin): every session, with ``in_study`` per row."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
-    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: {"colA": {"2026-01-01"}})
+    monkeypatch.setattr(sessions_data, "get_study_frame_collections", lambda study: {"colA"})
+    monkeypatch.setattr(
+        sessions_data, "get_study_selected_cells", lambda study: {"colA": {"2026-01-01"}}
+    )
 
     scoped = client.get(_BASE).get_json()
     assert [s["session_id"] for s in scoped["sessions"]] == ["colA__0"]
@@ -549,7 +580,7 @@ def test_all_scope_is_ignored_for_non_admins(client, patched_routes, monkeypatch
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(mod, "current_user", _NonAdmin())
-    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
+    monkeypatch.setattr(sessions_data, "get_study_frame_collections", lambda study: {"colA"})
 
     body = client.get(_BASE + "&scope=all").get_json()
     assert body["scope"] == "study"
@@ -604,7 +635,7 @@ def test_overview_pagination_clamps(client, patched_routes):
 def test_overview_404_without_artifact(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_load_index", lambda: None)
+    monkeypatch.setattr(sessions_data, "load_index", lambda: None)
     res = client.get("/api/sessions/overview?study=s")
     assert res.status_code == 404
 
@@ -615,7 +646,7 @@ def test_detail_validates_params_and_membership(client, patched_routes, monkeypa
     res = client.get("/api/sessions/detail?study=s&collection_id=colA")
     assert res.status_code == 400
 
-    monkeypatch.setattr(mod, "_study_collection_ids", lambda study: {"colB"})
+    monkeypatch.setattr(sessions_data, "study_collection_ids", lambda study: {"colB"})
     res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
     assert res.status_code == 403
 
@@ -705,13 +736,13 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
         }
     ]
 
-    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
-    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: episodes)
-    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: windows)
-    monkeypatch.setattr(mod, "_features", lambda: feat)
+    monkeypatch.setattr(sessions_data, "session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(sessions_data, "session_episodes", lambda cid, sid: episodes)
+    monkeypatch.setattr(sessions_data, "session_windows", lambda cid, sid: windows)
+    monkeypatch.setattr(sessions_data, "features", lambda: feat)
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {
             "scraped": {"v1", "v2"},
             "downloaded": {"v1"},
@@ -742,8 +773,8 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
     # the frame streams for an admin (v2 is inside but not downloaded, so it
     # still does not).
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {
             "scraped": {"v1", "v2"},
             "downloaded": {"v1", "v2"},
@@ -774,10 +805,10 @@ def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
     import web_interface.services.worker_status as worker_status
 
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn: "1:2")
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn: "1:2")
     monkeypatch.setattr(
-        mod,
-        "_load_meta",
+        sessions_data,
+        "load_meta",
         lambda: {"built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "some-other-model"},
     )
     monkeypatch.setattr(worker_status, "is_worker_running", lambda name: False)
@@ -804,33 +835,35 @@ def test_spearman_exact_matches_the_combinatorial_floor():
     import web_interface.routes.api_sessions_routes as mod
 
     for n in (4, 5, 6, 7, 8):
-        rho, p = mod._spearman_exact(np.arange(n, dtype=float))
+        rho, p = sessions_stats.spearman_exact(np.arange(n, dtype=float))
         assert rho == pytest.approx(1.0)
         assert p == pytest.approx(2 / math.factorial(n), rel=1e-6), n
 
     # Above the exact cutoff the null is sampled; (1+hits)/(1+m) keeps the
     # p-value off zero, which a plain mean would not.
-    _, p_big = mod._spearman_exact(np.arange(12, dtype=float))
+    _, p_big = sessions_stats.spearman_exact(np.arange(12, dtype=float))
     assert 0 < p_big < 0.001
     # Reversed data is equally extreme, and a flat variable has no trend.
-    assert mod._spearman_exact(np.arange(6, dtype=float)[::-1])[1] == pytest.approx(2 / 720)
-    assert np.isnan(mod._spearman_exact(np.zeros(6))[0])
+    assert sessions_stats.spearman_exact(np.arange(6, dtype=float)[::-1])[1] == pytest.approx(
+        2 / 720
+    )
+    assert np.isnan(sessions_stats.spearman_exact(np.zeros(6))[0])
 
 
 def test_benjamini_hochberg_is_monotone_and_bounded():
     import web_interface.routes.api_sessions_routes as mod
 
-    q = mod._benjamini_hochberg([0.001, 0.02, 0.3, 0.9])
+    q = sessions_stats.benjamini_hochberg([0.001, 0.02, 0.3, 0.9])
     assert q == [pytest.approx(0.004), pytest.approx(0.04), pytest.approx(0.4), pytest.approx(0.9)]
     # ONE lucky variable among nine null ones pays the full multiplicity price:
     # 0.03 * 10 / 1 = 0.3, so it stops being a "finding". This is the case the
     # scan actually faces — ~9 variables tested on one short binge.
-    assert mod._benjamini_hochberg([0.03] + [0.9] * 9)[0] == pytest.approx(0.3)
+    assert sessions_stats.benjamini_hochberg([0.03] + [0.9] * 9)[0] == pytest.approx(0.3)
 
     # But BH is step-up, not Bonferroni: when EVERY variable is equally small,
     # none is penalised for the others. Asserting 0.3 here would be wrong.
-    assert mod._benjamini_hochberg([0.03] * 10)[0] == pytest.approx(0.03)
-    assert all(x <= 1.0 for x in mod._benjamini_hochberg([0.9, 0.95, 0.99]))
+    assert sessions_stats.benjamini_hochberg([0.03] * 10)[0] == pytest.approx(0.03)
+    assert all(x <= 1.0 for x in sessions_stats.benjamini_hochberg([0.9, 0.95, 0.99]))
 
 
 def _members(n, dwell=None):
@@ -859,7 +892,7 @@ def test_scan_trend_finds_a_planted_trend_and_names_it():
         index=pd.Index([f"v{i}" for i in range(n)], name="item_id"),
     )
 
-    out = mod._scan_trend(_members(n), feat, min_n=7)
+    out = sessions_stats.scan_trend(_members(n), feat, min_n=7)
     assert out["trend"] is not None
     assert out["trend"]["variable"] == "log_plays"
     assert out["trend"]["direction"] == "rising"
@@ -874,7 +907,7 @@ def test_scan_trend_reports_why_it_could_not_run():
 
     import web_interface.routes.api_sessions_routes as mod
 
-    out = mod._scan_trend(_members(5), pd.DataFrame(), min_n=7)
+    out = sessions_stats.scan_trend(_members(5), pd.DataFrame(), min_n=7)
     assert out["trend"] is None
     assert out["scanned"] == 0  # nothing was testable...
     assert out["n_members"] == 5 and out["min_n"] == 7  # ...and the UI can say why
@@ -898,7 +931,7 @@ def test_scan_trend_does_not_flag_noise():
             {f"var{j}": rng.normal(size=n) for j in range(8)},
             index=pd.Index([f"v{i}" for i in range(n)], name="item_id"),
         )
-        if mod._scan_trend(_members(n), feat, min_n=7)["trend"] is not None:
+        if sessions_stats.scan_trend(_members(n), feat, min_n=7)["trend"] is not None:
             flagged += 1
     # BH across 8 noise variables should keep this near the nominal rate.
     assert flagged <= 3, f"{flagged}/20 noise binges flagged — correction is not biting"
@@ -912,7 +945,9 @@ def test_scan_trend_includes_per_play_dwell():
     import web_interface.routes.api_sessions_routes as mod
 
     n = 9
-    out = mod._scan_trend(_members(n, dwell=list(range(n, 0, -1))), pd.DataFrame(), min_n=7)
+    out = sessions_stats.scan_trend(
+        _members(n, dwell=list(range(n, 0, -1))), pd.DataFrame(), min_n=7
+    )
     assert out["trend"] is not None
     assert out["trend"]["variable"] == "dwell_s"
     assert out["trend"]["direction"] == "falling"
@@ -927,12 +962,12 @@ def test_creator_count_reports_its_denominator():
         {"author": ["a", "b", "a", None]},
         index=pd.Index([f"v{i}" for i in range(4)], name="item_id"),
     )
-    out = mod._creator_count([f"v{i}" for i in range(4)], feat)
+    out = sessions_stats.creator_count([f"v{i}" for i in range(4)], feat)
     # 2 distinct creators over the 3 videos that have one — not "2 of 4".
     assert out == {"n_creators": 2, "n_attributed": 3, "n_items": 4}
 
     # An entirely unscraped run must not read as "0 creators" without context.
-    empty = mod._creator_count(["v9"], pd.DataFrame())
+    empty = sessions_stats.creator_count(["v9"], pd.DataFrame())
     assert empty == {"n_creators": 0, "n_attributed": 0, "n_items": 1}
 
 
@@ -944,7 +979,7 @@ def test_overview_marks_sessions_holding_a_directed_binge(client, patched_routes
     counts = pd.Series(
         [1, 0], index=pd.MultiIndex.from_tuples([("colA", "colA__0"), ("colB", "colB__0")])
     )
-    monkeypatch.setattr(mod, "_directed_counts", lambda: counts)
+    monkeypatch.setattr(sessions_data, "directed_counts", lambda: counts)
 
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0").get_json()
     by_id = {s["session_id"]: s for s in body["sessions"]}
@@ -960,7 +995,7 @@ def test_overview_reports_null_when_directedness_was_never_computed(
     """An artifact built before direction_p must not read as 'no directed binges'."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_directed_counts", lambda: None)
+    monkeypatch.setattr(sessions_data, "directed_counts", lambda: None)
     body = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0").get_json()
     assert all(s["n_directed_episodes"] is None for s in body["sessions"])
 
@@ -1004,10 +1039,10 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
         index=pd.Index(["v1", "v2", "v3"], name="item_id"),
     )
 
-    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(sessions_data, "session_plays", lambda cid, row: plays)
     monkeypatch.setattr(
-        mod,
-        "_session_episodes",
+        sessions_data,
+        "session_episodes",
         lambda cid, sid: [
             {
                 "episode_idx": 0,
@@ -1020,8 +1055,8 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
         ],
     )
     monkeypatch.setattr(
-        mod,
-        "_session_windows",
+        sessions_data,
+        "session_windows",
         lambda cid, sid: [
             {
                 "window_idx": 0,
@@ -1032,11 +1067,11 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
             }
         ],
     )
-    monkeypatch.setattr(mod, "_features", lambda: feat)
-    monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
+    monkeypatch.setattr(sessions_data, "features", lambda: feat)
+    monkeypatch.setattr(sessions_data, "trend_frame", lambda ids: pd.DataFrame())
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
     )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
@@ -1052,7 +1087,7 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
     assert body["episodes"][0]["trend_scan"]["trend"] is None
     assert body["episodes"][0]["trend_scan"]["n_members"] == 2
     # The client needs the thresholds even when a session is opened directly.
-    assert body["params"]["drift_p"] == mod._drift_p()
+    assert body["params"]["drift_p"] == sessions_data._drift_p()
 
 
 def _index_df_with_extremes():
@@ -1080,7 +1115,7 @@ def test_overview_sorts_by_collection_id(client, patched_routes):
 def test_overview_varmax_filter_and_ranges(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_load_index", _index_df_with_extremes)
+    monkeypatch.setattr(sessions_data, "load_index", _index_df_with_extremes)
 
     body = client.get(_BASE).get_json()
     # Bounds computed over the floor-passing frame; labels ride along.
@@ -1112,7 +1147,7 @@ def test_overview_varmax_degrades_on_an_old_artifact(client, patched_routes):
 def test_overview_search_matches_the_baked_blob(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_load_index", _index_df_with_extremes)
+    monkeypatch.setattr(sessions_data, "load_index", _index_df_with_extremes)
 
     body = client.get(_BASE + "&q=sourdough").get_json()
     assert body["search_available"] is True
@@ -1145,7 +1180,7 @@ def test_min_max_ranges_is_descriptive_and_skips_all_nan():
         "log_plays": np.array([np.nan, np.nan, np.nan, np.nan]),
         "dwell_s": np.array([5.0, 40.0, 10.0, np.nan]),
     }
-    out = mod._min_max_ranges(series)
+    out = sessions_stats.min_max_ranges(series)
     by_var = {r["variable"]: r for r in out}
     assert "log_plays" not in by_var
     assert by_var["sensitivity_score"]["min"] == pytest.approx(0.2)
@@ -1162,7 +1197,7 @@ def test_scan_trend_reports_ranges_even_below_min_n():
     """A binge too short to test still carries its observed min/max."""
     import web_interface.routes.api_sessions_routes as mod
 
-    out = mod._scan_trend(_members(3, dwell=[5.0, 30.0, 10.0]), pd.DataFrame(), min_n=7)
+    out = sessions_stats.scan_trend(_members(3, dwell=[5.0, 30.0, 10.0]), pd.DataFrame(), min_n=7)
     assert out["scanned"] == 0 and out["trend"] is None
     by_var = {r["variable"]: r for r in out["ranges"]}
     assert by_var["dwell_s"]["min"] == pytest.approx(5.0)
@@ -1206,20 +1241,20 @@ def test_detail_carries_duration_desc_hashtags_and_session_ranges(
     )
 
     long_desc = "caption " * 100  # 800 chars, beyond _STORY_CAP
-    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
-    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_features", lambda: feat)
-    monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
-    monkeypatch.setattr(mod, "_story_map", lambda ids: {})
+    monkeypatch.setattr(sessions_data, "session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(sessions_data, "session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "features", lambda: feat)
+    monkeypatch.setattr(sessions_data, "trend_frame", lambda ids: trend_feat)
+    monkeypatch.setattr(sessions_data, "story_map", lambda ids: {})
     monkeypatch.setattr(
-        mod,
-        "_scrape_text_map",
+        sessions_data,
+        "scrape_text_map",
         lambda ids: {"v1": {"desc": long_desc, "hashtags": "#bread #sourdough"}},
     )
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
     )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
@@ -1263,16 +1298,16 @@ def test_detail_uses_baked_play_texts_and_skips_corpus_reads(client, patched_rou
     def _must_not_read(ids):
         raise AssertionError("corpus pushdown read on the baked-text path")
 
-    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
-    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_features", lambda: pd.DataFrame())
-    monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
-    monkeypatch.setattr(mod, "_story_map", _must_not_read)
-    monkeypatch.setattr(mod, "_scrape_text_map", _must_not_read)
+    monkeypatch.setattr(sessions_data, "session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(sessions_data, "session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "features", lambda: pd.DataFrame())
+    monkeypatch.setattr(sessions_data, "trend_frame", lambda ids: pd.DataFrame())
+    monkeypatch.setattr(sessions_data, "story_map", _must_not_read)
+    monkeypatch.setattr(sessions_data, "scrape_text_map", _must_not_read)
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
     )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
@@ -1308,16 +1343,16 @@ def test_detail_includes_per_play_variable_series(client, patched_routes, monkey
     )
     trend_feat["political_score"] = pd.to_numeric(trend_feat["political_score"])
 
-    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
-    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
-    monkeypatch.setattr(mod, "_features", lambda: pd.DataFrame())
-    monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
-    monkeypatch.setattr(mod, "_story_map", lambda ids: {})
-    monkeypatch.setattr(mod, "_scrape_text_map", lambda ids: {})
+    monkeypatch.setattr(sessions_data, "session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(sessions_data, "session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(sessions_data, "features", lambda: pd.DataFrame())
+    monkeypatch.setattr(sessions_data, "trend_frame", lambda ids: trend_feat)
+    monkeypatch.setattr(sessions_data, "story_map", lambda ids: {})
+    monkeypatch.setattr(sessions_data, "scrape_text_map", lambda ids: {})
     monkeypatch.setattr(
-        mod,
-        "_flag_sets",
+        sessions_data,
+        "flag_sets",
         lambda: {"scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()},
     )
     monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
@@ -1336,9 +1371,11 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod, "_FLAGS_CACHE", {"key": None, "model": "m", "flags": None, "emb_index": object()}
+        sessions_data,
+        "_FLAGS_CACHE",
+        {"key": None, "model": "m", "flags": None, "emb_index": object()},
     )
-    monkeypatch.setattr(mod, "_corpus_mean", lambda model: np.zeros(2))
+    monkeypatch.setattr(sessions_data, "_corpus_mean", lambda model: np.zeros(2))
     vecs = {
         "v1": np.array([1.0, 0.0]),
         "v2": np.array([1.0, 0.0]),  # members
@@ -1360,7 +1397,7 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
         {"item_id": "v3", "ts": "t3"},
     ]
     ep = {"members": [{"item_id": "v1", "ts": "t1"}, {"item_id": "v2", "ts": "t2"}]}
-    mod._attach_context_distances([ep], play_rows, 3)
+    sessions_data.attach_context_distances([ep], play_rows, 3)
     dists = ep["context_distances"]
     # Centroid of the members is [1, 0]: the orthogonal neighbour sits at
     # distance 1, the opposite one at 2 — exactly the rolling_cosdist scale.
@@ -1372,10 +1409,12 @@ def test_attach_context_distances_is_a_noop_without_a_dense_store(monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(
-        mod, "_FLAGS_CACHE", {"key": None, "model": None, "flags": None, "emb_index": None}
+        sessions_data,
+        "_FLAGS_CACHE",
+        {"key": None, "model": None, "flags": None, "emb_index": None},
     )
     ep = {"members": [{"item_id": "v1", "ts": "t1"}]}
-    mod._attach_context_distances(
+    sessions_data.attach_context_distances(
         [ep], [{"item_id": "v0", "ts": "t0"}, {"item_id": "v1", "ts": "t1"}], 3
     )
     assert "context_distances" not in ep
@@ -1401,12 +1440,12 @@ def test_episode_vmax_reduces_member_lists_per_binge(monkeypatch):
     )
     feat["political_score"] = pd.to_numeric(feat["political_score"])
 
-    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: "1:1")
-    monkeypatch.setattr(mod, "_artifact_frame", lambda fn, cache, lock: frame)
-    monkeypatch.setattr(mod, "_trend_frame", lambda ids: feat)
-    monkeypatch.setattr(mod, "_EPVMAX_CACHE", {"key": None, "df": None})
+    monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: "1:1")
+    monkeypatch.setattr(sessions_data, "_artifact_frame", lambda fn, cache, lock: frame)
+    monkeypatch.setattr(sessions_data, "trend_frame", lambda ids: feat)
+    monkeypatch.setattr(sessions_data, "_EPVMAX_CACHE", {"key": None, "df": None})
 
-    out = mod._episode_vmax()
+    out = sessions_data.episode_vmax()
     assert list(out["session_id"]) == ["s1", "s2"]
     assert out.iloc[0]["dwell_s"] == pytest.approx(30.0)
     assert out.iloc[0]["political_score"] == pytest.approx(0.7)
@@ -1423,7 +1462,7 @@ def test_varmax_binges_scope_keeps_only_sessions_with_a_matching_binge(
 
     df = _index_df()
     df["vmax_political_score"] = [0.9, 0.2, 0.9]
-    monkeypatch.setattr(mod, "_load_index", lambda: df)
+    monkeypatch.setattr(sessions_data, "load_index", lambda: df)
     # Only colA__0 has a binge whose max is in the filter range.
     emax = pd.DataFrame(
         {
@@ -1432,7 +1471,7 @@ def test_varmax_binges_scope_keeps_only_sessions_with_a_matching_binge(
             "political_score": [0.85, 0.1],
         }
     )
-    monkeypatch.setattr(mod, "_episode_vmax", lambda: emax)
+    monkeypatch.setattr(sessions_data, "episode_vmax", lambda: emax)
 
     base = (
         "/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
@@ -1457,8 +1496,8 @@ def test_varmax_binges_scope_degrades_to_session_scope_without_episodes(
 
     df = _index_df()
     df["vmax_political_score"] = [0.9, 0.2, 0.9]
-    monkeypatch.setattr(mod, "_load_index", lambda: df)
-    monkeypatch.setattr(mod, "_episode_vmax", lambda: None)
+    monkeypatch.setattr(sessions_data, "load_index", lambda: df)
+    monkeypatch.setattr(sessions_data, "episode_vmax", lambda: None)
 
     res = client.get(
         "/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"

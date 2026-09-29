@@ -133,7 +133,7 @@ MAX_VECTORS_PER_LINK = 150_000
 
 # Map columns that are identifiers or map coordinates, not measurements —
 # excluded from the per-session min/max columns (and from the read side's
-# trend scan, which mirrors this set in api_sessions_routes).
+# trend scan, which mirrors this set in web_interface/services/sessions_data.py).
 TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
 
 # Per-fragment / per-session caps on the searchable text blob. Load-bearing:
