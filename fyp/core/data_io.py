@@ -11,6 +11,7 @@ import shutil
 import tempfile
 import threading
 import time as _time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import gcsfs
@@ -446,6 +447,53 @@ def remove(storage_location: str = "cache", filename: str = "", verbose: bool = 
                 logger.warning(f"    [DATA_IO] File '{primary}' not found in local storage")
 
 
+_ATOMIC_TMP_SUFFIX = ".tmp"
+
+
+def _is_atomic_tmp(name: str) -> bool:
+    """True for an in-flight temp file of :func:`_atomic_local_write`."""
+    return name.startswith(".") and name.endswith(_ATOMIC_TMP_SUFFIX)
+
+
+def _atomic_local_write(primary: str, write) -> None:
+    """Write a local file so that readers never see it half-written.
+
+    ``write(tmp_path)`` fills a hidden temp file in ``primary``'s directory,
+    which then replaces ``primary`` in one ``os.replace``. An interrupted write
+    leaves the previous version in place and removes the temp file. The temp
+    file is opened by path, so it gets the process umask like a plain
+    ``open(primary, "w")``. On Windows the replace fails while another process
+    holds ``primary`` open.
+
+    Args:
+        primary: The absolute destination path.
+        write: Callable taking the temp path and writing the full file there.
+    """
+    directory = os.path.dirname(primary)
+    os.makedirs(directory, exist_ok=True)
+    tmp_path = os.path.join(
+        directory,
+        f".{os.path.basename(primary)}.{uuid.uuid4().hex[:12]}{_ATOMIC_TMP_SUFFIX}",
+    )
+    try:
+        write(tmp_path)
+        os.replace(tmp_path, primary)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _write_text_file(text: str):
+    def _write(path):
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(text)
+
+    return _write
+
+
 def listdir(
     storage_location: str = "cache", return_absolute_path: bool = False, verbose: bool = False
 ) -> list:
@@ -514,7 +562,7 @@ def listdir(
             os.makedirs(local_dir, exist_ok=True)
             return []
 
-        files = os.listdir(local_dir)
+        files = [f for f in os.listdir(local_dir) if not _is_atomic_tmp(f)]
 
         if return_absolute_path:
             files = [os.path.join(local_dir, f) for f in files]
@@ -1064,10 +1112,7 @@ def save_json(
         else:
             raise ValueError("GCS bucket not initialized")
     else:
-        # Local
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, "w", encoding="utf-8") as file:
-            file.write(payload)
+        _atomic_local_write(primary, _write_text_file(payload))
 
     _io_log(
         op="save_json",
@@ -1214,18 +1259,7 @@ def update_json(
             return None
 
         payload = json.dumps(new_value)
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(primary), suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as file:
-                file.write(payload)
-            os.replace(tmp_path, primary)
-        except BaseException:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-            raise
+        _atomic_local_write(primary, _write_text_file(payload))
 
     _io_log(
         op="update_json",
@@ -1345,9 +1379,7 @@ def save_text(
         else:
             raise ValueError("GCS bucket not initialized")
     else:
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, "w", encoding="utf-8") as file:
-            file.write(data)
+        _atomic_local_write(primary, _write_text_file(data))
 
     _io_log(
         op="save_text",
@@ -1925,12 +1957,11 @@ def write_parquet_stream(
 
     _t_io = _time.perf_counter()
     n_rows = 0
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-            tmp_path = tmp.name
+
+    def _write_batches(path):
+        nonlocal n_rows
         with pq.ParquetWriter(
-            tmp_path, schema, compression=compression, compression_level=compression_level
+            path, schema, compression=compression, compression_level=compression_level
         ) as writer:
             for batch in batches or []:
                 if isinstance(batch, pa.Table):
@@ -1938,21 +1969,25 @@ def write_parquet_stream(
                 else:
                     writer.write_batch(batch)
                 n_rows += batch.num_rows
-        if mode == "gcs":
+
+    if mode == "gcs":
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                tmp_path = tmp.name
+            _write_batches(tmp_path)
             bucket = get_bucket()
             if not bucket:
                 raise ValueError("GCS bucket not initialized")
             bucket.blob(blob_name).upload_from_filename(tmp_path)
-        else:
-            os.makedirs(os.path.dirname(primary), exist_ok=True)
-            shutil.move(tmp_path, primary)
-            tmp_path = None
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+    else:
+        _atomic_local_write(primary, _write_batches)
 
     _io_log(
         op="write_parquet_stream",
@@ -2057,9 +2092,12 @@ def save_bytes(
             bytes(data), content_type="application/octet-stream"
         )
     else:
-        os.makedirs(os.path.dirname(primary), exist_ok=True)
-        with open(primary, "wb") as file:
-            file.write(data)
+
+        def _write_bytes(path):
+            with open(path, "wb") as file:
+                file.write(data)
+
+        _atomic_local_write(primary, _write_bytes)
     _io_log(
         op="save_bytes",
         loc=storage_location,
@@ -2283,12 +2321,14 @@ def save_parquet(
                     except OSError:
                         pass
         else:
-            os.makedirs(os.path.dirname(primary), exist_ok=True)
-            df_to_write.to_parquet(
+            _atomic_local_write(
                 primary,
-                engine="pyarrow",
-                compression="zstd",
-                compression_level=my_compression_level,
+                lambda path: df_to_write.to_parquet(
+                    path,
+                    engine="pyarrow",
+                    compression="zstd",
+                    compression_level=my_compression_level,
+                ),
             )
 
     if storage_location == "cache":
