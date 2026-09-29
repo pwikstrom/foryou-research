@@ -48,8 +48,9 @@ def run_collection_delete(
 
     Takes ``collection_ids`` (list) or the older single ``collection_id``.
 
-    After the delete itself, dispatches a study_refresh Cloud Task for each
-    affected study so their cached files get rebuilt without the deleted rows.
+    After the delete itself, dispatches a study_refresh (a Cloud Task, or a
+    local subprocess) for each affected study so their cached files get rebuilt
+    without the deleted rows.
     """
     import fyp.core.data_io as data_io
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
@@ -60,6 +61,7 @@ def run_collection_delete(
         find_raw_file_locations,
     )
     from web_interface.services.study_data import invalidate_collection_tags_cache, study_cache
+    from web_interface.tasks import worker_registry
     from web_interface.tasks.process_manager import start_process
 
     task_args = task_args or {}
@@ -279,7 +281,9 @@ def run_collection_delete(
 
     # 10. Dispatch a study_refresh for each affected study that still exists so
     # its cache rebuilds without the deleted collection. Done from inside this
-    # worker, through the same dispatch path the routes use.
+    # worker, through the same dispatch path the routes use. Locally the refresh
+    # is a child of this subprocess, so the web server's worker board does not
+    # track it (the same holds for the enrichment supervisor's dispatches).
     refresh_targets = _refresh_targets(affected_studies, fyp_cf.get("study_defs") or {})
     reporter.update_progress(
         95,
@@ -298,7 +302,7 @@ def run_collection_delete(
         }
         success, msg = start_process(
             "study_refresh",
-            None,
+            worker_registry.worker_module("study_refresh"),
             task_args=sub_args,
             started_by=f"{task_args.get('started_by') or 'system'} (via collection_delete)",
         )

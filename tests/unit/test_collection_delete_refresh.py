@@ -94,3 +94,31 @@ def test_moviepy_audio_reader_destructor_is_quiet():
     # An instance whose __init__ raised before assigning ``proc``.
     half_built = object.__new__(FFMPEG_AudioReader)
     half_built.close()  # would raise AttributeError without the shim
+
+
+def test_worker_dispatches_name_their_module():
+    """A worker that starts another worker must pass its module.
+
+    ``start_process`` spawns ``python -m <module>`` locally; ``None`` is only
+    valid for callers that dispatch on Cloud Run alone. collection_delete once
+    passed ``None`` unguarded, so every local delete failed its study refreshes.
+    """
+    import ast
+    from pathlib import Path
+
+    workers = Path(__file__).resolve().parents[2] / "web_interface" / "workers"
+    calls = []
+    for path in sorted(workers.glob("run_*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", getattr(node.func, "attr", None)) == "start_process"
+            ):
+                calls.append((path.name, node))
+    assert calls, "no start_process calls found; the guard is looking in the wrong place"
+    for name, call in calls:
+        module = call.args[1] if len(call.args) > 1 else None
+        assert module is not None, f"{name}:{call.lineno} start_process without a module"
+        assert not (isinstance(module, ast.Constant) and module.value is None), (
+            f"{name}:{call.lineno} start_process(..., None, ...) from a worker"
+        )
