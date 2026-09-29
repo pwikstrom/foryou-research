@@ -65,12 +65,13 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
 logger = logging.getLogger(__name__)
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
-STATUS_FILENAME = "enrichment_status.parquet"
+STATUS_FILENAME = ENRICHMENT_STATUS_FILE
 
 # The smallest slice a plan cuts while it still needs anything at all. A cycle
 # has a fixed cost whatever its size (a scraper boot, a consolidation with its

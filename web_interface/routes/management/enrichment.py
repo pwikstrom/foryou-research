@@ -13,6 +13,7 @@ from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
     create_study_recoded_dataset,
 )
+from fyp.core.artifacts import ACCEPTED_COLUMN, load_enrichment_status
 from fyp.scrape import scraper_alerts
 from fyp.scrape.platform_scraper import get_scraper
 from web_interface.tasks import worker_registry
@@ -252,11 +253,7 @@ def get_enrichment_stats():
     evaluate_version_promotion_staleness()
 
     # 1. Load Enrichment Status
-    enrichment_status = None
-    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-        enrichment_status = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet"
-        )
+    enrichment_status = load_enrichment_status()
 
     total_videos = 0
     scraped_videos = 0
@@ -276,10 +273,8 @@ def get_enrichment_stats():
             storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_metadata.parquet"
         )
     if ddp_metadata is not None and not ddp_metadata.empty:
-        if ("other", "accepted") in ddp_metadata.columns:
-            unique_collections = int(
-                ddp_metadata[ddp_metadata[("other", "accepted")]].index.nunique()
-            )
+        if ACCEPTED_COLUMN in ddp_metadata.columns:
+            unique_collections = int(ddp_metadata[ddp_metadata[ACCEPTED_COLUMN]].index.nunique())
         else:
             unique_collections = int(ddp_metadata.index.nunique())
 
@@ -845,11 +840,7 @@ def queue_voted_videos():
             )
 
         # 3. Check Enrichment Status
-        df_status = None
-        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-            df_status = data_io.load_parquet(
-                storage_location="recoded", filename="enrichment_status.parquet"
-            )
+        df_status = load_enrichment_status()
 
         default_platform = scrape_queues.default_platform()
         new_scrape = []
@@ -976,11 +967,7 @@ def calculate_to_scrape():
             ), 400
 
         # Load global enrichment status
-        df_status = None
-        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-            df_status = data_io.load_parquet(
-                storage_location="recoded", filename="enrichment_status.parquet"
-            )
+        df_status = load_enrichment_status()
 
         unscraped_videos = []
         if df_status is not None and not df_status.empty:
@@ -1283,11 +1270,7 @@ def calculate_to_annotate():
             ), 400
 
         # Load global enrichment status
-        df_status = None
-        if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-            df_status = data_io.load_parquet(
-                storage_location="recoded", filename="enrichment_status.parquet"
-            )
+        df_status = load_enrichment_status()
 
         if selection_mode in ("version", "timeframe"):
             return _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status)

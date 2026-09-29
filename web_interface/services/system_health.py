@@ -28,6 +28,7 @@ import requests
 
 from fyp.annotation import machine_annotation
 from fyp.core import data_io
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.fyp_config import get_config
 from fyp.scrape import scrape_contract as sc
 from fyp.scrape.platform_scraper import THROTTLE_CATEGORIES, cleanup_temp_files, get_scraper
@@ -496,11 +497,11 @@ def _check_task_failures() -> dict:
 def _load_status_frame() -> pd.DataFrame | None:
     """Load the minimal enrichment-status frame used to pick test items."""
     try:
-        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
             return None
         return data_io.load_parquet_selective(
             storage_location="recoded",
-            filename="enrichment_status.parquet",
+            filename=ENRICHMENT_STATUS_FILE,
             columns=["source_platform", "scraped_ok"],
             set_index="item_id",
         )

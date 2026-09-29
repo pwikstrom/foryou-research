@@ -19,6 +19,7 @@ from fyp.analysis.organize_datasets import (
     create_study_recoded_dataset,
     parse_sample_threshold,
 )
+from fyp.core.artifacts import load_enrichment_status
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from ..tasks.process_manager import (
@@ -403,11 +404,7 @@ def calculate_stats(
     # would reload the parquet for its diagnostic summary anyway. Pass-through
     # lets callees reuse the DataFrame without a second GCS round-trip.
     _t_phase = _time.perf_counter()
-    df_status = None
-    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-        df_status = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet"
-        )
+    df_status = load_enrichment_status()
     _t_status = _time.perf_counter() - _t_phase
 
     # 2. Create the recoded dataset, passing enrichment_status to avoid reloading.

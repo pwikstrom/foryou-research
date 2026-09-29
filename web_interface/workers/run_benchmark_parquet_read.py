@@ -19,6 +19,7 @@ import statistics
 import tempfile
 import time
 
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from web_interface.tasks.task_status import TaskStatusReporter
 
 
@@ -34,7 +35,7 @@ def _default_targets():
         ("recoded", f"{SCRAPES_LABEL}_recoded.parquet"),
         ("recoded", f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"),
         ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
-        ("recoded", "enrichment_status.parquet"),
+        ("recoded", ENRICHMENT_STATUS_FILE),
     ]
 
 

@@ -8,6 +8,12 @@ from flask_login import current_user
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.artifacts import (
+    ACCEPTED_COLUMN,
+    ACTIVE_DAYS_COLUMN,
+    metadata_column,
+    metadata_column_names,
+)
 
 from ..auth.accounts import user_manager
 from ..auth.permissions import permission_required
@@ -158,7 +164,10 @@ def api_timeline_collections():
     meta_df = data_io.load_parquet_selective(
         storage_location="recoded",
         filename=f"{COLLECTIONS_LABEL}_metadata.parquet",
-        columns=["('other', 'accepted')", "accepted", "('personas', 'active_days')", "active_days"],
+        columns=[
+            *metadata_column_names(ACCEPTED_COLUMN, "accepted"),
+            *metadata_column_names(ACTIVE_DAYS_COLUMN, "active_days"),
+        ],
         set_index="collection_id",
     )
 
@@ -171,17 +180,8 @@ def api_timeline_collections():
     # Resolve column names. `load_parquet_selective` returns tuple column
     # names directly (not wrapped in a MultiIndex), so check for tuples in
     # the plain Index first, then fall back to flat string names.
-    accepted_col = None
-    active_days_col = None
-    cols_set = set(meta_df.columns)
-    if ("other", "accepted") in cols_set:
-        accepted_col = ("other", "accepted")
-    elif "accepted" in cols_set:
-        accepted_col = "accepted"
-    if ("personas", "active_days") in cols_set:
-        active_days_col = ("personas", "active_days")
-    elif "active_days" in cols_set:
-        active_days_col = "active_days"
+    accepted_col = metadata_column(meta_df.columns, ACCEPTED_COLUMN, "accepted")
+    active_days_col = metadata_column(meta_df.columns, ACTIVE_DAYS_COLUMN, "active_days")
 
     filtered = df_reset
     if accepted_col:

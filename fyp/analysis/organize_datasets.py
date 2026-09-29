@@ -24,6 +24,7 @@ from fyp.annotation.recode_variables import (
     derive_australian_relevance,
     get_grouping_factors_from_var_schema,
 )
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE, load_enrichment_status
 from fyp.core.logging_setup import get_logger
 
 # Shared memory-probe implementations (fyp.core.memory); the module-private
@@ -278,7 +279,7 @@ def _status_inputs_unchanged(verbose: bool = False) -> bool:
     safe answer.
     """
     try:
-        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
             return False
         if not data_io.exists(storage_location="recoded", filename=_STATUS_INPUTS_MARKER):
             return False
@@ -1163,9 +1164,9 @@ def load_study_datasets(
     else:
         # 'scraped' and 'annotated' require enrichment_status to pick rows.
         if enrichment_status is None:
-            if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            if data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
                 enrichment_status = data_io.load_parquet(
-                    storage_location="recoded", filename="enrichment_status.parquet"
+                    storage_location="recoded", filename=ENRICHMENT_STATUS_FILE
                 )
             else:
                 logger.info(
@@ -1404,7 +1405,7 @@ def status_patch_allowed(scrape_consolidated: bool, annotations_consolidated: bo
     store, so its fingerprint does not gate the patch.
     """
     try:
-        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
             return False
         if not data_io.exists(storage_location="recoded", filename=_STATUS_INPUTS_MARKER):
             return False
@@ -1467,7 +1468,7 @@ def patch_enrichment_status(
     _t_start = _time.perf_counter()
     try:
         status = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+            storage_location="recoded", filename=ENRICHMENT_STATUS_FILE, verbose=verbose
         )
     except Exception as exc:
         logger.warning(f"    Could not load enrichment_status for patching: {exc}")
@@ -1527,7 +1528,7 @@ def patch_enrichment_status(
     status["scrape_fail"] = scrape_fail
 
     data_io.save_parquet(
-        df=status, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+        df=status, storage_location="recoded", filename=ENRICHMENT_STATUS_FILE, verbose=verbose
     )
     _write_status_inputs_marker(verbose=verbose)
     logger.info(
@@ -1566,9 +1567,9 @@ def update_enrichment_status(
     _t_groupby = _time.perf_counter() - _t_start
 
     annotation_votes = pd.DataFrame()
-    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+    if data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
         existing = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose
+            storage_location="recoded", filename=ENRICHMENT_STATUS_FILE, verbose=verbose
         )
         if "annotation_votes" in existing.columns:
             annotation_votes = existing[["annotation_votes"]].copy()
@@ -1658,7 +1659,7 @@ def update_enrichment_status(
         data_io.save_parquet(
             df=enrichment_status_df,
             storage_location="recoded",
-            filename="enrichment_status.parquet",
+            filename=ENRICHMENT_STATUS_FILE,
             verbose=verbose,
         )
         # Record what this status file was built from so an unchanged-input
@@ -1995,11 +1996,7 @@ def verify_consolidation_equivalence(
         save_to_disk=False,
         verbose=verbose,
     )
-    live_status = None
-    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
-        live_status = data_io.load_parquet(
-            storage_location="recoded", filename="enrichment_status.parquet"
-        )
+    live_status = load_enrichment_status()
     mismatches["enrichment_status"] = _signature_mismatch(live_status, shadow_status)
 
     ok = all(m["count"] == 0 and not m["column_drift"] for m in mismatches.values())

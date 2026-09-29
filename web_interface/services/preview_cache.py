@@ -23,6 +23,7 @@ import pandas as pd
 
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.utils import VIDEO_VIEW_TYPES
 
 from .stats_service import (
@@ -74,7 +75,7 @@ def _preview_sources_mtime() -> float:
     newest = 0.0
     sources = (
         ("recoded", f"{COLLECTIONS_LABEL}_recoded.parquet"),
-        ("recoded", "enrichment_status.parquet"),
+        ("recoded", ENRICHMENT_STATUS_FILE),
         ("recoded", f"{COLLECTIONS_LABEL}_metadata.parquet"),
     )
     for loc, fn in sources:
@@ -432,11 +433,11 @@ def _load_enrichment_status_min() -> pd.DataFrame | None:
         A DataFrame (item_id, scraped_ok, annotated_ok), or None when absent.
     """
 
-    if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+    if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
         return None
     return data_io.load_parquet_selective(
         storage_location="recoded",
-        filename="enrichment_status.parquet",
+        filename=ENRICHMENT_STATUS_FILE,
         columns=["item_id", "scraped_ok", "annotated_ok"],
     )
 

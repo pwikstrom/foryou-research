@@ -7,6 +7,7 @@ import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
 )
+from fyp.core.artifacts import ACCEPTED_COLUMN
 from fyp.ingest.raw_names import (
     display_id_owner,
     display_key,
@@ -148,8 +149,8 @@ def list_collections():
             )
 
             # Filter for accepted collections
-            if ("other", "accepted") in df.columns:
-                df = df[df[("other", "accepted")]]
+            if ACCEPTED_COLUMN in df.columns:
+                df = df[df[ACCEPTED_COLUMN]]
 
             # Load annotations
             annotations = {}

@@ -18,6 +18,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 import pandas as pd
 
+from fyp.core.artifacts import ACCEPTED_COLUMN, metadata_column, metadata_column_names
 from web_interface.tasks import worker_registry
 from web_interface.tasks.task_status import TaskStatusReporter
 
@@ -225,8 +226,7 @@ def _discover_collections(
                 storage_location="recoded",
                 filename=meta_file,
                 columns=[
-                    "('other', 'accepted')",
-                    "other_accepted",
+                    *metadata_column_names(ACCEPTED_COLUMN, "other_accepted"),
                     "('personas', 'first_event_ts')",
                     "first_event_ts",
                     "('personas', 'active_days')",
@@ -237,15 +237,11 @@ def _discover_collections(
             )
 
             if df is not None and not df.empty:
-                found_col = False
-                if ("other", "accepted") in df.columns:
-                    accepted_mask = df[("other", "accepted")] == True
+                accepted_col = metadata_column(df.columns, ACCEPTED_COLUMN, "other_accepted")
+                found_col = accepted_col is not None
+                if found_col:
+                    accepted_mask = df[accepted_col] == True
                     all_collections = set(df[accepted_mask].index.astype(str))
-                    found_col = True
-                elif "other_accepted" in df.columns:
-                    accepted_mask = df["other_accepted"] == True
-                    all_collections = set(df[accepted_mask].index.astype(str))
-                    found_col = True
 
                 if not found_col:
                     reporter.log(

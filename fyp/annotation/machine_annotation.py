@@ -31,6 +31,7 @@ from fyp.annotation.annotation_schema import (
     flatten_structured,
 )
 from fyp.annotation.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.logging_setup import get_logger
 from fyp.core.runtime import cf as _cf
 from fyp.core.runtime import graceful_stop_requested as _check_graceful_stop
@@ -2213,11 +2214,11 @@ def platform_map_for(item_ids: list[str]) -> dict[str, str]:
         ``{item_id: source_platform}`` for the ids that could be resolved.
     """
     try:
-        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
             return {}
         status_df = data_io.load_parquet_selective(
             storage_location="recoded",
-            filename="enrichment_status.parquet",
+            filename=ENRICHMENT_STATUS_FILE,
             columns=["item_id", "source_platform"],
         )
         if "source_platform" not in status_df.columns:

@@ -42,6 +42,7 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
 from fyp.annotation import annotation_schema as sch
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 
 # NOTE: fyp.annotation.machine_annotation, fyp.annotation.recode_variables and google.genai are
 # imported lazily inside the functions that need them — they are heavy imports
@@ -460,11 +461,11 @@ def _enrichment_status_frame() -> pd.DataFrame | None:
     if _STATUS_CACHE["frame"] is not None and now - _STATUS_CACHE["ts"] < _STATUS_TTL_S:
         return _STATUS_CACHE["frame"]
     try:
-        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        if not data_io.exists(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE):
             return None
         frame = data_io.load_parquet_selective(
             storage_location="recoded",
-            filename="enrichment_status.parquet",
+            filename=ENRICHMENT_STATUS_FILE,
             columns=["item_id", "source_platform", "video_downloaded", "scraped_ok"],
         )
         if frame is None or "item_id" not in frame.columns:

@@ -5,6 +5,7 @@ Runs as a Cloud Task on the task-runner service, or as a local subprocess."""
 import time
 from datetime import UTC, datetime
 
+from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from web_interface.tasks.task_status import TaskStatusReporter
 
 
@@ -71,9 +72,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
     # Pre-load enrichment status once for all studies
     _t_phase = time.perf_counter()
-    df_status = data_io.load_parquet(
-        storage_location="recoded", filename="enrichment_status.parquet"
-    )
+    df_status = data_io.load_parquet(storage_location="recoded", filename=ENRICHMENT_STATUS_FILE)
     if df_status is not None and not df_status.empty:
         if "item_id" not in df_status.columns and df_status.index.name == "item_id":
             df_status = df_status.reset_index()
