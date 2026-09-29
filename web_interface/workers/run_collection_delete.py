@@ -33,6 +33,102 @@ def _refresh_targets(affected_studies: list[str], study_defs: dict) -> list[str]
     ]
 
 
+class _InlineRefreshReporter:
+    """Runs a study_refresh's reporting through the delete's own reporter.
+
+    Its log lines are prefixed with the study, its progress becomes the
+    delete's progress message, cancelling the delete cancels it, and its
+    result data is dropped so it cannot overwrite the delete's.
+    """
+
+    def __init__(self, reporter: TaskStatusReporter, label: str) -> None:
+        self._reporter = reporter
+        self._label = label
+
+    def log(self, message: str) -> None:
+        self._reporter.log(f"[{self._label}] {message}")
+
+    def update_progress(self, percent: int, message: str = "") -> None:
+        self._reporter.update_progress(95, f"{self._label}: {message}")
+
+    def emit_data(self, payload: dict) -> None:
+        pass
+
+    def check_cancelled(self) -> bool:
+        return self._reporter.check_cancelled()
+
+
+def _refresh_studies(
+    reporter: TaskStatusReporter,
+    affected_studies: list[str],
+    refresh_targets: list[str],
+    *,
+    started_by: str,
+    on_cloud: bool,
+) -> tuple[list[str], list[dict]]:
+    """Refresh each study in ``refresh_targets``; log the other affected ones as skipped.
+
+    On Cloud Run each refresh is dispatched as its own study_refresh task.
+    Locally they run inline, one after another: the delete worker is a
+    subprocess whose output pipe feeds any worker it starts, so a refresh
+    spawned from it would die as soon as the delete exits (the routes likewise
+    run a local study_refresh in-process, never as a child).
+
+    Args:
+        reporter: The delete's status reporter.
+        affected_studies: Every study that referenced a deleted collection.
+        refresh_targets: The subset worth refreshing (see ``_refresh_targets``).
+        started_by: Actor recorded on each dispatched task.
+        on_cloud: Whether this runs on Cloud Run.
+
+    Returns:
+        The studies refreshed (or dispatched), and ``{"study", "error"}`` records
+        for those that failed.
+    """
+    from web_interface.tasks import worker_registry
+    from web_interface.tasks.process_manager import start_process
+
+    reporter.update_progress(
+        95,
+        f"{'Dispatching' if on_cloud else 'Running'} study_refresh for "
+        f"{len(refresh_targets)} affected study/studies...",
+    )
+    refreshed: list[str] = []
+    failed: list[dict] = []
+    for sname in affected_studies:
+        if sname not in refresh_targets:
+            reporter.log(f"study_refresh for {sname} skipped (study removed or composed).")
+            continue
+        sub_args = {
+            "study_name": sname,
+            "refresh_pca": True,
+            "refresh_metadata": True,
+        }
+        if on_cloud:
+            success, msg = start_process(
+                "study_refresh",
+                worker_registry.worker_module("study_refresh"),
+                task_args=sub_args,
+                started_by=started_by,
+            )
+        else:
+            from web_interface.workers.run_study_refresh import run_study_refresh
+
+            try:
+                run_study_refresh(
+                    _InlineRefreshReporter(reporter, f"study_refresh {sname}"), sub_args
+                )
+                success, msg = True, "refreshed inline"
+            except Exception as exc:
+                success, msg = False, f"{type(exc).__name__}: {exc}"
+        if success:
+            refreshed.append(sname)
+        else:
+            failed.append({"study": sname, "error": msg})
+            reporter.log(f"study_refresh for {sname} failed: {msg}")
+    return refreshed, failed
+
+
 def run_collection_delete(
     reporter: TaskStatusReporter, task_args: dict | None = None
 ) -> dict | None:
@@ -48,21 +144,20 @@ def run_collection_delete(
 
     Takes ``collection_ids`` (list) or the older single ``collection_id``.
 
-    After the delete itself, dispatches a study_refresh (a Cloud Task, or a
-    local subprocess) for each affected study so their cached files get rebuilt
+    After the delete itself, refreshes each affected study (a study_refresh
+    Cloud Task on Cloud Run, inline locally) so their cached files get rebuilt
     without the deleted rows.
     """
     import fyp.core.data_io as data_io
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
+    from fyp.core.runtime import is_cloud_run
     from web_interface.services.collection_deletion import (
         affected_studies_for_collections,
         find_raw_file_locations,
     )
     from web_interface.services.study_data import invalidate_collection_tags_cache, study_cache
-    from web_interface.tasks import worker_registry
-    from web_interface.tasks.process_manager import start_process
 
     task_args = task_args or {}
     raw_ids = task_args.get("collection_ids")
@@ -279,38 +374,17 @@ def run_collection_delete(
     except Exception as exc:
         reporter.log(f"Participant-study reconciliation failed (delete unaffected): {exc}")
 
-    # 10. Dispatch a study_refresh for each affected study that still exists so
-    # its cache rebuilds without the deleted collection. Done from inside this
-    # worker, through the same dispatch path the routes use. Locally the refresh
-    # is a child of this subprocess, so the web server's worker board does not
-    # track it (the same holds for the enrichment supervisor's dispatches).
+    # 10. Refresh each affected study that still exists so its cache rebuilds
+    # without the deleted collection (dispatched on Cloud Run, inline locally).
     refresh_targets = _refresh_targets(affected_studies, fyp_cf.get("study_defs") or {})
-    reporter.update_progress(
-        95,
-        f"Dispatching study_refresh for {len(refresh_targets)} affected study/studies...",
+    on_cloud = is_cloud_run()
+    refresh_dispatched, refresh_failed = _refresh_studies(
+        reporter,
+        affected_studies,
+        refresh_targets,
+        started_by=f"{task_args.get('started_by') or 'system'} (via collection_delete)",
+        on_cloud=on_cloud,
     )
-    refresh_dispatched: list[str] = []
-    refresh_failed: list[dict] = []
-    for sname in affected_studies:
-        if sname not in refresh_targets:
-            reporter.log(f"study_refresh for {sname} skipped (study removed or composed).")
-            continue
-        sub_args = {
-            "study_name": sname,
-            "refresh_pca": True,
-            "refresh_metadata": True,
-        }
-        success, msg = start_process(
-            "study_refresh",
-            worker_registry.worker_module("study_refresh"),
-            task_args=sub_args,
-            started_by=f"{task_args.get('started_by') or 'system'} (via collection_delete)",
-        )
-        if success:
-            refresh_dispatched.append(sname)
-        else:
-            refresh_failed.append({"study": sname, "error": msg})
-            reporter.log(f"study_refresh dispatch for {sname} failed: {msg}")
 
     # Placeholder participant accounts (p-N@…) left owning nothing after this
     # delete. Reported, never removed here — cleanup is an admin action on
@@ -342,7 +416,8 @@ def run_collection_delete(
     reporter.update_progress(
         100,
         f"Deleted {subject}: dropped {rows_to_drop:,} rows, archived {len(archived)} raw file(s), "
-        f"queued {len(refresh_dispatched)} study refresh(es) ({_t_total:.0f}s).",
+        f"{'queued' if on_cloud else 'ran'} {len(refresh_dispatched)} study refresh(es) "
+        f"({_t_total:.0f}s).",
     )
     reporter.log(
         f"[TIMING] collection_delete total={_t_total:.1f}s "

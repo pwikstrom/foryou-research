@@ -122,3 +122,67 @@ def test_worker_dispatches_name_their_module():
         assert not (isinstance(module, ast.Constant) and module.value is None), (
             f"{name}:{call.lineno} start_process(..., None, ...) from a worker"
         )
+
+
+class _DeleteReporter:
+    def __init__(self):
+        self.lines = []
+        self.progress = []
+
+    def log(self, msg):
+        self.lines.append(msg)
+
+    def update_progress(self, pct, msg=""):
+        self.progress.append((pct, msg))
+
+    def check_cancelled(self):
+        return False
+
+
+def test_local_refreshes_run_inline_not_as_orphaned_children(monkeypatch):
+    """A child of the delete subprocess dies with it, so local refreshes run inline."""
+    import web_interface.tasks.process_manager as pm
+    import web_interface.workers.run_study_refresh as rsr
+    from web_interface.workers.run_collection_delete import _refresh_studies
+
+    ran = []
+
+    def _fake_refresh(reporter, task_args):
+        ran.append(task_args["study_name"])
+        reporter.log("rebuilt")
+        reporter.update_progress(50, "PCA")
+        reporter.emit_data({"must": "not leak"})
+        if task_args["study_name"] == "broken":
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(rsr, "run_study_refresh", _fake_refresh)
+    monkeypatch.setattr(pm, "start_process", lambda *a, **k: pytest.fail("spawned a child"))
+
+    reporter = _DeleteReporter()
+    refreshed, failed = _refresh_studies(
+        reporter,
+        ["a", "gone", "broken"],
+        ["a", "broken"],
+        started_by="t",
+        on_cloud=False,
+    )
+    assert ran == ["a", "broken"]
+    assert refreshed == ["a"]
+    assert failed == [{"study": "broken", "error": "RuntimeError: boom"}]
+    assert "[study_refresh a] rebuilt" in reporter.lines
+    assert (95, "study_refresh a: PCA") in reporter.progress
+
+
+def test_cloud_refreshes_are_dispatched_with_the_worker_module(monkeypatch):
+    import web_interface.tasks.process_manager as pm
+    from web_interface.workers.run_collection_delete import _refresh_studies
+
+    calls = []
+    monkeypatch.setattr(
+        pm, "start_process", lambda name, module, **kw: calls.append((name, module)) or (True, "")
+    )
+    refreshed, failed = _refresh_studies(
+        _DeleteReporter(), ["a"], ["a"], started_by="t", on_cloud=True
+    )
+    assert calls == [("study_refresh", "web_interface.workers.run_study_refresh")]
+    assert refreshed == ["a"] and failed == []
