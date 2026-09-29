@@ -70,3 +70,44 @@ def test_asset_url_is_stamped_with_the_content_hash(tmp_path):
 def test_asset_url_degrades_to_a_plain_url_for_a_missing_file(tmp_path):
     with _app(tmp_path).test_request_context():
         assert asset_url("nope.js") == "/static/nope.js"
+
+
+def _caching_app(static_dir: Path) -> Flask:
+    from web_interface.static_assets import cache_hashed_static
+
+    app = _app(static_dir)
+    app.after_request(cache_hashed_static)
+    return app
+
+
+def test_a_url_whose_hash_matches_is_cached_as_immutable(tmp_path):
+    (tmp_path / "x.js").write_text("one", encoding="utf-8")
+    app = _caching_app(tmp_path)
+    with app.test_request_context():
+        url = asset_url("x.js")
+    res = app.test_client().get(url)
+    assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+
+
+def test_a_stale_or_missing_hash_keeps_revalidation(tmp_path):
+    """A request for a hash this instance does not serve must not pin its bytes."""
+    (tmp_path / "x.js").write_text("one", encoding="utf-8")
+    client = _caching_app(tmp_path).test_client()
+    for url in ("/static/x.js?v=0123456789", "/static/x.js"):
+        res = client.get(url)
+        assert res.status_code == 200
+        assert "immutable" not in res.headers.get("Cache-Control", "")
+    assert "immutable" not in client.get("/static/absent.js?v=0123456789").headers.get(
+        "Cache-Control", ""
+    )
+
+
+def test_the_real_app_marks_its_hashed_assets_immutable():
+    from web_interface.fyp_data_hub import app
+
+    with app.test_request_context():
+        url = asset_url("style.css")
+    res = app.test_client().get(url)
+    assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "public, max-age=31536000, immutable"

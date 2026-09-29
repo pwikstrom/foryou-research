@@ -257,7 +257,10 @@ each tab has its own JS file. Everything is vanilla JS + `fetch()`; scripts
 are plain `<script>` tags. Templates reference every script and stylesheet as
 `{{ asset_url('main.js') }}` (`web_interface/static_assets.py`), which appends
 a hash of the file's content — a changed file gets a new URL on its own, so
-there is no version to bump. Shared helpers (`escapeHtml`, `showToast`) live
+there is no version to bump. Because of that, a response whose hash matches
+the file served is sent as `Cache-Control: public, max-age=31536000,
+immutable`, and browsers reuse it without a revalidation request (a mismatched
+hash, as during a deploy, keeps the default revalidation). Shared helpers (`escapeHtml`, `showToast`) live
 once in `static/js/core/dom_utils.js`, loaded in `base.html` `<head>`: all
 scripts share one global scope, and `tests/unit/test_js_global_collisions.py`
 fails if two files define the same top-level name.

@@ -150,6 +150,13 @@ def _register_web_ui(app):
 
         return {"asset_url": asset_url}
 
+    @app.after_request
+    def cache_hashed_static(response):
+        """Let browsers keep content-hashed static files without revalidating."""
+        from web_interface import static_assets
+
+        return static_assets.cache_hashed_static(response)
+
     @app.context_processor
     def inject_seo():
         """Expose the current page's search and social metadata as ``seo``.
