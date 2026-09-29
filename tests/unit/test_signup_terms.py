@@ -14,8 +14,8 @@ Pins the recruitment-funnel additions to ``signup()``:
 import pytest
 
 from web_interface.auth.accounts import User
-from web_interface.routes import auth_routes
-from web_interface.routes.auth_routes import _safe_next
+from web_interface.routes.auth_routes import login as signup_routes
+from web_interface.routes.auth_routes.login import _safe_next
 
 
 @pytest.fixture
@@ -60,17 +60,17 @@ def stubbed_signup(monkeypatch):
         }
         return True, "ok"
 
-    monkeypatch.setattr(auth_routes.user_manager, "add_user", _fake_add_user)
-    monkeypatch.setattr(auth_routes.user_manager, "claim_participant_account", _fake_claim)
-    monkeypatch.setattr(auth_routes.user_manager, "find_user_by_email", lambda email: None)
+    monkeypatch.setattr(signup_routes.user_manager, "add_user", _fake_add_user)
+    monkeypatch.setattr(signup_routes.user_manager, "claim_participant_account", _fake_claim)
+    monkeypatch.setattr(signup_routes.user_manager, "find_user_by_email", lambda email: None)
     monkeypatch.setattr(
-        auth_routes.user_manager,
+        signup_routes.user_manager,
         "update_user_settings",
         lambda username, settings: captured["settings"].update(settings) or (True, "ok"),
     )
-    monkeypatch.setattr(auth_routes, "get_new_user_approval_required", lambda: False)
-    monkeypatch.setattr(auth_routes, "get_default_new_user_role", lambda: "viewer")
-    monkeypatch.setattr(auth_routes, "_notify_admin_of_pending_signup", lambda *a, **k: None)
+    monkeypatch.setattr(signup_routes, "get_new_user_approval_required", lambda: False)
+    monkeypatch.setattr(signup_routes, "get_default_new_user_role", lambda: "viewer")
+    monkeypatch.setattr(signup_routes, "_notify_admin_of_pending_signup", lambda *a, **k: None)
     return captured
 
 
@@ -101,7 +101,7 @@ def test_signup_stamps_terms_accepted_at(client, stubbed_signup):
 
 def test_claim_path_also_stamps_terms(client, stubbed_signup, monkeypatch):
     participant = User("someone@example.org", "viewer", password_hash=None, approved=True)
-    monkeypatch.setattr(auth_routes.user_manager, "find_user_by_email", lambda email: participant)
+    monkeypatch.setattr(signup_routes.user_manager, "find_user_by_email", lambda email: participant)
     resp = client.post("/signup", data=FORM, follow_redirects=False)
     assert resp.status_code == 302
     assert stubbed_signup["claim"]["terms_accepted_at"]

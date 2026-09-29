@@ -51,7 +51,7 @@ def test_signup_approves_only_when_gating_is_off(
     ``add_user`` is stubbed so no user file is written, and the
     pending-signup email is stubbed so the test never touches SMTP.
     """
-    from web_interface.routes import auth_routes
+    from web_interface.routes.auth_routes import login as signup_routes
 
     captured = {}
 
@@ -60,13 +60,13 @@ def test_signup_approves_only_when_gating_is_off(
         captured["role"] = role
         return True, "ok"
 
-    monkeypatch.setattr(auth_routes.user_manager, "add_user", _fake_add_user)
+    monkeypatch.setattr(signup_routes.user_manager, "add_user", _fake_add_user)
     # A signup for an email that already has a passwordless participant
     # account claims it instead; this test is about fresh signups.
-    monkeypatch.setattr(auth_routes.user_manager, "find_user_by_email", lambda email: None)
-    monkeypatch.setattr(auth_routes, "get_new_user_approval_required", lambda: require_approval)
-    monkeypatch.setattr(auth_routes, "get_default_new_user_role", lambda: "viewer")
-    monkeypatch.setattr(auth_routes, "_notify_admin_of_pending_signup", lambda *a, **k: None)
+    monkeypatch.setattr(signup_routes.user_manager, "find_user_by_email", lambda email: None)
+    monkeypatch.setattr(signup_routes, "get_new_user_approval_required", lambda: require_approval)
+    monkeypatch.setattr(signup_routes, "get_default_new_user_role", lambda: "viewer")
+    monkeypatch.setattr(signup_routes, "_notify_admin_of_pending_signup", lambda *a, **k: None)
 
     response = client.post(
         "/signup",

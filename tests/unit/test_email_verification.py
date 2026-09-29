@@ -244,20 +244,20 @@ def test_send_link_honours_cooldown(monkeypatch, manager):
 @pytest.fixture
 def signup_env(monkeypatch, manager):
     """Signup against the fake-store manager, every email stubbed."""
-    from web_interface.routes import auth_routes
+    from web_interface.routes.auth_routes import login as signup_routes
 
     sent, notified = [], []
-    monkeypatch.setattr(auth_routes, "user_manager", manager)
+    monkeypatch.setattr(signup_routes, "user_manager", manager)
     monkeypatch.setattr(
-        auth_routes.email_verification,
+        signup_routes.email_verification,
         "send_verification_email_async",
         lambda **kw: sent.append(kw),
     )
     monkeypatch.setattr(
-        auth_routes, "_notify_admin_of_pending_signup", lambda *a, **k: notified.append(a)
+        signup_routes, "_notify_admin_of_pending_signup", lambda *a, **k: notified.append(a)
     )
-    monkeypatch.setattr(auth_routes, "get_default_new_user_role", lambda: "viewer")
-    monkeypatch.setattr(auth_routes, "get_new_user_approval_required", lambda: True)
+    monkeypatch.setattr(signup_routes, "get_default_new_user_role", lambda: "viewer")
+    monkeypatch.setattr(signup_routes, "get_new_user_approval_required", lambda: True)
     monkeypatch.setattr(email_verification, "get_signup_email_verification_required", lambda: True)
     monkeypatch.setattr(email_verification, "mail_configured", lambda: True)
     return {"sent": sent, "notified": notified, "manager": manager}
