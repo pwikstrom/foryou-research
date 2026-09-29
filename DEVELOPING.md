@@ -387,8 +387,8 @@ foryou-research/
 │   ├── integrations/            # Outbound email (mail_utils) and Slack (slack_service)
 │   ├── services/                # Business logic shared by routes and workers — data, stats, settings, accounts links (docs/web_interface.md)
 │   ├── routes/                  # Flask Blueprints (docs/web_interface.md; endpoints: docs/routes.md)
-│   │   ├── auth_routes.py       #   Login, signup, settings
-│   │   ├── api_explorer_routes.py       #   Studies + Explore API + system info + methods note
+│   │   ├── auth_routes/         #   Login + signup, admin users / roles / site settings, a user's own settings
+│   │   ├── api_explorer_routes/         #   Studies + Explore API + methods note; admin system info / health / ops report
 │   │   ├── api_viewer_routes.py         #   Video Analysis + media streaming API
 │   │   ├── api_timelines_routes.py      #   Timelines API
 │   │   ├── api_correlations_routes.py   #   Correlations API

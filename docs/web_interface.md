@@ -28,15 +28,15 @@ Run (see `create_app` in `fyp_data_hub.py`):
 
 | Blueprint file | Serves |
 |---|---|
-| `auth_routes.py` | login, signup, settings, admin user management |
+| `auth_routes/` (package) | login, signup, email verification, logout (`login`); admin users, roles and site settings (`admin_users`, `admin_roles`, `admin_site`); a user's own settings and profile (`user`) |
 | `public_routes.py` | the public (unauthenticated) mini-site: landing, about, participate + the `/participate/start` wizard, data-donation, thehub, terms, ethics, faq, `robots.txt`, `sitemap.xml`, and legacy-URL 301s (`/guide` → `/thehub`, old Wix paths) |
 | `my_collections_routes.py` | `my_collections_bp` — the participant self-service API under `/api/my/collections/*`: list, upload sources, upload, pending personality/delete, withdraw, restore, process, per-collection and combined personality |
-| `api_explorer_routes.py` | studies + Explore tab API, system info |
+| `api_explorer_routes/` (package) | studies + Explore tab API (`explore`); admin System Information, System Health and the ops report (`system`) |
 | `api_viewer_routes.py` | Video Analysis tab + media streaming |
 | `api_timelines_routes.py` | Timelines tab |
 | `api_correlations_routes.py` | Correlations tab |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
-| `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences) |
+| `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences); its data and statistics are `services/sessions_data.py` and `services/sessions_stats.py` |
 | `management/` (package) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, data contracts, A/B evaluation, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` (the runtime behind it is `tasks/runtime.py`) |
@@ -377,7 +377,7 @@ newly invited users, which also links into the public `/thehub` page
 ## Conventions & known warts
 
 - Error responses are mostly `{"error": "..."}` with an appropriate 4xx; a
-  minority of endpoints (in `auth_routes.py`, `process_routes.py`,
+  minority of endpoints (in `auth_routes/`, `process_routes.py`,
   `my_collections_routes.py` and the `management/` submodules) answer
   `{"status": "error", "message": "..."}` instead (mostly the 409
   "already running" refusals of process starts). Success envelopes are historically inconsistent (bare payload,
