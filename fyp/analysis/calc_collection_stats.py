@@ -55,13 +55,11 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     if "play_duration" in play_df.columns:
         valid_watches = play_df.dropna(subset=["play_duration"])
         total_watch_time = valid_watches["play_duration"].sum()
-        avg_watch_time = valid_watches["play_duration"].mean() if not valid_watches.empty else 0
         median_watch_time = (
             valid_watches["play_duration"].median() if not valid_watches.empty else 0
         )
     else:
         total_watch_time = 0
-        avg_watch_time = 0
         median_watch_time = 0
 
     # 5. Engagement
@@ -78,13 +76,11 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     posts_df = df[df["activity_type"] == "post"]
     num_posts = len(posts_df)
 
-    daily_events = df.groupby(df["local_timestamp"].dt.date).size()
-
     # 6. Time patterns (local time)
-    most_active_day = df["local_weekday"].value_counts().iloc[0]
-
-    # Time-of-day segment shares
-    tod_shares = df["local_day_segment"].value_counts(normalize=True).to_dict()
+    # The weekday name (e.g. "monday") with the most events; None when no row
+    # has a weekday. Ties go to the weekday value_counts lists first.
+    weekday_counts = df["local_weekday"].value_counts()
+    most_active_day = str(weekday_counts.idxmax()) if not weekday_counts.empty else None
 
     # Activity Peak Analysis
     # We need a DF with index=timestamp, col='event_count'

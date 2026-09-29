@@ -292,6 +292,13 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A collection's `most_active_weekday` is now the weekday.** The
+  per-collection stats in `collections_metadata.parquet` stored the event
+  count of the busiest weekday (e.g. `412`) instead of its name (`"tuesday"`),
+  and a collection whose rows had no weekday was dropped from the stats. No
+  page reads this column yet. Stored values are corrected by the next ingest
+  refresh or by **Refresh Collections Metadata** on Edit Collections; both
+  recompute every collection.
 - **HTML escaping no longer depends on which tabs a user can see.** Three
   scripts each defined a global `escapeHtml`, and the one that loaded last won;
   for a role without the Data Pipeline tab that was a version that escaped
