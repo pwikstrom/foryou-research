@@ -34,7 +34,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {# Before style.css, which overrides it; emptied with app_libs on public pages. #}
+    {% block app_css %}
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@14.6.3/distribute/nouislider.min.css">
+    {% endblock %}
     <link rel="stylesheet" href="{{ asset_url('style.css') }}">
     {% block app_libs %}
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
