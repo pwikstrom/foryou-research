@@ -95,7 +95,7 @@ def test_enrichment_columns_are_cached_per_study_mtime(monkeypatch, _clear_annot
     df = _enrich_frame()
     blob = {"annotations": {"1": {"tags": ["keep"]}}}
     monkeypatch.setattr(study_data, "get_user_json_cached", lambda u: blob)
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 111.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 111.0)
 
     calls = {"user": 0, "machine": 0}
     real_user = study_data._compute_user_annotation_columns
@@ -135,7 +135,7 @@ def test_user_tags_column_is_arrow_backed(monkeypatch, _clear_annot_caches):
     df = _enrich_frame()
     blob = {"annotations": {"2": {"tags": ["keep", "also"]}}}
     monkeypatch.setattr(study_data, "get_user_json_cached", lambda u: blob)
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
 
     out, ct = study_data.enrich_with_user_tags(df, {}, "user1", study="s")
     assert isinstance(out["User Tags"].dtype, pd.ArrowDtype)
@@ -151,7 +151,7 @@ def test_enrichment_cache_invalidates_on_new_user_blob(monkeypatch, _clear_annot
     df = _enrich_frame()
     blobs = [{"annotations": {}}, {"annotations": {"2": {"tags": ["new"]}}}]
     monkeypatch.setattr(study_data, "get_user_json_cached", lambda u: blobs.pop(0))
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 111.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 111.0)
 
     out1, _ = study_data.enrich_with_user_tags(df, {}, "user1", study="s")
     out2, _ = study_data.enrich_with_user_tags(df, {}, "user1", study="s")
@@ -163,7 +163,7 @@ def test_enrichment_never_mutates_the_cached_metadata_types(monkeypatch, _clear_
     """col_types handed in must not gain keys in place (shared dict safety)."""
     df = _enrich_frame()
     monkeypatch.setattr(study_data, "get_user_json_cached", lambda u: None)
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     col_types = {"item_id": "identifier"}
     _, out_types = study_data.enrich_with_user_tags(df, col_types, "u", study="s")
     assert "Has Annotation" not in col_types

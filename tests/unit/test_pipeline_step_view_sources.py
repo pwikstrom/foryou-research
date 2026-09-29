@@ -77,7 +77,7 @@ def test_no_run_recorded_still_lists_every_worker_as_idle(stores, monkeypatch):
     rows are inert: no state to read, no timing to draw an axis from.
     """
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    view = ws._build_pipeline_step_view(pipeline_active=False)
+    view = ws.build_pipeline_step_view(pipeline_active=False)
 
     assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
     assert {row["state"] for row in view} == {"idle"}
@@ -92,7 +92,7 @@ def test_no_run_recorded_still_lists_every_worker_as_idle(stores, monkeypatch):
 def test_idle_rows_are_named_without_a_verb(stores, monkeypatch):
     """The chart lists workers by name; a column of gerunds reads as noise."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    labels = {r["step"]: r["label"] for r in ws._build_pipeline_step_view(pipeline_active=False)}
+    labels = {r["step"]: r["label"] for r in ws.build_pipeline_step_view(pipeline_active=False)}
 
     assert labels["embeddings_refresh"] == "Semantic embeddings"
     assert labels["video_map_refresh"] == "Semantic map"
@@ -108,7 +108,7 @@ def test_plan_is_pending_until_the_origin_finishes(stores, monkeypatch):
 
     # pipeline_active=False is the worst case: the dispatch has landed but no
     # status file has been written yet.
-    view = ws._build_pipeline_step_view(pipeline_active=False)
+    view = ws.build_pipeline_step_view(pipeline_active=False)
     states = _states(view)
 
     assert len(view) == len(REAL_STEPS) + 1
@@ -125,7 +125,7 @@ def test_planned_steps_go_skipped_once_the_origin_fails(stores, monkeypatch):
         "last_run_outcome": "Fail",
     }
 
-    states = _states(ws._build_pipeline_step_view(pipeline_active=False))
+    states = _states(ws.build_pipeline_step_view(pipeline_active=False))
 
     assert states["consolidate_enrichment"] == "failed"
     assert all(states[step] == "skipped" for step in REAL_STEPS), states
@@ -136,7 +136,7 @@ def test_a_card_origin_marks_the_steps_before_it_upstream(stores, monkeypatch):
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
     stores["seed"](_record("video_map_refresh", kind="card", provisional=True))
 
-    view = ws._build_pipeline_step_view(pipeline_active=True)
+    view = ws.build_pipeline_step_view(pipeline_active=True)
     rows = {row["step"]: row for row in view}
 
     assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
@@ -156,7 +156,7 @@ def test_upstream_rows_carry_no_timing_even_with_a_fresh_terminal_record(stores,
         "last_run_outcome": "Success",
     }
 
-    rows = {row["step"]: row for row in ws._build_pipeline_step_view(pipeline_active=True)}
+    rows = {row["step"]: row for row in ws.build_pipeline_step_view(pipeline_active=True)}
 
     row = rows["embeddings_refresh"]
     assert row["state"] == "upstream", row
@@ -187,7 +187,7 @@ def test_pruned_rows_are_inert_and_carry_their_reason(stores, monkeypatch):
         "last_run_outcome": "Success",
     }
 
-    rows = {row["step"]: row for row in ws._build_pipeline_step_view(pipeline_active=False)}
+    rows = {row["step"]: row for row in ws.build_pipeline_step_view(pipeline_active=False)}
 
     row = rows["timelines_refresh"]
     assert row["state"] == "pruned", row
@@ -217,7 +217,7 @@ def test_unplanned_rows_carry_no_timing_even_when_running_now(stores, monkeypatc
         "progress": {"percent": 40, "message": "segmenting"},
     }
 
-    rows = {row["step"]: row for row in ws._build_pipeline_step_view(pipeline_active=True)}
+    rows = {row["step"]: row for row in ws.build_pipeline_step_view(pipeline_active=True)}
 
     row = rows["sessions_refresh"]
     assert row["state"] == "not_planned", row
@@ -240,7 +240,7 @@ def test_every_canonical_step_gets_a_row(stores, monkeypatch):
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
     stores["seed"](_record("recode_refresh_studies", kind="card", in_flight=False))
 
-    view = ws._build_pipeline_step_view(pipeline_active=False)
+    view = ws.build_pipeline_step_view(pipeline_active=False)
 
     assert [row["step"] for row in view] == ["consolidate_enrichment"] + list(
         ws.PIPELINE_STEPS_ORDER
@@ -256,7 +256,7 @@ def test_consolidate_only_run_marks_every_refresh_step_not_planned(stores, monke
         "last_run_outcome": "Success",
     }
 
-    view = ws._build_pipeline_step_view(pipeline_active=False)
+    view = ws.build_pipeline_step_view(pipeline_active=False)
     states = _states(view)
 
     assert states["consolidate_enrichment"] == "success"
@@ -272,7 +272,7 @@ def test_a_planned_step_outside_the_canonical_order_still_gets_a_row(stores, mon
     record["steps"]["some_future_refresh"] = {"state": "planned"}
     stores["seed"](record)
 
-    view = ws._build_pipeline_step_view(pipeline_active=False)
+    view = ws.build_pipeline_step_view(pipeline_active=False)
 
     assert [row["step"] for row in view] == (
         ["consolidate_enrichment"] + list(ws.PIPELINE_STEPS_ORDER) + ["some_future_refresh"]
@@ -285,7 +285,7 @@ def test_inert_rows_are_never_provisional(stores, monkeypatch):
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
     stores["seed"](_record("video_map_refresh", kind="card", provisional=True))
 
-    view = ws._build_pipeline_step_view(pipeline_active=True)
+    view = ws.build_pipeline_step_view(pipeline_active=True)
 
     assert not any(
         row["provisional"] for row in view if row["state"] in ("not_planned", "upstream", "pruned")

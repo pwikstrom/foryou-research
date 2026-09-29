@@ -174,12 +174,12 @@ def test_ledger_skips_blocked_and_copies_provenance(probe):
 
 
 def test_per_file_summary_reports_blocked_uploads():
-    from web_interface.workers.run_ingest_refresh import _build_per_file_summary
+    from web_interface.workers.run_ingest_refresh import build_per_file_summary
 
     class _Main:
         data = pd.DataFrame()
 
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         _Main(),
         raw_counts={},
         processed_counts={},

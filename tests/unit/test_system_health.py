@@ -465,7 +465,7 @@ def test_run_all_checks_survives_crashing_checks(monkeypatch):
     monkeypatch.setattr(sh, "_load_fill_profiles", lambda: {})
     monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
     monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok"])
-    monkeypatch.setattr(sh, "_cached_cookie_health", lambda platform: {"status": "healthy"})
+    monkeypatch.setattr(sh, "cached_cookie_health", lambda platform: {"status": "healthy"})
 
     def _crash(*args, **kwargs):
         raise RuntimeError("kaboom")

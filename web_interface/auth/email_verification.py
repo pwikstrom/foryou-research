@@ -142,10 +142,10 @@ def _absolute_verify_url(token: str) -> str:
     Prefers ``[site].app_url`` (the public hostname; on Cloud Run the request
     host may be the internal run.app one) and falls back to the request host.
     """
-    from ..integrations.mail_utils import _site
+    from ..integrations.mail_utils import site_config
 
     path = url_for("auth_bp.verify_email", token=token)
-    app_url = str(_site().get("app_url", "") or "").strip().rstrip("/")
+    app_url = str(site_config().get("app_url", "") or "").strip().rstrip("/")
     if app_url:
         return f"{app_url}{path}"
     return url_for("auth_bp.verify_email", token=token, _external=True)

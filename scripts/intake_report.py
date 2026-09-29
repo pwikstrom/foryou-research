@@ -704,7 +704,7 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
     event, i.e. the rows a per-file constant gets wrong even when it agrees.
     """
     from fyp.annotation.recode_variables import infer_timezone_offset
-    from fyp.ingest.base import _zone_offset_hours, parse_donor_timezone
+    from fyp.ingest.base import parse_donor_timezone, zone_offset_hours
 
     # Materialise as a numpy tz-aware series: an Arrow-backed column from the
     # parquet reader compares per-row offsets differently and misreports the
@@ -727,8 +727,8 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
         }
     inferred = float(infer_timezone_offset(utc))
     median_ts = utc.iloc[len(utc) // 2]
-    zone_offset = float(_zone_offset_hours(pd.Series([median_ts]), zone).iloc[0])
-    per_row = _zone_offset_hours(utc, zone).astype(float)
+    zone_offset = float(zone_offset_hours(pd.Series([median_ts]), zone).iloc[0])
+    per_row = zone_offset_hours(utc, zone).astype(float)
     other_half = float((per_row != zone_offset).mean()) * 100.0
     # Offsets live on a 24-hour circle: an inferred -10 against a true +10
     # is four hours off, not twenty.

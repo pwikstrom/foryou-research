@@ -315,15 +315,15 @@ def api_semantic_space_status():
     are deliberately cheap (process_stats counters + one file stat, no parquet
     reads).
     """
-    from web_interface.services.worker_status import _is_worker_running
+    from web_interface.services.worker_status import is_worker_running
     from web_interface.tasks.process_manager import load_process_stats, process_stats
 
     # Cross-service stats live on GCS; reload so we see task-runner writes.
     if is_cloud_run():
         load_process_stats()
 
-    emb_running = _is_worker_running("embeddings_refresh")
-    map_running = _is_worker_running("video_map_refresh")
+    emb_running = is_worker_running("embeddings_refresh")
+    map_running = is_worker_running("video_map_refresh")
     pipeline_in_flight = bool(
         process_stats.get("consolidate_enrichment", {}).get("pipeline_in_flight")
     )

@@ -20,18 +20,18 @@ from web_interface.tasks import worker_registry
 from ...auth.permissions import permission_required
 from ...services import activity_log, collection_enrichment, refresh_pipeline, system_health
 from ...services.stats_service import (
-    _evaluate_consolidation_staleness,
-    _evaluate_version_promotion_staleness,
+    evaluate_consolidation_staleness,
+    evaluate_version_promotion_staleness,
 )
 from ...services.worker_status import (
     PIPELINE_STEPS_ORDER,
-    _actor,
-    _build_pipeline_step_view,
-    _cached_cookie_health,
-    _is_worker_running,
-    _workers_blocking_consolidate,
+    build_pipeline_step_view,
+    cached_cookie_health,
     consolidate_entry_view,
+    current_actor,
+    is_worker_running,
     refresh_run_view,
+    workers_blocking_consolidate,
 )
 from ...tasks.process_manager import (
     load_process_stats,
@@ -78,7 +78,7 @@ def _consolidate_blockers() -> list[str]:
     anyway, so treating the lease as a blocker here means the endpoint arms
     instead of surfacing that refusal as an error.
     """
-    blocking = _workers_blocking_consolidate()
+    blocking = workers_blocking_consolidate()
     blocking += [f"local drain ({p})" for p in sorted(_active_drain_leases())]
     return blocking
 
@@ -110,9 +110,9 @@ def _collection_display_ids() -> dict[str, str]:
     """``{collection_id: display id}`` from the collections sidecar; the id
     itself where no display id is set."""
     try:
-        from ...services.collection_accounts import _load_tags_fresh
+        from ...services.collection_accounts import load_tags_fresh
 
-        tags = _load_tags_fresh()
+        tags = load_tags_fresh()
     except Exception:
         return {}
     out = {}
@@ -247,9 +247,9 @@ def get_enrichment_stats():
     # drop any consolidation_impact that has already been fully resolved by
     # downstream refreshes — otherwise the impact panel lingers forever when
     # the UI never happens to call /api/manage/refresh/staleness.
-    _evaluate_consolidation_staleness()
+    evaluate_consolidation_staleness()
     # Same passive self-clear for the preferred-version promotion marker.
-    _evaluate_version_promotion_staleness()
+    evaluate_version_promotion_staleness()
 
     # 1. Load Enrichment Status
     enrichment_status = None
@@ -304,7 +304,7 @@ def get_enrichment_stats():
     # then reads 0. Format 2 holds a TABLE of concurrent jobs (sum their slices);
     # the legacy single-job shape kept the ids at the top level.
     annotate_claimed_len = 0
-    if _is_worker_running("queue_annotator_batch") and data_io.exists(
+    if is_worker_running("queue_annotator_batch") and data_io.exists(
         storage_location="cache", filename="annotate_batch_job.json"
     ):
         job = data_io.load_json(storage_location="cache", filename="annotate_batch_job.json")
@@ -338,7 +338,7 @@ def get_enrichment_stats():
     # (when no step is technically "running").
     refresh_run = refresh_pipeline.load_run(reload=False) or {}
     pipeline_step_names = ["consolidate_enrichment"] + PIPELINE_STEPS_ORDER
-    any_step_running = any(_is_worker_running(n) for n in pipeline_step_names)
+    any_step_running = any(is_worker_running(n) for n in pipeline_step_names)
     flag_in_flight = bool(refresh_run.get("in_flight"))
 
     # Stale-flag cleanup: a server restart mid-run leaves the flag set with
@@ -408,7 +408,7 @@ def get_enrichment_stats():
     except Exception:
         loop_owes = {"settle": False, "refresh": False}
 
-    cookie_health = {p: _cached_cookie_health(p) for p in scrape_queues.registered_platforms()}
+    cookie_health = {p: cached_cookie_health(p) for p in scrape_queues.registered_platforms()}
 
     # Active scraper alerts (e.g. a permanent-failure storm raised by the
     # worker): shown as a banner on the platform's scraper card and folded
@@ -481,7 +481,7 @@ def get_enrichment_stats():
                 consolidate_entry.get("auto_armed_auto_refresh")
             ),
             "consolidate_pipeline_active": pipeline_active,
-            "pipeline_steps": _build_pipeline_step_view(pipeline_active),
+            "pipeline_steps": build_pipeline_step_view(pipeline_active),
             # Where this run came from, who started it and how it ended — the chart
             # header. None until a run has ever been recorded.
             "refresh_run": refresh_run_view(),
@@ -699,7 +699,7 @@ def empty_enrichment_queue(queue_type):
 
                     _journal(
                         "queue.emptied",
-                        f"{platform_label(platform)} scrape queue emptied by {_actor()} — "
+                        f"{platform_label(platform)} scrape queue emptied by {current_actor()} — "
                         f"{dropped:,} queued video(s) dropped",
                         platform=platform,
                         queue="scrape",
@@ -728,7 +728,7 @@ def empty_enrichment_queue(queue_type):
                     body = request.get_json(silent=True) or {}
                     _journal(
                         "queue.emptied",
-                        f"Annotation queue emptied by {_actor()} — "
+                        f"Annotation queue emptied by {current_actor()} — "
                         f"{dropped:,} queued video(s) dropped",
                         queue="annotate",
                         dropped=dropped,
@@ -1129,7 +1129,7 @@ def calculate_to_scrape():
 
             _journal(
                 "queue.built",
-                f"Scrape queue built from study '{study_name}' by {_actor()} — "
+                f"Scrape queue built from study '{study_name}' by {current_actor()} — "
                 f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
                 platform=platform,
                 study=study_name,
@@ -1345,7 +1345,7 @@ def calculate_to_annotate():
         if unannotated_videos:
             _journal(
                 "queue.built",
-                f"Annotation queue built from study '{study_name}' by {_actor()} — "
+                f"Annotation queue built from study '{study_name}' by {current_actor()} — "
                 f"{len(unannotated_videos):,} video(s) added, "
                 f"{len(current_queue):,} now queued",
                 study=study_name,
@@ -1491,7 +1491,7 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
         _journal(
             "queue.built",
             f"Annotation queue built for re-annotation ({selection_mode}) by "
-            f"{_actor()} — {len(selected_ids):,} video(s) added, "
+            f"{current_actor()} — {len(selected_ids):,} video(s) added, "
             f"{len(current_queue):,} now queued",
             mode=selection_mode,
             added=len(selected_ids),
@@ -1517,7 +1517,7 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 @permission_required("tab.data_management.refresh")
 def api_consolidate_enrichment():
 
-    if _is_worker_running("consolidate_enrichment"):
+    if is_worker_running("consolidate_enrichment"):
         return jsonify({"status": "error", "message": "Consolidation already running"}), 409
 
     data = request.json or {}
@@ -1595,7 +1595,7 @@ def api_consolidate_enrichment():
     record = refresh_pipeline.plan_run(
         "consolidate_enrichment",
         kind="consolidate",
-        started_by=_actor(),
+        started_by=current_actor(),
         mode="refresh" if auto_refresh else "consolidate_only",
         origin_task_args=task_args,
         provisional=bool(auto_refresh),
@@ -1606,7 +1606,7 @@ def api_consolidate_enrichment():
         "consolidate_enrichment",
         worker_registry.worker_module("consolidate_enrichment"),
         task_args=task_args if task_args else None,
-        started_by=_actor(),
+        started_by=current_actor(),
         extra_task_args={
             "pipeline_run_id": record["run_id"],
             "pipeline_stage_index": 1,
@@ -1660,7 +1660,9 @@ def api_refresh_downstream():
 
     # The shared dispatcher folds in any deferred-refresh debt an enrichment
     # plan has accumulated, so the manual button also settles it.
-    status, message = downstream_refresh.dispatch_downstream_refresh(impact, started_by=_actor())
+    status, message = downstream_refresh.dispatch_downstream_refresh(
+        impact, started_by=current_actor()
+    )
     if status == "busy":
         return jsonify({"status": "error", "message": message}), 409
     if status == "error":
@@ -1677,8 +1679,8 @@ def api_refresh_staleness():
     annotation version whose study refresh hasn't run yet (consumed by the
     admin Versions page banner and the Dataset Assembly page).
     """
-    promotion = _evaluate_version_promotion_staleness()
-    status = _evaluate_consolidation_staleness()
+    promotion = evaluate_version_promotion_staleness()
+    status = evaluate_consolidation_staleness()
     if not status["has_impact"] and not status.get("impact"):
         return jsonify({"has_impact": False, "version_promotion": promotion})
 

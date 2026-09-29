@@ -8,8 +8,8 @@ from web_interface.tasks import worker_registry
 from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.worker_status import (
-    _actor,
-    _is_worker_running,
+    current_actor,
+    is_worker_running,
 )
 from ...tasks.process_manager import (
     start_process,
@@ -152,7 +152,7 @@ def save_ab_candidate():
             meta = ab_eval.save_candidate(
                 name,
                 text,
-                actor=_actor(),
+                actor=current_actor(),
                 note=str(body.get("note") or ""),
                 overwrite=bool(body.get("overwrite")),
                 candidate_version=candidate_version,
@@ -163,7 +163,10 @@ def save_ab_candidate():
             return jsonify({"error": str(e)}), 400
 
         activity_log.record(
-            actor=_actor(), category="admin", action="ab_candidate.save", details={"name": name}
+            actor=current_actor(),
+            category="admin",
+            action="ab_candidate.save",
+            details={"name": name},
         )
         return jsonify({"ok": True, "meta": meta})
     except Exception as e:
@@ -203,7 +206,7 @@ def delete_ab_candidate(name):
         removed = ab_eval.delete_candidate(name)
         if removed:
             activity_log.record(
-                actor=_actor(),
+                actor=current_actor(),
                 category="admin",
                 action="ab_candidate.delete",
                 details={"name": name},
@@ -302,14 +305,17 @@ def create_ab_eval_set():
         name = str(body.get("name") or "").strip()
         try:
             record = ab_eval.create_eval_set(
-                name, copy_from=body.get("copy_from") or None, actor=_actor()
+                name, copy_from=body.get("copy_from") or None, actor=current_actor()
             )
         except FileExistsError as e:
             return jsonify({"error": str(e)}), 409
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         activity_log.record(
-            actor=_actor(), category="admin", action="ab_eval_set.create", details={"name": name}
+            actor=current_actor(),
+            category="admin",
+            action="ab_eval_set.create",
+            details={"name": name},
         )
         return jsonify({"ok": True, **record})
     except Exception as e:
@@ -334,7 +340,7 @@ def rename_ab_eval_set(name):
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="ab_eval_set.rename",
             details={"name": name, "new_name": new_name},
@@ -381,7 +387,10 @@ def delete_ab_eval_set(name):
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         activity_log.record(
-            actor=_actor(), category="admin", action="ab_eval_set.delete", details={"name": name}
+            actor=current_actor(),
+            category="admin",
+            action="ab_eval_set.delete",
+            details={"name": name},
         )
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -421,7 +430,7 @@ def save_ab_eval_set():
         try:
             stored = ab_eval.save_eval_set(
                 item_ids,
-                actor=_actor(),
+                actor=current_actor(),
                 note=str(body.get("note") or ""),
                 name=body.get("name") or None,
             )
@@ -430,7 +439,7 @@ def save_ab_eval_set():
         resolved = ab_eval.resolve_items(stored["item_ids"])
         not_downloaded = [r["item_id"] for r in resolved if r["downloaded"] is False]
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="ab_eval_set.save",
             details={"name": stored["name"], "n_items": len(stored["item_ids"])},
@@ -608,7 +617,7 @@ def start_ab_eval_run():
         # Explicit gate on top of start_process's own check: one A/B run at a
         # time (a second concurrent run would double the annotation spend and
         # race on the runs index).
-        if _is_worker_running("ab_eval"):
+        if is_worker_running("ab_eval"):
             return jsonify(
                 {"status": "error", "message": "A test run is already in progress."}
             ), 409
@@ -649,7 +658,7 @@ def start_ab_eval_run():
             "include_live": include_live,
             "arm_params": arm_params,
             "eval_set": stored.get("name"),
-            "started_by": _actor(),
+            "started_by": current_actor(),
         }
         if arms_spec is not None:
             task_args["arms_spec"] = arms_spec
@@ -657,12 +666,12 @@ def start_ab_eval_run():
             "ab_eval",
             worker_registry.worker_module("ab_eval"),
             task_args=task_args,
-            started_by=_actor(),
+            started_by=current_actor(),
         )
         if not success:
             return jsonify({"status": "error", "message": msg}), 409
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="ab_eval.run",
             details={
@@ -752,7 +761,7 @@ def delete_ab_eval_run(run_id):
         removed = ab_eval.delete_run(run_id)
         if removed:
             activity_log.record(
-                actor=_actor(),
+                actor=current_actor(),
                 category="admin",
                 action="ab_eval.run_delete",
                 details={"run_id": run_id},

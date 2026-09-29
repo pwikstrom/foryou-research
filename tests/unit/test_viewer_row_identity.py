@@ -70,7 +70,7 @@ def _col_types():
 def _load(monkeypatch, study="row_identity_study", frame=None):
     """Drive the real load path with a dirty frame standing in for the parquet."""
     df = _dirty_frame() if frame is None else frame
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     monkeypatch.setattr(explorer, "load_data", lambda s, verbose=False: (df, _col_types()))
     study_data.study_cache.invalidate(study)
     return study

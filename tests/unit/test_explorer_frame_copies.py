@@ -52,7 +52,7 @@ def _col_types():
 def _seed_cache(monkeypatch, study="proj_study"):
     """Seed the RAM cache the way _cached_study_frame would, so no parquet is
     touched. The cache holds the context-filtered frame, so filter here too."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     filtered, status = study_data._apply_context_filter(_raw_frame())
     study_data.study_cache.put(
         study,
@@ -364,7 +364,7 @@ def test_big_study_load_evicts_other_cached_studies(monkeypatch):
     slots BEFORE the parquet load — raw + filtered coexist during a load, so
     a big study cannot fit alongside previously cached frames (the 2026-08-03
     23:47 OOM)."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     study_data.study_cache.put(
         "small_a",
         {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
@@ -392,7 +392,7 @@ def test_big_study_load_evicts_other_cached_studies(monkeypatch):
 
 def test_small_study_load_keeps_other_cached_studies(monkeypatch):
     """Below the threshold the two-slot LRU behavior is unchanged."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     study_data.study_cache.put(
         "small_a",
         {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},
@@ -411,7 +411,7 @@ def test_small_study_load_keeps_other_cached_studies(monkeypatch):
 def test_missing_sidecar_counts_as_big(monkeypatch):
     """No sidecar means unknown size — evict, since the failure mode of
     guessing small is an OOM-killed instance."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     study_data.study_cache.put(
         "small_a",
         {"df": _raw_frame(), "col_types": _col_types(), "status": {"ok": True}, "mtime": 1.0},

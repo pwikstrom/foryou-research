@@ -8,10 +8,8 @@ a frame that still holds the others' rows.
 
 import pytest
 
-from web_interface.routes.management.collections import (
-    _affected_studies_for_collections,
-    _requested_collection_ids,
-)
+from web_interface.routes.management.collections import _requested_collection_ids
+from web_interface.services.collection_deletion import affected_studies_for_collections
 
 
 class _Args:
@@ -54,14 +52,14 @@ def test_request_ids_empty_when_nothing_supplied():
 @pytest.fixture
 def study_defs(monkeypatch):
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.routes.management import collections as collections_mod
+    from web_interface.services import collection_deletion
 
     defs = {
         "study_a": {"SELECTED_COLLECTIONS": ["c1", "c9"]},
         "study_b": {"SELECTED_COLLECTIONS": ["c2"]},
         "study_c": {"SELECTED_COLLECTIONS": ["c8"]},
     }
-    monkeypatch.setattr(collections_mod, "init_study_defs", lambda: None)
+    monkeypatch.setattr(collection_deletion, "init_study_defs", lambda: None)
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     return defs
 
@@ -69,16 +67,16 @@ def study_defs(monkeypatch):
 def test_affected_studies_is_the_union_over_every_id(study_defs):
     # study_a and study_b each hold one of the deleted collections; study_c
     # holds neither and must not be refreshed.
-    assert sorted(_affected_studies_for_collections(["c1", "c2"])) == ["study_a", "study_b"]
+    assert sorted(affected_studies_for_collections(["c1", "c2"])) == ["study_a", "study_b"]
 
 
 def test_affected_studies_lists_each_study_once(study_defs):
     # Both ids live in study_a — it is still refreshed exactly once.
-    assert _affected_studies_for_collections(["c1", "c9"]) == ["study_a"]
+    assert affected_studies_for_collections(["c1", "c9"]) == ["study_a"]
 
 
 def test_affected_studies_empty_for_unreferenced_ids(study_defs):
-    assert _affected_studies_for_collections(["nope"]) == []
+    assert affected_studies_for_collections(["nope"]) == []
 
 
 def test_worker_cli_args_repeat_the_flag_once_per_collection():

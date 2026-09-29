@@ -2151,7 +2151,7 @@ def _merge_enrichment_seeds(
 # any analysis variable. They are excluded from the consolidation value diff so a
 # value-preserving re-scrape (or a plain force re-consolidation) flags nothing,
 # while a real backfill — e.g. play_count -1 sentinel → a real count — is caught.
-_SCRAPE_PROVENANCE_COLS = frozenset(
+SCRAPE_PROVENANCE_COLS = frozenset(
     {
         "scrape_ts",
         "scrape_contract_version",
@@ -2164,7 +2164,7 @@ _SCRAPE_PROVENANCE_COLS = frozenset(
 )
 
 
-def _scrape_value_signatures(df: pd.DataFrame, value_cols: list[str]) -> dict[str, str]:
+def scrape_value_signatures(df: pd.DataFrame, value_cols: list[str]) -> dict[str, str]:
     """Per-item content signature over the given value columns.
 
     Normalises every cell to a string (so pyarrow/int/bool/datetime dtypes and
@@ -2250,7 +2250,7 @@ def _compute_changed_scrape_ids(
         return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
 
     def _value_col_set(df: pd.DataFrame) -> set[str]:
-        return {c for c in df.columns if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS}
+        return {c for c in df.columns if c != "item_id" and c not in SCRAPE_PROVENANCE_COLS}
 
     if _value_col_set(new_df) != _value_col_set(existing_df):
         if verbose:
@@ -2272,14 +2272,14 @@ def _compute_changed_scrape_ids(
     value_cols = [
         c
         for c in new_df.columns
-        if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS and c in existing_df.columns
+        if c != "item_id" and c not in SCRAPE_PROVENANCE_COLS and c in existing_df.columns
     ]
     if not value_cols:
         existing_ids = {str(i) for i in existing_df["item_id"] if pd.notna(i)}
         return {str(i) for i in new_df["item_id"] if pd.notna(i) and str(i) not in existing_ids}
 
-    old_sig = _scrape_value_signatures(existing_df, value_cols)
-    new_sig = _scrape_value_signatures(new_df, value_cols)
+    old_sig = scrape_value_signatures(existing_df, value_cols)
+    new_sig = scrape_value_signatures(new_df, value_cols)
     changed = {item for item, sig in new_sig.items() if old_sig.get(item) != sig}
 
     if verbose:
@@ -2469,7 +2469,7 @@ def _fold_scrape_batch(
             diff_candidates.update(str(i) for i in seed_df["item_id"].dropna())
 
     def _value_col_set(df: pd.DataFrame) -> set[str]:
-        return {c for c in df.columns if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS}
+        return {c for c in df.columns if c != "item_id" and c not in SCRAPE_PROVENANCE_COLS}
 
     batch_df = None
     if batch_dfs:

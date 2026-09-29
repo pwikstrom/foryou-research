@@ -2,7 +2,7 @@
 
 2026-09-03, prod: an admin armed "Consolidate & Refresh" while a scrape ran
 (auto_armed saved to process_stats at 03:07:51). A browser stats poll reached
-the hub 0.7 s later. _evaluate_consolidation_staleness had loaded
+the hub 0.7 s later. evaluate_consolidation_staleness had loaded
 process_stats at its top, spent a second reading per-step status files, found
 every downstream step fresh, popped consolidation_impact from its NOW-STALE
 copy of the consolidate entry and saved — and save_process_stats writes the
@@ -86,7 +86,7 @@ def interleaved(monkeypatch):
 def test_clearing_the_impact_keeps_an_arm_set_by_another_instance(interleaved):
     gcs, saved = interleaved
 
-    out = ss._evaluate_consolidation_staleness()
+    out = ss.evaluate_consolidation_staleness()
 
     assert all(not p["stale"] for p in out["processes"].values())
     assert saved, "all steps were fresh, so the impact must have been cleared"
@@ -115,7 +115,7 @@ def test_no_save_when_someone_already_cleared_the_impact(monkeypatch):
     monkeypatch.setattr(ss, "load_process_stats", fake_load)
     monkeypatch.setattr(ss, "save_process_stats", lambda: saved.append(1))
 
-    ss._evaluate_consolidation_staleness()
+    ss.evaluate_consolidation_staleness()
     assert not saved, "nothing changed in the fresh copy, so no write"
 
 
@@ -132,7 +132,7 @@ def test_stale_steps_leave_the_impact_alone(monkeypatch):
     )
     monkeypatch.setattr(ss, "save_process_stats", lambda: saved.append(1))
 
-    out = ss._evaluate_consolidation_staleness()
+    out = ss.evaluate_consolidation_staleness()
     assert out["processes"]["timelines_refresh"]["stale"] is True
     assert not saved
 

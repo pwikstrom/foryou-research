@@ -171,7 +171,7 @@ _detail_response_lock = threading.Lock()
 
 def _detail_cache_version(study: str) -> tuple:
     """Everything (besides the session identity) the detail payload reads."""
-    from ..services.study_data import _get_recoded_mtime
+    from ..services.study_data import get_recoded_mtime
 
     try:
         model = embeddings.active_embedding_backend().model_id()
@@ -182,7 +182,7 @@ def _detail_cache_version(study: str) -> tuple:
         _fingerprint(session_explorer.EPISODES_FILE),
         _fingerprint(session_explorer.WINDOWS_FILE),
         _fingerprint(session_explorer.SESSIONS_FILE),
-        _get_recoded_mtime(study),
+        get_recoded_mtime(study),
         _flags_cache_key(model),
     )
 
@@ -1988,7 +1988,7 @@ def api_sessions_status():
     upstream embeddings) worker is currently running, and whether the artifact
     was built by a different embedding model than the active backend's.
     """
-    from web_interface.services.worker_status import _is_worker_running
+    from web_interface.services.worker_status import is_worker_running
     from web_interface.tasks.process_manager import load_process_stats
 
     if is_cloud_run():
@@ -2011,7 +2011,7 @@ def api_sessions_status():
             "meta": meta,
             "active_embedding_model": active_model,
             "model_mismatch": model_mismatch,
-            "refresh_running": _is_worker_running("sessions_refresh"),
-            "embeddings_updating": _is_worker_running("embeddings_refresh"),
+            "refresh_running": is_worker_running("sessions_refresh"),
+            "embeddings_updating": is_worker_running("embeddings_refresh"),
         }
     )

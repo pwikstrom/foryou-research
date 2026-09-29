@@ -47,7 +47,7 @@ def _seed(stats, *, studies, collections, new_annotations, last_success=None):
 def test_every_pipeline_step_reports_a_note(stats):
     _seed(stats, studies=["s1", "s2"], collections=["c1"], new_annotations=1500)
 
-    out = ss._evaluate_consolidation_staleness()
+    out = ss.evaluate_consolidation_staleness()
     procs = out["processes"]
 
     assert out["has_impact"] is True
@@ -61,7 +61,7 @@ def test_every_pipeline_step_reports_a_note(stats):
 def test_sessions_falls_back_to_annotations_when_no_collection_moved(stats):
     _seed(stats, studies=[], collections=[], new_annotations=42)
 
-    procs = ss._evaluate_consolidation_staleness()["processes"]
+    procs = ss.evaluate_consolidation_staleness()["processes"]
 
     assert procs["sessions_refresh"]["stale"] is True
     assert procs["sessions_refresh"]["note"] == "(new annotations — refresh needed)"
@@ -83,7 +83,7 @@ def test_corpus_steps_do_not_gate_impact_resolution(stats):
         },
     )
 
-    out = ss._evaluate_consolidation_staleness()
+    out = ss.evaluate_consolidation_staleness()
 
     assert out["has_impact"] is False, "corpus-only staleness must not pin the impact"
     assert all(out["processes"][s]["stale"] for s in CORPUS_STEPS)
@@ -99,7 +99,7 @@ def test_no_new_annotations_means_no_corpus_badges(stats):
         last_success={"recode_refresh_studies": BEFORE},
     )
 
-    procs = ss._evaluate_consolidation_staleness()["processes"]
+    procs = ss.evaluate_consolidation_staleness()["processes"]
 
     assert procs["embeddings_refresh"]["stale"] is False
     assert procs["video_map_refresh"]["stale"] is False
@@ -118,7 +118,7 @@ def test_a_step_that_ran_after_the_impact_is_fresh(stats):
         last_success={"embeddings_refresh": AFTER, "video_map_refresh": BEFORE},
     )
 
-    procs = ss._evaluate_consolidation_staleness()["processes"]
+    procs = ss.evaluate_consolidation_staleness()["processes"]
 
     assert procs["embeddings_refresh"]["stale"] is False
     assert procs["video_map_refresh"]["stale"] is True

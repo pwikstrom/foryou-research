@@ -76,7 +76,7 @@ def test_finished_steps_get_start_end_and_duration(stores):
         "last_run_outcome": "Failed",
     }
 
-    rows = _by_step(ws._build_pipeline_step_view(pipeline_active=False))
+    rows = _by_step(ws.build_pipeline_step_view(pipeline_active=False))
 
     c = rows["consolidate_enrichment"]
     assert c["state"] == "success"
@@ -112,7 +112,7 @@ def test_running_step_carries_its_live_start_and_queued_leaf_its_stamp(stores):
         "progress": {"percent": 0, "message": "Queued — waiting for a worker…"},
     }
 
-    rows = _by_step(ws._build_pipeline_step_view(pipeline_active=True))
+    rows = _by_step(ws.build_pipeline_step_view(pipeline_active=True))
 
     r = rows["recode_refresh_studies"]
     assert r["state"] == "running" and r["started_at"] == _iso(T0, 43)
@@ -132,7 +132,7 @@ def test_stale_status_from_an_earlier_run_is_not_used_for_timing(stores):
         "updated_at": _iso(T0, -600),
         "progress": {},
     }
-    rows = _by_step(ws._build_pipeline_step_view(pipeline_active=True))
+    rows = _by_step(ws.build_pipeline_step_view(pipeline_active=True))
     assert rows["pca_refresh"]["state"] == "pending"
     assert rows["pca_refresh"]["started_at"] is None
 
@@ -143,7 +143,7 @@ def test_a_bad_duration_does_not_break_the_view(stores):
         "last_run_duration": "not-a-number",
         "last_run_outcome": "Success",
     }
-    c = _by_step(ws._build_pipeline_step_view(pipeline_active=False))["consolidate_enrichment"]
+    c = _by_step(ws.build_pipeline_step_view(pipeline_active=False))["consolidate_enrichment"]
     assert c["state"] == "success" and c["ended_at"] == _iso(T0, 42)
     assert c["started_at"] is None and c["duration_s"] is None
 

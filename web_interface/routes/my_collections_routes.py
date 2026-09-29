@@ -302,11 +302,11 @@ def api_my_withdraw(collection_id):
     from ..services import activity_log
     from ..services.my_collections_service import (
         RECODED_FILENAME,
-        _load_metadata_personas,
         donation_upload_sources,
         drop_withdrawal,
         invalidate_cache,
         ledger_manifest_entries,
+        load_metadata_personas,
         record_withdrawal,
     )
     from ..services.study_data import get_collection_tags
@@ -320,7 +320,7 @@ def api_my_withdraw(collection_id):
     if str(data.get("confirm_id") or "").strip() != str(collection_id):
         return jsonify({"error": "The confirmation text does not match the collection id."}), 400
 
-    meta = _load_metadata_personas([str(collection_id)])
+    meta = load_metadata_personas([str(collection_id)])
     if meta is None or str(collection_id) not in meta.index:
         return jsonify(
             {"error": "This collection is not in the dataset (nothing to withdraw)."}

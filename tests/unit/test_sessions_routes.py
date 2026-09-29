@@ -780,7 +780,7 @@ def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
         "_load_meta",
         lambda: {"built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "some-other-model"},
     )
-    monkeypatch.setattr(worker_status, "_is_worker_running", lambda name: False)
+    monkeypatch.setattr(worker_status, "is_worker_running", lambda name: False)
 
     res = client.get("/api/sessions/status")
     assert res.status_code == 200

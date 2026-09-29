@@ -23,20 +23,20 @@ from web_interface.tasks import worker_registry
 from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.preview_cache import (
-    _collections_hash,
     get_preview_cells,
+    hash_collection_selection,
     preview_cells_warm,
 )
 from ...services.stats_service import (
-    _cells_for_selection,
-    _derive_study_issues,
-    _estimate_from_cells,
-    _universe_from_cells,
+    cells_for_selection,
+    derive_study_issues,
+    estimate_from_cells,
     get_study_activity_cap,
+    universe_from_cells,
 )
 from ...services.study_data import study_cache
 from ...services.worker_status import (
-    _actor,
+    current_actor,
 )
 from ...tasks.process_manager import (
     forget_process_stats,
@@ -181,10 +181,10 @@ def study_set_viz(study):
 
     try:
         cells, coll_stats = get_preview_cells()
-        stats, _included_per_day, _sparse, _total, _report = _estimate_from_cells(
+        stats, _included_per_day, _sparse, _total, _report = estimate_from_cells(
             cells, coll_stats, study_config
         )
-        _pot_activities, _pot_days, universe, _has_days = _universe_from_cells(cells, study_config)
+        _pot_activities, _pot_days, universe, _has_days = universe_from_cells(cells, study_config)
         return jsonify(
             {
                 "status": "success",
@@ -254,7 +254,7 @@ def save_study():
             fyp_cf["study_defs"] = studies
             save_study_defs()
             activity_log.record(
-                actor=_actor(),
+                actor=current_actor(),
                 category=activity_log.CATEGORY_DATA_MANAGEMENT,
                 action="study.save",
                 target=study_name,
@@ -306,7 +306,7 @@ def save_study():
         try:
             effective_def = {**existing_def, **data}
             cells, coll_stats = get_preview_cells()
-            est_stats, *_rest = _estimate_from_cells(cells, coll_stats, effective_def)
+            est_stats, *_rest = estimate_from_cells(cells, coll_stats, effective_def)
             cap_limit = get_study_activity_cap()
             projected = int(est_stats.get("total_activities", 0))
             if projected > cap_limit:
@@ -361,7 +361,7 @@ def save_study():
     save_study_defs()
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="study.save",
         target=study_name,
@@ -394,7 +394,7 @@ def save_study():
     if is_cloud_run():
         # On Cloud Run: dispatch as a Cloud Task and return immediately
         success, msg = start_process(
-            "study_refresh", None, task_args=task_args, started_by=_actor()
+            "study_refresh", None, task_args=task_args, started_by=current_actor()
         )
         if success:
             return jsonify(
@@ -425,9 +425,9 @@ def save_study():
 
         status_key = f"study_refresh__{study_name}"
         reporter = LocalThreadStatusReporter(status_key)
-        # Captured here — _actor() reads the request context, which is gone
+        # Captured here — current_actor() reads the request context, which is gone
         # by the time the thread's follow-on dispatch runs.
-        _actor_name = _actor()
+        _actor_name = current_actor()
 
         def _run_in_thread():
             try:
@@ -502,7 +502,7 @@ def calculate_study_stats():
     try:
         # Fast preview path: approximate the sampling counts analytically instead of
         # running the full create_study_recoded_dataset (scrape/annotation merge +
-        # random sample). The persisted study build still uses _calculate_stats via
+        # random sample). The persisted study build still uses calculate_stats via
         # run_study_refresh; only this on-demand check uses the heuristic.
         #
         # All numbers come from the corpus-level preview cells (one row per
@@ -512,7 +512,7 @@ def calculate_study_stats():
         selected = data.get("SELECTED_COLLECTIONS") or []
         cells, coll_stats = get_preview_cells()
 
-        stats, included_per_day, sparse_cells, total_cells, sampling_report = _estimate_from_cells(
+        stats, included_per_day, sparse_cells, total_cells, sampling_report = estimate_from_cells(
             cells, coll_stats, data
         )
         stats_to_persist = stats
@@ -521,9 +521,7 @@ def calculate_study_stats():
         #   items.potential     = activities in study (how many activities map to items)
         #   scraped.potential    = items in study
         #   annotated.potential  = scraped items in study
-        pot_activities, pot_active_days, universe, has_total_days = _universe_from_cells(
-            cells, data
-        )
+        pot_activities, pot_active_days, universe, has_total_days = universe_from_cells(cells, data)
         potentials = {
             "collections": len(selected),
             "activities": pot_activities,
@@ -536,7 +534,7 @@ def calculate_study_stats():
         if isinstance(stats, dict):
             stats["universe"] = universe
 
-        issues = _derive_study_issues(
+        issues = derive_study_issues(
             stats, sparse_cells, total_cells, has_total_days, sampling_report
         )
 
@@ -631,7 +629,7 @@ def daily_activities():
 
     # Per-day in-event-window play/observe counts straight off the corpus cells
     # (the frame-based path read a 20+ MB timestamp column for the same numbers).
-    df = _cells_for_selection(cells, {"SELECTED_COLLECTIONS": selected})
+    df = cells_for_selection(cells, {"SELECTED_COLLECTIONS": selected})
     potentials = {
         "collections": len(selected),
         "activities": 0,
@@ -648,7 +646,7 @@ def daily_activities():
                 {"date": pd.Timestamp(d).date().isoformat(), "count": int(c)}
                 for d, c in day_counts.items()
             ]
-    collections_hash = _collections_hash(selected)
+    collections_hash = hash_collection_selection(selected)
 
     # Cache on the saved study so subsequent modal opens render the chart
     # instantly. Only persist when the incoming selection matches the saved
@@ -657,7 +655,7 @@ def daily_activities():
     if study_name:
         saved = fyp_cf.get("study_defs", {}).get(study_name)
         if isinstance(saved, dict):
-            saved_hash = _collections_hash(saved.get("SELECTED_COLLECTIONS"))
+            saved_hash = hash_collection_selection(saved.get("SELECTED_COLLECTIONS"))
             if saved_hash == collections_hash:
                 saved["cached_daily_activities"] = {
                     "total_per_day": total_per_day,
@@ -745,7 +743,7 @@ def rename_study():
     _retarget_default_study(old_name, new_name)
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="study.rename",
         target=old_name,
@@ -787,7 +785,7 @@ def delete_study():
             print(f"[studies] Could not drop worker stats for {study_name!r}: {exc}")
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="study.delete",
             target=study_name,
@@ -823,7 +821,7 @@ def set_study_annotation_version(study):
         save_study_defs()
         study_cache.invalidate(study)
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="study.pin_annotation_version",
             details={"study": study, "version": version or None},

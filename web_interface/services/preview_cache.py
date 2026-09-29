@@ -10,7 +10,7 @@ endpoint absorbs during the user's think-time.
 
 The older per-(collection-set) prepared FRAME machinery below it is retained as
 the exact row-level reference: the parity tests compare the cells estimators
-against it, and ``_load_study_raw_window`` still serves the refresh worker. The
+against it, and ``load_study_raw_window`` still serves the refresh worker. The
 modal endpoints no longer read frames.
 """
 
@@ -441,7 +441,7 @@ def _load_enrichment_status_min() -> pd.DataFrame | None:
     )
 
 
-def _load_study_raw_window(
+def load_study_raw_window(
     selected: list, df_window: pd.DataFrame | None = None
 ) -> pd.DataFrame | None:
     """Load raw activities for the selected collections, within their event windows.
@@ -503,7 +503,7 @@ def _prewarm_preview_frame(selected: list) -> None:
             _preview_warming.discard(key)
 
 
-def _collections_hash(selected: list) -> str:
+def hash_collection_selection(selected: list) -> str:
     """Return a short stable hash of a selected-collections list."""
 
     ids = sorted(str(x) for x in (selected or []))

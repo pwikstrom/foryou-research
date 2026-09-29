@@ -1,4 +1,4 @@
-"""`run_ingest_refresh._removed_rows_breakdown` splits the merge's removals.
+"""`run_ingest_refresh.removed_rows_breakdown` splits the merge's removals.
 
 The merge dedupes the whole dataset, so the gap between the rows a run's files
 kept and the net dataset change is either older copies a re-donation replaced
@@ -10,7 +10,7 @@ cleared — the panel blamed the new upload).
 
 import pandas as pd
 
-from web_interface.workers.run_ingest_refresh import _removed_rows_breakdown
+from web_interface.workers.run_ingest_refresh import removed_rows_breakdown
 
 
 def _frame(rows: list[tuple[str, str, int]]) -> pd.DataFrame:
@@ -27,7 +27,7 @@ def _added(filename: str, cid: str, outcome: str = "added_as_new") -> dict:
 
 def test_new_collection_plus_cleanup_elsewhere_is_not_blamed_on_the_upload():
     final = _frame([("old_a.json", "A", 90), ("old_b.json", "B", 50), ("new.zip", "N", 10)])
-    replaced, elsewhere = _removed_rows_breakdown(
+    replaced, elsewhere = removed_rows_breakdown(
         final,
         pre_counts={"old_a.json": 100, "old_b.json": 50},
         pre_cids={"old_a.json": "A", "old_b.json": "B"},
@@ -40,7 +40,7 @@ def test_new_collection_plus_cleanup_elsewhere_is_not_blamed_on_the_upload():
 
 def test_rows_a_redonation_replaced_count_as_replaced():
     final = _frame([("old.json", "C", 70), ("new.json", "C", 40)])
-    replaced, elsewhere = _removed_rows_breakdown(
+    replaced, elsewhere = removed_rows_breakdown(
         final,
         pre_counts={"old.json": 100},
         pre_cids={"old.json": "C"},
@@ -55,7 +55,7 @@ def test_fully_replaced_older_file_follows_the_cid_remap():
     # The older file lost every row, so only its pre-merge collection id and
     # the clustering's remap say it joined the new file's collection.
     final = _frame([("new.json", "NEW", 120)])
-    replaced, elsewhere = _removed_rows_breakdown(
+    replaced, elsewhere = removed_rows_breakdown(
         final,
         pre_counts={"old.json": 100},
         pre_cids={"old.json": "OLD"},

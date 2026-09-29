@@ -24,6 +24,7 @@ from ..auth.accounts import user_manager
 from ..auth.permissions import permission_required
 from ..integrations import mail_utils
 from ..services import activity_log
+from ..services.worker_status import current_actor
 
 human_eval_bp = Blueprint("human_eval", __name__)
 
@@ -54,14 +55,6 @@ def _notify_coders(task: dict, usernames: list[str], inviter: str) -> None:
             n_variables,
             on_success=lambda u=username: human_eval.set_notified(run_id, task_type, u),
         )
-
-
-def _actor() -> str:
-    """Return the username of the acting user, or empty string if unauthenticated."""
-    try:
-        return current_user.username if current_user.is_authenticated else ""
-    except Exception:
-        return ""
 
 
 def _is_admin() -> bool:
@@ -148,11 +141,11 @@ def create_human_eval_task():
             task_type=task_type,
             variables=list(payload.get("variables") or []),
             coders=[str(u) for u in (payload.get("coders") or [])],
-            created_by=_actor(),
+            created_by=current_actor(),
             arms=list(payload.get("arms") or []) or None,
         )
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="human_eval.create_task",
             target=run_id,
@@ -162,7 +155,7 @@ def create_human_eval_task():
                 "coders": sorted(task["coders"]),
             },
         )
-        _notify_coders(task, list(task["coders"]), _actor())
+        _notify_coders(task, list(task["coders"]), current_actor())
         return jsonify({"task": task})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -198,7 +191,7 @@ def delete_human_eval_task(run_id, task_type):
     try:
         removed = human_eval.delete_task(run_id, task_type)
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="human_eval.delete_task",
             target=run_id,
@@ -221,16 +214,16 @@ def add_human_eval_coders(run_id, task_type):
         return jsonify({"error": "no coders given"}), 400
     try:
         before = set((human_eval.load_task(run_id, task_type) or {}).get("coders", {}))
-        task = human_eval.add_coders(run_id, task_type, coders, invited_by=_actor())
+        task = human_eval.add_coders(run_id, task_type, coders, invited_by=current_actor())
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="human_eval.add_coders",
             target=run_id,
             details={"task_type": task_type, "coders": coders},
         )
         newly_added = [u for u in coders if u not in before]
-        _notify_coders(task, newly_added, _actor())
+        _notify_coders(task, newly_added, current_actor())
         return jsonify({"task": task})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -260,7 +253,7 @@ def resend_human_eval_invite(run_id, task_type):
             username,
             run_id,
             task_type,
-            _actor(),
+            current_actor(),
             len(task.get("item_ids", [])),
             len(task.get("variables", [])),
         )
@@ -269,7 +262,7 @@ def resend_human_eval_invite(run_id, task_type):
         else:
             return jsonify({"error": "email not sent — is MAIL_PASSWORD configured?"}), 400
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="human_eval.resend_invite",
             target=run_id,
@@ -314,7 +307,7 @@ def _load_invited_task(run_id: str, task_type: str):
         return None, (jsonify({"error": str(e)}), 400)
     if task is None:
         return None, (jsonify({"error": "task not found"}), 404)
-    if not human_eval.is_invited(task, _actor(), is_admin=_is_admin()):
+    if not human_eval.is_invited(task, current_actor(), is_admin=_is_admin()):
         return None, (jsonify({"error": "not invited to this task"}), 403)
     return task, None
 
@@ -324,7 +317,7 @@ def _load_invited_task(run_id: str, task_type: str):
 def my_human_eval_tasks():
     """The acting user's tasks with their own progress counts."""
     try:
-        username = _actor()
+        username = current_actor()
         entries = human_eval.tasks_for_user(username, is_admin=_is_admin())
         tasks = []
         for entry in entries:
@@ -359,7 +352,7 @@ def get_coder_task(run_id, task_type):
     task, error = _load_invited_task(run_id, task_type)
     if error:
         return error
-    username = _actor()
+    username = current_actor()
     state = human_eval.load_coder_state(run_id, task_type, username)
     payload = {
         "run_id": task["run_id"],
@@ -405,7 +398,7 @@ def save_coder_response(run_id, task_type):
     if error:
         return error
     payload = request.get_json(silent=True) or {}
-    username = _actor()
+    username = current_actor()
     try:
         # An admin coding without an explicit invitation self-registers as a
         # coder so progress/results derivation can find their response file.
@@ -439,9 +432,9 @@ def submit_coder_task(run_id, task_type):
     if error:
         return error
     try:
-        outcome = human_eval.submit(run_id, task_type, _actor())
+        outcome = human_eval.submit(run_id, task_type, current_actor())
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="human_eval",
             action="human_eval.submit",
             target=run_id,

@@ -439,8 +439,8 @@ def _dense_cache_dir() -> str:
 
 def _fetch_part_bytes(filename: str) -> bytes | bytearray:
     """Download one dense part from GCS (parallel ranged GETs for big blobs)."""
-    _, _, _, blob_name = data_io._resolve_paths(STORE_LOCATION, filename)
-    return data_io._download_blob_bytes(data_io._get_bucket(), blob_name)
+    _, _, _, blob_name = data_io.resolve_paths(STORE_LOCATION, filename)
+    return data_io.download_blob_bytes(data_io.get_bucket(), blob_name)
 
 
 # Below this share of a part's rows, a ranged read is cheaper than caching the
@@ -572,7 +572,7 @@ def read_vectors(
         local = rows[order[pos:stop]] - starts[part_i]
         dest = order[pos:stop]
 
-        primary, _, mode, _ = data_io._resolve_paths(STORE_LOCATION, part["filename"])
+        primary, _, mode, _ = data_io.resolve_paths(STORE_LOCATION, part["filename"])
         if mode == "gcs" and local_cache:
             # A warm part is free; a cold one is only worth downloading whole
             # when this call wants a real share of it (CACHE_MIN_PART_DENSITY).

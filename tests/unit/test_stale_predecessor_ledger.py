@@ -51,7 +51,7 @@ def cloud_dispatch(monkeypatch):
     monkeypatch.setattr(process_manager, "is_cloud_run", lambda: True)
     monkeypatch.setattr(
         process_manager,
-        "_dispatch_cloud_task",
+        "dispatch_cloud_task",
         lambda *a, **k: dispatched.append((a, k)) or (True, "Task dispatched"),
     )
     monkeypatch.setattr(process_manager.run_logs, "open_run", lambda *a, **k: None)

@@ -27,11 +27,11 @@ def _shadow_check_age_days() -> float | None:
     """
     try:
         import fyp.core.data_io as data_io
-        from fyp.analysis.organize_datasets import _SHADOW_CHECK_FILENAME
+        from fyp.analysis.organize_datasets import SHADOW_CHECK_FILENAME
 
-        if not data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
+        if not data_io.exists(storage_location="recoded", filename=SHADOW_CHECK_FILENAME):
             return None
-        payload = data_io.load_json(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME)
+        payload = data_io.load_json(storage_location="recoded", filename=SHADOW_CHECK_FILENAME)
         checked_at = (payload or {}).get("checked_at")
         if not checked_at:
             return None
@@ -198,7 +198,7 @@ def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool
         if age is not None and age < _SHADOW_CHECK_INTERVAL_DAYS:
             return
         from web_interface.tasks.process_manager import (
-            _dispatch_cloud_task,
+            dispatch_cloud_task,
             dispatch_deadline_for,
             is_cloud_run,
         )
@@ -209,7 +209,7 @@ def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool
                 "with --verify-consolidation (local mode does not self-schedule)."
             )
             return
-        success, msg = _dispatch_cloud_task(
+        success, msg = dispatch_cloud_task(
             "consolidate_enrichment",
             {"verify_consolidation": True},
             dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", {}),

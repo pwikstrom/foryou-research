@@ -41,7 +41,7 @@ def _dataset_collection_ids() -> set[str]:
     return {str(c) for c in md.index.dropna().unique()}
 
 
-def _per_file_counts(sub_collections) -> dict[str, dict]:
+def per_file_counts(sub_collections) -> dict[str, dict]:
     """Snapshot per-file row counts across every sub-collection. Also records
     the (platform, source) of each file so the UI can show provenance."""
     out: dict[str, dict] = {}
@@ -71,7 +71,7 @@ def _withheld_note(stats: dict) -> str | None:
     return " | ".join(parts)
 
 
-def _build_per_file_summary(
+def build_per_file_summary(
     main_collection,
     raw_counts: dict[str, dict],
     processed_counts: dict[str, dict],
@@ -268,7 +268,7 @@ def _build_per_file_summary(
     return summary
 
 
-def _removed_rows_breakdown(
+def removed_rows_breakdown(
     final_df,
     pre_counts: dict[str, int],
     pre_cids: dict[str, str],
@@ -340,7 +340,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     )
     # Per-file row counts and collection of the data already stored, so the
     # reconciliation can tell rows a new donation replaced from duplicates
-    # the whole-dataset dedupe removed elsewhere (_removed_rows_breakdown).
+    # the whole-dataset dedupe removed elsewhere (removed_rows_breakdown).
     pre_counts: dict[str, int] = {}
     pre_cids: dict[str, str] = {}
     if rows_before > 0:
@@ -354,7 +354,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     reporter.update_progress(20, "Loading raw uploads from registered subclasses...")
     _t_phase = time.perf_counter()
     main_collection.load_raw()
-    raw_counts = _per_file_counts(main_collection.collections)
+    raw_counts = per_file_counts(main_collection.collections)
     raw_rows = sum(c["rows"] for c in raw_counts.values())
     discarded_after_load: set[str] = set()
     for sub in main_collection.collections:
@@ -381,7 +381,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     reporter.update_progress(40, "Processing raw activities...")
     _t_phase = time.perf_counter()
     main_collection.process()
-    processed_counts = _per_file_counts(main_collection.collections)
+    processed_counts = per_file_counts(main_collection.collections)
     _t_process = time.perf_counter() - _t_phase
     reporter.log(f"Processed sub collections ({_t_process:.1f}s)")
 
@@ -460,7 +460,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     for sub in main_collection.collections:
         file_stats.update(getattr(sub, "file_stats_this_run", {}) or {})
 
-    per_file_summary = _build_per_file_summary(
+    per_file_summary = build_per_file_summary(
         main_collection,
         raw_counts=raw_counts,
         processed_counts=processed_counts,
@@ -627,7 +627,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     )
     rows_added_net = rows_after - rows_before
     rows_superseded = max(contributed_rows - rows_added_net, 0)
-    rows_replaced, rows_removed_elsewhere = _removed_rows_breakdown(
+    rows_replaced, rows_removed_elsewhere = removed_rows_breakdown(
         main_collection.data,
         pre_counts,
         pre_cids,

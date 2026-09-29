@@ -43,7 +43,7 @@ class _FakeBucket:
 def test_small_blob_uses_one_full_download(monkeypatch):
     monkeypatch.setattr(data_io, "_PARALLEL_DL_MIN_BYTES", 1024)
     bucket = _FakeBucket(b"x" * 100)
-    out = data_io._download_blob_bytes(bucket, "f")
+    out = data_io.download_blob_bytes(bucket, "f")
     assert bytes(out) == b"x" * 100
     assert bucket.calls == [("full", None)]
 
@@ -56,7 +56,7 @@ def test_large_blob_reassembles_exactly(monkeypatch, size):
     monkeypatch.setattr(data_io, "_PARALLEL_DL_CHUNK_BYTES", 1024)
     payload = bytes(range(256)) * (size // 256) + bytes(range(size % 256))
     bucket = _FakeBucket(payload)
-    out = data_io._download_blob_bytes(bucket, "f")
+    out = data_io.download_blob_bytes(bucket, "f")
     assert bytes(out) == payload
     # every call was ranged, covering the blob without overlap
     ranged = sorted(c for c in bucket.calls if c[0] != "full")
@@ -69,4 +69,4 @@ def test_large_blob_reassembles_exactly(monkeypatch, size):
 def test_missing_blob_raises(monkeypatch):
     bucket = _FakeBucket(None)
     with pytest.raises(FileNotFoundError):
-        data_io._download_blob_bytes(bucket, "missing")
+        data_io.download_blob_bytes(bucket, "missing")

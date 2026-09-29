@@ -24,7 +24,7 @@ def is_email(value: str) -> bool:
     return bool(EMAIL_RE.match(str(value or "")))
 
 
-def _site() -> dict:
+def site_config() -> dict:
     """Return the [site] config section (instance branding), never raising."""
     from fyp.core.fyp_config import get_config
 
@@ -36,7 +36,7 @@ def _site() -> dict:
 
 def _app_link() -> str:
     """HTML link to this instance ([site].app_url), or a neutral phrase."""
-    app_url = str(_site().get("app_url", "") or "").strip()
+    app_url = str(site_config().get("app_url", "") or "").strip()
     return f'<a href="{app_url}">{app_url}</a>' if app_url else "the Data Hub"
 
 
@@ -53,7 +53,7 @@ def _mail_credentials(context: str):
     if not password:
         logger.warning(f"MAIL_PASSWORD not set. Cannot send {context}.")
         return None
-    sender = str(_site().get("mail_sender", "") or "").strip()
+    sender = str(site_config().get("mail_sender", "") or "").strip()
     if not sender:
         logger.warning(
             f"Mail sender not configured ([site].mail_sender / "
@@ -71,7 +71,7 @@ def mail_configured() -> bool:
     """
     if not os.environ.get("MAIL_PASSWORD"):
         return False
-    return bool(str(_site().get("mail_sender", "") or "").strip())
+    return bool(str(site_config().get("mail_sender", "") or "").strip())
 
 
 def send_verification_email(to_email, verify_url, expires_hours) -> bool:
@@ -101,7 +101,7 @@ def send_verification_email(to_email, verify_url, expires_hours) -> bool:
       </body>
     </html>
     """
-    return _send_html_email(to_email, subject, body)
+    return send_html_email(to_email, subject, body)
 
 
 def send_verification_email_async(to_email, verify_url, expires_hours, on_success=None):
@@ -269,7 +269,7 @@ def send_new_user_pending_email(to_email, new_user_email, new_user_display=None)
       </body>
     </html>
     """
-    return _send_html_email(to_email, subject, body)
+    return send_html_email(to_email, subject, body)
 
 
 def send_new_user_pending_email_async(
@@ -294,7 +294,7 @@ def send_new_user_pending_email_async(
     thread.start()
 
 
-def _send_html_email(to_email, subject, body_html) -> bool:
+def send_html_email(to_email, subject, body_html) -> bool:
     """Send one HTML email via the shared Gmail SMTP transport.
 
     Returns:
@@ -341,7 +341,7 @@ def send_withdrawal_email_async(to_email, participant, collection_id, restorable
     </html>
     """
     threading.Thread(
-        target=_send_html_email,
+        target=send_html_email,
         args=(to_email, "Data Hub: a participant withdrew a collection", body),
     ).start()
 
@@ -427,7 +427,7 @@ def send_batch_annotation_email(to_email, kind, **details) -> bool:
     if not is_email(to_email):
         return False
     subject, body = _batch_annotation_email_content(kind, details)
-    return _send_html_email(to_email, subject, body)
+    return send_html_email(to_email, subject, body)
 
 
 def send_batch_annotation_email_async(to_email, kind, **details) -> None:
@@ -451,7 +451,7 @@ def send_first_batch_ready_email(to_email, collection_id, n_items) -> bool:
     """
     if not is_email(to_email):
         return False
-    app_url = str(_site().get("app_url", "") or "").strip()
+    app_url = str(site_config().get("app_url", "") or "").strip()
     link = f"{app_url}/participate/go-upload" if app_url else ""
     open_line = (
         f'<p><a href="{link}">Open your My Collections page</a> to explore it.</p>'
@@ -475,7 +475,7 @@ def send_first_batch_ready_email(to_email, collection_id, n_items) -> bool:
       </body>
     </html>
     """
-    return _send_html_email(to_email, "Your first annotated videos are ready", body)
+    return send_html_email(to_email, "Your first annotated videos are ready", body)
 
 
 def send_first_batch_ready_email_async(to_email, collection_id, n_items) -> None:

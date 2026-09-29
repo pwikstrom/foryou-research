@@ -801,9 +801,9 @@ def collect_status(hours_back: int = 24) -> dict:
     try:
         import requests
 
-        from web_interface.integrations.mail_utils import _site
+        from web_interface.integrations.mail_utils import site_config
 
-        app_url = str(_site().get("app_url", "") or "").strip()
+        app_url = str(site_config().get("app_url", "") or "").strip()
         if app_url:
             t0 = time.time()
             resp = requests.get(app_url, timeout=45)
@@ -1922,9 +1922,9 @@ def _prune_dated_reports(data_io):
 
 
 def _email_report(page: str, doc: dict) -> bool:
-    from web_interface.integrations.mail_utils import _send_html_email, _site
+    from web_interface.integrations.mail_utils import send_html_email, site_config
 
-    site = _site()
+    site = site_config()
     recipient = str(site.get("ops_report_email", "") or site.get("mail_sender", "") or "").strip()
     if not recipient:
         logger.warning(
@@ -1945,4 +1945,4 @@ def _email_report(page: str, doc: dict) -> bool:
         f" — {overall_word} ({counts.get('red', 0)} red, "
         f"{counts.get('yellow', 0)} yellow)"
     )
-    return _send_html_email(recipient, subject, page)
+    return send_html_email(recipient, subject, page)

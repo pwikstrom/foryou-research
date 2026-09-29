@@ -1040,14 +1040,14 @@ def api_irrelevant_words_apply():
     consolidation is running, since it rewrites the same scrape parquets.
     """
 
-    from ..services.worker_status import _is_worker_running, _workers_blocking_consolidate
+    from ..services.worker_status import is_worker_running, workers_blocking_consolidate
     from ..tasks.process_manager import start_process
 
-    if _is_worker_running("retokenise_hashtags"):
+    if is_worker_running("retokenise_hashtags"):
         return jsonify({"status": "error", "message": "Already running"}), 409
 
-    blocking = _workers_blocking_consolidate()
-    if _is_worker_running("consolidate_enrichment"):
+    blocking = workers_blocking_consolidate()
+    if is_worker_running("consolidate_enrichment"):
         blocking.append("consolidate_enrichment")
     if blocking:
         return jsonify(

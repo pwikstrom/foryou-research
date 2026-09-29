@@ -169,7 +169,7 @@ def test_ranged_read_path_matches_memmap(store, monkeypatch):
     # Route the part read through the ranged branch: force mode='gcs' for the
     # part file and serve the byte ranges from the local file, so the
     # coalescing + slicing logic is exercised end to end.
-    real_resolve = data_io._resolve_paths
+    real_resolve = data_io.resolve_paths
     real_ranges = data_io.read_byte_ranges
 
     def _fake_resolve(loc, fn):
@@ -187,7 +187,7 @@ def test_ranged_read_path_matches_memmap(store, monkeypatch):
                 out.append(f.read(length))
         return out
 
-    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(data_io, "resolve_paths", _fake_resolve)
     monkeypatch.setattr(data_io, "read_byte_ranges", _local_ranges)
     via_ranges = embedding_store.read_vectors(MODEL, rows, index, coalesce_bytes=DIM * 2 * 4)
     np.testing.assert_array_equal(via_memmap, via_ranges)
@@ -206,7 +206,7 @@ def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, 
     assert found.all()
     want = embedding_store.read_vectors(MODEL, rows, index)
 
-    real_resolve = data_io._resolve_paths
+    real_resolve = data_io.resolve_paths
 
     def _fake_resolve(loc, fn):
         primary, secondary, mode, blob = real_resolve(loc, fn)
@@ -221,7 +221,7 @@ def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, 
         with open(real_resolve(embedding_store.STORE_LOCATION, filename)[0], "rb") as f:
             return f.read()
 
-    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(data_io, "resolve_paths", _fake_resolve)
     monkeypatch.setattr(embedding_store, "_fetch_part_bytes", _fetch)
     monkeypatch.setenv("FYP_DENSE_CACHE_DIR", str(tmp_path / "dense_cache"))
     # A leftover directory from an older store fingerprint must be evicted.
@@ -261,7 +261,7 @@ def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path)
     index = embedding_store.load_index(MODEL)
     assert len(index.parts) >= 1
 
-    real_resolve = data_io._resolve_paths
+    real_resolve = data_io.resolve_paths
 
     def _fake_resolve(loc, fn):
         primary, secondary, mode, blob = real_resolve(loc, fn)
@@ -287,7 +287,7 @@ def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path)
                 out.append(f.read(length))
         return out
 
-    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(data_io, "resolve_paths", _fake_resolve)
     monkeypatch.setattr(data_io, "read_byte_ranges", _local_ranges)
     monkeypatch.setattr(embedding_store, "_fetch_part_bytes", _fetch)
     monkeypatch.setenv("FYP_DENSE_CACHE_DIR", str(tmp_path / "dense_cache"))

@@ -529,7 +529,7 @@ def _publish_local_run_summary(run_id: str) -> None:
             mem.pop("consolidation_impact", None)
 
 
-def _dispatch_cloud_task(
+def dispatch_cloud_task(
     name: str,
     task_args: dict,
     dispatch_deadline_seconds: int | None = None,
@@ -879,7 +879,7 @@ def start_process(
             task_args=task_args,
             mode="cloud",
         )
-        success, msg = _dispatch_cloud_task(
+        success, msg = dispatch_cloud_task(
             name, task_args, dispatch_deadline_seconds=dispatch_deadline_for(name, task_args)
         )
         if not success:

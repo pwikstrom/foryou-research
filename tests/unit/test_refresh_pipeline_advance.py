@@ -53,7 +53,7 @@ def runner(monkeypatch):
         return True, "queued"
 
     # The advance imports the dispatcher from process_manager at call time.
-    monkeypatch.setattr(pm, "_dispatch_cloud_task", fake_dispatch)
+    monkeypatch.setattr(pm, "dispatch_cloud_task", fake_dispatch)
     monkeypatch.setattr(runtime, "dispatch_deadline_for", lambda n, a: 1800)
     monkeypatch.setattr(runtime, "stamp_task_status", lambda *a, **kw: None)
     monkeypatch.setattr(runtime, "read_task_status", lambda n: statuses.get(n))

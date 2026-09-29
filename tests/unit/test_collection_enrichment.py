@@ -692,7 +692,7 @@ def tick(monkeypatch, store):
     import web_interface.services.worker_status as ws
 
     monkeypatch.setattr(
-        ws, "_workers_blocking_consolidate", lambda: list(world["consolidate_blockers"])
+        ws, "workers_blocking_consolidate", lambda: list(world["consolidate_blockers"])
     )
     # The batch-size hold and the run-record seeding are exercised by their
     # own tests; every older tick test wants a 3-item handoff to start the
@@ -1559,7 +1559,7 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
 
     dispatched = []
     monkeypatch.setattr(
-        "web_interface.tasks.process_manager._dispatch_cloud_task",
+        "web_interface.tasks.process_manager.dispatch_cloud_task",
         lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1],
     )
     monkeypatch.setattr(ce, "armed_plans", lambda: {})
@@ -1939,7 +1939,7 @@ def test_activity_reports_the_running_worker():
     running = {"queue_annotator_batch"}
     with (
         patch(
-            "web_interface.services.worker_status._is_worker_running",
+            "web_interface.services.worker_status.is_worker_running",
             side_effect=lambda n: n in running,
         ),
         patch(
@@ -1961,7 +1961,7 @@ def test_activity_reports_the_running_worker():
         running = {"queue_scraper_tiktok"}
         assert ce.activity(None)["kind"] == "waiting"
 
-    with patch("web_interface.services.worker_status._is_worker_running", return_value=False):
+    with patch("web_interface.services.worker_status.is_worker_running", return_value=False):
         out = ce.activity("tiktok")
     assert out == {"kind": "waiting", "worker": None, "message": None, "started_at": None}
 

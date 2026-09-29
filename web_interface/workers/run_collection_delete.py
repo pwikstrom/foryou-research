@@ -55,9 +55,9 @@ def run_collection_delete(
     from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
-    from web_interface.routes.management.collections import (
-        _affected_studies_for_collections,
-        _find_raw_file_locations,
+    from web_interface.services.collection_deletion import (
+        affected_studies_for_collections,
+        find_raw_file_locations,
     )
     from web_interface.services.study_data import invalidate_collection_tags_cache, study_cache
     from web_interface.tasks.process_manager import start_process
@@ -102,7 +102,7 @@ def run_collection_delete(
             mask = events_df["collection_id"].astype(str).isin(id_set)
             if mask.any() and "raw_file" in events_df.columns:
                 raw_files = events_df.loc[mask, "raw_file"].dropna().astype(str).unique().tolist()
-    raw_locations = _find_raw_file_locations(raw_files)
+    raw_locations = find_raw_file_locations(raw_files)
     rows_total = len(events_df) if events_df is not None else 0
     rows_to_drop = int(mask.sum()) if mask is not None else 0
     reporter.log(
@@ -118,7 +118,7 @@ def run_collection_delete(
     if data_io.exists(storage_location="recoded", filename=tags_fn):
         tags_snapshot = data_io.load_json(storage_location="recoded", filename=tags_fn) or {}
 
-    affected_studies = _affected_studies_for_collections(collection_ids)
+    affected_studies = affected_studies_for_collections(collection_ids)
     reporter.log(f"{len(affected_studies)} affected study/studies: {affected_studies or '[]'}")
 
     try:

@@ -45,13 +45,13 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
     import pandas as pd
     import pyarrow.parquet as pq
 
-    from fyp.core.data_io import _get_bucket, _resolve_paths
+    from fyp.core.data_io import get_bucket, resolve_paths
 
-    gcs_uri, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    gcs_uri, _, mode, blob_name = resolve_paths(storage_location, filename)
     if mode != "gcs":
         reporter.log(f"[BENCH] SKIP {storage_location}/{filename} — not in GCS mode")
         return
-    bucket = _get_bucket()
+    bucket = get_bucket()
 
     reporter.log(f"[BENCH] ===== {storage_location}/{filename} =====")
     reporter.log(f"[BENCH] gcs_uri={gcs_uri}")

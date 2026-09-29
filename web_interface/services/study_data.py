@@ -189,7 +189,7 @@ def _ttl_mtime(filename):
     return mtime
 
 
-def _get_recoded_mtime(study):
+def get_recoded_mtime(study):
     """Return the on-disk mtime of the study's recoded parquet, or ``None``
     if the file is missing / unreadable. Used to detect stale RAM cache
     entries when the parquet is refreshed by a worker subprocess. TTL-cached
@@ -247,8 +247,8 @@ def _composed_mtime(base, overlay):
     """Joint staleness token for a composed frame: either side's rewrite
     changes the tuple, which the StudyCache treats as any other mtime value.
     Returns None when either parquet is missing (composed frame unavailable)."""
-    base_mtime = _get_recoded_mtime(base)
-    overlay_mtime = _get_recoded_mtime(overlay)
+    base_mtime = get_recoded_mtime(base)
+    overlay_mtime = get_recoded_mtime(overlay)
     if base_mtime is None or overlay_mtime is None:
         return None
     return (base_mtime, overlay_mtime)
@@ -653,7 +653,7 @@ def _cached_study_frame(study, verbose=False):
             study_cache.invalidate(study)
             return None, None, None
     else:
-        current_mtime = _get_recoded_mtime(study)
+        current_mtime = get_recoded_mtime(study)
 
     # Check cache (First Check)
     cached = study_cache.get(study, current_mtime=current_mtime)
@@ -732,7 +732,7 @@ def _cached_study_frame(study, verbose=False):
             "df": filtered_df,
             "col_types": col_types,
             "status": status,
-            "mtime": _composed_mtime(*compose) if compose else _get_recoded_mtime(study),
+            "mtime": _composed_mtime(*compose) if compose else get_recoded_mtime(study),
         }
         study_cache.put(study, cache_item)
         return filtered_df, col_types, status
@@ -740,7 +740,7 @@ def _cached_study_frame(study, verbose=False):
 
 def is_study_frame_cached(study):
     """True when the study's context-filtered frame is warm in the RAM cache."""
-    return study_cache.get(study, current_mtime=_get_recoded_mtime(study)) is not None
+    return study_cache.get(study, current_mtime=get_recoded_mtime(study)) is not None
 
 
 # NOTE: an earlier cold-open design warmed the frame on a daemon thread here.
@@ -821,7 +821,7 @@ def get_search_column(study, column):
 
     Returns ``(None, None)`` when the study or column doesn't exist.
     """
-    current_mtime = _get_recoded_mtime(study)
+    current_mtime = get_recoded_mtime(study)
     if current_mtime is None:
         return None, None
 
@@ -867,7 +867,7 @@ def search_column_value_counts(study, column):
 
     Staleness is keyed on the recoded parquet's mtime, like ``StudyCache``.
     """
-    mtime = _get_recoded_mtime(study)
+    mtime = get_recoded_mtime(study)
     if mtime is None:
         return None
     key = (study, column)
@@ -1004,7 +1004,7 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None, study
 
     cache_token = None
     if study is not None:
-        mtime = _get_recoded_mtime(study)
+        mtime = get_recoded_mtime(study)
         cache_token = (mtime, len(df))
 
     # Machine columns: shared across users, keyed on the frame identity plus
@@ -1388,7 +1388,7 @@ def get_study_frame_collections(study) -> set | None:
         overlay_cids = get_study_frame_collections(compose[1]) or set()
         return set(base_cids) | set(overlay_cids)
 
-    mtime = _get_recoded_mtime(study)
+    mtime = get_recoded_mtime(study)
     if mtime is None:
         return None
 

@@ -141,7 +141,7 @@ def dispatch_downstream_refresh(
     from web_interface.services import refresh_pipeline
     from web_interface.services.worker_status import (
         PIPELINE_STEPS_ORDER,
-        _is_worker_running,
+        is_worker_running,
     )
     from web_interface.tasks.task_status import is_cloud_run
 
@@ -154,7 +154,7 @@ def dispatch_downstream_refresh(
         return "noop", "No consolidation impact to refresh."
 
     if refresh_pipeline.run_in_flight() or any(
-        _is_worker_running(n) for n in (["consolidate_enrichment"] + PIPELINE_STEPS_ORDER)
+        is_worker_running(n) for n in (["consolidate_enrichment"] + PIPELINE_STEPS_ORDER)
     ):
         return "busy", "A refresh pipeline is already running."
 
@@ -177,7 +177,7 @@ def dispatch_downstream_refresh(
 
     if is_cloud_run():
         from web_interface.tasks.process_manager import (
-            _dispatch_cloud_task,
+            dispatch_cloud_task,
             dispatch_deadline_for,
         )
 
@@ -201,7 +201,7 @@ def dispatch_downstream_refresh(
             if leaf_names:
                 args["pipeline_leaves"] = leaf_names
                 args["pipeline_fork_ts"] = fork_ts
-            success, msg = _dispatch_cloud_task(
+            success, msg = dispatch_cloud_task(
                 task, args, dispatch_deadline_seconds=dispatch_deadline_for(task, args)
             )
             if not success:

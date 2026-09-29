@@ -17,7 +17,7 @@ from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.study_data import study_cache
 from ...services.worker_status import (
-    _actor,
+    current_actor,
 )
 from ._blueprint import management_bp
 from .schema import _var_schema_admin_enabled
@@ -177,7 +177,7 @@ def promote_annotation_version():
             pass
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="annotation_version.promote",
             details={"version": version, "preferred_rows": rebuilt},
@@ -613,7 +613,7 @@ def upload_annotation_contract():
         data_io.save_json(
             data={
                 "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                "updated_by": _actor(),
+                "updated_by": current_actor(),
                 "original_filename": original_filename,
             },
             storage_location=ac.RUNTIME_LOCATION,
@@ -652,7 +652,7 @@ def upload_annotation_contract():
         minted_version = annotation_versioning.ensure_active_version_registered()
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="annotation_contract.upload",
             details={
@@ -725,7 +725,7 @@ def revert_annotation_contract():
         annotation_versioning.ensure_active_version_registered()
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="annotation_contract.revert",
             details={"backup": backup_name},

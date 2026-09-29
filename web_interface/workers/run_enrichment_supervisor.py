@@ -117,12 +117,12 @@ def _hard_gate() -> list[str]:
     """
     from web_interface.services.worker_status import (
         PIPELINE_STEPS_ORDER,
-        _is_worker_running,
+        is_worker_running,
     )
 
     blocking = []
     for name in ["consolidate_enrichment", *PIPELINE_STEPS_ORDER]:
-        if _is_worker_running(name):
+        if is_worker_running(name):
             blocking.append(name)
     try:
         from web_interface.tasks import drain_lease
@@ -135,9 +135,9 @@ def _hard_gate() -> list[str]:
 
 def _scrape_lane_busy(platform: str) -> bool:
     """True while this platform's scraper is running."""
-    from web_interface.services.worker_status import _is_worker_running
+    from web_interface.services.worker_status import is_worker_running
 
-    return _is_worker_running(f"queue_scraper_{platform}")
+    return is_worker_running(f"queue_scraper_{platform}")
 
 
 def _annotate_lane_busy() -> bool:
@@ -147,9 +147,9 @@ def _annotate_lane_busy() -> bool:
     not lost-update safe against the batch worker's claims, so the two must
     never overlap — and the lane check is what enforces that here.
     """
-    from web_interface.services.worker_status import _is_worker_running
+    from web_interface.services.worker_status import is_worker_running
 
-    return _is_worker_running("queue_annotator") or _is_worker_running("queue_annotator_batch")
+    return is_worker_running("queue_annotator") or is_worker_running("queue_annotator_batch")
 
 
 def _in_flight_annotation_ids() -> set[str]:
@@ -772,9 +772,9 @@ def _settle_owed(reporter) -> dict | None:
         # Consolidated by hand in the meantime — nothing left to fold in.
         ce.set_meta(SETTLE_OWED_KEY, None)
         return None
-    from web_interface.services.worker_status import _workers_blocking_consolidate
+    from web_interface.services.worker_status import workers_blocking_consolidate
 
-    blocking = _workers_blocking_consolidate()
+    blocking = workers_blocking_consolidate()
     if blocking:
         reporter.log(
             f"Results from {kind} await consolidation (no plan armed); "
@@ -827,12 +827,12 @@ def _settle(reporter) -> dict | None:
     than falling through to HANDOFF/PLAN on stale enrichment status — that
     stop is what bounds cross-cycle overlap to one cycle.
     """
-    from web_interface.services.worker_status import _workers_blocking_consolidate
+    from web_interface.services.worker_status import workers_blocking_consolidate
 
     kind = _unconsolidated()
     if not kind:
         return None
-    blocking = _workers_blocking_consolidate()
+    blocking = workers_blocking_consolidate()
     if blocking:
         reporter.log(
             f"Results from {kind} await consolidation; waiting for "
@@ -950,9 +950,9 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
         # start) also falls through to here, and refreshing then would block
         # the loop behind the pipeline for the rest of the cycle (observed
         # one tick after a boundary move).
-        from web_interface.services.worker_status import _workers_blocking_consolidate
+        from web_interface.services.worker_status import workers_blocking_consolidate
 
-        if _workers_blocking_consolidate():
+        if workers_blocking_consolidate():
             return None
     if require_backstop:
         ref = downstream_refresh.last_full_refresh() or deferred.get("deferred_since")

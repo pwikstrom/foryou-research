@@ -17,7 +17,7 @@ from fyp.core.fyp_config import (
 from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.worker_status import (
-    _actor,
+    current_actor,
 )
 from ._blueprint import management_bp
 
@@ -308,7 +308,7 @@ def save_presentation_endpoint():
 
         old_hash = compute_var_schema_hash()
         try:
-            result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=_actor())
+            result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=current_actor())
         except vp.PresentationConflict as e:
             return jsonify(
                 {
@@ -330,7 +330,7 @@ def save_presentation_endpoint():
                 f"WARNING: presentation save changed the schema hash ({old_hash[:16]} -> {new_hash[:16]})."
             )
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category="admin",
             action="var_presentation.save",
             details={"hash_changed": hash_changed},

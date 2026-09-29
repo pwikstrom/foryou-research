@@ -1,10 +1,10 @@
-"""`run_ingest_refresh._build_per_file_summary` merges the intake drop stats."""
+"""`run_ingest_refresh.build_per_file_summary` merges the intake drop stats."""
 
 from types import SimpleNamespace
 
 import pandas as pd
 
-from web_interface.workers.run_ingest_refresh import _build_per_file_summary
+from web_interface.workers.run_ingest_refresh import build_per_file_summary
 
 
 def _main_collection(final_rows: dict[str, str], activity_type: str = "play") -> SimpleNamespace:
@@ -19,7 +19,7 @@ def _main_collection(final_rows: dict[str, str], activity_type: str = "play") ->
 def test_summary_merges_drop_stats_and_min_row_counts():
     main = _main_collection({"good.zip": "c1"})
 
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         main,
         raw_counts={"good.zip": {"rows": 100, "platform": "tiktok", "source": "ddp"}},
         processed_counts={"good.zip": {"rows": 90, "platform": "tiktok", "source": "ddp"}},
@@ -49,7 +49,7 @@ def test_play_rows_counts_only_watch_history():
     """A donation can keep rows and still contribute no viewing at all."""
     main = _main_collection({"engagement_only.zip": "c1"}, activity_type="fave")
 
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         main,
         raw_counts={"engagement_only.zip": {"rows": 100, "platform": "tiktok", "source": "ddp"}},
         processed_counts={
@@ -67,7 +67,7 @@ def test_play_rows_counts_only_watch_history():
 def test_summary_without_file_stats_still_works():
     """Backwards compatibility: callers may omit file_stats entirely."""
     main = _main_collection({"good.zip": "c1"})
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         main,
         raw_counts={"good.zip": {"rows": 10, "platform": "tiktok", "source": "ddp"}},
         processed_counts={"good.zip": {"rows": 10, "platform": "tiktok", "source": "ddp"}},
@@ -81,7 +81,7 @@ def test_summary_without_file_stats_still_works():
 def test_a_redonation_that_supersedes_every_row_is_a_merge():
     """The older file keeps no rows, yet the new one merged with it."""
     main = _main_collection({"new.json": "new"})
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         main,
         raw_counts={"new.json": {"rows": 10, "platform": "tiktok", "source": "ddp"}},
         processed_counts={"new.json": {"rows": 10, "platform": "tiktok", "source": "ddp"}},

@@ -20,7 +20,7 @@ from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.study_data import invalidate_collection_tags_cache, load_display_id_map
 from ...services.worker_status import (
-    _actor,
+    current_actor,
 )
 from ...tasks.process_manager import (
     start_process,
@@ -121,7 +121,7 @@ def fetch_aio_data():
         "aio_fetch",
         worker_registry.worker_module("aio_fetch"),
         task_args={"hours_back": hours_back},
-        started_by=_actor(),
+        started_by=current_actor(),
     )
     if success:
         return jsonify({"status": "started", "message": msg})
@@ -301,7 +301,7 @@ def upload_ingestion_file():
                 user_id=owner_user_id,
                 tags=tags,
                 tz=donor_tz or None,
-                uploaded_by=_actor(),
+                uploaded_by=current_actor(),
             )
             uploaded.append(filename)
             uploaded_detail.append(
@@ -323,7 +323,7 @@ def upload_ingestion_file():
         _prepopulate_annotations({fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="ingestion.upload",
             target=raw_path_key,
@@ -358,7 +358,7 @@ def refresh_collection_metadata():
     success, msg = start_process(
         "collection_metadata_refresh",
         worker_registry.worker_module("collection_metadata_refresh"),
-        started_by=_actor(),
+        started_by=current_actor(),
     )
     if success:
         return jsonify({"status": "started", "message": msg})
@@ -370,11 +370,13 @@ def refresh_collection_metadata():
 def refresh_ingestion_collection():
 
     success, msg = start_process(
-        "ingest_refresh", worker_registry.worker_module("ingest_refresh"), started_by=_actor()
+        "ingest_refresh",
+        worker_registry.worker_module("ingest_refresh"),
+        started_by=current_actor(),
     )
     if success:
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="ingestion.refresh",
         )
@@ -434,7 +436,7 @@ def unskip_ingestion_ledger_entry():
 
     main_collection.save_ledger()
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="ingestion.ledger_unskip",
         target=filename,
@@ -480,7 +482,7 @@ def structure_approve():
         return jsonify({"error": "filename missing"}), 400
 
     try:
-        entry = structure_sentinel.approve_file(filename, reviewed_by=_actor())
+        entry = structure_sentinel.approve_file(filename, reviewed_by=current_actor())
     except KeyError:
         return jsonify({"error": f"no structure verdict for '{filename}'"}), 404
     except ValueError as e:
@@ -497,7 +499,7 @@ def structure_approve():
         main_collection.save_ledger()
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="ingestion.structure_approve",
         target=filename,
@@ -523,7 +525,7 @@ def structure_reject():
         return jsonify({"error": "filename missing"}), 400
 
     try:
-        entry = structure_sentinel.reject_file(filename, reviewed_by=_actor())
+        entry = structure_sentinel.reject_file(filename, reviewed_by=current_actor())
     except KeyError:
         return jsonify({"error": f"no structure verdict for '{filename}'"}), 404
 
@@ -551,7 +553,7 @@ def structure_reject():
     main_collection.save_ledger()
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="ingestion.structure_reject",
         target=filename,
@@ -622,7 +624,7 @@ def clear_pending_uploads():
         total_removed += len(removed_here)
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="ingestion.clear_pending",
         details={"total_removed": total_removed, "failures": len(failures)},

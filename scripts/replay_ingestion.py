@@ -2031,9 +2031,9 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
     """
     from fyp.core.structure_sentinel import StructureSentinel
     from web_interface.workers.run_ingest_refresh import (
-        _build_per_file_summary,
-        _per_file_counts,
-        _removed_rows_breakdown,
+        build_per_file_summary,
+        per_file_counts,
+        removed_rows_breakdown,
     )
 
     sentinel = StructureSentinel() if use_sentinel else None
@@ -2052,12 +2052,12 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
         discarded_before.update(sub.discarded_raw_files)
 
     main.load_raw()
-    raw_counts = _per_file_counts(main.collections)
+    raw_counts = per_file_counts(main.collections)
     discarded_after: set[str] = set()
     for sub in main.collections:
         discarded_after.update(str(f) for f in sub.discarded_raw_files)
     main.process()
-    processed_counts = _per_file_counts(main.collections)
+    processed_counts = per_file_counts(main.collections)
 
     quarantined: dict[str, dict] = {}
     if sentinel is not None:
@@ -2090,7 +2090,7 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
         file_stats.update(getattr(sub, "file_stats_this_run", {}) or {})
 
     main.migrate_sub_collections()
-    summary = _build_per_file_summary(
+    summary = build_per_file_summary(
         main,
         raw_counts=raw_counts,
         processed_counts=processed_counts,
@@ -2111,7 +2111,7 @@ def _ingest_pass(main, use_sentinel: bool) -> dict:
                 if e.get("outcome") in ("added_as_new", "merged_with_existing")
             }
         )
-    replaced, _elsewhere = _removed_rows_breakdown(
+    replaced, _elsewhere = removed_rows_breakdown(
         main.data, pre_counts, pre_cids, getattr(main, "last_cid_remap", {}) or {}, summary
     )
     observations = dict(sentinel.observations) if sentinel is not None else {}

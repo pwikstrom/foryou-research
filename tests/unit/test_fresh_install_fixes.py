@@ -1,7 +1,7 @@
 """Regression tests for the fresh-install bugs found in the 2026-07 field log.
 
 Covers:
-    * _workers_blocking_consolidate detects per-platform scraper processes
+    * workers_blocking_consolidate detects per-platform scraper processes
       (the pre-fix code checked the retired flat name ``queue_scraper``, so a
       running scraper never blocked/armed a consolidate).
     * _consolidate_blockers treats an active drain lease as a blocker.
@@ -35,7 +35,7 @@ def test_blocking_consolidate_detects_per_platform_scraper(monkeypatch):
 
     monkeypatch.setitem(worker_status.processes, scraper_name, {"proc": _fake_running_proc()})
     try:
-        assert scraper_name in worker_status._workers_blocking_consolidate()
+        assert scraper_name in worker_status.workers_blocking_consolidate()
     finally:
         worker_status.processes.pop(scraper_name, None)
 
@@ -45,7 +45,7 @@ def test_blocking_consolidate_detects_annotator(monkeypatch):
 
     monkeypatch.setitem(worker_status.processes, "queue_annotator", {"proc": _fake_running_proc()})
     try:
-        assert "queue_annotator" in worker_status._workers_blocking_consolidate()
+        assert "queue_annotator" in worker_status.workers_blocking_consolidate()
     finally:
         worker_status.processes.pop("queue_annotator", None)
 
@@ -53,7 +53,7 @@ def test_blocking_consolidate_detects_annotator(monkeypatch):
 def test_consolidate_blockers_include_drain_lease(monkeypatch):
     from web_interface.routes.management import enrichment
 
-    monkeypatch.setattr(enrichment, "_workers_blocking_consolidate", lambda: [])
+    monkeypatch.setattr(enrichment, "workers_blocking_consolidate", lambda: [])
     monkeypatch.setattr(enrichment, "_active_drain_leases", lambda: {"tiktok": {"host": "x"}})
     assert enrichment._consolidate_blockers() == ["local drain (tiktok)"]
 

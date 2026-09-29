@@ -111,7 +111,7 @@ def test_list_owned_collections_carries_coverage(patched, monkeypatch):
     monkeypatch.setattr(svc, "collections_for_user", lambda u, **kw: ["c1", "c2"])
     monkeypatch.setattr(svc, "load_withdrawals", lambda **kw: {})
     monkeypatch.setattr(svc, "get_collection_tags", lambda **kw: {})
-    monkeypatch.setattr(svc, "_load_metadata_personas", lambda cids=None: None)
+    monkeypatch.setattr(svc, "load_metadata_personas", lambda cids=None: None)
     monkeypatch.setattr(svc, "_pending_uploads_for_user", lambda u: {})
     out = {c["collection_id"]: c for c in svc.list_owned_collections("user")}
     assert out["c1"]["pct_scraped"] == pytest.approx(0.5)

@@ -1727,11 +1727,11 @@ def activity(platform: str | None = None) -> dict:
         ("consolidate_enrichment", "consolidating"),
     ]
     try:
-        from web_interface.services.worker_status import _is_worker_running
+        from web_interface.services.worker_status import is_worker_running
         from web_interface.tasks.task_status import read_task_status
 
         for name, kind in candidates:
-            if not _is_worker_running(name):
+            if not is_worker_running(name):
                 continue
             status = read_task_status(name) or {}
             progress_msg = (

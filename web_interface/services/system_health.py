@@ -32,7 +32,7 @@ from fyp.core.fyp_config import get_config
 from fyp.scrape import scrape_contract as sc
 from fyp.scrape.platform_scraper import THROTTLE_CATEGORIES, cleanup_temp_files, get_scraper
 
-from .worker_status import _cached_cookie_health
+from .worker_status import cached_cookie_health
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +356,7 @@ def _run_all_checks(trigger: str) -> None:
                 "checked_at": _now_iso(),
             }
         try:
-            doc["checks"][key]["cookie"] = _cached_cookie_health(platform)
+            doc["checks"][key]["cookie"] = cached_cookie_health(platform)
         except Exception:
             doc["checks"][key]["cookie"] = {
                 "status": "unknown",

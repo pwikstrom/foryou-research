@@ -4,11 +4,11 @@ The study modal's estimates moved from a per-selection prepared frame to a
 corpus-wide per-(collection, day) cells table. These tests build both from the
 same synthetic corpus and assert:
 
-  - _estimate_from_cells equals _estimate_from_prepared exactly for every
+  - estimate_from_cells equals _estimate_from_prepared exactly for every
     activity-level figure (totals, per-day, cells, sampling report) whenever no
     random capping is in play, and within documented tolerance for item-level
     estimates and capped configs;
-  - _universe_from_cells equals _universe_from_prepared exactly, always;
+  - universe_from_cells equals _universe_from_prepared exactly, always;
   - the daily chart numbers derived from cells equal the old
     event-window + play/observe + value_counts pipeline.
 """
@@ -123,7 +123,7 @@ EXACT_KEYS = ["total_activities", "unique_collections", "active_days"]
 
 
 def _assert_estimates_match(cells, coll, frame, cfg, item_tol=0.05, exact_subcounts=True):
-    s_new, days_new, sparse_new, cells_new, rep_new = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, days_new, sparse_new, cells_new, rep_new = ss.estimate_from_cells(cells, coll, cfg)
     s_old, days_old, sparse_old, cells_old, rep_old = ss._estimate_from_prepared(frame, cfg)
 
     for k in EXACT_KEYS:
@@ -219,7 +219,7 @@ def test_sampling_capped_events(corpus):
         MIN_GROUP_COUNT_PER_COLLECTION=0,
         MAX_GROUP_COUNT_PER_COLLECTION="",
     )
-    s_new, days_new, sparse_new, cells_new, rep_new = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, days_new, sparse_new, cells_new, rep_new = ss.estimate_from_cells(cells, coll, cfg)
     s_old, days_old, sparse_old, cells_old, rep_old = ss._estimate_from_prepared(frame, cfg)
     for k in EXACT_KEYS:
         assert s_new[k] == s_old[k]
@@ -244,7 +244,7 @@ def test_sampling_stage2_downsampling(corpus):
         MIN_GROUP_COUNT_PER_COLLECTION=0,
         MAX_GROUP_COUNT_PER_COLLECTION=20,
     )
-    s_new, days_new, _sp, cells_new, rep_new = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, days_new, _sp, cells_new, rep_new = ss.estimate_from_cells(cells, coll, cfg)
     s_old, days_old, _sp2, cells_old, rep_old = ss._estimate_from_prepared(frame, cfg)
     assert rep_new == rep_old
     assert cells_new == cells_old  # both keep exactly max_cells per big collection
@@ -266,7 +266,7 @@ def test_empty_after_min_events(corpus):
         MIN_GROUP_COUNT_PER_COLLECTION=0,
         MAX_GROUP_COUNT_PER_COLLECTION="",
     )
-    s_new, days_new, _s, _c, rep_new = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, days_new, _s, _c, rep_new = ss.estimate_from_cells(cells, coll, cfg)
     s_old, days_old, _s2, _c2, rep_old = ss._estimate_from_prepared(frame, cfg)
     assert s_new == s_old
     assert days_new == days_old == []
@@ -276,14 +276,14 @@ def test_empty_after_min_events(corpus):
 def test_no_selection_and_empty_window(corpus):
     cells, coll, frame = _both_paths(corpus, ["c1"])
     cfg = _cfg(SELECTED_COLLECTIONS=[], SAMPLE_FRAME="off")
-    assert ss._estimate_from_cells(cells, coll, cfg)[0]["total_activities"] == 0
+    assert ss.estimate_from_cells(cells, coll, cfg)[0]["total_activities"] == 0
     cfg = _cfg(
         SELECTED_COLLECTIONS=["c1"],
         SAMPLE_FRAME="off",
         START_DATE="2030-01-01",
         END_DATE="2030-01-02",
     )
-    s_new, *_ = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, *_ = ss.estimate_from_cells(cells, coll, cfg)
     s_old, *_ = ss._estimate_from_prepared(frame, cfg)
     assert s_new == s_old
 
@@ -297,7 +297,7 @@ def test_universe_parity(corpus, window):
     selected = ["c1", "c2", "c3", "c4"]
     cells, coll, frame = _both_paths(corpus, selected)
     cfg = _cfg(SELECTED_COLLECTIONS=selected, START_DATE=window[0], END_DATE=window[1])
-    new = ss._universe_from_cells(cells, cfg)
+    new = ss.universe_from_cells(cells, cfg)
     old = ss._universe_from_prepared(frame, cfg)
     assert new == old
     assert new[3] is True and new[0] > 0
@@ -305,7 +305,7 @@ def test_universe_parity(corpus, window):
 
 def test_universe_no_selection(corpus):
     cells, coll, _ = _both_paths(corpus, ["c1"])
-    assert ss._universe_from_cells(cells, _cfg(SELECTED_COLLECTIONS=[])) == (
+    assert ss.universe_from_cells(cells, _cfg(SELECTED_COLLECTIONS=[])) == (
         0,
         0,
         {"activities": 0, "scraped": 0, "annotated": 0},
@@ -368,14 +368,14 @@ def test_issues_severity_around_cap():
         "active_days": 1,
     }
 
-    over = ss._derive_study_issues({**base, "total_activities": cap + 1}, 0, 10, True)
+    over = ss.derive_study_issues({**base, "total_activities": cap + 1}, 0, 10, True)
     assert any(i["severity"] == "error" and i["code"] == "too_big" for i in over)
 
-    big = ss._derive_study_issues({**base, "total_activities": int(cap * 0.8)}, 0, 10, True)
+    big = ss.derive_study_issues({**base, "total_activities": int(cap * 0.8)}, 0, 10, True)
     assert any(i["severity"] == "warn" and i["code"] == "large" for i in big)
     assert not any(i["severity"] == "error" for i in big)
 
-    small = ss._derive_study_issues({**base, "total_activities": 1000}, 0, 10, True)
+    small = ss.derive_study_issues({**base, "total_activities": 1000}, 0, 10, True)
     assert not any(i["code"] in ("too_big", "large") for i in small)
 
 
@@ -560,7 +560,7 @@ def test_cross_collection_item_overlap(monkeypatch):
     cells, coll = pc._build_preview_cells()
     frame = pc._prepare_preview_frame(["a", "b"], status)
     cfg = _cfg(SELECTED_COLLECTIONS=["a", "b"], SAMPLE_FRAME="off")
-    s_new, *_ = ss._estimate_from_cells(cells, coll, cfg)
+    s_new, *_ = ss.estimate_from_cells(cells, coll, cfg)
     s_old, *_ = ss._estimate_from_prepared(frame, cfg)
     # Full selection, full range: global calibration makes uniques exact (= 50, not 100).
     assert s_old["unique_videos"] == 50

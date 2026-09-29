@@ -107,7 +107,7 @@ def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
             pass
 
     dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
-    monkeypatch.setattr(ws, "_workers_blocking_consolidate", lambda: ["queue_scraper_tiktok"])
+    monkeypatch.setattr(ws, "workers_blocking_consolidate", lambda: ["queue_scraper_tiktok"])
     with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
         assert sup._finalize(Rep()) is None
     dispatch.assert_not_called()

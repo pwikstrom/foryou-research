@@ -37,7 +37,7 @@ WORKER_DIR = Path(process_manager.__file__).parent
 
 @pytest.fixture
 def dispatched(monkeypatch):
-    """Capture the deadline start_process passes to _dispatch_cloud_task."""
+    """Capture the deadline start_process passes to dispatch_cloud_task."""
     calls: list[dict] = []
 
     def fake_dispatch(name, task_args, dispatch_deadline_seconds=None, **kw):
@@ -45,7 +45,7 @@ def dispatched(monkeypatch):
         return True, "Task dispatched"
 
     monkeypatch.setattr(process_manager, "is_cloud_run", lambda: True)
-    monkeypatch.setattr(process_manager, "_dispatch_cloud_task", fake_dispatch)
+    monkeypatch.setattr(process_manager, "dispatch_cloud_task", fake_dispatch)
     monkeypatch.setattr(process_manager, "read_task_status", lambda key: None)
     monkeypatch.setattr(process_manager.run_logs, "open_run", lambda *a, **k: None)
     monkeypatch.setattr(process_manager.run_logs, "new_run_id", lambda: "runid")
@@ -80,7 +80,7 @@ def test_run_log_is_opened_before_the_task_is_created(monkeypatch):
         order.append(("dispatch", task_args.get("log_run_id")))
         return True, "Task dispatched"
 
-    monkeypatch.setattr(process_manager, "_dispatch_cloud_task", dispatch_ok)
+    monkeypatch.setattr(process_manager, "dispatch_cloud_task", dispatch_ok)
     ok, _ = process_manager.start_process("queue_annotator_batch", None, task_args={})
     assert ok and order == [("open", "runid"), ("dispatch", "runid")]
 
@@ -90,7 +90,7 @@ def test_run_log_is_opened_before_the_task_is_created(monkeypatch):
         order.append(("dispatch", task_args.get("log_run_id")))
         return False, "queue refused"
 
-    monkeypatch.setattr(process_manager, "_dispatch_cloud_task", dispatch_fails)
+    monkeypatch.setattr(process_manager, "dispatch_cloud_task", dispatch_fails)
     ok, _ = process_manager.start_process("queue_annotator_batch", None, task_args={})
     assert not ok
     assert order == [("open", "runid"), ("dispatch", "runid"), ("abort", "queue refused")]
@@ -256,7 +256,7 @@ def test_dispatch_site_clamps_an_overlong_deadline(monkeypatch):
     ):
         monkeypatch.setenv(env, "x")
 
-    ok, _msg = process_manager._dispatch_cloud_task(
+    ok, _msg = process_manager.dispatch_cloud_task(
         "consolidate_enrichment", {}, dispatch_deadline_seconds=3600
     )
     assert ok, _msg
@@ -268,7 +268,7 @@ def test_dispatch_site_clamps_an_overlong_deadline(monkeypatch):
 
 
 def _dispatch_call_sites() -> list[str]:
-    """Every _dispatch_cloud_task(...) call that omits dispatch_deadline_seconds.
+    """Every dispatch_cloud_task(...) call that omits dispatch_deadline_seconds.
 
     A missing deadline silently means Cloud Tasks' 600s default, which for a
     long worker means the queue re-dispatches it mid-run — and for a
@@ -283,7 +283,7 @@ def _dispatch_call_sites() -> list[str]:
                 continue
             fn = node.func
             fname = getattr(fn, "id", None) or getattr(fn, "attr", None)
-            if fname != "_dispatch_cloud_task":
+            if fname != "dispatch_cloud_task":
                 continue
             if not any(kw.arg == "dispatch_deadline_seconds" for kw in node.keywords):
                 offenders.append(f"{path.relative_to(root.parent)}:{node.lineno}")
@@ -293,7 +293,7 @@ def _dispatch_call_sites() -> list[str]:
 def test_every_dispatch_site_sets_a_deadline_explicitly():
     offenders = _dispatch_call_sites()
     assert not offenders, (
-        "these _dispatch_cloud_task calls fall back to Cloud Tasks' 600s "
+        "these dispatch_cloud_task calls fall back to Cloud Tasks' 600s "
         "default; pass dispatch_deadline_seconds=dispatch_deadline_for(name, args):\n  "
         + "\n  ".join(offenders)
     )

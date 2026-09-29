@@ -30,7 +30,7 @@ def _batches(*chunks):
 
 
 def test_none_when_the_study_frame_does_not_exist(monkeypatch):
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: None)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: None)
     assert study_data.get_study_frame_collections("nope") is None
 
 
@@ -40,7 +40,7 @@ def test_none_for_a_falsy_study_name():
 
 def test_reads_the_sidecar_cells_without_touching_the_parquet(monkeypatch):
     """Sampling active: selected_cells keys are the frame's collections."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: 1.0)
     monkeypatch.setattr(
         study_data,
         "get_study_sidecar",
@@ -59,7 +59,7 @@ def test_reads_the_sidecar_cells_without_touching_the_parquet(monkeypatch):
 
 def test_falls_back_to_the_frame_column_without_sampling(monkeypatch):
     """Streamed: distinct ids accumulate across batches, nulls dropped."""
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: 1.0)
     monkeypatch.setattr(study_data, "get_study_sidecar", lambda study: {"sampling_active": False})
     monkeypatch.setattr(
         study_data.data_io,
@@ -70,14 +70,14 @@ def test_falls_back_to_the_frame_column_without_sampling(monkeypatch):
 
 
 def test_empty_frame_is_an_empty_set_not_none(monkeypatch):
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: 1.0)
     monkeypatch.setattr(study_data, "get_study_sidecar", lambda study: None)
     monkeypatch.setattr(study_data.data_io, "iter_parquet_batches", lambda **kwargs: _batches([]))
     assert study_data.get_study_frame_collections("s") == set()
 
 
 def test_unreadable_frame_is_none(monkeypatch):
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: 1.0)
     monkeypatch.setattr(study_data, "get_study_sidecar", lambda study: None)
 
     def _raise(**kwargs):
@@ -90,7 +90,7 @@ def test_unreadable_frame_is_none(monkeypatch):
 def test_cache_is_keyed_on_the_frame_mtime(monkeypatch):
     mtimes = {"value": 1.0}
     reads = {"n": 0}
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda study: mtimes["value"])
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda study: mtimes["value"])
     monkeypatch.setattr(study_data, "get_study_sidecar", lambda study: None)
 
     def _read(**kwargs):

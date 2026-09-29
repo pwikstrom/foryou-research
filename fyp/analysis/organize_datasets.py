@@ -1886,21 +1886,21 @@ def consolidate_enrichment_data(
     return fine_results
 
 
-_SHADOW_CHECK_FILENAME = "consolidation_shadow_check.json"
+SHADOW_CHECK_FILENAME = "consolidation_shadow_check.json"
 
 
 def _per_item_signatures(
     df: pd.DataFrame, exclude: frozenset | set = frozenset()
 ) -> dict[str, str]:
     """Per-item content signatures of a consolidated frame (dtype-insensitive)."""
-    from fyp.scrape.scrape import _scrape_value_signatures
+    from fyp.scrape.scrape import scrape_value_signatures
 
     if df is None or df.empty:
         return {}
     if df.index.name == "item_id":
         df = df.reset_index()
     value_cols = [c for c in df.columns if c != "item_id" and c not in exclude]
-    return _scrape_value_signatures(df, value_cols)
+    return scrape_value_signatures(df, value_cols)
 
 
 def _signature_mismatch(
@@ -1943,7 +1943,7 @@ def verify_consolidation_equivalence(
         expected reaction to ``ok=False`` is alerting plus a real
         ``force_consolidation=True`` run to promote the full rebuild.
     """
-    from fyp.scrape.scrape import _SCRAPE_PROVENANCE_COLS
+    from fyp.scrape.scrape import SCRAPE_PROVENANCE_COLS
 
     def _progress(pct: float, msg: str) -> None:
         if progress_cb is not None:
@@ -1969,7 +1969,7 @@ def verify_consolidation_equivalence(
         storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"
     )
     mismatches[_scrapes_label()] = _signature_mismatch(
-        live_scrapes, shadow_scrapes, exclude=_SCRAPE_PROVENANCE_COLS
+        live_scrapes, shadow_scrapes, exclude=SCRAPE_PROVENANCE_COLS
     )
     del live_scrapes
 
@@ -2009,7 +2009,7 @@ def verify_consolidation_equivalence(
         "mismatches": mismatches,
     }
     try:
-        data_io.save_json(data=result, storage_location="recoded", filename=_SHADOW_CHECK_FILENAME)
+        data_io.save_json(data=result, storage_location="recoded", filename=SHADOW_CHECK_FILENAME)
     except Exception as exc:
         logger.warning(f"    Could not persist the shadow-check result: {exc}")
 

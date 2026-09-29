@@ -71,7 +71,7 @@ _SEED_TO_CANONICAL = {
 # Scratch column carrying the per-file donor timezone from the ingestion manifest
 # (an IANA name like "Asia/Kolkata" or a fixed "+05:30" offset). Stamped in
 # load_raw, consumed by the timezone resolvers, dropped by process()'s filter.
-_MANIFEST_TZ_COLUMN = "manifest_tz"
+MANIFEST_TZ_COLUMN = "manifest_tz"
 
 _FIXED_OFFSET_RE = re.compile(r"^([+-])(\d{1,2})(?::?(\d{2}))?$")
 
@@ -106,7 +106,7 @@ def parse_donor_timezone(tz_str: str | None):
     return None
 
 
-def _zone_offset_hours(utc_timestamps: pd.Series, tz) -> pd.Series:
+def zone_offset_hours(utc_timestamps: pd.Series, tz) -> pd.Series:
     """Return the per-row UTC offset in hours of ``tz`` at each UTC instant.
 
     Vectorised and DST-correct: converts the tz-aware UTC series into ``tz`` and
@@ -124,9 +124,9 @@ def _first_manifest_tz(df: pd.DataFrame):
     A frame handled by ``process_single`` holds one raw file's rows, so the
     manifest timezone is constant; the first non-null value is taken.
     """
-    if _MANIFEST_TZ_COLUMN not in df.columns:
+    if MANIFEST_TZ_COLUMN not in df.columns:
         return None
-    values = df[_MANIFEST_TZ_COLUMN].dropna()
+    values = df[MANIFEST_TZ_COLUMN].dropna()
     if len(values) == 0:
         return None
     return parse_donor_timezone(str(values.iloc[0]))
@@ -829,7 +829,7 @@ class ForYouBaseCollection(ABC):
         if len(df) > 0:
             tz = _first_manifest_tz(df)
             if tz is not None:
-                df["tz_offset"] = _zone_offset_hours(df["utc_timestamp"], tz)
+                df["tz_offset"] = zone_offset_hours(df["utc_timestamp"], tz)
             else:
                 df["tz_offset"] = infer_timezone_offset(df["utc_timestamp"])
         df.sort_values("utc_timestamp", inplace=True, kind="mergesort")
@@ -1049,7 +1049,7 @@ class ForYouBaseCollection(ABC):
 
                 # Per-file donor timezone for the offset resolver (scratch column,
                 # dropped by process()'s filter before _standardize()).
-                one_df[_MANIFEST_TZ_COLUMN] = (
+                one_df[MANIFEST_TZ_COLUMN] = (
                     self._current_file_tz if self._current_file_tz else pd.NA
                 )
 
@@ -1882,7 +1882,7 @@ class ForYouCollection(ForYouBaseCollection):
 
         Args:
             per_file_summary: list of dicts from
-                ``run_ingest_refresh._build_per_file_summary``.
+                ``run_ingest_refresh.build_per_file_summary``.
         """
         now = datetime.now(timezone.utc).isoformat()
         files = self.ledger.setdefault("files", {})

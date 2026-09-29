@@ -27,8 +27,8 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     from fyp.analysis.studies import init_study_defs, save_study_defs
     from fyp.core.fyp_config import fyp_cf
     from web_interface.services import explorer_backend as explorer
-    from web_interface.services.preview_cache import _load_study_raw_window
-    from web_interface.services.stats_service import _calculate_stats, _compute_universe_enrichment
+    from web_interface.services.preview_cache import load_study_raw_window
+    from web_interface.services.stats_service import calculate_stats, compute_universe_enrichment
     from web_interface.services.study_data import make_serializable, study_cache
     from web_interface.services.user_variables import load_schema_metadata
 
@@ -78,7 +78,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log(f"'{study_name}' is a composed study — nothing to build. Skipping.")
         return
 
-    # _calculate_stats creates the recoded dataset and returns it alongside stats.
+    # calculate_stats creates the recoded dataset and returns it alongside stats.
     # If force_full_rebuild is requested, remove the sidecar first so the
     # fingerprint short-circuit inside create_study_recoded_dataset cannot fire.
     if force_full_rebuild:
@@ -90,14 +90,14 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
         except Exception as exc:
             reporter.log(f"force_full_rebuild: could not remove sidecar: {exc}")
 
-    stats, df_recoded, df_status = _calculate_stats(study_config, save_to_cache=True)
+    stats, df_recoded, df_status = calculate_stats(study_config, save_to_cache=True)
 
     # Embed the date-range activity universe (by enrichment) into stats so the
     # Define Study modal's mosaic can be seeded when the study is reopened.
     try:
-        df_raw_window = _load_study_raw_window(study_config.get("SELECTED_COLLECTIONS") or [])
+        df_raw_window = load_study_raw_window(study_config.get("SELECTED_COLLECTIONS") or [])
         if df_raw_window is not None and isinstance(stats, dict):
-            stats["universe"] = _compute_universe_enrichment(
+            stats["universe"] = compute_universe_enrichment(
                 df_raw_window,
                 df_status,
                 study_config.get("START_DATE"),

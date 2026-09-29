@@ -195,7 +195,7 @@ def _evict_bundle_cache(now: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_metadata_personas(collection_ids: list[str] | None = None) -> pd.DataFrame | None:
+def load_metadata_personas(collection_ids: list[str] | None = None) -> pd.DataFrame | None:
     """Load the ('personas', …) columns of collections_metadata.parquet.
 
     Requests both the stringified-tuple and plain column names (the on-disk
@@ -311,7 +311,7 @@ def corpus_percentile_frame(force: bool = False) -> pd.DataFrame | None:
     hit = _corpus_cache.get("frame")
     if not force and hit and now - hit[0] < _CACHE_TTL_S:
         return hit[1]
-    df = _load_metadata_personas(None)
+    df = load_metadata_personas(None)
     _corpus_cache["frame"] = (now, df)
     return df
 
@@ -419,7 +419,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
     if hit and now - hit[0] < _CACHE_TTL_S:
         return hit[1]
 
-    from fyp.ingest.base import _MANIFEST_TZ_COLUMN
+    from fyp.ingest.base import MANIFEST_TZ_COLUMN
 
     inst = _fresh_ingester(raw_path)
     if inst is None:
@@ -453,7 +453,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
     one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
     one_df["raw_file"] = filename
     one_df["collection_id"] = cid
-    one_df[_MANIFEST_TZ_COLUMN] = inst._current_file_tz if inst._current_file_tz else pd.NA
+    one_df[MANIFEST_TZ_COLUMN] = inst._current_file_tz if inst._current_file_tz else pd.NA
 
     inst.file_stats_this_run = {filename: {"raw_rows": int(len(one_df)), "dropped": {}}}
     inst.data = one_df
@@ -509,7 +509,7 @@ def discard_pending_upload(raw_path: str, filename: str) -> None:
         data_io.remove(storage_location=raw_path, filename=filename)
 
     cid = entry.get("collection_id") or os.path.splitext(filename)[0]
-    meta = _load_metadata_personas([str(cid)])
+    meta = load_metadata_personas([str(cid)])
     in_dataset = meta is not None and str(cid) in meta.index
     if not in_dataset:
         drop_collection_entry(str(cid))
@@ -788,7 +788,7 @@ def list_owned_collections(username: str) -> list[dict]:
     if not cids and not withdrawals:
         return []
     tags = get_collection_tags() or {}
-    meta = _load_metadata_personas(cids)
+    meta = load_metadata_personas(cids)
     pending = _pending_uploads_for_user(username)
 
     # One selective scan for platform/source (metadata doesn't carry it) and

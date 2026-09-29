@@ -1,7 +1,7 @@
 """Persistent "studies stale" signal after promoting a preferred annotation version.
 
 The promote endpoint writes ``process_stats["annotation_versions"]["promotion_impact"]``;
-``_evaluate_version_promotion_staleness`` reports it stale until
+``evaluate_version_promotion_staleness`` reports it stale until
 ``recode_refresh_studies`` succeeds after the promotion timestamp, then pops
 the marker (auto-clear). The staleness endpoint is additionally reachable with
 only the ``tab.admin.versions`` permission (the Versions-page banner).
@@ -31,7 +31,7 @@ def stats(monkeypatch):
 
 def test_no_marker_means_fresh(stats):
     stats.pop("annotation_versions", None)
-    result = stats_service._evaluate_version_promotion_staleness()
+    result = stats_service.evaluate_version_promotion_staleness()
     assert result == {"has_impact": False, "impact": None, "stale": False}
 
 
@@ -44,12 +44,12 @@ def test_stale_until_refresh_succeeds(stats):
         }
     }
     stats["recode_refresh_studies"] = {"last_success": "2026-07-26T09:00:00+00:00"}
-    result = stats_service._evaluate_version_promotion_staleness()
+    result = stats_service.evaluate_version_promotion_staleness()
     assert result["stale"] is True and result["has_impact"] is True
 
     # No refresh recorded at all is also stale.
     stats["recode_refresh_studies"] = {}
-    assert stats_service._evaluate_version_promotion_staleness()["stale"] is True
+    assert stats_service.evaluate_version_promotion_staleness()["stale"] is True
 
 
 def test_auto_clears_after_successful_refresh(stats):
@@ -61,7 +61,7 @@ def test_auto_clears_after_successful_refresh(stats):
         }
     }
     stats["recode_refresh_studies"] = {"last_success": "2026-07-26T11:00:00+00:00"}
-    result = stats_service._evaluate_version_promotion_staleness()
+    result = stats_service.evaluate_version_promotion_staleness()
     assert result["stale"] is False
     # Marker popped so the signal never lingers.
     assert "promotion_impact" not in stats.get("annotation_versions", {})
@@ -95,11 +95,11 @@ def test_staleness_endpoint_allows_versions_permission(monkeypatch, stats):
     # The consolidation evaluator also runs inside the endpoint — keep it off
     # the real stats file too.
     monkeypatch.setattr(
-        "web_interface.routes.management.enrichment._evaluate_consolidation_staleness",
+        "web_interface.routes.management.enrichment.evaluate_consolidation_staleness",
         lambda: {"has_impact": False, "impact": None, "processes": {}},
     )
     monkeypatch.setattr(
-        "web_interface.routes.management.enrichment._evaluate_version_promotion_staleness",
+        "web_interface.routes.management.enrichment.evaluate_version_promotion_staleness",
         lambda: {
             "has_impact": True,
             "impact": {"timestamp": "t", "version": "av_x"},

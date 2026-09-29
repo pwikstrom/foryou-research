@@ -16,7 +16,7 @@ from ..tasks.process_manager import SCRAPER_PROCESS_NAMES, process_stats, proces
 from ..tasks.task_status import is_cloud_run, read_task_status
 
 
-def _actor() -> str:
+def current_actor() -> str:
     """Return the username of the acting user, or empty string if unauthenticated."""
     try:
         return current_user.username if current_user.is_authenticated else ""
@@ -32,7 +32,7 @@ from .refresh_pipeline import DOWNSTREAM_ORDER as PIPELINE_STEPS_ORDER  # noqa: 
 from .refresh_pipeline import SHORT_LABELS as _PIPELINE_STAGE_LABELS  # noqa: E402
 
 
-def _is_worker_running(name: str) -> bool:
+def is_worker_running(name: str) -> bool:
     """True if a worker (subprocess or Cloud Task) is currently running.
 
     Consults the in-memory subprocess state *and* the GCS status file, with
@@ -60,7 +60,7 @@ def _is_worker_running(name: str) -> bool:
     return False
 
 
-def _workers_blocking_consolidate() -> list[str]:
+def workers_blocking_consolidate() -> list[str]:
     """Return the names of scraper/annotator workers currently running.
 
     Scraper processes are per-platform (``queue_scraper_<platform>``, derived
@@ -69,7 +69,7 @@ def _workers_blocking_consolidate() -> list[str]:
     """
     blocking = []
     for name in [*SCRAPER_PROCESS_NAMES, "queue_annotator", "queue_annotator_batch"]:
-        if _is_worker_running(name):
+        if is_worker_running(name):
             blocking.append(name)
     return blocking
 
@@ -83,7 +83,7 @@ _cookie_health_cache: dict[str, tuple[float, dict]] = {}
 _cookie_health_lock = threading.Lock()
 
 
-def _cached_cookie_health(platform: str) -> dict:
+def cached_cookie_health(platform: str) -> dict:
     """Return a platform's cookie health, cached for ``_COOKIE_HEALTH_TTL_SEC``.
 
     Delegates to the platform scraper's ``health_check`` hook (which passes the
@@ -186,7 +186,7 @@ def refresh_run_view() -> dict | None:
     }
 
 
-def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
+def build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     """Build an ordered per-step view of the current/last refresh run.
 
     Returns one dict per step — ``consolidate_enrichment`` followed by the whole

@@ -1,8 +1,8 @@
 """Study-stats and date-window helpers shared by the management endpoints.
 
 Event-window filtering, study stats calculation/estimation, design feedback,
-and consolidation-staleness evaluation. ``_calculate_stats``,
-``_compute_universe_enrichment`` and the window filters are also consumed by
+and consolidation-staleness evaluation. ``calculate_stats``,
+``compute_universe_enrichment`` and the window filters are also consumed by
 the ``run_study_refresh`` worker.
 """
 
@@ -187,7 +187,7 @@ def _filter_to_play_observe(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[df["activity_type"].isin(VIDEO_VIEW_TYPES)]
 
 
-def _compute_universe_enrichment(
+def compute_universe_enrichment(
     df_raw: pd.DataFrame,
     df_status: pd.DataFrame | None,
     start_date: str | None,
@@ -252,7 +252,7 @@ def _compute_universe_enrichment(
     return universe
 
 
-def _derive_study_issues(
+def derive_study_issues(
     stats: dict,
     sparse_cells: int,
     total_cells: int,
@@ -365,7 +365,7 @@ def _derive_study_issues(
     return issues
 
 
-def _calculate_stats(
+def calculate_stats(
     study_config, save_to_cache=True
 ) -> tuple[dict, pd.DataFrame | None, pd.DataFrame | None]:
     """Calculate stats for a study using enrichment_status.parquet AND the study's specific recoded dataset.
@@ -448,7 +448,7 @@ def compute_study_dataset_stats(
     """Count a study dataset's activities/videos and their enrichment status.
 
     The single definition of the per-study stats dict persisted to
-    ``studies.json`` — used by both the study refresh (via ``_calculate_stats``)
+    ``studies.json`` — used by both the study refresh (via ``calculate_stats``)
     and the bulk recode refresh, so the two writers can never diverge in keys.
 
     Filters to play/observe within each collection's event window so the
@@ -717,7 +717,7 @@ def _universe_from_prepared(
 ) -> tuple[int, int, dict, bool]:
     """Compute the pre-sampling potentials and universe mosaic from the prepared frame.
 
-    Mirrors the previous _load_study_raw_window + _compute_universe_enrichment pair, but
+    Mirrors the previous load_study_raw_window + compute_universe_enrichment pair, but
     reuses the cached frame's precomputed event-window and scrape/annotation flags so a
     repeated check does no I/O and no per-row re-derivation.
 
@@ -789,7 +789,7 @@ _CELLS_ITEM_RATIO = {
 }
 
 
-def _cells_for_selection(cells: pd.DataFrame | None, study_config: dict) -> pd.DataFrame | None:
+def cells_for_selection(cells: pd.DataFrame | None, study_config: dict) -> pd.DataFrame | None:
     """Filter the corpus cells table to a study definition's collections."""
 
     if cells is None or cells.empty:
@@ -862,7 +862,7 @@ def _estimate_items(
     return int(round(excl_total + shared_mass))
 
 
-def _estimate_from_cells(
+def estimate_from_cells(
     cells: pd.DataFrame | None, coll_stats: pd.DataFrame | None, study_config: dict
 ) -> tuple[dict, list, int, int, dict | None]:
     """Approximate the study sampling counts from the corpus preview cells.
@@ -891,7 +891,7 @@ def _estimate_from_cells(
         "active_days": 0,
     }
 
-    df = _cells_for_selection(cells, study_config)
+    df = cells_for_selection(cells, study_config)
     if df is None:
         return empty, [], 0, 0, None
 
@@ -1003,7 +1003,7 @@ def _estimate_from_cells(
     return stats, included_per_day, sparse_cells, total_cells, sampling_report
 
 
-def _universe_from_cells(
+def universe_from_cells(
     cells: pd.DataFrame | None, study_config: dict
 ) -> tuple[int, int, dict, bool]:
     """Compute the pre-sampling potentials and universe mosaic from the preview cells.
@@ -1015,7 +1015,7 @@ def _universe_from_cells(
     """
 
     universe = {"activities": 0, "scraped": 0, "annotated": 0}
-    df = _cells_for_selection(cells, study_config)
+    df = cells_for_selection(cells, study_config)
     if df is None:
         return 0, 0, universe, False
 
@@ -1045,7 +1045,7 @@ def _universe_from_cells(
     return potential_activities, potential_active_days, universe, True
 
 
-def _evaluate_consolidation_staleness() -> dict:
+def evaluate_consolidation_staleness() -> dict:
     """Return impact/freshness for the latest consolidation, clearing stale impact.
 
     Reloads process_stats from GCS, inspects the stored consolidation_impact,
@@ -1196,7 +1196,7 @@ def _evaluate_consolidation_staleness() -> dict:
     return {"has_impact": True, "impact": impact, "processes": result}
 
 
-def _evaluate_version_promotion_staleness() -> dict:
+def evaluate_version_promotion_staleness() -> dict:
     """Return staleness for the last preferred-annotation-version promotion.
 
     Promoting a version rebuilds the global active annotation parquet, but

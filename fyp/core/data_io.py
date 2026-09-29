@@ -53,7 +53,7 @@ def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: floa
 # ------------------------------------------------------------------------------
 
 
-def _resolve_paths(storage_location: str = "cache", filename: str = ""):
+def resolve_paths(storage_location: str = "cache", filename: str = ""):
     """
     Resolve the given storage location and filename to local uri or local path:
     1. A Primary Path (GCS URI if enabled, else Local Path)
@@ -103,7 +103,7 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
         return (local_path, None, "local", None)
 
 
-def _get_bucket():
+def get_bucket():
     """Retrieve the bucket object from config."""
     w = _cf()["data_io"]["bucket"]
     return w
@@ -155,7 +155,7 @@ def _is_precondition_failed(exc: Exception) -> bool:
 
 
 def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
-    """Register a storage location at runtime so ``_resolve_paths`` accepts it.
+    """Register a storage location at runtime so ``resolve_paths`` accepts it.
 
     Lets a component (e.g. a new ingestion collection class) declare its own
     storage location without a static edit to ``fyp_config``. Mirrors the
@@ -216,7 +216,7 @@ def find_key_value_in_pq_metadata(
     if the_key == "":
         raise ValueError("Key cannot be empty")
 
-    meta = pq.read_metadata(_resolve_paths(storage_location, filename)[0])
+    meta = pq.read_metadata(resolve_paths(storage_location, filename)[0])
     file_metadata_dict = meta.metadata  # This is a dictionary of {bytes: bytes}
 
     for k in file_metadata_dict:
@@ -241,10 +241,10 @@ def exists(storage_location: str = "cache", filename: str = "", verbose: bool = 
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         gcs_exists = False
         if bucket:
             # Note: Checking blob existence involves a metadata request
@@ -270,7 +270,7 @@ def getctime(storage_location: str = "cache", filename: str = "", verbose: bool 
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     if mode == "gcs":
         bucket = _cf()["data_io"]["bucket"]
@@ -297,10 +297,10 @@ def getmtime(storage_location: str = "cache", filename: str = "", verbose: bool 
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob and blob.updated:
@@ -323,10 +323,10 @@ def getsize(storage_location: str = "cache", filename: str = "", verbose: bool =
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             blob = bucket.get_blob(blob_name)
             if blob:
@@ -351,10 +351,10 @@ def stat(storage_location: str = "cache", filename: str = "", verbose: bool = Fa
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
         blob = bucket.get_blob(blob_name)
@@ -385,7 +385,7 @@ def get_parquet_columns(storage_location: str = "cache", filename: str = "") -> 
     if not exists(storage_location=storage_location, filename=filename):
         return None
 
-    primary, _secondary, _mode, _blob_name = _resolve_paths(storage_location, filename)
+    primary, _secondary, _mode, _blob_name = resolve_paths(storage_location, filename)
     meta = pq.read_metadata(primary)
     return list(meta.schema.to_arrow_schema().names)
 
@@ -405,7 +405,7 @@ def get_parquet_num_rows(storage_location: str = "cache", filename: str = "") ->
     if not exists(storage_location=storage_location, filename=filename):
         return None
 
-    primary, _secondary, _mode, _blob_name = _resolve_paths(storage_location, filename)
+    primary, _secondary, _mode, _blob_name = resolve_paths(storage_location, filename)
     return int(pq.read_metadata(primary).num_rows)
 
 
@@ -420,11 +420,11 @@ def remove(storage_location: str = "cache", filename: str = "", verbose: bool = 
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     # 1. Remove from GCS if configured
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             try:
                 # delete() raises NotFound by default if missing, unless generic exception handling
@@ -551,7 +551,7 @@ def move(
         raise ValueError("Destination storage location cannot be empty")
 
     # Resolve DST
-    dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(dst_storage_location, filename)
+    dst_primary, _, dst_mode, dst_blob_name = resolve_paths(dst_storage_location, filename)
 
     # Raw donations and their archive are append-only: refuse to replace an
     # existing object (see APPEND_ONLY_LOCATIONS). Raises FileExistsError.
@@ -568,7 +568,7 @@ def move(
             return
 
         if dst_mode == "gcs":
-            bucket = _get_bucket()
+            bucket = get_bucket()
             if bucket:
                 try:
                     blob = bucket.blob(dst_blob_name)
@@ -611,11 +611,11 @@ def move(
         return
 
     # Resolve SRC
-    src_primary, _, src_mode, src_blob_name = _resolve_paths(src_storage_location, filename)
+    src_primary, _, src_mode, src_blob_name = resolve_paths(src_storage_location, filename)
 
     # GCS Move
     if src_mode == "gcs" and dst_mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             try:
                 blob = bucket.blob(src_blob_name)
@@ -682,15 +682,15 @@ def rename(
     if src_filename == dst_filename:
         return exists(storage_location=storage_location, filename=src_filename)
 
-    src_primary, _, src_mode, src_blob_name = _resolve_paths(storage_location, src_filename)
-    dst_primary, _, _, dst_blob_name = _resolve_paths(storage_location, dst_filename)
+    src_primary, _, src_mode, src_blob_name = resolve_paths(storage_location, src_filename)
+    dst_primary, _, _, dst_blob_name = resolve_paths(storage_location, dst_filename)
 
     guard = storage_location in APPEND_ONLY_LOCATIONS
     if guard:
         _refuse_clobber(storage_location, dst_filename)
 
     if src_mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized for rename")
         blob = bucket.blob(src_blob_name)
@@ -737,13 +737,13 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                 f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})"
             )
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     # Attempt Primary Load
     data = []
     if True:  # try:
         if mode == "gcs":
-            bucket = _get_bucket()
+            bucket = get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
                 # Check existence to avoid generic 404 error masked as something else
@@ -790,7 +790,7 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                 f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
             )
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     # Attempt Primary Load
     _t_io = _time.perf_counter()
@@ -798,7 +798,7 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
         if mode == "gcs":
             from google.api_core import exceptions as gcs_exceptions
 
-            bucket = _get_bucket()
+            bucket = get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
                 # Download straight away and treat NotFound as "absent". The old
@@ -885,13 +885,13 @@ def load_json_optional(storage_location: str = "cache", filename: str = "", verb
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
     if mode == "gcs":
         from google.api_core import exceptions as gcs_exceptions
 
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
         blob = bucket.blob(blob_name)
@@ -943,11 +943,11 @@ def local_copy(
     if filename == "":
         raise ValueError("Filename cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             if verbose:
                 logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
@@ -1039,7 +1039,7 @@ def save_json(
                 f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
             )
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
     if not overwrite:
         _refuse_clobber(storage_location, filename)
 
@@ -1048,7 +1048,7 @@ def save_json(
     # 1. Save Primary
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             blob = bucket.blob(blob_name)
             try:
@@ -1136,7 +1136,7 @@ def update_json(
     if mutate is None:
         raise ValueError("mutate callback is required")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     def _fresh_default():
         # JSON round-trip copy so retries never see a mutated shared default.
@@ -1147,7 +1147,7 @@ def update_json(
     if mode == "gcs":
         from google.api_core import exceptions as gcs_exceptions
 
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
 
@@ -1260,12 +1260,12 @@ def load_text(
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
     try:
         if mode == "gcs":
-            bucket = _get_bucket()
+            bucket = get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
                 if blob.exists():
@@ -1332,11 +1332,11 @@ def save_text(
     if storage_location == "":
         raise ValueError("Storage location cannot be empty")
 
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if bucket:
             blob = bucket.blob(blob_name)
             blob.upload_from_string(data, content_type="text/plain; charset=utf-8")
@@ -1430,7 +1430,7 @@ _PARALLEL_DL_CHUNK_BYTES = 32 * 1024 * 1024
 _PARALLEL_DL_WORKERS = 8
 
 
-def _download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
+def download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
     """Download one blob, fanning big objects out over ranged reads.
 
     Returns a buffer (bytes or bytearray) with the blob's content. Raises
@@ -1578,7 +1578,7 @@ def load_parquet(
         raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
     # Resolve path
-    primary, _, mode, _ = _resolve_paths(storage_location, filename)
+    primary, _, mode, _ = resolve_paths(storage_location, filename)
 
     # if specific columns are to be loaded, we need to make sure the cols actually exist in the parquet files
     if columns is not None:
@@ -1608,15 +1608,15 @@ def load_parquet(
             # pyarrow directly. Benchmarks on task-runner showed this is
             # ~1.2-2.3x faster than pd.read_parquet("gs://...") and has
             # lower tail-latency variance. See run_benchmark_parquet_read.py.
-            _, _, _, blob_name = _resolve_paths(storage_location, filename)
-            bucket = _get_bucket()
+            _, _, _, blob_name = resolve_paths(storage_location, filename)
+            bucket = get_bucket()
             if not bucket:
                 raise ValueError("GCS bucket not initialized")
             # Parallel ranged download for big blobs; BufferReader decodes
             # straight from the download buffer (BytesIO would copy the
             # whole multi-GB payload once more).
             _t_dl = _time.perf_counter()
-            raw = _download_blob_bytes(bucket, blob_name)
+            raw = download_blob_bytes(bucket, blob_name)
             _t_dl = _time.perf_counter() - _t_dl
             _t_dec = _time.perf_counter()
             table = pq.read_table(
@@ -1730,7 +1730,7 @@ def load_parquet_selective(
     if not exists(storage_location, filename):
         raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
-    primary, _, mode, _ = _resolve_paths(storage_location, filename)
+    primary, _, mode, _ = resolve_paths(storage_location, filename)
 
     t1 = _dt.datetime.now()
 
@@ -1812,7 +1812,7 @@ def load_parquet_selective(
 #
 # These keep peak memory at one record batch / one byte range instead of a
 # whole file. They deliberately reuse the exact local-vs-GCS plumbing the
-# eager functions use (_resolve_paths + gcsfs / _get_bucket) — never
+# eager functions use (resolve_paths + gcsfs / get_bucket) — never
 # local_copy(), whose temp dir is memory-backed on Cloud Run.
 # ----------------------------------------------------------------------------
 
@@ -1857,7 +1857,7 @@ def iter_parquet_batches(
     if not exists(storage_location, filename):
         raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
 
-    primary, _, mode, _ = _resolve_paths(storage_location, filename)
+    primary, _, mode, _ = resolve_paths(storage_location, filename)
     if mode == "gcs":
         dataset = pads.dataset(primary, format="parquet", filesystem=gcsfs.GCSFileSystem())
     else:
@@ -1921,7 +1921,7 @@ def write_parquet_stream(
     if schema is None:
         raise ValueError("schema is required")
 
-    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, _, mode, blob_name = resolve_paths(storage_location, filename)
 
     _t_io = _time.perf_counter()
     n_rows = 0
@@ -1939,7 +1939,7 @@ def write_parquet_stream(
                     writer.write_batch(batch)
                 n_rows += batch.num_rows
         if mode == "gcs":
-            bucket = _get_bucket()
+            bucket = get_bucket()
             if not bucket:
                 raise ValueError("GCS bucket not initialized")
             bucket.blob(blob_name).upload_from_filename(tmp_path)
@@ -1995,7 +1995,7 @@ def concat_parquet_files(
     if not src_filenames:
         raise ValueError("src_filenames cannot be empty")
 
-    first_primary, _, first_mode, _ = _resolve_paths(src_storage_location, src_filenames[0])
+    first_primary, _, first_mode, _ = resolve_paths(src_storage_location, src_filenames[0])
     if first_mode == "gcs":
         with gcsfs.GCSFileSystem().open(first_primary) as f:
             schema = pq.read_schema(f)
@@ -2047,10 +2047,10 @@ def save_bytes(
     if filename == "":
         raise ValueError("Filename cannot be empty")
 
-    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, _, mode, blob_name = resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         if not bucket:
             raise ValueError("GCS bucket not initialized")
         bucket.blob(blob_name).upload_from_string(
@@ -2097,10 +2097,10 @@ def load_bytes(
     if not exists(storage_location, filename):
         return None
 
-    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, _, mode, blob_name = resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         blob = bucket.blob(blob_name)
         if start is None and length is None:
             data = blob.download_as_bytes()
@@ -2156,10 +2156,10 @@ def read_byte_ranges(
     if not ranges:
         return []
 
-    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, _, mode, blob_name = resolve_paths(storage_location, filename)
     _t_io = _time.perf_counter()
     if mode == "gcs":
-        bucket = _get_bucket()
+        bucket = get_bucket()
         blob = bucket.blob(blob_name)
 
         def _one(rng):
@@ -2226,7 +2226,7 @@ def save_parquet(
         raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
 
     # Resolve using the filename (which has .parquet)
-    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
     # B) Type Management
     this_df = convert_dtypes_to_pyarrow(this_df, verbose=verbose)
@@ -2272,7 +2272,7 @@ def save_parquet(
                     compression="zstd",
                     compression_level=my_compression_level,
                 )
-                bucket = _get_bucket()
+                bucket = get_bucket()
                 if not bucket:
                     raise ValueError("GCS bucket not initialized")
                 bucket.blob(blob_name).upload_from_filename(tmp_path)

@@ -1,4 +1,4 @@
-"""Unit tests for the study stats calculation (`_calculate_stats`).
+"""Unit tests for the study stats calculation (`calculate_stats`).
 
 The function loads ``enrichment_status.parquet``, builds the study's recoded
 dataset, and returns ``(stats, df_recoded, df_status)`` — the same triple the
@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from web_interface.services.stats_service import _calculate_stats
+from web_interface.services.stats_service import calculate_stats
 
 STUDY_CONFIG = {"STUDY_NAME": "test_study", "SELECTED_COLLECTIONS": ["d1", "d2", "d3"]}
 
@@ -49,7 +49,7 @@ class TestStudyStats(unittest.TestCase):
         mock_load_parquet.return_value = df_status
 
         # 3. Call Function
-        stats, df_recoded, status_out = _calculate_stats(STUDY_CONFIG, save_to_cache=False)
+        stats, df_recoded, status_out = calculate_stats(STUDY_CONFIG, save_to_cache=False)
 
         # 4. Assertions — the pass-throughs the refresh worker reuses.
         self.assertIs(df_recoded, df_study)
@@ -84,7 +84,7 @@ class TestStudyStats(unittest.TestCase):
         mock_create_study.return_value = df_study
         mock_exists.return_value = False
 
-        stats, _, status_out = _calculate_stats(STUDY_CONFIG, save_to_cache=False)
+        stats, _, status_out = calculate_stats(STUDY_CONFIG, save_to_cache=False)
 
         self.assertIsNone(status_out)
         self.assertEqual(stats["unique_videos"], 3)
@@ -94,7 +94,7 @@ class TestStudyStats(unittest.TestCase):
 
     def test_calculate_stats_no_selected_collections(self):
         """An empty study returns zeroed stats before any expensive work."""
-        stats, df_recoded, status_out = _calculate_stats(
+        stats, df_recoded, status_out = calculate_stats(
             {"STUDY_NAME": "test_study", "SELECTED_COLLECTIONS": []}
         )
 

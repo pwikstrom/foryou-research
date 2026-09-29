@@ -568,9 +568,9 @@ _study_id_set_lock = threading.Lock()
 
 def _study_item_ids(study: str) -> frozenset | None:
     """Return the set of item ids visible in ``study``, or None if unknown."""
-    from ..services.study_data import _get_recoded_mtime
+    from ..services.study_data import get_recoded_mtime
 
-    mtime = _get_recoded_mtime(study)
+    mtime = get_recoded_mtime(study)
     with _study_id_set_lock:
         entry = _STUDY_ID_SET_CACHE.get(study)
         if entry is not None and entry[0] == mtime:

@@ -96,7 +96,7 @@ def _pipeline_actor(task_args: dict, parent: str) -> str:
 
 
 # A status heartbeat older than this marks the run as dead — the same 600 s
-# rule /api/status and _is_worker_running apply.
+# rule /api/status and is_worker_running apply.
 _STALE_HEARTBEAT_SECONDS = 600
 
 
@@ -237,7 +237,7 @@ def run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> boo
     """
     from datetime import datetime
 
-    from .process_manager import _dispatch_cloud_task
+    from .process_manager import dispatch_cloud_task
 
     status_key = _get_status_key(name, task_args)
     reporter = GCSStatusReporter(status_key)
@@ -351,7 +351,7 @@ def run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> boo
                 # step shows as Success, then dispatch a fresh task.
                 reporter.complete()
                 outcome = "Success"
-                success, msg = _dispatch_cloud_task(
+                success, msg = dispatch_cloud_task(
                     next_task_name, next_args, dispatch_deadline_seconds=deadline
                 )
                 if success:
@@ -391,7 +391,7 @@ def run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> boo
                 ):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
-                success, msg = _dispatch_cloud_task(
+                success, msg = dispatch_cloud_task(
                     name,
                     next_args,
                     dispatch_deadline_seconds=deadline,
@@ -530,7 +530,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
         the enrichment-supervisor tick rather than dispatch a redundant task off
         the same worker completion.
     """
-    from .process_manager import _dispatch_cloud_task
+    from .process_manager import dispatch_cloud_task
 
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
@@ -621,7 +621,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     task_args["pipeline_stage_index"] = 1
     task_args["pipeline_stage_total"] = record["stage_total"]
 
-    success, msg = _dispatch_cloud_task(
+    success, msg = dispatch_cloud_task(
         "consolidate_enrichment",
         task_args,
         dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", task_args),
@@ -695,9 +695,9 @@ def _tick_enrichment_supervisor(just_finished: str) -> None:
         owes = loop_owes_work()
         if not ce.armed_plans() and not (owes["settle"] or owes["refresh"]):
             return
-        from .process_manager import _dispatch_cloud_task, dispatch_deadline_for
+        from .process_manager import dispatch_cloud_task, dispatch_deadline_for
 
-        success, msg = _dispatch_cloud_task(
+        success, msg = dispatch_cloud_task(
             "enrichment_supervisor",
             {},
             dispatch_deadline_seconds=dispatch_deadline_for("enrichment_supervisor", {}),
@@ -732,7 +732,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str, cancelled: bo
         outcome: ``"Success"`` or ``"Fail"``.
         cancelled: The operator cancelled this step.
     """
-    from .process_manager import _dispatch_cloud_task
+    from .process_manager import dispatch_cloud_task
 
     run_id = task_args.get("pipeline_run_id")
     leaves = task_args.get("pipeline_leaves") or []
@@ -819,7 +819,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str, cancelled: bo
             task_args=next_args,
             mode="cloud",
         )
-        success, msg = _dispatch_cloud_task(
+        success, msg = dispatch_cloud_task(
             next_name,
             next_args,
             dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args),
@@ -877,7 +877,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str, cancelled: bo
             task_args=child_args,
             mode="cloud",
         )
-        success, msg = _dispatch_cloud_task(
+        success, msg = dispatch_cloud_task(
             leaf, child_args, dispatch_deadline_seconds=dispatch_deadline_for(leaf, child_args)
         )
         if success:
@@ -917,7 +917,7 @@ def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
     its own study refresh, and any task that was already queued when the run
     record shipped. Linear, no fan-out, no chart.
     """
-    from .process_manager import _dispatch_cloud_task
+    from .process_manager import dispatch_cloud_task
 
     remaining = task_args.get("pipeline_remaining") or []
     if outcome != "Success" or not remaining:
@@ -936,7 +936,7 @@ def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
         task_args=next_args,
         mode="cloud",
     )
-    success, msg = _dispatch_cloud_task(
+    success, msg = dispatch_cloud_task(
         next_name, next_args, dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args)
     )
     if success:

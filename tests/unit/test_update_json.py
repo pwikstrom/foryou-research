@@ -22,7 +22,7 @@ import fyp.core.data_io as data_io
 
 
 def _local_resolve(tmp: str):
-    """A _resolve_paths stand-in pinning every location to tmp (local mode)."""
+    """A resolve_paths stand-in pinning every location to tmp (local mode)."""
 
     def _resolve(storage_location="cache", filename=""):
         return (os.path.join(tmp, filename), None, "local", None)
@@ -32,7 +32,7 @@ def _local_resolve(tmp: str):
 
 def test_local_update_creates_missing_file_from_default():
     with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
+        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
             result = data_io.update_json(
                 storage_location="cache",
                 filename="q.json",
@@ -46,7 +46,7 @@ def test_local_update_creates_missing_file_from_default():
 
 def test_local_update_mutates_existing_and_none_skips_save():
     with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
+        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
             data_io.update_json(
                 storage_location="cache",
                 filename="q.json",
@@ -70,7 +70,7 @@ def test_local_update_mutates_existing_and_none_skips_save():
 def test_local_update_default_not_shared_across_calls():
     """The default must be copied — a mutated default must not leak."""
     with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
+        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
             shared_default = []
             data_io.update_json(
                 storage_location="cache",
@@ -84,7 +84,7 @@ def test_local_update_default_not_shared_across_calls():
 def test_local_concurrent_updates_lose_nothing():
     """N threads each append a unique id — all N must survive."""
     with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "_resolve_paths", _local_resolve(tmp)):
+        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
             n = 50
 
             def _append(i):
@@ -158,8 +158,8 @@ def test_gcs_update_retries_on_generation_conflict():
         return cur + ["mine"]
 
     with (
-        patch.object(data_io, "_resolve_paths", _gcs_resolve),
-        patch.object(data_io, "_get_bucket", return_value=bucket),
+        patch.object(data_io, "resolve_paths", _gcs_resolve),
+        patch.object(data_io, "get_bucket", return_value=bucket),
     ):
         result = data_io.update_json(
             storage_location="cache",
@@ -180,8 +180,8 @@ def test_gcs_update_creates_missing_blob_with_default():
         return (f"gs://fake/cache/{filename}", None, "gcs", f"cache/{filename}")
 
     with (
-        patch.object(data_io, "_resolve_paths", _gcs_resolve),
-        patch.object(data_io, "_get_bucket", return_value=bucket),
+        patch.object(data_io, "resolve_paths", _gcs_resolve),
+        patch.object(data_io, "get_bucket", return_value=bucket),
     ):
         result = data_io.update_json(
             storage_location="cache",

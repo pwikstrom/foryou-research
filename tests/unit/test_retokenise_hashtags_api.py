@@ -38,16 +38,16 @@ def run():
 
     started = {"calls": []}
     orig_start = pm.start_process
-    orig_running = mr._is_worker_running
-    orig_blocking = mr._workers_blocking_consolidate
+    orig_running = mr.is_worker_running
+    orig_blocking = mr.workers_blocking_consolidate
     orig_get_user = fl_utils._get_user
 
     pm.start_process = lambda name, script, *a, **k: (
         started["calls"].append(name),
         (True, "started"),
     )[1]
-    mr._is_worker_running = lambda name: False
-    mr._workers_blocking_consolidate = lambda: []
+    mr.is_worker_running = lambda name: False
+    mr.workers_blocking_consolidate = lambda: []
 
     try:
         client = app.test_client()
@@ -72,23 +72,23 @@ def run():
         print("PASS: admin starts the job")
 
         # Already running → 409, no second start.
-        mr._is_worker_running = lambda name: name == "retokenise_hashtags"
+        mr.is_worker_running = lambda name: name == "retokenise_hashtags"
         resp = client.post("/api/admin/irrelevant_words/apply")
         assert resp.status_code == 409, resp.status_code
         assert started["calls"] == ["retokenise_hashtags"]
         print("PASS: refuses when already running")
 
         # A blocking worker (scraper) running → 409.
-        mr._is_worker_running = lambda name: False
-        mr._workers_blocking_consolidate = lambda: ["queue_scraper"]
+        mr.is_worker_running = lambda name: False
+        mr.workers_blocking_consolidate = lambda: ["queue_scraper"]
         resp = client.post("/api/admin/irrelevant_words/apply")
         assert resp.status_code == 409, resp.status_code
         assert "queue_scraper" in resp.get_json()["message"]
         print("PASS: refuses while a scraper runs")
     finally:
         pm.start_process = orig_start
-        mr._is_worker_running = orig_running
-        mr._workers_blocking_consolidate = orig_blocking
+        mr.is_worker_running = orig_running
+        mr.workers_blocking_consolidate = orig_blocking
         fl_utils._get_user = orig_get_user
 
     print("All retokenise-hashtags API tests passed.")

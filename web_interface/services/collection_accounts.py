@@ -75,7 +75,7 @@ def _tags_filename() -> str:
     return f"{COLLECTIONS_LABEL}_tags.json"
 
 
-def _load_tags_fresh() -> dict:
+def load_tags_fresh() -> dict:
     """Read collections_tags.json from storage, bypassing the RAM cache.
 
     Writers must read fresh: the cache can be up to five minutes stale and a
@@ -105,7 +105,7 @@ def next_placeholder_username(um=None, tags: dict | None = None) -> str:
     candidate = um.next_placeholder_username(domain)
     pattern = re.compile(rf"^p-(\d+)@{re.escape(domain)}$", re.IGNORECASE)
     highest = int(pattern.match(candidate).group(1)) - 1
-    entries = tags if tags is not None else _load_tags_fresh()
+    entries = tags if tags is not None else load_tags_fresh()
     for entry in entries.values():
         uid = entry.get("user_id") if isinstance(entry, dict) else None
         m = pattern.match(uid) if isinstance(uid, str) else None
@@ -122,7 +122,7 @@ def next_placeholder_username(um=None, tags: dict | None = None) -> str:
 def load_owner_map(fresh: bool = False) -> dict:
     """Return ``{collection_id: user_id}`` for every collection with a decided
     link (``user_id`` may be None for explicitly unassigned collections)."""
-    tags = _load_tags_fresh() if fresh else get_collection_tags()
+    tags = load_tags_fresh() if fresh else get_collection_tags()
     return {
         cid: entry.get("user_id")
         for cid, entry in tags.items()
@@ -164,7 +164,7 @@ def set_collection_owner(
     """
     own = tags is None
     if own:
-        tags = _load_tags_fresh()
+        tags = load_tags_fresh()
     entry = tags.get(str(collection_id))
     if not isinstance(entry, dict):
         entry = {"display_collection_id": None, "annotation_tags": [], "hidden": False}
@@ -184,7 +184,7 @@ def drop_collection_entry(collection_id: str) -> bool:
     entry was created at upload time and nothing else references it. Never
     call this for a collection that is already in the dataset.
     """
-    tags = _load_tags_fresh()
+    tags = load_tags_fresh()
     if str(collection_id) in tags:
         del tags[str(collection_id)]
         _save_tags(tags)
@@ -198,7 +198,7 @@ def unlink_user(user_id: str) -> list[str]:
     Returns the affected collection ids. Used before an account is deleted so
     no link ever points at a username that no longer exists.
     """
-    tags = _load_tags_fresh()
+    tags = load_tags_fresh()
     affected = []
     for cid, entry in tags.items():
         if isinstance(entry, dict) and entry.get("user_id") == user_id:
@@ -393,7 +393,7 @@ def link_aio_collections(
     no account is created to claim the number.
     """
     um = _um(um)
-    tags = _load_tags_fresh()
+    tags = load_tags_fresh()
     decided = {cid for cid, entry in tags.items() if isinstance(entry, dict) and "user_id" in entry}
 
     report: dict = {
@@ -517,7 +517,7 @@ def migrate_existing_collections(*, dry_run: bool = True, um=None, log=print) ->
             verbose=False,
         )
         data_io.save_json(
-            data=_load_tags_fresh(),
+            data=load_tags_fresh(),
             storage_location="archive",
             filename=f"{COLLECTIONS_LABEL}_tags_pre_accounts_{ts}.json",
             verbose=False,

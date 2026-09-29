@@ -23,11 +23,11 @@ from ..services import explorer_backend as explorer
 from ..services import system_health
 from ..services.study_data import (
     TOTAL_STATS_PROVISIONAL_KEY,
-    _get_recoded_mtime,
     enrich_with_user_tags,
     get_collection_tags,
     get_explorer_data,
     get_explorer_metadata_cached,
+    get_recoded_mtime,
     get_study_col_types,
     get_study_collections,
     is_study_frame_cached,
@@ -290,7 +290,7 @@ def _stamp_source_file_modified(metadata: dict, study: str) -> None:
     — it is a single stat call — means the browser only ever sees an unambiguous
     instant, without waiting for a study refresh to rewrite the cache.
     """
-    mtime = _get_recoded_mtime(study)
+    mtime = get_recoded_mtime(study)
     if mtime is None:
         return
     metadata["source_file_modified"] = datetime.fromtimestamp(
@@ -493,7 +493,7 @@ def api_explorer_metadata_base():
         # JSON was saved, the cached filter counts no longer match the data.
         # Fall through to the cold path so metadata is regenerated.
         cache_is_fresh = True
-        parquet_mtime = _get_recoded_mtime(study)
+        parquet_mtime = get_recoded_mtime(study)
         if parquet_mtime is not None:
             try:
                 json_mtime = data_io.getmtime(storage_location="cache", filename=canonical_filename)

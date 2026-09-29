@@ -174,7 +174,7 @@ def test_counts_cache_invalidates_on_mtime_change(monkeypatch):
         return series, "category"
 
     mtime = {"v": 1.0}
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: mtime["v"])
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: mtime["v"])
     monkeypatch.setattr(study_data, "get_search_column", fake_get_search_column)
 
     first = study_data.search_column_value_counts(study, "col")
@@ -190,6 +190,6 @@ def test_counts_cache_invalidates_on_mtime_change(monkeypatch):
 
 
 def test_counts_cache_rejects_unsearchable_dtype(monkeypatch):
-    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    monkeypatch.setattr(study_data, "get_recoded_mtime", lambda s: 1.0)
     monkeypatch.setattr(study_data, "get_search_column", lambda s, c: (pd.Series([1, 2]), "number"))
     assert study_data.search_column_value_counts("__num_study__", "plays") is None

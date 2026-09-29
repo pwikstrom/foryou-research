@@ -7,11 +7,6 @@ import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
 )
-from fyp.analysis.studies import init_study_defs
-from fyp.core.fyp_config import (
-    fyp_cf,
-)
-from fyp.ingest import registered_raw_locations
 from fyp.ingest.raw_names import (
     display_id_owner,
     display_key,
@@ -24,72 +19,15 @@ from ...auth.accounts import user_manager
 from ...auth.permissions import permission_required
 from ...services import activity_log
 from ...services.collection_accounts import collection_counts_by_user
+from ...services.collection_deletion import affected_studies_for_collections
 from ...services.study_data import invalidate_collection_tags_cache
 from ...services.worker_status import (
-    _actor,
+    current_actor,
 )
 from ...tasks.process_manager import (
     start_process,
 )
 from ._blueprint import management_bp
-
-
-def _find_raw_file_locations(raw_files: list[str]) -> list[tuple[str, str]]:
-    """Return [(storage_location, filename), ...] for each raw file that still
-    exists in any of the registered upload locations.
-
-    The location list is derived from the collection-class registry
-    (fyp.ingest.registered_raw_locations), so a new platform's upload location
-    is probed automatically. Probes each location's ingestion_manifest.json
-    first (fast path) and falls back to data_io.exists when the manifest is
-    missing or out of sync. Files not found in any location are silently
-    skipped — they were already moved or deleted previously.
-    """
-    found: list[tuple[str, str]] = []
-    raw_files_set = set(raw_files)
-    if not raw_files_set:
-        return found
-
-    upload_locations = registered_raw_locations()
-    manifests: dict[str, dict] = {}
-    for loc in upload_locations:
-        if data_io.exists(storage_location=loc, filename="ingestion_manifest.json"):
-            manifests[loc] = (
-                data_io.load_json(
-                    storage_location=loc, filename="ingestion_manifest.json", verbose=False
-                )
-                or {}
-            )
-        else:
-            manifests[loc] = {}
-
-    for fn in raw_files_set:
-        for loc in upload_locations:
-            if fn in manifests[loc] or data_io.exists(storage_location=loc, filename=fn):
-                found.append((loc, fn))
-                break
-
-    return found
-
-
-def _affected_studies_for_collections(collection_ids) -> list[str]:
-    """Return the names of studies whose SELECTED_COLLECTIONS contains any of
-    ``collection_ids``. The union, so a bulk delete refreshes each affected
-    study once rather than once per collection it happens to hold."""
-    init_study_defs()
-    wanted = {str(c) for c in collection_ids}
-    out: list[str] = []
-    for sname, sdef in (fyp_cf.get("study_defs") or {}).items():
-        sel = {str(c) for c in (sdef.get("SELECTED_COLLECTIONS") or [])}
-        if sel & wanted:
-            out.append(sname)
-    return out
-
-
-def _affected_studies_for_collection(collection_id: str) -> list[str]:
-    """Single-collection form of _affected_studies_for_collections. Kept as the
-    name the collection_delete worker imports."""
-    return _affected_studies_for_collections([collection_id])
 
 
 def _requested_collection_ids(source) -> list[str]:
@@ -130,7 +68,7 @@ def affected_studies_for_collection():
     collection_ids = _requested_collection_ids(request.args)
     if not collection_ids:
         return jsonify({"error": "Missing collection_id"}), 400
-    return jsonify({"studies": _affected_studies_for_collections(collection_ids)})
+    return jsonify({"studies": affected_studies_for_collections(collection_ids)})
 
 
 @management_bp.route("/api/manage/collections/delete", methods=["POST"])
@@ -155,11 +93,11 @@ def delete_collection():
         "collection_delete",
         worker_registry.worker_module("collection_delete"),
         task_args={"collection_ids": collection_ids},
-        started_by=_actor(),
+        started_by=current_actor(),
     )
     if success:
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="collection.delete",
             target=", ".join(collection_ids),
@@ -380,7 +318,7 @@ def save_collection_annotation():
         invalidate_collection_tags_cache()
 
         activity_log.record(
-            actor=_actor(),
+            actor=current_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="collection.annotation.save",
             target=str(collection_id),
@@ -568,13 +506,13 @@ def save_collection_enrichment(collection_id):
                 "cycles": 0,
                 "stall_count": 0,
                 "created_at": ce.now_iso(),
-                "created_by": _actor(),
+                "created_by": current_actor(),
             }
         )
     ce.save_plan(cid, patch)
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="collection.enrichment.save",
         target=cid,
@@ -624,7 +562,7 @@ def _tick_now(cid: str) -> dict:
                 worker_registry.worker_module("enrichment_supervisor"),
                 args=["--collection-id", cid],
                 task_args={"collection_id": cid},
-                started_by=_actor(),
+                started_by=current_actor(),
             )
             return {
                 "status": "started" if success else "error",
@@ -646,7 +584,9 @@ def _tick_now(cid: str) -> dict:
                 if isinstance(data, dict):
                     outcome.update(data)
 
-        run_enrichment_supervisor(_Reporter(), {"collection_id": cid, "started_by": _actor()})
+        run_enrichment_supervisor(
+            _Reporter(), {"collection_id": cid, "started_by": current_actor()}
+        )
         return {
             "status": "completed",
             "action": outcome.get("action"),
@@ -666,7 +606,7 @@ def _journal_plan_save(
 
         settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
         target = int(settings.get("annotation_target") or 0)
-        actor = _actor()
+        actor = current_actor()
         state = patch.get("state")
         platform = entry.get("platform") or None
         if state == ce.STATE_RUNNING:
@@ -860,7 +800,7 @@ def tick_collection_enrichment(collection_id):
         return jsonify({"error": "This collection has no enrichment plan. Save one first."}), 400
 
     activity_log.record(
-        actor=_actor(),
+        actor=current_actor(),
         category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="collection.enrichment.tick",
         target=cid,
@@ -870,9 +810,9 @@ def tick_collection_enrichment(collection_id):
 
         journal.record(
             "plan.tick",
-            f"Cycle requested by {_actor()}",
+            f"Cycle requested by {current_actor()}",
             collection_id=cid,
-            actor=_actor(),
+            actor=current_actor(),
             platform=(ce.get_plan(cid) or {}).get("platform") or None,
         )
     except Exception:
@@ -890,7 +830,7 @@ def tick_collection_enrichment(collection_id):
             worker_registry.worker_module("enrichment_supervisor"),
             args=["--collection-id", cid],
             task_args={"collection_id": cid},
-            started_by=_actor(),
+            started_by=current_actor(),
         )
         if success:
             return jsonify({"status": "started", "message": msg, "prev_start_time": prev_start})

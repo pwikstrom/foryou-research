@@ -28,7 +28,7 @@ from fyp.scrape import scrape_queues
 
 # Cloud Tasks rejects any HTTP-target dispatchDeadline outside [15s, 30m] with
 # a 400 at task-creation time — the task is never queued at all, so a worker
-# given 3600s fails every dispatch. process_manager._dispatch_cloud_task clamps to this as a last
+# given 3600s fails every dispatch. process_manager.dispatch_cloud_task clamps to this as a last
 # line of defence; no deadline below may ever need it.
 CLOUD_TASKS_MAX_DISPATCH_DEADLINE = 1800
 

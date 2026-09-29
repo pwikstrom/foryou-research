@@ -30,7 +30,7 @@ def arm(monkeypatch):
     monkeypatch.setattr(ce, "progress", lambda cid, entry=None: {"target_floor": world["floor"]})
     monkeypatch.setattr(routes, "_journal_plan_save", lambda *a, **k: None)
     monkeypatch.setattr(routes, "_tick_now", lambda cid: {"ok": True})
-    monkeypatch.setattr(routes, "_actor", lambda: "tester", raising=False)
+    monkeypatch.setattr(routes, "current_actor", lambda: "tester", raising=False)
     monkeypatch.setattr(routes.activity_log, "record", lambda **k: None)
     view = routes.save_collection_enrichment
     while hasattr(view, "__wrapped__"):
