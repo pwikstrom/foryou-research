@@ -35,7 +35,11 @@ public version. Entries below describe the Hub as it stands at that release.
   contract versions and the like) and variables with the `skip` role no
   longer appear in filters, charts, the detail panel, Timelines or the
   customization dialog. Admins still see them in the Variable Visibility
-  table, where their checkboxes are now locked.
+  table.
+- **The Variable Visibility table is read-only.** Default visibility and
+  order are now set only in Arrange default layout; the table marks each
+  variable's default surfaces with a ✓ and stays a reference for the
+  contract-owned details.
 
 ### Fixed
 

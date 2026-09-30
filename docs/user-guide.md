@@ -670,8 +670,10 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
 **Data & Variables**
 
 - **Variable Visibility** — the global defaults for which variables appear
-  on each surface (Filters, Timelines, Explore, Video Analysis); users
-  override these personally under My stuff → My Preferences.
+  on each surface (Filters, Visualized, Detail panel, Timelines) and in what
+  order, set with **Arrange default layout**; the table below it is a
+  read-only reference. Users override these personally under My stuff → My
+  Preferences.
 - **Data Contracts** — a read-only view of the scrape, activity and derived
   contracts and their version history; these change only with deployed code.
   See [contracts.md](contracts.md).

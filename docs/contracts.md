@@ -275,9 +275,11 @@ var_schema is retired. The order is fixed:
 The admin schema editor (Admin → Variable Visibility) is read-only for
 metadata: it shows each field's computed `origin` (which contract or registry
 owns it) in place of the retired `source` column — stored `source` strings in
-legacy registry snapshots survive only as a read-only skip fallback — and only
-the on/off surface checkboxes save (`POST /api/manage/presentation`,
-etag-guarded, never hash-affecting).
+legacy registry snapshots survive only as a read-only skip fallback — and
+marks each field's default surfaces with a ✓. The table itself is read-only;
+the defaults (membership and order) are edited in its "Arrange default layout"
+dialog, which saves to `POST /api/manage/presentation` (etag-guarded, never
+hash-affecting).
 
 A source fingerprint (contract files + presentation store + registries) is
 stored alongside; `reload_var_schema_if_changed()` compares it at every Cloud

@@ -1,11 +1,12 @@
 /* Admin → Variable Visibility viewer.
  *
- * Loads /api/manage/schema and renders a read-only metadata table. The only
- * editable cells are the four presentation-surface checkboxes; toggling one
- * saves immediately (debounced) to /api/manage/presentation with optimistic
- * concurrency via the etag returned on GET. "Arrange default layout" opens
- * the shared variable customizer (static/js/variable_prefs.js) in admin mode
- * to edit membership plus the default order in one place.
+ * Loads /api/manage/schema and renders a read-only reference table: the
+ * contract-owned metadata plus a ✓ per surface where a variable is shown by
+ * default. The defaults themselves (membership and order) are edited only in
+ * "Arrange default layout", which opens the shared variable customizer
+ * (static/js/variable_prefs.js) in admin mode and saves to
+ * /api/manage/presentation with optimistic concurrency via the etag returned
+ * on GET.
  *
  * No build step; this file is served as-is.  Styling uses CSS custom
  * properties from style.css (see DEVELOPING.md "Frontend Styling Rules").
@@ -17,9 +18,9 @@
     const SCHEMA_ENDPOINT = '/api/manage/schema';
     const PRESENTATION_ENDPOINT = '/api/manage/presentation';
 
-    // The four web-surface membership columns — the only editable payload
-    // (metadata is contract-owned). Rendered as checkboxes; saved as
-    // per-surface variable lists to the presentation store.
+    // The four web-surface membership columns. Shown here as read-only ✓
+    // marks; the default layout dialog edits them (as per-surface variable
+    // lists in the presentation store).
     const PRIO_COLUMNS = {
         web_filter_prio: 'filter',
         web_timeline_prio: 'timeline',
@@ -39,20 +40,20 @@
             tip: 'Aggregated and offered on the Timelines tab by default.',
         },
         web_viz_prio: {
-            label: 'Explore / Correlations',
+            label: 'Visualized',
             tip: 'Offered in Explore visualizations and on the Correlations axes/heatmap by default.',
         },
         web_display_prio: {
-            label: 'Video Analysis',
+            label: 'Detail panel',
             tip: 'Shown in the Video Analysis detail panel by default.',
         },
     };
 
-    const SURFACE_GROUP_HEADING = 'Default show/hide of variables in the UI';
+    const SURFACE_GROUP_HEADING = 'Shown by default (edit with Arrange default layout)';
 
     // Mirrors HIDDEN_SECTIONS + the skip role in
     // web_interface/services/user_variables.py: such variables never reach a
-    // user-facing list, so their surface checkboxes are locked.
+    // user-facing list; their surface cells say so.
     function _neverShownReason(row) {
         if (String(row.section || '').trim().toLowerCase() === 'backstage') {
             return 'Backstage variable — never shown to users.';
@@ -153,7 +154,7 @@
         const cols = _visibleColumns();
 
         // Group header row: one heading spanning the (always contiguous)
-        // surface-checkbox columns; blank cells elsewhere.
+        // surface columns; blank cells elsewhere.
         const prioCount = cols.filter(c => c in PRIO_COLUMNS).length;
         let groupRow = '';
         if (prioCount > 0) {
@@ -198,15 +199,16 @@
         const current = row && col in row ? row[col] : '';
         const baseStyle = 'padding: 4px 8px; vertical-align: top;';
 
-        // Presentation membership flags: ON/OFF checkboxes (the numeric value
-        // is historical — any non-blank means ON). Toggling saves immediately.
+        // Presentation membership flags, read-only: a ✓ where the variable is
+        // shown by default (the numeric value is historical — any non-blank
+        // means ON). Variables users never see get a muted dash instead.
         if (col in PRIO_COLUMNS) {
-            const checked = String(current).trim() !== '' && String(current) !== '<NA>';
-            const locked = _neverShownReason(row);
-            return `<td style="${baseStyle} text-align: center;"${locked ? ` title="${_esc(locked)}"` : ''}>
-                <input type="checkbox" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}
-                    onchange="vsTogglePrio(${rowIdx}, '${_esc(col)}', this.checked)">
-            </td>`;
+            const on = String(current).trim() !== '' && String(current) !== '<NA>';
+            const hidden = _neverShownReason(row);
+            const mark = hidden
+                ? '<span style="color: var(--color-text-faint);">–</span>'
+                : (on ? '<span style="color: var(--color-accent); font-weight: var(--weight-bold);">✓</span>' : '');
+            return `<td style="${baseStyle} text-align: center;"${hidden ? ` title="${_esc(hidden)}"` : ''}>${mark}</td>`;
         }
 
         if (col === 'variable_name') {
@@ -360,70 +362,10 @@
         }
     }
 
-    // A checkbox toggle updates the row in place and schedules a debounced
-    // save, so a burst of clicks lands as one POST. The presentation store is
-    // the only editable payload; the payload is simply the per-surface
-    // membership lists rebuilt from the current checkbox states.
-    let _saveTimer = null;
-    let _saving = false;
-
-    function _togglePrio(rowIdx, col, checked) {
-        const row = state.rows[rowIdx];
-        if (!row || !(col in PRIO_COLUMNS)) return;
-        row[col] = checked ? '1' : '';
-        _setStatus('Saving…');
-        if (_saveTimer) clearTimeout(_saveTimer);
-        _saveTimer = setTimeout(_save, 400);
-    }
-
-    async function _save() {
-        _saveTimer = null;
-        if (_saving) {
-            // A save is in flight — run again once it finishes so the latest
-            // checkbox states always land.
-            _saveTimer = setTimeout(_save, 400);
-            return;
-        }
-        _saving = true;
-        try {
-            const surfaces = {};
-            for (const [col, surface] of Object.entries(PRIO_COLUMNS)) {
-                surfaces[surface] = state.rows
-                    .filter(r => String(r[col] ?? '').trim() !== '' && String(r[col]) !== '<NA>')
-                    .map(r => r.variable_name);
-            }
-            const res = await fetch(PRESENTATION_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ surfaces, etag: state.etag }),
-            });
-            const body = await res.json();
-            if (res.status === 409) {
-                _setStatus('Save rejected (someone else saved first) — reloading.', 'error');
-                await _load();
-                return;
-            }
-            if (!res.ok) {
-                throw new Error(body.error || body.message || `HTTP ${res.status}`);
-            }
-            state.etag = body.etag || state.etag;
-            _setStatus('Saved.', 'ok');
-        } catch (e) {
-            _setStatus(`Save failed: ${e.message} — reloading.`, 'error');
-            await _load();
-        } finally {
-            _saving = false;
-        }
-    }
-
     // ---------- default layout (shared customizer, admin mode) ----------
 
     async function _arrangeLayout() {
         if (!window.VariablePrefs) return;
-        if (_saveTimer || _saving) {
-            _setStatus('Finish saving the checkbox changes first, then try again.', 'error');
-            return;
-        }
         let catalog;
         try {
             if (!state.loaded) await _load();
@@ -520,7 +462,6 @@
     }
 
     // Public globals used by inline handlers in the template.
-    window.vsTogglePrio = _togglePrio;
     window.vsSort = _onSort;
     window.vsToggleColumn = _toggleColumn;
     window.vsToggleColumnsMenu = () => _toggleColumnsMenu(false);

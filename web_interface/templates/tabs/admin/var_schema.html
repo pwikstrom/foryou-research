@@ -2,20 +2,20 @@
 
 <h2 style="margin: 0 0 8px 0;">Variable Visibility</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    This page sets which variables are shown or hidden <em>by default</em>
-    across the app. Tick a checkbox to include a variable on that surface
-    &mdash; <strong>Filters</strong>, <strong>Timelines</strong>,
-    <strong>Explore</strong> or <strong>Video Analysis</strong>; changes save
-    immediately and never trigger a study rebuild. <strong>Arrange default
-    layout</strong> sets the same membership plus the order variables appear in
-    within each section. These are only the global defaults: every user can
-    tailor their own set and order in My Stuff &rarr; Preferences &rarr;
-    Variable customizations. Backstage variables and variables with the
-    <code>skip</code> role are never shown to users, so their checkboxes are
-    locked. The remaining columns describe each
-    variable for reference &mdash; they are owned by the declarative contracts
-    (<code>config/*_contract.toml</code>) and the version registries, and can
-    only be changed there.
+    This page sets which variables are shown <em>by default</em> across the
+    app, and in what order. Use <strong>Arrange default layout</strong> to add,
+    remove and reorder variables for each surface &mdash;
+    <strong>Filters</strong>, <strong>Visualized</strong> (Explore and
+    Correlations), the <strong>Detail panel</strong> (Video Analysis) and
+    <strong>Timelines</strong>; saving never triggers a study rebuild. These are
+    only the global defaults: every user can tailor their own set and order in
+    My Stuff &rarr; Preferences &rarr; Variable customizations. The table below
+    is a read-only reference: a &#10003; marks the surfaces a variable is shown
+    on by default, and the remaining columns describe it &mdash; they are owned
+    by the declarative contracts (<code>config/*_contract.toml</code>) and the
+    version registries, and can only be changed there. Backstage variables and
+    variables with the <code>skip</code> role are never shown to users (marked
+    &ndash;).
 </p>
 
 <!-- Toolbar -->
