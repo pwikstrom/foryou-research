@@ -1080,7 +1080,18 @@ def calculate_scaled_pca_scores(
     save_to_cache=True,
     verbose=False,
 ):
+    """Build a study's group-level PCA score table and component interpretations.
 
+    Groups the study's annotated activity by its grouping factors, turns every
+    categorical feature into principal components (or a yes-share), averages
+    the numeric ones, standardises the lot and re-attaches the factor columns,
+    the raw values and each group's video count. Saves both outputs to the
+    cache when ``save_to_cache`` and a ``study_name`` are given.
+
+    Returns:
+        ``(scores, comp_interpretations)``; ``None`` when there is no input,
+        ``(None, None)`` when the data is too thin to analyse.
+    """
     # None -> the [correlations] config section (default 10), so every caller
     # (refresh workers, on-demand web path) honours the same admin-set value.
     if minimum_group_size is None:
@@ -1104,41 +1115,9 @@ def calculate_scaled_pca_scores(
         return None
 
     _t_phase = _time.perf_counter()
-    if (
-        load_from_cache
-        and study_name is not None
-        and data_io.exists(
-            storage_location="cache",
-            filename=f"{study_name}_recoded.parquet",
-        )
-    ):
-        # Project to only the columns PCA actually consumes. The cache
-        # `*_recoded.parquet` files contain 91 columns (collections joined
-        # with scrapes + annotations), but PCA only needs the var_schema
-        # factors/features/grouping_factors plus `annotated_ok` (filter).
-        pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
-        pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
-        cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping + ["annotated_ok"]))
-        study_recoded_dataset = data_io.load_parquet_selective(
-            storage_location="cache",
-            filename=f"{study_name}_recoded.parquet",
-            columns=cols_for_pca,
-            verbose=verbose,
-        )
-
-    if study_name is not None and study_recoded_dataset is None:
-        logger.info(
-            "@@ No cached recoded study dataset found. I must create it. Please wait a moment..."
-        )
-        study_recoded_dataset = create_study_recoded_dataset(
-            study_name=study_name, save_to_cache=True, verbose=verbose
-        )
-        if study_recoded_dataset is None:
-            raise ValueError("No study dataset found for study '{study_name}'")
-        logger.info(
-            "@@ Back after created recoded dataset for this study. I will now resume the PCA analysis."
-        )
-
+    study_recoded_dataset = _load_pca_input(
+        study_name, study_recoded_dataset, load_from_cache, verbose
+    )
     if study_recoded_dataset is None:
         logger.error(
             "    [PCA] ERROR: This process cannot run without a study dataset. Process failed."
@@ -1151,47 +1130,16 @@ def calculate_scaled_pca_scores(
     if verbose:
         logger.info(f"    [PCA] Starting with a dataset of shape {study_recoded_dataset.shape}")
 
-    # checking that the groupubg factors are properly defined and present in the dataset
-    targeted_grouping_factors = get_grouping_factors_from_var_schema(
-        some_events_df=None, verbose=verbose
-    )
-    grouping_factors = get_grouping_factors_from_var_schema(
-        some_events_df=study_recoded_dataset, verbose=verbose
-    )
-    if targeted_grouping_factors != grouping_factors:
-        logger.error(
-            f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating."
-        )
-        return None, None
-    del targeted_grouping_factors
-
-    # An all-NA grouping factor makes the group key meaningless, so it still
-    # terminates. A merely CONSTANT one does not: a single-collection study
-    # (every participant "Just Me" study is one) has one collection_id and many
-    # local_dates, and grouping on the date alone is the intended unit. The
-    # constant factor stays in grouping_factors so the scores frame keeps its
-    # collection_id level for the downstream stats artifact. Only a dataset in
-    # which EVERY grouping factor is constant has too little structure; the
-    # minimum-group-count check further down catches the rest.
-    varying_factors = []
-    for gf in grouping_factors:
-        n_unique = study_recoded_dataset[gf].dropna().nunique()
-        if n_unique == 0:
-            logger.error(f"    [PCA] Grouping factor {gf} is all NA. Terminating.")
-            return None, None
-        if n_unique > 1:
-            varying_factors.append(gf)
-
-    if not varying_factors:
-        logger.error(
-            f"    [PCA] Every grouping factor ({', '.join(grouping_factors)}) has a "
-            "single value, so there are no groups to compare. Terminating."
-        )
+    grouping_factors = _pca_grouping_factors(study_recoded_dataset, verbose)
+    if grouping_factors is None:
         return None, None
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(
         some_events_df=study_recoded_dataset, verbose=verbose
     )
+
+    # The row filters below rebind this one name on purpose: each step frees
+    # the frame before it, which keeps peak memory at about two copies.
 
     # PCA always requires annotated rows, regardless of the [viz] require_annotated_items
     # flag. The PCA features are themselves annotation-derived recoded variables, so
@@ -1239,6 +1187,143 @@ def calculate_scaled_pca_scores(
         )
     del pre_len, post_len, columns_to_be_dropped
 
+    study_recoded_dataset = _drop_small_groups(
+        study_recoded_dataset, grouping_factors, minimum_group_size, verbose
+    )
+    if study_recoded_dataset is None:
+        return None, None
+
+    _t_prep = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
+    events_pca_scores, comp_interpretations, numerical_means_raw = _group_level_components(
+        study_recoded_dataset,
+        grouping_factors,
+        fyp_features,
+        target_explained_variance,
+        drop_rare_globally_below,
+        verbose,
+    )
+
+    _t_pca = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
+    events_pca_scores_scaled = _scale_and_assemble(
+        events_pca_scores,
+        numerical_means_raw,
+        study_recoded_dataset,
+        grouping_factors,
+        fyp_factors,
+        comp_interpretations,
+        scale_it,
+        verbose,
+    )
+
+    _t_scale = _time.perf_counter() - _t_phase
+    _t_phase = _time.perf_counter()
+
+    if save_to_cache and study_name is not None:
+        _save_pca_outputs(study_name, events_pca_scores_scaled, comp_interpretations, verbose)
+
+    _t_save = _time.perf_counter() - _t_phase
+    _t_total = _time.perf_counter() - _t_start
+
+    logger.info(
+        f"    [PCA][TIMING] study={study_name} "
+        f"load={_t_load:.2f}s prep={_t_prep:.2f}s pca={_t_pca:.2f}s "
+        f"scale={_t_scale:.2f}s save={_t_save:.2f}s total={_t_total:.2f}s"
+    )
+    logger.info(f"...done. PCA completed at {_dt.datetime.now()}")
+
+    return events_pca_scores_scaled, comp_interpretations
+
+
+def _load_pca_input(study_name, study_recoded_dataset, load_from_cache, verbose):
+    """The study's recoded frame for PCA: the cached one (only the columns PCA
+    reads), else the one passed in, else a freshly built one. None if none."""
+    if (
+        load_from_cache
+        and study_name is not None
+        and data_io.exists(
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet",
+        )
+    ):
+        # Project to only the columns PCA actually consumes. The cache
+        # `*_recoded.parquet` files contain 91 columns (collections joined
+        # with scrapes + annotations), but PCA only needs the var_schema
+        # factors/features/grouping_factors plus `annotated_ok` (filter).
+        pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
+        pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
+        cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping + ["annotated_ok"]))
+        study_recoded_dataset = data_io.load_parquet_selective(
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet",
+            columns=cols_for_pca,
+            verbose=verbose,
+        )
+
+    if study_name is not None and study_recoded_dataset is None:
+        logger.info(
+            "@@ No cached recoded study dataset found. I must create it. Please wait a moment..."
+        )
+        study_recoded_dataset = create_study_recoded_dataset(
+            study_name=study_name, save_to_cache=True, verbose=verbose
+        )
+        if study_recoded_dataset is None:
+            raise ValueError("No study dataset found for study '{study_name}'")
+        logger.info(
+            "@@ Back after created recoded dataset for this study. I will now resume the PCA analysis."
+        )
+
+    return study_recoded_dataset
+
+
+def _pca_grouping_factors(study_recoded_dataset, verbose):
+    """The grouping factors, or None (logged) when they cannot form groups."""
+    # checking that the groupubg factors are properly defined and present in the dataset
+    targeted_grouping_factors = get_grouping_factors_from_var_schema(
+        some_events_df=None, verbose=verbose
+    )
+    grouping_factors = get_grouping_factors_from_var_schema(
+        some_events_df=study_recoded_dataset, verbose=verbose
+    )
+    if targeted_grouping_factors != grouping_factors:
+        logger.error(
+            f"    [PCA] Targeted grouping factors {targeted_grouping_factors} differ from those available in the dataset {grouping_factors}. Terminating."
+        )
+        return None
+    del targeted_grouping_factors
+
+    # An all-NA grouping factor makes the group key meaningless, so it still
+    # terminates. A merely CONSTANT one does not: a single-collection study
+    # (every participant "Just Me" study is one) has one collection_id and many
+    # local_dates, and grouping on the date alone is the intended unit. The
+    # constant factor stays in grouping_factors so the scores frame keeps its
+    # collection_id level for the downstream stats artifact. Only a dataset in
+    # which EVERY grouping factor is constant has too little structure; the
+    # minimum-group-count check further down catches the rest.
+    varying_factors = []
+    for gf in grouping_factors:
+        n_unique = study_recoded_dataset[gf].dropna().nunique()
+        if n_unique == 0:
+            logger.error(f"    [PCA] Grouping factor {gf} is all NA. Terminating.")
+            return None
+        if n_unique > 1:
+            varying_factors.append(gf)
+
+    if not varying_factors:
+        logger.error(
+            f"    [PCA] Every grouping factor ({', '.join(grouping_factors)}) has a "
+            "single value, so there are no groups to compare. Terminating."
+        )
+        return None
+    return grouping_factors
+
+
+def _drop_small_groups(study_recoded_dataset, grouping_factors, minimum_group_size, verbose):
+    """Keep only groups with at least ``minimum_group_size`` rows; None (logged)
+    when fewer than 10 groups qualify."""
     # ----------------------------
     # Dropping groups that are too small
     # ----------------------------
@@ -1260,7 +1345,7 @@ def calculate_scaled_pca_scores(
         logger.error(
             f"    [PCA] ERROR: Less than 10 groups of {len(group_sizes):,} have at least {minimum_group_size} elements. I refuse to do PCA with soo few groups. Terminating."
         )
-        return None, None
+        return None
     elif len(good_sized_groups) < 100:
         logger.warning(
             f"    [PCA] WARNING: Only {len(good_sized_groups):,} groups of {len(group_sizes):,} have at least {minimum_group_size} elements. This is dangerously low. Please check your data."
@@ -1294,9 +1379,25 @@ def calculate_scaled_pca_scores(
         if verbose:
             logger.info("    [PCA] No groups were below the threshold")
 
-    _t_prep = _time.perf_counter() - _t_phase
-    _t_phase = _time.perf_counter()
+    return study_recoded_dataset
 
+
+def _group_level_components(
+    study_recoded_dataset,
+    grouping_factors,
+    fyp_features,
+    target_explained_variance,
+    drop_rare_globally_below,
+    verbose,
+):
+    """Per-group feature columns: numeric means (contract transforms applied)
+    and, for each categorical feature, its principal components and diversity,
+    or its yes-share for a yes/no variable.
+
+    Returns:
+        ``(scores, comp_interpretations, numerical_means_raw)`` where the last
+        is the untransformed numeric means (None without numeric features).
+    """
     # ----------------------------
     # PCA transformation
     # ----------------------------
@@ -1410,10 +1511,22 @@ def calculate_scaled_pca_scores(
         events_pca_scores += [wer.copy()]
 
     events_pca_scores = pd.concat(events_pca_scores, axis=1)
+    return events_pca_scores, comp_interpretations, numerical_means_raw
 
-    _t_pca = _time.perf_counter() - _t_phase
-    _t_phase = _time.perf_counter()
 
+def _scale_and_assemble(
+    events_pca_scores,
+    numerical_means_raw,
+    study_recoded_dataset,
+    grouping_factors,
+    fyp_factors,
+    comp_interpretations,
+    scale_it,
+    verbose,
+):
+    """Standardise the scores and attach the factor columns, the unscaled
+    ``_raw`` copies and each group's video count. Fills in a default
+    interpretation for every column that has none (mutates the dict)."""
     if verbose:
         logger.info(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
 
@@ -1490,44 +1603,32 @@ def calculate_scaled_pca_scores(
     if verbose:
         logger.info("    [PCA] Converting dtypes to pyarrow")
     events_pca_scores_scaled = convert_dtypes_to_pyarrow(events_pca_scores_scaled, verbose=verbose)
+    return events_pca_scores_scaled
 
-    _t_scale = _time.perf_counter() - _t_phase
-    _t_phase = _time.perf_counter()
 
-    if save_to_cache and study_name is not None:
-        pca_filename = f"{study_name}_PCA.parquet"
-        events_pca_scores_scaled.attrs["study_name"] = study_name
-        data_io.save_parquet(
-            df=events_pca_scores_scaled,
-            storage_location="cache",
-            filename=pca_filename,
-            verbose=verbose,
-        )
-        if verbose:
-            logger.info(
-                f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'."
-            )
-
-        comp_inter_filename = f"{study_name}_comp_interpretations.json"
-        data_io.save_json(
-            data=comp_interpretations,
-            storage_location="cache",
-            filename=comp_inter_filename,
-            verbose=verbose,
-        )
-        if verbose:
-            logger.info(
-                f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'."
-            )
-
-    _t_save = _time.perf_counter() - _t_phase
-    _t_total = _time.perf_counter() - _t_start
-
-    logger.info(
-        f"    [PCA][TIMING] study={study_name} "
-        f"load={_t_load:.2f}s prep={_t_prep:.2f}s pca={_t_pca:.2f}s "
-        f"scale={_t_scale:.2f}s save={_t_save:.2f}s total={_t_total:.2f}s"
+def _save_pca_outputs(study_name, events_pca_scores_scaled, comp_interpretations, verbose):
+    """Write the scores parquet and the interpretations JSON to the cache."""
+    pca_filename = f"{study_name}_PCA.parquet"
+    events_pca_scores_scaled.attrs["study_name"] = study_name
+    data_io.save_parquet(
+        df=events_pca_scores_scaled,
+        storage_location="cache",
+        filename=pca_filename,
+        verbose=verbose,
     )
-    logger.info(f"...done. PCA completed at {_dt.datetime.now()}")
+    if verbose:
+        logger.info(
+            f"    [PCA] Saved {events_pca_scores_scaled.shape[0]:,} scaled PCA scores in '{pca_filename}'."
+        )
 
-    return events_pca_scores_scaled, comp_interpretations
+    comp_inter_filename = f"{study_name}_comp_interpretations.json"
+    data_io.save_json(
+        data=comp_interpretations,
+        storage_location="cache",
+        filename=comp_inter_filename,
+        verbose=verbose,
+    )
+    if verbose:
+        logger.info(
+            f"    [PCA] Saved {len(comp_interpretations):,} component interpretations in '{comp_inter_filename}'."
+        )
