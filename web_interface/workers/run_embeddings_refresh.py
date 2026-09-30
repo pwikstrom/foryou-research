@@ -225,6 +225,7 @@ if __name__ == "__main__":
     import argparse
 
     from web_interface.tasks.task_status import LocalStatusReporter
+    from web_interface.tasks.worker_runner import chain_locally
 
     parser = argparse.ArgumentParser(description="Embed pending annotated videos")
     parser.add_argument(
@@ -240,15 +241,8 @@ if __name__ == "__main__":
 
     reporter = LocalStatusReporter("embeddings_refresh")
     task_args = {"batch_size": args.batch_size, "max_batches": args.max_batches}
-    batches_run = 0
     try:
-        while True:
-            task_args["chunk_index"] = batches_run
-            chain = run_embeddings_refresh(reporter=reporter, task_args=task_args)
-            batches_run += 1
-            if not chain:
-                break
-            task_args = chain["next_task_args"]
+        chain_locally(run_embeddings_refresh, reporter, task_args)
         reporter.complete()
         print("Embeddings refresh completed.")
         os._exit(0)

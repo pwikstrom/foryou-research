@@ -40,7 +40,6 @@ in a local/no-GCS environment):
 import datetime as _dt
 import math
 import sys
-import time
 
 from web_interface.integrations.mail_utils import send_batch_annotation_email_async
 from web_interface.tasks import worker_registry
@@ -604,6 +603,7 @@ if __name__ == "__main__":
     import argparse
 
     from web_interface.tasks.task_status import LocalStatusReporter
+    from web_interface.tasks.worker_runner import chain_locally
 
     parser = argparse.ArgumentParser(
         description="Run batch queue annotator (submit + poll to done)"
@@ -633,16 +633,9 @@ if __name__ == "__main__":
         "launched_by": args.launched_by,
     }
     try:
-        while next_args is not None:
-            result = run_queue_annotator_batch(reporter, next_args)
-            if not result or not result.get("chain"):
-                break
-            # No Cloud Tasks locally: honour the poll delay with a plain sleep so
-            # the local loop polls the job to completion.
-            delay = result.get("next_dispatch_delay_seconds")
-            if delay:
-                time.sleep(delay)
-            next_args = result["next_task_args"]
+        # No Cloud Tasks locally: honour the poll delay so the loop polls the
+        # job to completion instead of spinning.
+        chain_locally(run_queue_annotator_batch, reporter, next_args, honour_delay=True)
         reporter.complete()
         print("Batch queue annotation completed.")
     except Exception as exc:

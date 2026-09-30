@@ -22,6 +22,10 @@ public version. Entries below describe the Hub as it stands at that release.
   helper are now two functions in `fyp/core/runtime.py`: `utc_now_iso()`
   (optionally to the second) and `local_now_iso()` (the configured time
   zone). Every stored format is unchanged, pinned by a frozen-clock test.
+- **One local chain driver.** The embeddings, sessions and batch-annotation
+  workers each carried their own loop for running a self-chaining job's links
+  in a local subprocess; they now share `chain_locally` in
+  `web_interface/tasks/worker_runner.py`.
 
 ## [0.4.0] — 2026-09-30
 

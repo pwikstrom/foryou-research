@@ -909,7 +909,9 @@ def run_sessions_refresh(
 
 
 if __name__ == "__main__":
-    from web_interface.tasks.worker_runner import run_worker
+    from functools import partial
+
+    from web_interface.tasks.worker_runner import chain_locally, run_worker
 
     def _make_task_args(args) -> dict:
         task_args: dict = {}
@@ -937,16 +939,8 @@ if __name__ == "__main__":
                 task_args[key] = value
         return task_args
 
-    def _chain_locally(reporter, task_args):
-        """Run the same links the Cloud chain would, in one process."""
-        while True:
-            chain = run_sessions_refresh(reporter, task_args)
-            if not chain:
-                return
-            task_args = chain["next_task_args"]
-
     run_worker(
-        _chain_locally,
+        partial(chain_locally, run_sessions_refresh),
         "sessions_refresh",
         arg_specs=[
             (
