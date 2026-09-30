@@ -429,11 +429,10 @@ def link_aio_collections(
             um=um,
             tags=tags,
         )
-        if dry_run and outcome == "created":
-            # Same email on a later collection: the real run would find the
-            # account it just created, so report it as existing.
-            if user_id in report["created_accounts"]:
-                outcome = "existing"
+        # Same email on a later collection: the real run would find the
+        # account it just created, so report it as existing.
+        if dry_run and outcome == "created" and user_id in report["created_accounts"]:
+            outcome = "existing"
         report["outcomes"][cid] = outcome
         if outcome == "skipped" or not user_id:
             report["skipped"][cid] = details.get("error", "unresolved")

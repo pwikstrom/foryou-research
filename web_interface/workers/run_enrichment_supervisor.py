@@ -1410,7 +1410,7 @@ def _plan(reporter, plans: dict) -> dict | None:
                     # reads. (It no longer scopes the handoff, which sweeps the
                     # whole collection's scraped-but-unannotated set.)
                     "in_flight": sorted(
-                        set(str(i) for i in (entry.get("in_flight") or [])) | set(items)
+                        {str(i) for i in (entry.get("in_flight") or [])} | set(items)
                     ),
                     "platform": platform,
                     "a_cursor": result["a_cursor"],

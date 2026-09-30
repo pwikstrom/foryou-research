@@ -541,7 +541,7 @@ def sample_items(n: int, platforms: list[str] | None = None, seed: int | None = 
     total = len(pool)
     picked: list[str] = []
     # Proportional allocation, largest groups first; remainder tops up below.
-    for plat, grp in sorted(groups, key=lambda g: -len(g[1])):
+    for _plat, grp in sorted(groups, key=lambda g: -len(g[1])):
         quota = max(1, round(n * len(grp) / total))
         quota = min(quota, len(grp), n - len(picked))
         if quota <= 0:
@@ -738,8 +738,7 @@ class SyncThreadedRunner:
                 ): str(item_id)
                 for item_id in item_ids
             }
-            done = 0
-            for fut in as_completed(futures):
+            for done, fut in enumerate(as_completed(futures), start=1):
                 item_id = futures[fut]
                 try:
                     results[item_id] = fut.result()
@@ -754,7 +753,6 @@ class SyncThreadedRunner:
                         "error": str(exc),
                         "model": _cf()["machine"]["gemini"].get("model"),
                     }
-                done += 1
                 if progress_cb:
                     progress_cb(done, len(item_ids))
                 if self.cancel_cb and self.cancel_cb():
@@ -1540,9 +1538,11 @@ def _arm_price(arm: dict) -> dict | None:
     try:
         spec = variants.resolve(selection)
         model_key = "model" if spec.backend_id == "gemini" else "model_id"
-        if overrides.get(model_key):
-            if overrides[model_key] != get_backend(selection).effective_model_id():
-                return None
+        if (
+            overrides.get(model_key)
+            and overrides[model_key] != get_backend(selection).effective_model_id()
+        ):
+            return None
         return variants.selection_pricing(selection)
     except Exception:
         return None

@@ -548,7 +548,7 @@ def test_cross_collection_item_overlap(monkeypatch):
     def fake_selective(storage_location=None, filename=None, columns=None, filters=None, **kw):
         df = raw
         if filters:
-            for col, op, vals in filters:
+            for col, _op, vals in filters:
                 df = df[df[col].astype(str).isin([str(v) for v in vals])]
         return df[columns].copy() if columns else df.copy()
 

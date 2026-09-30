@@ -1187,28 +1187,30 @@ def recode_events_df(
                 # ------------------------------------------------------
 
                 # If we expect single values (categorical, numeric, datetime), ensure no lists > 1
-                if this_var_schema.get("scale", "") in ["categorical", "numeric", "datetime"]:
-                    # Fast check: if object type, might contain lists
-                    if cool_events[c].dtype == object:
-                        # 'get first if list' logic normalization
-                        def _normalize_single(x):
-                            if isinstance(x, list):
-                                if len(x) > 1:
-                                    return x  # leave as list for validation
-                                return x[0] if x else pd.NA
-                            return x
+                # Fast check: if object type, might contain lists
+                if (
+                    this_var_schema.get("scale", "") in ["categorical", "numeric", "datetime"]
+                    and cool_events[c].dtype == object
+                ):
+                    # 'get first if list' logic normalization
+                    def _normalize_single(x):
+                        if isinstance(x, list):
+                            if len(x) > 1:
+                                return x  # leave as list for validation
+                            return x[0] if x else pd.NA
+                        return x
 
-                        # apply normalization
-                        cool_events[c] = cool_events[c].map(_normalize_single)
+                    # apply normalization
+                    cool_events[c] = cool_events[c].map(_normalize_single)
 
-                        # Use a sample check or fast check for remaining lists (validation)
-                        has_lists = cool_events[c].map(lambda x: isinstance(x, list)).any()
-                        if has_lists:
-                            # calculate count for error message
-                            count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
-                            raise ValueError(
-                                f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, numeric, and datetime variables."
-                            )
+                    # Use a sample check or fast check for remaining lists (validation)
+                    has_lists = cool_events[c].map(lambda x: isinstance(x, list)).any()
+                    if has_lists:
+                        # calculate count for error message
+                        count = cool_events[c].map(lambda x: isinstance(x, list)).sum()
+                        raise ValueError(
+                            f"{c} has {count} values with more than one entry. Only a single value is allowed for categorical, numeric, and datetime variables."
+                        )
 
                 # ------------------------------------------------------
                 # 4&half. numeric variables accept only numeric values

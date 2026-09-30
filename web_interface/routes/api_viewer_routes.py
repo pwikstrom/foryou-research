@@ -360,10 +360,9 @@ def api_save_tags():
             del user_data[item_id][cc_key]
 
     # Prune empty
-    if not tags:
-        # If variable exists, delete it
-        if variable in user_data[item_id]:
-            del user_data[item_id][variable]
+    # If variable exists, delete it
+    if not tags and variable in user_data[item_id]:
+        del user_data[item_id][variable]
 
     # Check if item_id is now completely empty (no tags AND no notes)
     # We need to check if there are ANY keys left in user_data[item_id]
@@ -410,7 +409,7 @@ def api_delete_tag(tag_name):
         vars_to_prune = []
         for var, tags in item_vars.items():
             # SKIP NOTES AND CLOSED TAGGING
-            if var.endswith("__NOTES") or var.endswith("__CLOSED_TAGGING"):
+            if var.endswith(("__NOTES", "__CLOSED_TAGGING")):
                 continue
 
             if tag_name in tags:

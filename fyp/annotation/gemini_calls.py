@@ -582,7 +582,7 @@ def call_machine_threads(
             )
 
         # Record DNF entries for any video whose worker didn't return in time
-        for i, fut in enumerate(futures):
+        for i in range(len(futures)):
             if i in results_by_index:
                 continue
             results_by_index[i] = {

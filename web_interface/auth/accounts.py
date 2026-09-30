@@ -878,7 +878,7 @@ class UserManager:
                 with ThreadPoolExecutor(max_workers=max_workers) as pool:
                     results = list(pool.map(_load_one, json_files))
 
-            for fname, user_data in results:
+            for _fname, user_data in results:
                 if user_data and "username" in user_data:
                     username = user_data["username"]
                     loaded[username] = _user_from_record(user_data)

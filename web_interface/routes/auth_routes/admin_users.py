@@ -122,7 +122,7 @@ def _list_users():
                     "closed_tags": closed_count,
                     "open_tags": open_count,
                     "unique_videos": len(unique_videos),
-                    "used_tags": sorted(list(used_tags)),
+                    "used_tags": sorted(used_tags),
                     "user_notes": user_notes,
                 }
         except Exception as e:

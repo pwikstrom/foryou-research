@@ -905,9 +905,8 @@ def start_process(
         return success, msg
 
     # Subprocess path (local dev + non-eligible processes on Cloud Run)
-    if processes[name]["proc"] is not None:
-        if processes[name]["proc"].poll() is None:
-            return False, "Process already running"
+    if processes[name]["proc"] is not None and processes[name]["proc"].poll() is None:
+        return False, "Process already running"
 
     env_vars = worker_env()
 

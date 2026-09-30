@@ -305,7 +305,7 @@ def new_merge(
     if "study_defs" not in _cf():
         init_study_defs()
 
-    if study_name not in _cf()["study_defs"].keys() and save_to_cache:
+    if study_name not in _cf()["study_defs"] and save_to_cache:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     for k in all_datasets:

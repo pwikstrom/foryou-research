@@ -982,7 +982,7 @@ class ForYouBaseCollection(ABC):
             }
 
         good_columns = list(
-            (set(self.additional_columns.keys()) | set(list(self.REQUIRED_COLUMNS.keys())))
+            (set(self.additional_columns.keys()) | set(self.REQUIRED_COLUMNS.keys()))
             & set(self.data.columns)
         )
 
@@ -1339,7 +1339,7 @@ class ForYouBaseCollection(ABC):
                 df["collection_id"] = pd.NA
 
         # 1. Ensure all required columns exist
-        for col, dtype in self.REQUIRED_COLUMNS.items():
+        for col in self.REQUIRED_COLUMNS:
             if col not in df.columns:
                 if self.verbose:
                     logger.warning(f"Warning: Missing column {col}, filling with NA.")

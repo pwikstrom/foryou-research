@@ -62,7 +62,7 @@ def test_large_blob_reassembles_exactly(monkeypatch, size):
     ranged = sorted(c for c in bucket.calls if c[0] != "full")
     assert ranged[0][0] == 0
     assert ranged[-1][1] == size - 1
-    for (s1, e1), (s2, _) in zip(ranged, ranged[1:]):
+    for (_s1, e1), (s2, _) in zip(ranged, ranged[1:]):
         assert s2 == e1 + 1
 
 

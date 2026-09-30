@@ -630,8 +630,8 @@ def test_the_consolidations_scope_survives_a_moved_map():
         kind="armed",
         impact={
             "new_annotation_item_count": 202,
-            "affected_study_names": ["s%d" % i for i in range(8)],
-            "affected_collection_ids": ["c%d" % i for i in range(36)],
+            "affected_study_names": [f"s{i}" for i in range(8)],
+            "affected_collection_ids": [f"c{i}" for i in range(36)],
         },
     )
     for step in ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"):

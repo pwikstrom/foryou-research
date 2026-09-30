@@ -48,7 +48,7 @@ def get_timeline_covered_vars(collection_id, interval="day"):
         payload = data_io.load_json(storage_location="cache", filename=fname) or {}
         vars_list = payload.get("vars")
         if isinstance(vars_list, list):
-            return set(str(v) for v in vars_list)
+            return {str(v) for v in vars_list}
     except Exception:
         pass
     return None
@@ -307,7 +307,7 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
 
     # ---------------------------------------------------------
     # 2. Aggregate (day interval)
-    for interval in ("day",):
+    for _interval in ("day",):
         # Grouping — assign() shares underlying column data, avoiding a full copy
         temp_df = df.assign(period=df[date_col].dt.date.astype(str))
 
@@ -534,7 +534,7 @@ def _remap_analysis_indices(
     if not isinstance(analysis, dict):
         return
 
-    for var_name, var_block in analysis.items():
+    for _var_name, var_block in analysis.items():
         if not isinstance(var_block, dict):
             continue
         var_block["time_labels"] = list(new_date_labels)
@@ -848,7 +848,7 @@ def get_timeline_data(
             "daily_weighted_valid": weighted_valid,
             "daily_weighted_video_total": weighted_video_total,
             "top_categories": top_cats if var == "machine_state" else top_cats[:3],
-            "default_all": True if var == "machine_state" else False,
+            "default_all": var == "machine_state",
             "display_name": display_name,
         }
 

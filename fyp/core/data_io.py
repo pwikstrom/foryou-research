@@ -779,11 +779,10 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
     # Extension check
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != ".ndjson":
-        if verbose:
-            logger.warning(
-                f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})"
-            )
+    if ext != ".ndjson" and verbose:
+        logger.warning(
+            f"    [DATA_IO] WARN: File extension is not '.ndjson': '{ext}' (filename: {bn})"
+        )
 
     primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
@@ -832,11 +831,10 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
     # Extension check
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != ".json":
-        if verbose:
-            logger.warning(
-                f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
-            )
+    if ext != ".json" and verbose:
+        logger.warning(
+            f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
+        )
 
     primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
 
@@ -1081,11 +1079,10 @@ def save_json(
 
     bn = os.path.basename(filename)
     root, ext = os.path.splitext(bn)
-    if ext != ".json":
-        if verbose:
-            logger.warning(
-                f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
-            )
+    if ext != ".json" and verbose:
+        logger.warning(
+            f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})"
+        )
 
     primary, secondary, mode, blob_name = resolve_paths(storage_location, filename)
     if not overwrite:

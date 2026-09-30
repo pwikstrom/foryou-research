@@ -334,7 +334,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     main_collection.load_processed()
     rows_before = len(main_collection.data)
     existing_raw_files = (
-        set(str(rf) for rf in main_collection.data["raw_file"].dropna().unique().tolist())
+        {str(rf) for rf in main_collection.data["raw_file"].dropna().unique().tolist()}
         if rows_before > 0
         else set()
     )

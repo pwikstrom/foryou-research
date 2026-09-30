@@ -121,9 +121,12 @@ def test_chained_links_take_their_deadline_from_the_registry():
             if not isinstance(node, ast.Dict):
                 continue
             for key, value in zip(node.keys, node.values, strict=True):
-                if isinstance(key, ast.Constant) and key.value == "dispatch_deadline_seconds":
-                    if "worker_registry.deadline_for" not in ast.unparse(value):
-                        offenders.append(f"{path.name}:{node.lineno}: {ast.unparse(value)}")
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "dispatch_deadline_seconds"
+                    and "worker_registry.deadline_for" not in ast.unparse(value)
+                ):
+                    offenders.append(f"{path.name}:{node.lineno}: {ast.unparse(value)}")
     assert not offenders, "use worker_registry.deadline_for(name):\n  " + "\n  ".join(offenders)
 
 

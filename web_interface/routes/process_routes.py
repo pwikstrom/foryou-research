@@ -450,10 +450,8 @@ def _build_status_payload() -> dict:
 
         # Subprocess path (local dev + non-eligible + idle Cloud Tasks processes)
         state = p_data["status"]
-        if p_data["proc"]:
-            if p_data["proc"].poll() is not None:
-                if state == "running":
-                    state = "stopped"
+        if p_data["proc"] and p_data["proc"].poll() is not None and state == "running":
+            state = "stopped"
 
         stats_entry = process_stats.get(name, {})
         if gcs_status:

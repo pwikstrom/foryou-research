@@ -179,7 +179,7 @@ def _inject_collection_tags(
         return metadata
 
     # Build tag → row count mapping, restricted to IDs in this study
-    study_ids = set(str(cid) for cid in collection_ids)
+    study_ids = {str(cid) for cid in collection_ids}
     if collection_counts is None:
         collection_counts = _collection_row_counts(metadata)
     tag_counter: dict[str, int] = {}
@@ -812,15 +812,14 @@ def api_explorer_metadata():
                     if (
                         col in potential_metadata
                         and potential_metadata[col].get("type") == "category"
-                    ):
-                        if "values" in potential_metadata[col]:
-                            new_values = []
-                            for item in potential_metadata[col]["values"]:
-                                val = item["value"]
-                                if val in display_map:
-                                    item["label"] = display_map[val]
-                                new_values.append(item)
-                            potential_metadata[col]["values"] = new_values
+                    ) and "values" in potential_metadata[col]:
+                        new_values = []
+                        for item in potential_metadata[col]["values"]:
+                            val = item["value"]
+                            if val in display_map:
+                                item["label"] = display_map[val]
+                            new_values.append(item)
+                        potential_metadata[col]["values"] = new_values
 
             # Enforce strict study membership for Donation IDs
             potential_metadata = _enforce_study_collections(potential_metadata, study)
@@ -953,23 +952,25 @@ def api_explorer_metadata():
     display_map = load_display_id_map()
     if display_map:
         for col in ["collection_id"]:
+            # IDs are often category/list in metadata
+            # Check values list
             if (
-                col in metadata and metadata[col].get("type") == "category"
-            ):  # IDs are often category/list in metadata
-                # Check values list
-                if "values" in metadata[col]:
-                    new_values = []
-                    for item in metadata[col]["values"]:
-                        # item is {value: "...", count: ...}
-                        val = item["value"]
-                        # Look up display ID
-                        if val in display_map:
-                            item["label"] = display_map[val]  # Add label
-                        else:
-                            # Fallback? No label needed, frontend defaults to value
-                            pass
-                        new_values.append(item)
-                    metadata[col]["values"] = new_values
+                col in metadata
+                and metadata[col].get("type") == "category"
+                and "values" in metadata[col]
+            ):
+                new_values = []
+                for item in metadata[col]["values"]:
+                    # item is {value: "...", count: ...}
+                    val = item["value"]
+                    # Look up display ID
+                    if val in display_map:
+                        item["label"] = display_map[val]  # Add label
+                    else:
+                        # Fallback? No label needed, frontend defaults to value
+                        pass
+                    new_values.append(item)
+                metadata[col]["values"] = new_values
 
     # Enforce strict study membership for Donation IDs (before saving to cache)
     metadata = _enforce_study_collections(metadata, study)
@@ -1173,10 +1174,13 @@ def api_explorer_filter():
             result["count"] = len(df)
 
             # Inject User Tags stats if missing
-            if "User Tags" in col_types and "User Tags" not in result["stats"]:
-                if "User Tags" in df.columns:
-                    res_tags = explorer.get_current_stats(df[["User Tags"]], {"User Tags": "list"})
-                    result["stats"].update(res_tags["stats"])
+            if (
+                "User Tags" in col_types
+                and "User Tags" not in result["stats"]
+                and "User Tags" in df.columns
+            ):
+                res_tags = explorer.get_current_stats(df[["User Tags"]], {"User Tags": "list"})
+                result["stats"].update(res_tags["stats"])
 
         else:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)

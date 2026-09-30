@@ -153,7 +153,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
 
     # #######################
     # scenes
-    if "scenes" in flat_response.keys():
+    if "scenes" in flat_response:
         if isinstance(flat_response["scenes"], str):
             flat_response["scenes"] = re.sub(
                 r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["scenes"]
@@ -183,7 +183,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
 
     # #######################
     # transcript
-    if "transcript" in flat_response.keys():
+    if "transcript" in flat_response:
         if isinstance(flat_response["transcript"], str):
             flat_response["transcript"] = re.sub(
                 r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["transcript"]
@@ -209,7 +209,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
     # #######################
     # objects
     for res_key in ["objects", "symbols_and_brands", "text_overlays", "content_category"]:
-        if res_key in flat_response.keys():
+        if res_key in flat_response:
             if isinstance(flat_response[res_key], str):
                 flat_response[res_key] = re.sub(
                     r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response[res_key]
@@ -237,7 +237,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
     # #######################
     # audio_summary sometimes arrives as a JSON string rather than an object;
     # parse it before unpacking its fields
-    if "audio_summary" in flat_response.keys():
+    if "audio_summary" in flat_response:
         if isinstance(flat_response["audio_summary"], str):
             flat_response["audio_summary"] = re.sub(
                 r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["audio_summary"]
@@ -266,7 +266,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
 
     # #######################
     # faces
-    if "faces" in flat_response.keys():
+    if "faces" in flat_response:
         if isinstance(flat_response["faces"], str):
             flat_response["faces"] = re.sub(
                 r"([a-zA-Z])'([a-zA-Z])", r"\1\2", flat_response["faces"]
@@ -282,7 +282,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
             for face in flat_response["faces"]:
                 if isinstance(face, dict):
                     for k in face:
-                        if "faces_" + k not in flat_response.keys():
+                        if "faces_" + k not in flat_response:
                             flat_response["faces_" + k] = ""
                         try:
                             flat_response["faces_" + k] += str(face[k]) + " | "
@@ -585,7 +585,7 @@ def _remove_repetitions(some_string):
         # Iterate over the patterns, keeping the first occurrence in the string
         # and removing all others. This heuristic occasionally mangles text that
         # legitimately repeats a phrase.
-        for i, mr in enumerate(most_repeated):
+        for _i, mr in enumerate(most_repeated):
             the_phrase = " ".join(mr[0])
 
             # register the position of the first occurrence of the pattern

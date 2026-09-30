@@ -607,9 +607,12 @@ def learn_file(
         if not source_stats:
             continue
         for key, value in source_stats.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                if key not in ("raw_rows", "kept_rows", "file_size_mb"):
-                    metrics[key] = float(value)
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and key not in ("raw_rows", "kept_rows", "file_size_mb")
+            ):
+                metrics[key] = float(value)
     for metric, value in metrics.items():
         moments = baseline["stats"].setdefault(metric, _new_stat_moments())
         _update_moments(moments, value)

@@ -156,12 +156,8 @@ def annotate_from_video_id_list(
         # differ per platform (TikTok 19-digit numeric, Instagram shortcode,
         # YouTube 11-char [A-Za-z0-9_-]), so the check is deliberately permissive.
         if not all(
-            map(
-                lambda video_id: (
-                    type(video_id) == str and re.fullmatch(r"[A-Za-z0-9_-]{5,40}", video_id)
-                ),
-                fine_list,
-            )
+            (type(video_id) == str and re.fullmatch(r"[A-Za-z0-9_-]{5,40}", video_id))
+            for video_id in fine_list
         ):
             raise ValueError("Some videoIDs in the list were corrupt. Cannot process this list.")
 

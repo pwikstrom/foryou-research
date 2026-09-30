@@ -62,10 +62,7 @@ def shards_appended_only(old_entries, new_entries) -> bool:
     if not old_entries:
         return False
     current = {str(e[0]): (int(e[1]), float(e[2])) for e in new_entries}
-    for e in old_entries:
-        if current.get(str(e[0])) != (int(e[1]), float(e[2])):
-            return False
-    return True
+    return all(current.get(str(e[0])) == (int(e[1]), float(e[2])) for e in old_entries)
 
 
 def new_vector_item_ids(index, old_count: int) -> set[str]:

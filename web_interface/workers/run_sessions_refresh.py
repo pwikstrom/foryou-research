@@ -401,14 +401,13 @@ def run_sessions_refresh(
         # takes minutes on a large corpus. Report progress from the first moment
         # so the card shows a live phase instead of a bare "Initializing...".
         reporter.update_progress(0, "Planning refresh...")
-        if _flag(task_args.get("skip_if_busy", "")) and restarts == 0:
-            if _foreign_run_active():
-                reporter.log(
-                    "Another sessions refresh appears to be running — skipping this (chained) run."
-                )
-                reporter.update_progress(100, "Skipped — refresh already running")
-                reporter.emit_data({"sessions_mode": "skipped_busy"})
-                return None
+        if _flag(task_args.get("skip_if_busy", "")) and restarts == 0 and _foreign_run_active():
+            reporter.log(
+                "Another sessions refresh appears to be running — skipping this (chained) run."
+            )
+            reporter.update_progress(100, "Skipped — refresh already running")
+            reporter.emit_data({"sessions_mode": "skipped_busy"})
+            return None
         params = {**sessions_inputs.default_params(), **overrides}
         collections = None
         if collections_str:

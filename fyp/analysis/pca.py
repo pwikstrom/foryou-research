@@ -8,7 +8,7 @@ over a study's factors and features.
 import datetime as _dt
 import time as _time
 from collections.abc import Sequence
-from typing import Literal, Union
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -158,7 +158,7 @@ def yes_share_from_counts(counts_df: pd.DataFrame) -> pd.Series:
     return (numerator / denominator.where(denominator > 0)).astype("float64")
 
 
-Group = Union[dict[str, int], Sequence[str]]
+Group = dict[str, int] | Sequence[str]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
 Mode = Literal["distance", "similarity"]
 Weighting = Literal["none", "idf"]
@@ -821,10 +821,9 @@ def _prepare_probability_matrix(
         P = _row_normalize(P)
 
     # Tempering
-    if gamma is not None and abs(gamma - 1.0) > 1e-12:
-        if 0 < gamma <= 1:
-            P = np.power(P, gamma)
-            P = _row_normalize(P)
+    if gamma is not None and abs(gamma - 1.0) > 1e-12 and 0 < gamma <= 1:
+        P = np.power(P, gamma)
+        P = _row_normalize(P)
 
     return pd.DataFrame(P, index=counts_df.index, columns=counts_df.columns)
 
@@ -999,7 +998,7 @@ def transform_categories_to_components_and_diversity(
         top1_series = full_dist["top1"]
     else:
         probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
-        for i, col in enumerate(pc_df.columns):
+        for col in pc_df.columns:
             target_cat = None
             for cat in ["yes", "Yes", "True", "true"]:
                 if cat in probs.columns:
@@ -1105,24 +1104,27 @@ def calculate_scaled_pca_scores(
         return None
 
     _t_phase = _time.perf_counter()
-    if load_from_cache and study_name is not None:
-        if data_io.exists(
+    if (
+        load_from_cache
+        and study_name is not None
+        and data_io.exists(
             storage_location="cache",
             filename=f"{study_name}_recoded.parquet",
-        ):
-            # Project to only the columns PCA actually consumes. The cache
-            # `*_recoded.parquet` files contain 91 columns (collections joined
-            # with scrapes + annotations), but PCA only needs the var_schema
-            # factors/features/grouping_factors plus `annotated_ok` (filter).
-            pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
-            pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
-            cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping + ["annotated_ok"]))
-            study_recoded_dataset = data_io.load_parquet_selective(
-                storage_location="cache",
-                filename=f"{study_name}_recoded.parquet",
-                columns=cols_for_pca,
-                verbose=verbose,
-            )
+        )
+    ):
+        # Project to only the columns PCA actually consumes. The cache
+        # `*_recoded.parquet` files contain 91 columns (collections joined
+        # with scrapes + annotations), but PCA only needs the var_schema
+        # factors/features/grouping_factors plus `annotated_ok` (filter).
+        pca_factors, pca_features = get_factors_and_features_from_var_schema(verbose=False)
+        pca_grouping = get_grouping_factors_from_var_schema(verbose=False)
+        cols_for_pca = sorted(set(pca_factors + pca_features + pca_grouping + ["annotated_ok"]))
+        study_recoded_dataset = data_io.load_parquet_selective(
+            storage_location="cache",
+            filename=f"{study_name}_recoded.parquet",
+            columns=cols_for_pca,
+            verbose=verbose,
+        )
 
     if study_name is not None and study_recoded_dataset is None:
         logger.info(
@@ -1415,9 +1417,8 @@ def calculate_scaled_pca_scores(
     if verbose:
         logger.info(f"    [PCA] Shape of PCA scores table: {events_pca_scores.shape}")
 
-    if not scale_it:
-        if verbose:
-            logger.info("    [PCA] Not scaling the scores and not saving them either")
+    if not scale_it and verbose:
+        logger.info("    [PCA] Not scaling the scores and not saving them either")
 
     if verbose:
         logger.info("    [PCA] Scaling pca scores and concatenating factors into the scaled table")

@@ -109,9 +109,7 @@ def status_patch_allowed(scrape_consolidated: bool, annotations_consolidated: bo
         # the old regime.
         if scrape_consolidated and marker.get("scrapes_fp") is None:
             return False
-        if annotations_consolidated and marker.get("annotations_fp") is None:
-            return False
-        return True
+        return not (annotations_consolidated and marker.get("annotations_fp") is None)
     except Exception as exc:
         logger.warning(f"    Status-patch eligibility check failed (forcing rebuild): {exc}")
         return False

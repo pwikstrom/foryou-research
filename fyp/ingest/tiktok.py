@@ -208,7 +208,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
                         donation_items.append(
                             {
                                 "activity_type": activity_type,
-                                "variable_list": [k.lower() for k in item.keys()],
+                                "variable_list": [k.lower() for k in item],
                                 "value_list": list(item.values()),
                             }
                         )
@@ -692,7 +692,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         # Filter valid item_ids to make sure they're not corrupted
         if "item_id" in df.columns:
             df = df[
-                df.item_id.map(lambda x: all([u in "0123456789" for u in x]) and len(x) == 19)
+                df.item_id.map(lambda x: all(u in "0123456789" for u in x) and len(x) == 19)
             ].copy()
 
         # -----------------------------------------------------

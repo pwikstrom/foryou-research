@@ -1142,7 +1142,7 @@ def episode_vmax() -> pd.DataFrame | None:
         feat = trend_frame(set(exploded["item_id"].dropna()))
         if not feat.empty:
             exploded = exploded.join(feat, on="item_id")
-        value_cols = ["dwell_s"] + [c for c in feat.columns]
+        value_cols = ["dwell_s"] + list(feat.columns)
         agg = exploded.groupby("_eid")[value_cols].max()
         out = frame[["collection_id", "session_id"]].reset_index(drop=True).join(agg)
         _EPVMAX_CACHE.update({"key": key, "df": out})

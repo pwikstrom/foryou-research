@@ -1092,12 +1092,15 @@ def main() -> None:
         answers = run_interactive(defaults)
 
     if CONFIG_LOCAL.exists():
-        if not args.force and not args.yes:
-            if not prompt_yes_no(
+        if (
+            not args.force
+            and not args.yes
+            and not prompt_yes_no(
                 f"{CONFIG_LOCAL} exists - back it up and overwrite?", default=True
-            ):
-                print("Aborted - nothing written.")
-                return
+            )
+        ):
+            print("Aborted - nothing written.")
+            return
         backup = CONFIG_LOCAL.with_suffix(".toml.bak")
         shutil.copy2(CONFIG_LOCAL, backup)
         print(f"Backed up existing overlay to {backup}")

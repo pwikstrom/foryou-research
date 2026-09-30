@@ -33,9 +33,11 @@ def _leftovers(directory):
 def test_failed_json_write_keeps_the_previous_file(local_dir):
     data_io.save_json({"v": 1}, storage_location="cache", filename="a.json")
 
-    with patch.object(data_io, "_write_text_file", side_effect=RuntimeError("disk full")):
-        with pytest.raises(RuntimeError):
-            data_io.save_json({"v": 2}, storage_location="cache", filename="a.json")
+    with (
+        patch.object(data_io, "_write_text_file", side_effect=RuntimeError("disk full")),
+        pytest.raises(RuntimeError),
+    ):
+        data_io.save_json({"v": 2}, storage_location="cache", filename="a.json")
     assert data_io.load_json(storage_location="cache", filename="a.json") == {"v": 1}
     assert _leftovers(local_dir) == []
 

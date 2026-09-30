@@ -64,7 +64,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
     if not total:
         reporter.log("No studies found to refresh.")
         return
-    for i, (study_name, config) in enumerate(studies.items()):
+    for i, (study_name, _config) in enumerate(studies.items()):
         if reporter.check_cancelled():
             reporter.log("Cancelled by user.")
             break

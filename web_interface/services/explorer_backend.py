@@ -183,7 +183,7 @@ def column_value_counts(
                 # Deduplicate within row to count Document Frequency (rows
                 # with the tag) instead of Term Frequency
                 try:
-                    all_items.extend(list(set(str(x) for x in row)))
+                    all_items.extend(list({str(x) for x in row}))
                 except Exception:
                     pass
         return [(str(k), int(v)) for k, v in Counter(all_items).most_common()]
@@ -435,10 +435,10 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                     annotations = get_collection_tags()
                 except Exception:
                     annotations = {}
-                selected_tags = set(str(v) for v in val)
+                selected_tags = {str(v) for v in val}
                 matching_cids = set()
                 for cid, anno in annotations.items():
-                    anno_tags = set(str(t).strip() for t in anno.get("annotation_tags", []))
+                    anno_tags = {str(t).strip() for t in anno.get("annotation_tags", [])}
                     if anno_tags & selected_tags:
                         matching_cids.add(str(cid))
                 _and_mask(df["collection_id"].astype(str).isin(matching_cids))
@@ -498,9 +498,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                     else:
                         _and_mask(col_series.astype(str).isin(val))
 
-        elif dtype == "list":
-            if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                deferred.append((col, val))
+        elif dtype == "list" and isinstance(val, (list, np.ndarray)) and len(val) > 0:
+            deferred.append((col, val))
 
     # ONE row selection for every vectorized criterion. A shallow copy when
     # nothing narrowed keeps the no-filter path allocation-free (the caller's
@@ -513,7 +512,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     # Python-per-row criteria on the already-narrowed frame.
     for col, val in deferred:
         if col == "extra_data":
-            selected = set(str(v).lower() for v in val)
+            selected = {str(v).lower() for v in val}
             mask = (
                 filtered_df[col]
                 .astype("string")
@@ -526,14 +525,14 @@ def filter_dataframe(df, column_types, filters, search_query=None):
             filtered_df = filtered_df[mask]
             continue
 
-        search_set = set(str(v) for v in val)  # Ensure strings
+        search_set = {str(v) for v in val}  # Ensure strings
 
         def robust_check(x, search_set=search_set):
             if not isinstance(x, (list, np.ndarray)):
                 return False
             try:
                 # Ensure x items are also hashable/strings
-                check_set = set(str(item) for item in x)
+                check_set = {str(item) for item in x}
                 return bool(check_set & search_set)
             except Exception:
                 return False
@@ -872,10 +871,9 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
         if dtype == "number":
             col_data = df[col]
 
-            if pd.api.types.is_integer_dtype(col_data):
-                if col_data.nunique() < 20:
-                    vc = col_data.value_counts().sort_index().to_dict()
-                    return {str(k): v for k, v in vc.items()}
+            if pd.api.types.is_integer_dtype(col_data) and col_data.nunique() < 20:
+                vc = col_data.value_counts().sort_index().to_dict()
+                return {str(k): v for k, v in vc.items()}
 
             series = col_data.dropna()
             series = series[series >= 0]
@@ -1016,7 +1014,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                 if isinstance(row, (list, np.ndarray)):
                     # Deduplicate within row to count Document Frequency
                     try:
-                        all_items.extend(list(set(str(x) for x in row)))
+                        all_items.extend(list({str(x) for x in row}))
                     except Exception:
                         pass
             return dict(Counter(all_items).most_common(20))

@@ -139,7 +139,7 @@ def known_collection_ids(raw_paths: list[str] | None = None) -> set[str]:
                 doc = (
                     data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
                 )
-                ids.update(str(k) for k in doc.keys())
+                ids.update(str(k) for k in doc)
         except Exception as exc:
             logger.warning(f"[raw_names] could not read {fn}: {exc}")
 

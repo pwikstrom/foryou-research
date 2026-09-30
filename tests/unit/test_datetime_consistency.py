@@ -68,9 +68,10 @@ def test_no_naive_now_in_web_layer():
             name = _func_name(call)
             if name.split(".")[-1] == "utcnow":
                 offenders.append(f"{path.relative_to(PROJECT_ROOT)}:{call.lineno} utcnow()")
-            elif name.endswith("datetime.now") or name == "now":
-                if not call.args and not call.keywords:
-                    offenders.append(f"{path.relative_to(PROJECT_ROOT)}:{call.lineno} {name}()")
+            elif (name.endswith("datetime.now") or name == "now") and (
+                not call.args and not call.keywords
+            ):
+                offenders.append(f"{path.relative_to(PROJECT_ROOT)}:{call.lineno} {name}()")
     assert not offenders, (
         "Naive datetime.now()/utcnow() in the web layer — the browser reads a "
         "zone-less string as participant wall-clock and will not convert it:\n  "

@@ -260,9 +260,12 @@ def save_collection_annotation():
     # a string must be an existing account id.
     set_user = "user_id" in data
     user_id = data.get("user_id")
-    if set_user and user_id is not None:
-        if not isinstance(user_id, str) or user_manager.get_user(user_id) is None:
-            return jsonify({"error": f"Unknown user account: {user_id!r}"}), 400
+    if (
+        set_user
+        and user_id is not None
+        and (not isinstance(user_id, str) or user_manager.get_user(user_id) is None)
+    ):
+        return jsonify({"error": f"Unknown user account: {user_id!r}"}), 400
 
     annotations = {}
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):

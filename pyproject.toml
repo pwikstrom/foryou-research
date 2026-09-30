@@ -140,17 +140,30 @@ select = [
     "E722",    # bare except
     "I",       # isort (import ordering)
     "TID251",  # banned imports: the flat fyp/<name>.py alias shims (below)
+    "B",       # flake8-bugbear (likely bugs: mutable defaults, loop closures, ...)
+    "SIM",     # flake8-simplify
+    "UP",      # pyupgrade (Python 3.12 idioms)
+    "C4",      # flake8-comprehensions
+    "PIE",     # flake8-pie
 ]
 ignore = [
     # Pre-existing debt, kept visible here rather than suppressed inline.
     "F841",  # unused local variable (12)
     "F601",  # repeated dict key literal (2, recode_variables True/1 aliases)
     "F403",  # star import (1, analysis/donations.py)
+    # Deliberately off, not debt:
+    "B905",    # zip() without strict=: adding strict=True changes behaviour
+               # (raises on a length mismatch) and strict=False is noise.
+    "SIM105",  # contextlib.suppress over try/except/pass: style only, and
+               # slower in hot loops.
+    "SIM108",  # ternary over if/else assignment: style only; often less clear.
+    "SIM300",  # "Yoda" comparisons: treats UPPER_CASE module names as
+               # literals and flips natural assertions.
 ]
 # Next ratchet (debt measured 2026-09-28; enable a family once it is clean):
-# the rest of E (E712 x29, E721 x9, E741 x6, E731 x2), UP, B, SIM, C4, PIE,
-# RUF (incl. RUF100 unused-noqa, which must wait until the families its noqa
-# comments target are enabled).
+# the rest of E (E712 x29, E721 x9, E741 x6, E731 x2) and RUF (incl. RUF100
+# unused-noqa, which must wait until the families its noqa comments target
+# are enabled).
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["F401", "F841", "E402"]

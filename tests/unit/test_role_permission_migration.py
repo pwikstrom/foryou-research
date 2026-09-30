@@ -159,7 +159,7 @@ def test_ensure_defaults_seeds_student_role():
     assert "tab.semantic_space" not in rm.roles["student"]["permissions"]
     assert "feature.annotation_votes" not in rm.roles["student"]["permissions"]
     assert not any(
-        p.startswith("tab.data_management") or p.startswith("tab.admin")
+        p.startswith(("tab.data_management", "tab.admin"))
         for p in rm.roles["student"]["permissions"]
     )
     assert stub.saved is not None

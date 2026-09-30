@@ -90,7 +90,7 @@ def _create_local_dirs(cf: dict, verbose: bool = False):
         if verbose:
             print("Data is stored in locally")
             print("Cache is stored in locally")
-        for k in cf["paths"].keys():
+        for k in cf["paths"]:
             os.makedirs(cf["paths"][k], exist_ok=True)
     # create missing local folders if not using GCS for data
     elif not cf["data_io"]["use_gcs_for_cache"]:

@@ -176,7 +176,7 @@ def create_study_recoded_dataset(
     if study_name is None:
         raise ValueError("study_name must be specified")
 
-    if study_name not in _cf()["study_defs"].keys():
+    if study_name not in _cf()["study_defs"]:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     # Sidecar-guided refresh: fingerprint inputs and pick the cheapest correct

@@ -290,8 +290,7 @@ def ingest_records_to_raw(
             by_item[str(mapped["item_id"])] = mapped
 
     raw: dict[str, dict] = {}
-    idx = 0
-    for item_id in submitted_ids:
+    for idx, item_id in enumerate(submitted_ids):
         sid = str(item_id)
         if sid in by_item:
             raw[str(idx)] = by_item[sid]
@@ -312,7 +311,6 @@ def ingest_records_to_raw(
         platform = (platform_by_id or {}).get(sid)
         if platform:
             raw[str(idx)]["source_platform"] = platform
-        idx += 1
     return raw
 
 

@@ -10,6 +10,15 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Internal
+
+- **A stricter lint bar.** Ruff now also enforces the bugbear, simplify,
+  pyupgrade, comprehension and pie rule families, with four rules left off
+  on purpose and the reasons recorded in `pyproject.toml`. Clearing the 234
+  existing findings turned up no live bug: mutable argument defaults became
+  `None`, closures that read a loop variable bind it explicitly, and
+  exceptions raised while handling another now chain it. No behaviour change.
+
 ## [0.4.0] — 2026-09-30
 
 The ingestion-fidelity release: more of each export is read (TikTok shares

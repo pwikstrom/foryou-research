@@ -46,7 +46,7 @@ def test_live_var_schema_has_only_new_roles() -> None:
     """Post-load normalization leaves no legacy role string in the live schema."""
     from fyp.core.fyp_config import fyp_cf
 
-    roles = set(str(r) for r in fyp_cf["var_schema"]["role"].dropna().unique())
+    roles = {str(r) for r in fyp_cf["var_schema"]["role"].dropna().unique()}
     legacy_seen = roles & set(rv.LEGACY_ROLE_ALIASES)
     assert not legacy_seen, f"load_var_schema left legacy role value(s) {legacy_seen} un-normalized"
     assert roles <= set(rv.VAR_SCHEMA_ROLES) | {""}

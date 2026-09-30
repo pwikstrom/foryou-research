@@ -358,7 +358,7 @@ def load_study_datasets(
     if "study_defs" not in _cf():
         init_study_defs()
 
-    if study_name not in _cf()["study_defs"].keys():
+    if study_name not in _cf()["study_defs"]:
         raise ValueError(f"study_name '{study_name}' not found in config")
 
     logger.info(f"Loading core datasets for study '{study_name}'...")
@@ -387,7 +387,7 @@ def load_study_datasets(
         study_name=study_name, all_data=core_datasets.get("collections"), verbose=verbose
     )
 
-    for k in core_datasets.keys():
+    for k in core_datasets:
         if core_datasets.get(k) is None:
             core_datasets[k] = pd.DataFrame()
 

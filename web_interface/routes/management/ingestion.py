@@ -741,6 +741,6 @@ def get_ingestion_metadata():
             "status": "success",
             "collection_ids": collection_ids,
             "display_ids": display_ids,
-            "tags": sorted(list(all_tags)),
+            "tags": sorted(all_tags),
         }
     )

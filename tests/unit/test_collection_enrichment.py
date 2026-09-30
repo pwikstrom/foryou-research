@@ -365,7 +365,7 @@ def test_a_samples_whole_days_capped_and_skips_b_days():
     assert out["b"] == 80  # B spent the spread's leftover
     assert not (set(a_days) & b_days)  # A never re-buys B's day
     assert a_days and all(d.startswith("2026-07") for d in a_days)
-    for day, items in a_days.items():
+    for _day, items in a_days.items():
         assert len(items) <= 5  # a_day_cap respected
     for month in {d[:7] for d in a_days}:
         assert len([d for d in a_days if d.startswith(month)]) <= 2

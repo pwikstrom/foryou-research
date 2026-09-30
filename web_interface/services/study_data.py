@@ -43,12 +43,15 @@ class StudyCache:
             if entry is None:
                 return None
             cached_mtime = entry.get("mtime")
-            if current_mtime is not None and cached_mtime is not None:
-                # Treat any mtime change as stale — workers (potentially in
-                # another process) may have rewritten the parquet.
-                if current_mtime != cached_mtime:
-                    del self.cache[study_name]
-                    return None
+            # Treat any mtime change as stale — workers (potentially in
+            # another process) may have rewritten the parquet.
+            if (
+                current_mtime is not None
+                and cached_mtime is not None
+                and current_mtime != cached_mtime
+            ):
+                del self.cache[study_name]
+                return None
             return entry
 
     def put(self, study_name, data):
@@ -1073,7 +1076,7 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
 
         # Collect explicit tags for the list column
         all_tags = set()
-        for key, val in var_map.items():
+        for _key, val in var_map.items():
             if isinstance(val, list):  # It's a tag list
                 all_tags.update(val)
 
@@ -1145,7 +1148,7 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
 
     # 2. Has Annotation (Boolean/Category)
     if shared_users_tags:
-        annotated_ids.update(str(k) for k in shared_users_tags.keys())
+        annotated_ids.update(str(k) for k in shared_users_tags)
 
     # numpy bools rather than Arrow: downstream astype(str) must keep yielding
     # 'True'/'False' (Arrow bools stringify lowercase), and the filter/metadata

@@ -160,7 +160,7 @@ def test_consolidated_output_reloads_identically():
     }
 
     first, saved = _load(files, detail=True)
-    second, _ = _load({name: payload for name, payload in saved.items()}, detail=True)
+    second, _ = _load(dict(saved.items()), detail=True)
 
     assert first == second == {"111": None, "222": "permanent:removed"}, (first, second)
     print("PASS: consolidated output reloads identically")

@@ -1021,7 +1021,7 @@ def _sync_aot(doc, name: str, new_list: list, tk) -> None:
                 _update_table_in_place(table, entry, tk)
         return
 
-    by_name = {n: t for n, t in zip(base_names, existing_tables)}
+    by_name = dict(zip(base_names, existing_tables))
     aot = tk.aot()
     for entry in new_list:
         table = by_name.get(entry.get("name"))

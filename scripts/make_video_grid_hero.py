@@ -134,10 +134,8 @@ def sample_gcs(
             pool.submit(_list_gcs_shard, client, bucket_name, base + tail, per_shard, seed): tail
             for tail in SHARD_TAILS
         }
-        done = 0
-        for fut in as_completed(futures):
+        for done, fut in enumerate(as_completed(futures), start=1):
             reservoir, seen = fut.result()
-            done += 1
             if seen:
                 shards.append((reservoir, seen))
                 log(

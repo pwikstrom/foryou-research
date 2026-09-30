@@ -336,12 +336,14 @@ def _read_cached_frame(key: frozenset, disk_fn: str) -> tuple[bool, pd.DataFrame
             return True, hit[1]
 
     try:
-        if data_io.exists(storage_location="cache", filename=disk_fn):
-            if float(data_io.getmtime(storage_location="cache", filename=disk_fn)) >= src_mtime:
-                frame = _load_prepared_from_disk(disk_fn)
-                if frame is not None:
-                    _cache_frame_in_memory(key, frame, now, src_mtime)
-                    return True, frame
+        if (
+            data_io.exists(storage_location="cache", filename=disk_fn)
+            and float(data_io.getmtime(storage_location="cache", filename=disk_fn)) >= src_mtime
+        ):
+            frame = _load_prepared_from_disk(disk_fn)
+            if frame is not None:
+                _cache_frame_in_memory(key, frame, now, src_mtime)
+                return True, frame
     except Exception as e:
         print(f"[preview-cache] disk load failed for {disk_fn}: {e}")
     return False, None

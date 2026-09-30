@@ -48,7 +48,7 @@ def _run(prelude: str) -> dict:
     values = dict(
         line.split("=", 1)
         for line in out.stdout.splitlines()
-        if "=" in line and (line.startswith("ROLE") or line.startswith("HASH"))
+        if "=" in line and (line.startswith(("ROLE", "HASH")))
     )
     return values
 

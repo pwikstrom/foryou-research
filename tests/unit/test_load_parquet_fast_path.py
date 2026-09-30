@@ -51,7 +51,7 @@ def test_speedup_on_big_file():
         print(f"      [SKIP] {fname} not present")
         return
     times = []
-    for run in range(3):
+    for _run in range(3):
         t0 = time.perf_counter()
         df = data_io.load_parquet(storage_location="cache", filename=fname, verbose=False)
         times.append(time.perf_counter() - t0)

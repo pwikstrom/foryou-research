@@ -31,78 +31,86 @@ def _local_resolve(tmp: str):
 
 
 def test_local_update_creates_missing_file_from_default():
-    with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
-            result = data_io.update_json(
-                storage_location="cache",
-                filename="q.json",
-                mutate=lambda cur: cur + ["a"],
-                default=[],
-            )
-            assert result == ["a"]
-            with open(os.path.join(tmp, "q.json")) as f:
-                assert json.load(f) == ["a"]
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        patch.object(data_io, "resolve_paths", _local_resolve(tmp)),
+    ):
+        result = data_io.update_json(
+            storage_location="cache",
+            filename="q.json",
+            mutate=lambda cur: cur + ["a"],
+            default=[],
+        )
+        assert result == ["a"]
+        with open(os.path.join(tmp, "q.json")) as f:
+            assert json.load(f) == ["a"]
 
 
 def test_local_update_mutates_existing_and_none_skips_save():
-    with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
-            data_io.update_json(
-                storage_location="cache",
-                filename="q.json",
-                mutate=lambda cur: ["x", "y"],
-                default=[],
-            )
-            # None return: file must be left untouched.
-            skipped = data_io.update_json(
-                storage_location="cache",
-                filename="q.json",
-                mutate=lambda cur: None,
-                default=[],
-            )
-            assert skipped is None
-            with open(os.path.join(tmp, "q.json")) as f:
-                assert json.load(f) == ["x", "y"]
-            # No stray temp files left behind by the rename.
-            assert [p for p in os.listdir(tmp) if p.endswith(".tmp")] == []
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        patch.object(data_io, "resolve_paths", _local_resolve(tmp)),
+    ):
+        data_io.update_json(
+            storage_location="cache",
+            filename="q.json",
+            mutate=lambda cur: ["x", "y"],
+            default=[],
+        )
+        # None return: file must be left untouched.
+        skipped = data_io.update_json(
+            storage_location="cache",
+            filename="q.json",
+            mutate=lambda cur: None,
+            default=[],
+        )
+        assert skipped is None
+        with open(os.path.join(tmp, "q.json")) as f:
+            assert json.load(f) == ["x", "y"]
+        # No stray temp files left behind by the rename.
+        assert [p for p in os.listdir(tmp) if p.endswith(".tmp")] == []
 
 
 def test_local_update_default_not_shared_across_calls():
     """The default must be copied — a mutated default must not leak."""
-    with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
-            shared_default = []
-            data_io.update_json(
-                storage_location="cache",
-                filename="a.json",
-                mutate=lambda cur: cur + ["one"],
-                default=shared_default,
-            )
-            assert shared_default == []
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        patch.object(data_io, "resolve_paths", _local_resolve(tmp)),
+    ):
+        shared_default = []
+        data_io.update_json(
+            storage_location="cache",
+            filename="a.json",
+            mutate=lambda cur: cur + ["one"],
+            default=shared_default,
+        )
+        assert shared_default == []
 
 
 def test_local_concurrent_updates_lose_nothing():
     """N threads each append a unique id — all N must survive."""
-    with tempfile.TemporaryDirectory() as tmp:
-        with patch.object(data_io, "resolve_paths", _local_resolve(tmp)):
-            n = 50
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        patch.object(data_io, "resolve_paths", _local_resolve(tmp)),
+    ):
+        n = 50
 
-            def _append(i):
-                data_io.update_json(
-                    storage_location="cache",
-                    filename="c.json",
-                    mutate=lambda cur: cur + [f"id{i}"],
-                    default=[],
-                )
+        def _append(i):
+            data_io.update_json(
+                storage_location="cache",
+                filename="c.json",
+                mutate=lambda cur: cur + [f"id{i}"],
+                default=[],
+            )
 
-            threads = [threading.Thread(target=_append, args=(i,)) for i in range(n)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-            with open(os.path.join(tmp, "c.json")) as f:
-                items = json.load(f)
-            assert sorted(items) == sorted(f"id{i}" for i in range(n))
+        threads = [threading.Thread(target=_append, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with open(os.path.join(tmp, "c.json")) as f:
+            items = json.load(f)
+        assert sorted(items) == sorted(f"id{i}" for i in range(n))
 
 
 class _FakeBlob:
