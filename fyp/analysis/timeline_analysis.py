@@ -6,7 +6,7 @@ each categorical variable is scored and ranked by interestingness.
 
 import json
 import math
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -695,6 +695,92 @@ def _analyse_variable(
     # "Other" bucket's per-day share is the sum of dropped categories' shares,
     # which is exact because all shares were computed against the same per-day
     # denominator (`share_denominator` in var_data).
+    share_matrix = _share_matrix(
+        var_data,
+        parsed_counts,
+        analysis_cats,
+        include_other,
+        dropped_cats,
+        denom_arr,
+        n_periods,
+        start_offset,
+    )
+    stats = _trend_statistics(share_matrix, n_periods)
+    category_results = _category_results(
+        stats,
+        analysis_cats,
+        per_cat_totals,
+        dropped_cats,
+        include_other,
+        interval,
+        sliced_dates,
+        start_offset,
+    )
+
+    # (#8) Variable-level cull post-filter.
+    if len(category_results) < 2:
+        return None
+
+    # Sort by score descending, but pin the "Other" bucket to the end
+    # regardless of its (null) score so it doesn't crowd out real cats.
+    category_results.sort(
+        key=lambda r: (r.get("is_other", False), -(r["score"] if r["score"] is not None else 0))
+    )
+
+    # (#4) Cap the response at TOP_K_CATEGORIES. "Other" is exempt from
+    # the cap — it's a residual bucket, not a competing category.
+    if len(category_results) > TOP_K_CATEGORIES:
+        real = [r for r in category_results if not r.get("is_other")]
+        other = [r for r in category_results if r.get("is_other")]
+        category_results = real[:TOP_K_CATEGORIES] + other
+
+    entry: dict = {
+        "categories": category_results,
+        "time_labels": sliced_labels if sliced_labels else sliced_dates,
+        "n_periods": len(sliced_dates),
+        "interval": interval,
+        "start_offset": start_offset,
+    }
+    if include_other:
+        entry["other_members"] = sorted(dropped_cats)
+    return entry
+
+
+class _TrendStats(NamedTuple):
+    """Per-category statistics over the 7-day smoothed share matrix (one row
+    per category): level, linear trend, volatility, the largest break and
+    MAD anomalies."""
+
+    smoothed_matrix: Any
+    y_means: Any
+    slopes: Any
+    intercepts: Any
+    total_changes: Any
+    residual_stds: Any
+    stds: Any
+    brk_idx: Any
+    brk_delta: Any
+    brk_before: Any
+    brk_after: Any
+    has_breaks: Any
+    z_matrix: Any
+    anomaly_mask: Any
+    nonzero_counts: Any
+
+
+def _share_matrix(
+    var_data,
+    parsed_counts,
+    analysis_cats,
+    include_other,
+    dropped_cats,
+    denom_arr,
+    n_periods,
+    start_offset,
+):
+    """One row of daily shares per analysed category (plus the "Other" bucket
+    when it is included): the variable's stored share series when it covers
+    every period, else counts over the day's denominator."""
     share_series_raw = var_data.get("share_series") or []
     sliced_shares = share_series_raw[start_offset:] if start_offset > 0 else share_series_raw
     parsed_shares = _parse_daily_counts(sliced_shares)
@@ -731,6 +817,11 @@ def _analyse_variable(
         )
         share_matrix = (counts_matrix / denom_arr[np.newaxis, :]) * 100.0
 
+    return share_matrix
+
+
+def _trend_statistics(share_matrix, n_periods) -> _TrendStats:
+    """Smooth the share matrix and compute every category's trend statistics."""
     n_cats = share_matrix.shape[0]
 
     # 7-day centred moving average — preserves the smoothing semantics used
@@ -765,6 +856,54 @@ def _analyse_variable(
     z_matrix = _vectorised_anomalies(smoothed_matrix)
     anomaly_mask = np.abs(z_matrix) > ANOMALY_Z_THRESHOLD
     nonzero_counts = (smoothed_matrix > 0).sum(axis=1)
+    return _TrendStats(
+        smoothed_matrix=smoothed_matrix,
+        y_means=y_means,
+        slopes=slopes,
+        intercepts=intercepts,
+        total_changes=total_changes,
+        residual_stds=residual_stds,
+        stds=stds,
+        brk_idx=brk_idx,
+        brk_delta=brk_delta,
+        brk_before=brk_before,
+        brk_after=brk_after,
+        has_breaks=has_breaks,
+        z_matrix=z_matrix,
+        anomaly_mask=anomaly_mask,
+        nonzero_counts=nonzero_counts,
+    )
+
+
+def _category_results(
+    stats,
+    analysis_cats,
+    per_cat_totals,
+    dropped_cats,
+    include_other,
+    interval,
+    sliced_dates,
+    start_offset,
+):
+    """One result entry per analysed category: its trend, change, anomalies,
+    break and interestingness score (a bare marker for the "Other" bucket)."""
+    (
+        smoothed_matrix,
+        y_means,
+        slopes,
+        intercepts,
+        total_changes,
+        residual_stds,
+        stds,
+        brk_idx,
+        brk_delta,
+        brk_before,
+        brk_after,
+        has_breaks,
+        z_matrix,
+        anomaly_mask,
+        nonzero_counts,
+    ) = stats
 
     # --- Package per-category results ---
     category_results: list[dict] = []
@@ -920,31 +1059,4 @@ def _analyse_variable(
                 "is_other": False,
             }
         )
-
-    # (#8) Variable-level cull post-filter.
-    if len(category_results) < 2:
-        return None
-
-    # Sort by score descending, but pin the "Other" bucket to the end
-    # regardless of its (null) score so it doesn't crowd out real cats.
-    category_results.sort(
-        key=lambda r: (r.get("is_other", False), -(r["score"] if r["score"] is not None else 0))
-    )
-
-    # (#4) Cap the response at TOP_K_CATEGORIES. "Other" is exempt from
-    # the cap — it's a residual bucket, not a competing category.
-    if len(category_results) > TOP_K_CATEGORIES:
-        real = [r for r in category_results if not r.get("is_other")]
-        other = [r for r in category_results if r.get("is_other")]
-        category_results = real[:TOP_K_CATEGORIES] + other
-
-    entry: dict = {
-        "categories": category_results,
-        "time_labels": sliced_labels if sliced_labels else sliced_dates,
-        "n_periods": len(sliced_dates),
-        "interval": interval,
-        "start_offset": start_offset,
-    }
-    if include_other:
-        entry["other_members"] = sorted(dropped_cats)
-    return entry
+    return category_results
