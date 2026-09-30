@@ -11,4 +11,4 @@ CONTRIBUTING.md invariant 1; guarded by tests/unit/test_import_cycle_hash.py
 and tests/unit/test_lazy_config_boot.py).
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

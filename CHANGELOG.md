@@ -10,6 +10,13 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-09-30
+
+A maintenance release. Error messages and confirmations use the Hub's own
+dialog throughout, dialogs close on Escape, PCA files keep a stable column
+order, and the code picks up a stricter lint bar and a few long functions
+split into named steps.
+
 ### Changed
 
 - **Messages and confirmations use the Hub's own dialog.** The admin pages,
@@ -1346,7 +1353,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.1
 [0.4.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.0
 [0.3.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.2.0
