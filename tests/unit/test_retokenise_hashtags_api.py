@@ -47,7 +47,7 @@ def run():
         (True, "started"),
     )[1]
     mr.is_worker_running = lambda name: False
-    mr.workers_blocking_consolidate = lambda: []
+    mr.workers_blocking_consolidate = list
 
     try:
         client = app.test_client()

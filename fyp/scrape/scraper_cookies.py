@@ -98,7 +98,7 @@ def _looks_like_netscape(path: str) -> bool:
     file". A zero-length or half-written file fails this check.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             first_line = f.readline()
     except OSError:
         return False
@@ -591,7 +591,7 @@ def cookie_health(platform: str, session_cookie: str = "sessionid") -> dict:
     #   domain\tflag\tpath\tsecure\texpiry\tname\tvalue
     session_expiry = None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 if line.startswith("#") or not line.strip():
                     continue

@@ -75,7 +75,7 @@ def viewer(client, monkeypatch):
 
     monkeypatch.setattr(routes, "get_explorer_data", _data)
     monkeypatch.setattr(routes, "enrich_with_user_tags", lambda df, ct, user, **kw: (df, ct))
-    monkeypatch.setattr(routes, "load_display_id_map", lambda: {})
+    monkeypatch.setattr(routes, "load_display_id_map", dict)
 
     with client.session_transaction() as sess:
         sess["_user_id"] = _TEST_VIEWER

@@ -156,7 +156,7 @@ def test_promote_unknown_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _view_df() -> "pd.DataFrame":
+def _view_df() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {"item_id": "i1", "annotation_version": "vA", "val": "a1"},

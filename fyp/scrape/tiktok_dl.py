@@ -5,7 +5,7 @@ Returns the same single-row DataFrame shape as the retired PykTok-fork backend,
 so downstream code is unchanged.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from glob import glob
 from os import remove
 from os.path import exists, join
@@ -244,7 +244,7 @@ def _info_to_row(info: dict) -> pd.DataFrame:
         # different create_time on Cloud Run than on a local drain.
         create_time = datetime.fromtimestamp(
             int(info.get("timestamp", 0)),
-            tz=timezone.utc,
+            tz=UTC,
         ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)

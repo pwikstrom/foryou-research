@@ -35,7 +35,7 @@ from fyp.annotation import annotation_contract as ac
 from fyp.annotation import annotation_schema as sch
 from fyp.annotation import annotation_versioning as av
 
-PARAMS = {k: None for k in av._VERSION_GEN_PARAM_KEYS}
+PARAMS = dict.fromkeys(av._VERSION_GEN_PARAM_KEYS)
 PARAMS["use_structured_output"] = True
 
 

@@ -264,7 +264,7 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
 
     monkeypatch.setattr(cs, "get_vars_by_role", fake_get_vars_by_role)
     monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
-    monkeypatch.setattr(cs, "load_display_id_map", lambda: {})
+    monkeypatch.setattr(cs, "load_display_id_map", dict)
     monkeypatch.setattr(
         cs,
         "load_schema_metadata",

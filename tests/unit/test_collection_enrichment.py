@@ -28,6 +28,8 @@ GCS or the real workers. Pins:
    analysis-ready (every item annotated or failed for good).
 """
 
+from datetime import UTC
+
 import pandas as pd
 import pytest
 
@@ -1274,9 +1276,7 @@ def test_held_queue_starts_after_the_maximum_hold(tick, monkeypatch):
     import web_interface.workers.run_enrichment_supervisor as sup
 
     monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
-    stale = (
-        datetime.now(timezone.utc) - timedelta(minutes=sup.MAX_ANNOTATE_HOLD_MIN + 5)
-    ).isoformat()
+    stale = (datetime.now(UTC) - timedelta(minutes=sup.MAX_ANNOTATE_HOLD_MIN + 5)).isoformat()
     ce.set_meta(sup.ANNOTATE_HELD_KEY, {"since": stale, "queued": 3})
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
@@ -1562,7 +1562,7 @@ def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch)
         "web_interface.tasks.process_manager.dispatch_cloud_task",
         lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1],
     )
-    monkeypatch.setattr(ce, "armed_plans", lambda: {})
+    monkeypatch.setattr(ce, "armed_plans", dict)
     monkeypatch.setattr(dr, "get_deferred_impact", lambda: None)
 
     runtime._tick_enrichment_supervisor("queue_annotator_batch")
@@ -2062,7 +2062,7 @@ def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
 
     import web_interface.workers.run_enrichment_supervisor as sup
 
-    stale = (datetime.now(timezone.utc) - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
+    stale = (datetime.now(UTC) - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
     tick["plans"] = {
         "c1": {**_entry(), "platform": "tiktok", sup.FINISHING_KEY: {"since": stale, "pending": 2}}
     }

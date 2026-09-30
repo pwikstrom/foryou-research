@@ -50,7 +50,7 @@ def test_metadata_payload_ships_no_filter_machinery(monkeypatch):
         svc, "get_grouping_factors_from_var_schema", lambda **kw: ["collection_id", "local_date"]
     )
     monkeypatch.setattr(svc, "load_interpretations", lambda study: {})
-    monkeypatch.setattr(svc, "load_display_id_map", lambda: {})
+    monkeypatch.setattr(svc, "load_display_id_map", dict)
     monkeypatch.setattr(svc, "load_schema_metadata", lambda m: {})
 
     payload = svc.build_metadata_payload(df, "mystudy")
@@ -75,7 +75,7 @@ def test_scatter_and_matrix_cover_the_whole_study(monkeypatch):
         svc, "get_factors_and_features_from_var_schema", lambda **kw: (["collection_id"], [])
     )
     monkeypatch.setattr(svc, "load_interpretations", lambda study: {})
-    monkeypatch.setattr(svc, "load_display_id_map", lambda: {})
+    monkeypatch.setattr(svc, "load_display_id_map", dict)
 
     scatter = svc.build_scatter_payload(df, "score", svc.VIDEOS_WATCHED_COL, "collection_id")
     assert scatter["total_count"] == len(df)

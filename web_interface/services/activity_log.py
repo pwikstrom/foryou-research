@@ -11,7 +11,6 @@ is wrapped in a broad try/except that only emits a log line.
 
 import logging
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 import fyp.core.data_io as data_io
@@ -45,7 +44,7 @@ def record(
     category: str,
     action: str,
     target: str = "",
-    details: Optional[dict] = None,
+    details: dict | None = None,
 ) -> None:
     """Append an event to the actor's log file. Never raises."""
     if not actor:

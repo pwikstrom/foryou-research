@@ -57,7 +57,7 @@ class FakeScraper:
         if self._canonicalize_error is not None:
             raise self._canonicalize_error
         cols = self._canonical_columns if self._canonical_columns is not None else df.columns
-        return pd.DataFrame([{c: "x" for c in cols}])
+        return pd.DataFrame([dict.fromkeys(cols, "x")])
 
     def classify_error(self, error_type):
         if error_type is None:
@@ -133,7 +133,7 @@ def test_check_platform_fill_drift_warns(monkeypatch):
 def test_fill_drift_all_play_count_derived_gets_environment_message(monkeypatch):
     raw = pd.DataFrame([{"desc": "hello"}])
     _patch_scraper(monkeypatch, FakeScraper(fetch_result=raw, canonical_columns=["desc"]))
-    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "load_contract", dict)
     monkeypatch.setattr(sh.sc, "per_k_sources", lambda contract: {"faves_per_K_play": "fave_count"})
     result = sh._check_platform(
         "tiktok", _status_frame(), expected_fields=["desc", "faves_per_K_play", "plays_per_day"]
@@ -343,7 +343,7 @@ def test_media_probe_warn_bubbles_into_platform_status(monkeypatch):
 
 def test_load_fill_profiles_thresholds(monkeypatch):
     base_cols = ["desc", "play_count", "storage_link"]
-    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "load_contract", dict)
     monkeypatch.setattr(sh.sc, "base_field_names", lambda contract: list(base_cols))
     monkeypatch.setattr(sh, "get_config", lambda: {"labels": {"SCRAPES_LABEL": "scrapes"}})
     frame = pd.DataFrame(
@@ -462,8 +462,8 @@ def test_get_health_downgrades_interrupted_run(monkeypatch):
 
 def test_run_all_checks_survives_crashing_checks(monkeypatch):
     monkeypatch.setattr(sh, "_load_status_frame", lambda: None)
-    monkeypatch.setattr(sh, "_load_fill_profiles", lambda: {})
-    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh, "_load_fill_profiles", dict)
+    monkeypatch.setattr(sh.sc, "load_contract", dict)
     monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok"])
     monkeypatch.setattr(sh, "cached_cookie_health", lambda platform: {"status": "healthy"})
 
@@ -533,7 +533,7 @@ def _card_doc():
 
 def test_derive_card_health_combines_scrape_cookie_annotation(monkeypatch):
     monkeypatch.setattr(sh, "get_health", lambda: _card_doc())
-    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "load_contract", dict)
     monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok", "instagram", "youtube"])
     live = {
         "tiktok": {"status": "healthy"},
@@ -558,7 +558,7 @@ def test_derive_card_health_combines_scrape_cookie_annotation(monkeypatch):
 
 def test_derive_card_health_never_run_falls_back_to_cookie(monkeypatch):
     monkeypatch.setattr(sh, "get_health", lambda: {"overall": "never_run", "checks": {}})
-    monkeypatch.setattr(sh.sc, "load_contract", lambda: {})
+    monkeypatch.setattr(sh.sc, "load_contract", dict)
     monkeypatch.setattr(sh.sc, "platforms", lambda contract: ["tiktok"])
 
     result = sh.derive_card_health(live_cookie={"tiktok": {"status": "healthy"}})

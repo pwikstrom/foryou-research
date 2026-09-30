@@ -116,10 +116,7 @@ def get_accessible_studies(
 
     for study_name, study_config in study_defs.items():
         # 1. Admin Override
-        if is_admin:
-            has_access = True
-        # 1b. The site-wide default study is shared with everyone.
-        elif default_study and study_name == default_study:
+        if is_admin or default_study and study_name == default_study:
             has_access = True
         else:
             user_access = study_config.get("USER_ACCESS")

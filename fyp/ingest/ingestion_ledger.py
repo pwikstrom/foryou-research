@@ -7,7 +7,7 @@ update / prune methods that ``ForYouCollection`` inherits.
 """
 
 import copy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
@@ -171,7 +171,7 @@ class IngestionLedgerMixin:
             per_file_summary: list of dicts from
                 ``run_ingest_refresh.build_per_file_summary``.
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         files = self.ledger.setdefault("files", {})
         manifest_meta: dict[str, dict] = {}
         for collection in getattr(self, "collections", None) or []:
@@ -409,7 +409,7 @@ class IngestionLedgerMixin:
         if entry is None:
             return False
         entry["outcome"] = outcome
-        entry["ts_last_seen"] = datetime.now(timezone.utc).isoformat()
+        entry["ts_last_seen"] = datetime.now(UTC).isoformat()
         if note:
             entry["notes"] = note
         self._refresh_discarded_from_ledger()

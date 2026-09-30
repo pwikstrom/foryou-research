@@ -1,6 +1,6 @@
 """Admin user management: the user list and its create / update / delete, orphaned participant accounts, and each account's activity log and admin notes."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from email_validator import EmailNotValidError, validate_email
 from flask import jsonify, request
@@ -162,7 +162,7 @@ def _create_user():
         display_username=cleaned_display,
         origin={
             "source": "admin",
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": datetime.now(UTC).isoformat(),
             "by": current_user.username,
         },
         email_verified_via=accounts.EMAIL_VERIFIED_ADMIN,

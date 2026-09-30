@@ -43,7 +43,7 @@ this module only produces verdicts and owns the approve/reject review flow.
 import json
 import math
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 
@@ -132,7 +132,7 @@ _HTML_TS_RE = re.compile(
 
 def _now_iso() -> str:
     """Current UTC time as an ISO-8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _normalize_key(key: str) -> str:

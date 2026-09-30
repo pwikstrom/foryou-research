@@ -93,7 +93,7 @@ def _patch_language_model() -> None:
         if is_prefill:
             # Chunked prefill passes the FULL prompt position_ids with every
             # chunk; slice out this chunk's range using the KV cache offset.
-            pos = kwargs.get("position_ids", None)
+            pos = kwargs.get("position_ids")
             if pos is not None and pos.shape[-1] != seq_len:
                 offset = 0
                 if cache and cache[0] is not None:
@@ -101,7 +101,7 @@ def _patch_language_model() -> None:
                     offset = c0._idx if hasattr(c0, "_idx") else c0.offset
                     offset = int(offset) if not isinstance(offset, int) else offset
                 kwargs["position_ids"] = pos[..., offset : offset + seq_len]
-            rope_deltas = kwargs.get("rope_deltas", None)
+            rope_deltas = kwargs.get("rope_deltas")
             if (
                 rope_deltas is None
                 and kwargs.get("image_grid_thw") is None
@@ -128,7 +128,7 @@ def _patch_language_model() -> None:
 
         # Decode step: kill stale full-prompt position ids leaked from prefill
         # kwargs, and restore the multimodal rope delta before position lookup.
-        pos = kwargs.get("position_ids", None)
+        pos = kwargs.get("position_ids")
         if pos is not None and pos.shape[-1] != seq_len:
             kwargs.pop("position_ids")
         stashed = getattr(self, "_omni_fix_rope_deltas", None)

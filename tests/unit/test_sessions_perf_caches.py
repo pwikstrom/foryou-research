@@ -170,7 +170,7 @@ def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
         return pd.DataFrame({"author": ["a"]}, index=pd.Index(["v1"], name="item_id"))
 
     monkeypatch.setattr(mod.sessions_inputs, "load_video_features", fake_load)
-    monkeypatch.setattr(mod.sessions_inputs, "trend_numeric_columns", lambda: [])
+    monkeypatch.setattr(mod.sessions_inputs, "trend_numeric_columns", list)
     fps = {"video_map.parquet": "m1", mod.embeddings.SCRAPES_FILE: "s1"}
     monkeypatch.setattr(sessions_data, "artifact_fingerprint", lambda fn, location=None: fps[fn])
 

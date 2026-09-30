@@ -49,11 +49,10 @@ def test_interrupted_parquet_write_keeps_the_previous_file(local_dir):
     def _interrupt(src, dst):
         raise KeyboardInterrupt
 
-    with patch.object(data_io.os, "replace", _interrupt):
-        with pytest.raises(KeyboardInterrupt):
-            data_io.save_parquet(
-                pd.DataFrame({"x": [9]}), storage_location="data", filename="t.parquet"
-            )
+    with patch.object(data_io.os, "replace", _interrupt), pytest.raises(KeyboardInterrupt):
+        data_io.save_parquet(
+            pd.DataFrame({"x": [9]}), storage_location="data", filename="t.parquet"
+        )
     assert os.replace is real_replace
     assert pd.read_parquet(local_dir / "t.parquet")["x"].tolist() == [1, 2, 3]
     assert _leftovers(local_dir) == []

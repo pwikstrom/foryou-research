@@ -8,7 +8,7 @@ concrete multi-platform collection, and the ingestion ledger and approval flow.
 import functools
 import os
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -502,7 +502,7 @@ class ForYouBaseCollection(ABC):
 
         seed["source_platform"] = self.source_platform
         seed["scrape_status"] = "donated"
-        seed["scrape_ts"] = datetime.now(timezone.utc).replace(tzinfo=None)
+        seed["scrape_ts"] = datetime.now(UTC).replace(tzinfo=None)
 
         for scratch, canonical in _SEED_TO_CANONICAL.items():
             if scratch in src.columns and canonical in seed.columns:
@@ -1709,7 +1709,7 @@ class ForYouCollection(ingestion_ledger.IngestionLedgerMixin, ForYouBaseCollecti
         # full per-file summary) is the normal path; this loop is a safety net
         # for any flat-list entries the summary missed.
         ledger_files = self.ledger.setdefault("files", {})
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         for collection in self.collections:
             for fn in collection.discarded_raw_files:
                 if fn in ledger_files:

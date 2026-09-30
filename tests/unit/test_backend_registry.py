@@ -31,7 +31,7 @@ def test_qwen_api_backend_registers():
 def test_active_backend_name_defaults_to_gemini(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     assert backends.active_backend_name() == "gemini"
 
 

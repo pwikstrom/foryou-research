@@ -82,7 +82,7 @@ def test_cap_under_limit_is_untouched(app_ctx, monkeypatch):
 def test_get_queue_cap_defaults_and_coercion(monkeypatch):
     from web_interface.services import admin_settings
 
-    monkeypatch.setattr(admin_settings, "load_admin_settings", lambda: {})
+    monkeypatch.setattr(admin_settings, "load_admin_settings", dict)
     assert admin_settings.get_queue_cap("annotation") == 5000
     assert admin_settings.get_queue_cap("scrape") == 10000
 

@@ -445,7 +445,7 @@ def sanitize_profile(fields) -> tuple[dict, dict]:
 
 
 def empty_profile() -> dict:
-    return {k: None for k in PROFILE_FIELDS}
+    return dict.fromkeys(PROFILE_FIELDS)
 
 
 # --- User Class ---
@@ -1011,7 +1011,7 @@ class UserManager:
             return False, "User already exists"
 
         password_hash = hash_password(password) if password else None
-        created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        created_at = datetime.datetime.now(datetime.UTC).isoformat()
         if profile:
             profile, dropped = sanitize_profile(profile)
             if dropped:
@@ -1232,7 +1232,7 @@ class UserManager:
 
         user.approval_notification = {
             "sent_to": sent_to,
-            "sent_at": sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "sent_at": sent_at or datetime.datetime.now(datetime.UTC).isoformat(),
         }
         self.save_user(username)
         return True, "Notification recorded"
@@ -1251,7 +1251,7 @@ class UserManager:
         if user is None:
             return False, "User not found"
         user.email_verified_via = via
-        user.email_verified_at = at or datetime.datetime.now(datetime.timezone.utc).isoformat()
+        user.email_verified_at = at or datetime.datetime.now(datetime.UTC).isoformat()
         self.save_user(username)
         return True, "Email verified"
 
@@ -1260,9 +1260,7 @@ class UserManager:
         user = self.get_user(username)
         if user is None:
             return False, "User not found"
-        user.email_verification_sent_at = (
-            sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
-        )
+        user.email_verification_sent_at = sent_at or datetime.datetime.now(datetime.UTC).isoformat()
         self.save_user(username)
         return True, "Verification send recorded"
 
@@ -1299,7 +1297,7 @@ class UserManager:
         """
         from ..services.collection_accounts import collections_for_user
 
-        now = now or datetime.datetime.now(datetime.timezone.utc)
+        now = now or datetime.datetime.now(datetime.UTC)
         cutoff = now - datetime.timedelta(days=max_age_days)
         removed = []
         signups, _ = self.unverified_signups()
@@ -1311,7 +1309,7 @@ class UserManager:
             if created is None:
                 continue
             if created.tzinfo is None:
-                created = created.replace(tzinfo=datetime.timezone.utc)
+                created = created.replace(tzinfo=datetime.UTC)
             if created > cutoff:
                 continue
             if collections_for_user(u.username, fresh=True):
@@ -1336,7 +1334,7 @@ class UserManager:
     def update_last_login(self, username):
         user = self.get_user(username)
         if user is not None:
-            user.last_login = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            user.last_login = datetime.datetime.now(datetime.UTC).isoformat()
             self.save_user(username)
 
     # Minimum gap between two writes of ``last_active`` for the same user. The
@@ -1355,7 +1353,7 @@ class UserManager:
             user = self.users.get(username)
             if user is None:
                 return
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(datetime.UTC)
             last_persisted = self._activity_persisted_at.get(username)
             if last_persisted is None and user.last_active:
                 try:

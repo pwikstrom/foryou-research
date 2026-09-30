@@ -28,7 +28,8 @@ still pending (all-null). These helpers mitigate that with:
 """
 
 import warnings
-from typing import Iterable, Literal
+from collections.abc import Iterable
+from typing import Literal
 
 import pandas as pd
 import polars as pl

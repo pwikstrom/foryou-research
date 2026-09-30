@@ -104,6 +104,6 @@ def test_legacy_getters_reproduce_pre_rename_selections(monkeypatch) -> None:
     assert rv.get_grouping_factors_from_var_schema() == ["cid", "date"]
 
     # Empty-schema guard keeps its historical return shapes.
-    monkeypatch.setattr(rv, "_cf", lambda: {})
+    monkeypatch.setattr(rv, "_cf", dict)
     assert rv.get_factors_and_features_from_var_schema() == ([], [])
     assert rv.get_grouping_factors_from_var_schema() == []

@@ -75,7 +75,7 @@ def test_falls_back_to_the_collection_id_filter_on_older_metadata(tags):
 
 
 def test_no_tags_leaves_the_metadata_untouched(monkeypatch):
-    monkeypatch.setattr(routes, "get_collection_tags", lambda: {})
+    monkeypatch.setattr(routes, "get_collection_tags", dict)
     metadata = {"collection_row_counts": {"c1": 5}}
     assert routes._inject_collection_tags(metadata, ["c1"]) is metadata
     assert "Collection Tags" not in metadata

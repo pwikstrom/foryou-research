@@ -118,7 +118,7 @@ def test_active_backend_name_accepts_declared_variant(variant_config, monkeypatc
 
 
 def test_default_gemini_hash_unmoved_by_variant_declarations(variant_config, monkeypatch):
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     variant_config({})
     baseline = av.active_version_descriptor(fresh=True)["annotation_version"]
 
@@ -128,7 +128,7 @@ def test_default_gemini_hash_unmoved_by_variant_declarations(variant_config, mon
 
 def test_gemini_variant_identical_to_default_yields_same_hash(variant_config, monkeypatch):
     """Generic-branch descriptor for a no-op gemini variant == legacy branch."""
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     variant_config({})
     baseline = av.active_version_descriptor(fresh=True)
 
@@ -144,7 +144,7 @@ def test_gemini_variant_identical_to_default_yields_same_hash(variant_config, mo
 
 
 def test_gemini_variant_new_model_forks_the_version(variant_config, monkeypatch):
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     variant_config({})
     baseline = av.active_version_descriptor(fresh=True)["annotation_version"]
 

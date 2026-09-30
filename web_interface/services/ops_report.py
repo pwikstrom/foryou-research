@@ -24,7 +24,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ STALE_QUEUE_DAYS = 3
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _local_tz():
@@ -59,7 +59,7 @@ def _local_tz():
     try:
         return ZoneInfo(fyp_cf.get("misc", {}).get("TIME_ZONE", "UTC"))
     except Exception:
-        return timezone.utc
+        return UTC
 
 
 def _parse_iso(s):
@@ -67,7 +67,7 @@ def _parse_iso(s):
         return None
     try:
         dt = datetime.fromisoformat(str(s))
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
 
@@ -84,9 +84,7 @@ def _log_ts(entry):
     if not m:
         return None
     frac = (m.group(2) or "")[:6].ljust(6, "0")
-    return datetime.strptime(f"{m.group(1)}.{frac}", "%Y-%m-%dT%H:%M:%S.%f").replace(
-        tzinfo=timezone.utc
-    )
+    return datetime.strptime(f"{m.group(1)}.{frac}", "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=UTC)
 
 
 def _local(dt, tz):
@@ -153,7 +151,7 @@ def collect_status(hours_back: int = 24) -> dict:
     tz = _local_tz()
     day_ago = now - timedelta(hours=hours_back)
     week_ago = now - timedelta(days=7)
-    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    epoch = datetime.min.replace(tzinfo=UTC)
 
     doc = {
         "generated_at": now.isoformat(),
@@ -532,7 +530,7 @@ def collect_status(hours_back: int = 24) -> dict:
             mtime = data_io.getmtime(storage_location="machine_annotations_raw", filename=name)
             if mtime is None:
                 continue
-            mdt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            mdt = datetime.fromtimestamp(mtime, tz=UTC)
             if last_cons is None or mdt > last_cons:
                 pending_files += 1
         level = "green" if pending_files == 0 else ("blue" if pending_files < 50 else "yellow")
@@ -690,7 +688,7 @@ def collect_status(hours_back: int = 24) -> dict:
         meta_mtime = data_io.getmtime(
             storage_location="recoded", filename="collections_metadata.parquet"
         )
-        meta_dt = datetime.fromtimestamp(meta_mtime, tz=timezone.utc) if meta_mtime else None
+        meta_dt = datetime.fromtimestamp(meta_mtime, tz=UTC) if meta_mtime else None
         check(
             sec,
             "Last ingest/metadata write",

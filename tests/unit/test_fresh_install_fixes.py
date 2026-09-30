@@ -53,11 +53,11 @@ def test_blocking_consolidate_detects_annotator(monkeypatch):
 def test_consolidate_blockers_include_drain_lease(monkeypatch):
     from web_interface.routes.management import enrichment
 
-    monkeypatch.setattr(enrichment, "workers_blocking_consolidate", lambda: [])
+    monkeypatch.setattr(enrichment, "workers_blocking_consolidate", list)
     monkeypatch.setattr(enrichment, "_active_drain_leases", lambda: {"tiktok": {"host": "x"}})
     assert enrichment._consolidate_blockers() == ["local drain (tiktok)"]
 
-    monkeypatch.setattr(enrichment, "_active_drain_leases", lambda: {})
+    monkeypatch.setattr(enrichment, "_active_drain_leases", dict)
     assert enrichment._consolidate_blockers() == []
 
 

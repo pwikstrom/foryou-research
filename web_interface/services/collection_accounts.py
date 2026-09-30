@@ -315,7 +315,7 @@ def resolve_or_create_account(
     um = _um(um)
     email = participant.get("email")
     profile = dict(participant.get("profile") or {})
-    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    now = _dt.datetime.now(_dt.UTC).isoformat()
     origin = {"source": origin_source, "at": now, "collection_id": str(collection_id)}
     details: dict = {}
 
@@ -476,7 +476,7 @@ def migrate_existing_collections(*, dry_run: bool = True, um=None, log=print) ->
     sidecar into the ``archive`` location (timestamped), then links, then
     strips the columns and saves, then writes a JSON report next to the parquet.
     """
-    ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
     tags_fn = _tags_filename()
 

@@ -82,7 +82,7 @@ def test_backend_key_is_non_identity_metadata():
 def test_current_descriptor_forks_when_qwen_active(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     monkeypatch.setattr(
@@ -94,7 +94,7 @@ def test_current_descriptor_forks_when_qwen_active(monkeypatch):
     assert qwen_descriptor["model"].startswith("mlx-community/")
     assert qwen_descriptor["gen_params"]["n_frames"] == 8
 
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     assert av.active_version_descriptor(fresh=True)["annotation_version"] == gemini_id
 
 
@@ -124,7 +124,7 @@ def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
     """Each local backend forks its own distinct av_ version."""
     from fyp.annotation.backends import settings as backend_settings
 
-    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    monkeypatch.setattr(backend_settings, "_load_settings", dict)
     gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     monkeypatch.setattr(

@@ -169,9 +169,9 @@ def field_dtypes(contract: dict, platform: str | None = None) -> dict[str, str]:
     out: dict[str, str] = {}
     for field in contract.get("fields", []):
         scope = field.get("scope")
-        if scope == "base":
-            out[field["name"]] = field.get("dtype")
-        elif scope == "platform" and platform is not None and field.get("platform") == platform:
+        if scope == "base" or (
+            scope == "platform" and platform is not None and field.get("platform") == platform
+        ):
             out[field["name"]] = field.get("dtype")
     return out
 

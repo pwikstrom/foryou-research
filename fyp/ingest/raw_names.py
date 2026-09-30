@@ -32,7 +32,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
@@ -62,7 +62,7 @@ def _slug(value: str | None, fallback: str) -> str:
 
 
 def _utc_stamp(now: datetime | None = None) -> str:
-    return (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
 
 
 def stored_filename(
@@ -410,7 +410,7 @@ def manifest_entry(
         "original_filename": str(original_filename),
         "display_collection_id": display_collection_id,
         "tags": list(tags or []),
-        "uploaded_at": uploaded_at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "uploaded_at": uploaded_at or datetime.now(UTC).isoformat(timespec="seconds"),
     }
     if user_id:
         entry["user_id"] = user_id

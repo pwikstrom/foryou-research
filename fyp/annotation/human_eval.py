@@ -948,13 +948,13 @@ def _compute_vote_results(run_id: str, task: dict) -> dict:
     """
     arms = task.get("arms", [])
     per_coder: dict[str, dict] = {}
-    pooled_wins = {arm: 0 for arm in arms}
+    pooled_wins = dict.fromkeys(arms, 0)
     pooled_ties = 0
     for username in task.get("coders", {}):
         state = load_coder_state(run_id, task["task_type"], username)
         if state.get("status") != "submitted" or not state.get("responses"):
             continue
-        wins = {arm: 0 for arm in arms}
+        wins = dict.fromkeys(arms, 0)
         ties = 0
         for response in state["responses"].values():
             choice = (response.get("values") or {}).get("choice")

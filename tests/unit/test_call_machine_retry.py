@@ -64,7 +64,7 @@ class _Harness:
         self.base_delay = base_delay
         self.sleeps: list[float] = []
 
-    def __enter__(self) -> "_Harness":
+    def __enter__(self) -> _Harness:
         machine = fyp_cf["machine"]["gemini"]
         self._saved = {k: machine.get(k, _MISSING) for k in self._KEYS}
         self._saved_sleep = gemini_calls.time.sleep

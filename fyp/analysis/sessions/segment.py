@@ -570,7 +570,7 @@ def low_entropy_windows(
         return []
     idx = [row for _, row, _, _ in emb_seq]
     scored: list[tuple[float, int]] = []
-    for i in range(0, n - window_n + 1):
+    for i in range(n - window_n + 1):
         d = entropy_metrics.mean_pairwise_cosine_distance(U[idx[i : i + window_n]])
         if np.isfinite(d):
             scored.append((float(d), i))

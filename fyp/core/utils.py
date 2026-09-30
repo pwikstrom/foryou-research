@@ -232,7 +232,7 @@ def read_zip_members(local_path: str, suffixes: list[str]) -> dict[str, bytes | 
         zipfile.BadZipFile: if the file is not a readable zip archive.
         OSError: if the file cannot be opened.
     """
-    out: dict[str, bytes | None] = {s: None for s in suffixes}
+    out: dict[str, bytes | None] = dict.fromkeys(suffixes)
     remaining = set(suffixes)
     with zipfile.ZipFile(local_path) as zf:
         for name in zf.namelist():

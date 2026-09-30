@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from email_validator import EmailNotValidError, validate_email
 from flask import flash, jsonify, redirect, render_template, request, session, url_for
@@ -72,7 +72,7 @@ def login():
                     from web_interface.services.participant_studies import ensure_on_login
 
                     ensure_on_login(user_obj.username)
-                    session["login_time"] = datetime.now(timezone.utc).isoformat()
+                    session["login_time"] = datetime.now(UTC).isoformat()
                     next_page = _safe_next(request.args.get("next"))
                     return redirect(next_page or url_for("index"))
             else:
@@ -138,7 +138,7 @@ def signup():
         # Signing up with that email claims it — the profile and linked
         # collections stay, the person gains a login — instead of bouncing
         # on "User already exists".
-        terms_accepted_at = datetime.now(timezone.utc).isoformat()
+        terms_accepted_at = datetime.now(UTC).isoformat()
 
         existing = user_manager.find_user_by_email(username)
         if existing is not None and existing.can_login() and not existing.email_verified():
@@ -168,7 +168,7 @@ def signup():
                 get_default_new_user_role(),
                 approved=is_approved,
                 display_username=cleaned_display,
-                origin={"source": "signup", "at": datetime.now(timezone.utc).isoformat()},
+                origin={"source": "signup", "at": datetime.now(UTC).isoformat()},
                 terms_accepted_at=terms_accepted_at,
             )
         if success:

@@ -226,38 +226,36 @@ def test_poll_success_requeues_only_unprocessed() -> None:
     # i1 came back ok; i2 was submitted but never returned (DNF) -> re-queue i2.
     # max_batches=1 is already spent, so this link submits nothing further and
     # the queue shows exactly what the finished job left behind.
-    with _refine_returns(["i1"]):
-        with _isolated_cache():
-            _seed(["i3", "i4"])  # i1,i2 claimed
-            args = {
-                "phase": "run",
-                "batch_size": 2,
-                "chunk_index": 1,
-                "max_batches": 1,
-                "max_concurrent_jobs": 1,
-                "jobs": [_job(["i1", "i2"])],
-            }
-            out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
-            q = _queue()
+    with _refine_returns(["i1"]), _isolated_cache():
+        _seed(["i3", "i4"])  # i1,i2 claimed
+        args = {
+            "phase": "run",
+            "batch_size": 2,
+            "chunk_index": 1,
+            "max_batches": 1,
+            "max_concurrent_jobs": 1,
+            "jobs": [_job(["i1", "i2"])],
+        }
+        out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
+        q = _queue()
     assert out is None  # max-batches reached
     assert "i1" not in q  # ok item stays claimed
     assert set(q) == {"i2", "i3", "i4"}  # unprocessed re-queued
 
 
 def test_finished_job_frees_a_slot_for_the_next_batch() -> None:
-    with _refine_returns(["i1", "i2"]):
-        with _isolated_cache():
-            _seed(["i3", "i4"])
-            args = {
-                "phase": "run",
-                "batch_size": 2,
-                "chunk_index": 1,
-                "max_batches": 2,
-                "max_concurrent_jobs": 1,
-                "jobs": [_job(["i1", "i2"])],
-            }
-            out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
-            q = _queue()
+    with _refine_returns(["i1", "i2"]), _isolated_cache():
+        _seed(["i3", "i4"])
+        args = {
+            "phase": "run",
+            "batch_size": 2,
+            "chunk_index": 1,
+            "max_batches": 2,
+            "max_concurrent_jobs": 1,
+            "jobs": [_job(["i1", "i2"])],
+        }
+        out = w._run_phase(_Reporter(), args, _FakeBatch("JOB_STATE_SUCCEEDED"), data_io)
+        q = _queue()
     assert out["chain"] is True
     jobs = out["next_task_args"]["jobs"]
     assert [j["submitted_ids"] for j in jobs] == [["i3", "i4"]]  # slot refilled

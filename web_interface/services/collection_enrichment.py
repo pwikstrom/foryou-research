@@ -58,7 +58,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -1766,4 +1766,4 @@ def activity(platform: str | None = None) -> dict:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

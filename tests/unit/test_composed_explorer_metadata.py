@@ -68,8 +68,8 @@ def storage(monkeypatch):
     monkeypatch.setattr(routes.data_io, "save_json", _save_json)
     monkeypatch.setattr(routes, "get_recoded_mtime", lambda s: None)
     monkeypatch.setattr(routes, "load_schema_metadata", lambda m: m)
-    monkeypatch.setattr(routes, "load_display_id_map", lambda: {})
-    monkeypatch.setattr(routes, "get_collection_tags", lambda: {})
+    monkeypatch.setattr(routes, "load_display_id_map", dict)
+    monkeypatch.setattr(routes, "get_collection_tags", dict)
     monkeypatch.setattr(
         routes,
         "get_study_collections",

@@ -35,7 +35,7 @@ is logged and never propagates into the ingest/consolidation run.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 
@@ -153,7 +153,7 @@ def enqueue_first_batches(collection_ids: list[str], log=print) -> dict:
                 # consolidation-time handoff; starts empty — nothing is
                 # annotation-queued until its media is scraped.
                 "annotate_queued": [],
-                "enqueued_at": datetime.now(timezone.utc).isoformat(),
+                "enqueued_at": datetime.now(UTC).isoformat(),
                 "notified": False,
             }
             queued[cid] = len(items)
@@ -303,7 +303,7 @@ def check_first_batch_completions() -> list[str]:
                     current[cid] = {
                         **current[cid],
                         "notified": True,
-                        "notified_at": datetime.now(timezone.utc).isoformat(),
+                        "notified_at": datetime.now(UTC).isoformat(),
                         "n_annotated": n_done,
                         "emailed": bool(user and wants_email),
                     }

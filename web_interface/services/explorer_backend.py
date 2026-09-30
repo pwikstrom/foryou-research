@@ -216,7 +216,7 @@ def get_metadata(df, column_types, verbose=False):
         # with document-frequency counts and their UI labels ("Like" for
         # `fave`) — the stored token stays the filter value.
         if col == "extra_data":
-            counts = {t: 0 for t in ENGAGEMENT_TYPES}
+            counts = dict.fromkeys(ENGAGEMENT_TYPES, 0)
             for cell in df[col].dropna():
                 for t in parse_extra_data_tokens(cell):
                     if t in counts:

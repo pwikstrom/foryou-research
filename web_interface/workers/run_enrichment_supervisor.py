@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import math
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import fyp.core.data_io as data_io
 from web_interface.services import collection_enrichment as ce
@@ -640,7 +640,7 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
         if since:
             try:
                 age_min = (
-                    datetime.now(timezone.utc) - datetime.fromisoformat(str(since))
+                    datetime.now(UTC) - datetime.fromisoformat(str(since))
                 ).total_seconds() / 60
             except (TypeError, ValueError):
                 age_min = None
@@ -957,9 +957,7 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
     if require_backstop:
         ref = downstream_refresh.last_full_refresh() or deferred.get("deferred_since")
         try:
-            age_h = (
-                datetime.now(timezone.utc) - datetime.fromisoformat(str(ref))
-            ).total_seconds() / 3600
+            age_h = (datetime.now(UTC) - datetime.fromisoformat(str(ref))).total_seconds() / 3600
         except (ValueError, TypeError):
             age_h = None
         if age_h is not None and age_h < FINALIZE_BACKSTOP_H:
@@ -1589,9 +1587,7 @@ def _still_finishing(reporter, cid: str, entry: dict, platform: str | None, pend
     since = (held or {}).get("since") if isinstance(held, dict) else None
     if since:
         try:
-            age_h = (
-                datetime.now(timezone.utc) - datetime.fromisoformat(str(since))
-            ).total_seconds() / 3600
+            age_h = (datetime.now(UTC) - datetime.fromisoformat(str(since))).total_seconds() / 3600
         except (TypeError, ValueError):
             age_h = None
         if age_h is not None and age_h >= FINISHING_MAX_H:

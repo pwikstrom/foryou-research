@@ -94,11 +94,10 @@ def test_callers_never_get_the_parked_frame(counted_storage):
 
 
 def test_exit_releases_the_stash_even_on_error(counted_storage):
-    with pytest.raises(RuntimeError):
-        with datasets_loading.enrichment_preload():
-            _filter({"a"})
-            assert datasets_loading._ENRICHMENT_PRELOAD
-            raise RuntimeError("study blew up")
+    with pytest.raises(RuntimeError), datasets_loading.enrichment_preload():
+        _filter({"a"})
+        assert datasets_loading._ENRICHMENT_PRELOAD
+        raise RuntimeError("study blew up")
     assert datasets_loading._ENRICHMENT_PRELOAD is None
     _filter({"a"})
     assert len(counted_storage) == 4  # back to one load per call

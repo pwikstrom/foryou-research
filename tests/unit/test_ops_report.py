@@ -1,6 +1,7 @@
 """Registration, rendering, and route gates for the daily ops report."""
 
 import importlib.util
+from datetime import UTC
 
 import pytest
 
@@ -169,7 +170,7 @@ def test_stalled_queue_is_flagged_even_when_length_is_unchanged():
 
     from web_interface.services.ops_report import _stalled_queues
 
-    now = datetime(2026, 8, 28, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, tzinfo=UTC)
     stats = {
         "queue_scraper_tiktok": {"last_success": "2026-08-10T19:48:07+00:00"},
         "queue_scraper_youtube": {"last_success": "2026-08-27T09:00:00+00:00"},
@@ -534,9 +535,9 @@ def test_active_users_merges_stamp_login_and_action_log():
 
     from web_interface.services.ops_report import _active_users
 
-    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
     since = now - timedelta(hours=24)
-    tz = timezone.utc
+    tz = UTC
     users = [
         # Stamp only, 2h ago.
         SimpleNamespace(
@@ -567,8 +568,8 @@ def test_active_users_merges_stamp_login_and_action_log():
     ]
     action_times = {
         "actor": [
-            datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc),
-            datetime(2026, 9, 16, 9, 15, tzinfo=timezone.utc),
+            datetime(2026, 9, 16, 8, 0, tzinfo=UTC),
+            datetime(2026, 9, 16, 9, 15, tzinfo=UTC),
         ]
     }
 

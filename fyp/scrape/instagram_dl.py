@@ -45,7 +45,7 @@ import logging
 import random
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from json import loads as json_loads
 from os import remove
 from os.path import exists, join
@@ -283,7 +283,7 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
         # different create_time on Cloud Run than on a local drain.
         create_time = datetime.fromtimestamp(
             int(info.get("timestamp", 0)),
-            tz=timezone.utc,
+            tz=UTC,
         ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)
