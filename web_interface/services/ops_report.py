@@ -25,6 +25,7 @@ import logging
 import re
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,45 @@ def collect_status(hours_back: int = 24) -> dict:
     def stat(label, value, status, sub=""):
         doc["stats"].append({"label": label, "value": value, "status": status, "sub": sub})
 
+    ctx = SimpleNamespace(
+        check=check,
+        day_ago=day_ago,
+        doc=doc,
+        epoch=epoch,
+        hours_back=hours_back,
+        now=now,
+        prev_collections=prev_collections,
+        prev_queues=prev_queues,
+        prev_users=prev_users,
+        section=section,
+        stat=stat,
+        state=state,
+        tz=tz,
+        week_ago=week_ago,
+    )
+    _section_users(ctx)
+    _section_workers(ctx)
+    _section_pipeline(ctx)
+    _section_collections(ctx)
+    _section_scraping(ctx)
+    _section_platform(ctx)
+    return _summarise(ctx)
+
+
+def _section_users(ctx: SimpleNamespace) -> None:
+    """Build the "Users & access" section: accounts, sign-ups, logins and admin actions."""
+    import fyp.core.data_io as data_io
+
+    check, day_ago, epoch, now, prev_users, section, tz, week_ago = (
+        ctx.check,
+        ctx.day_ago,
+        ctx.epoch,
+        ctx.now,
+        ctx.prev_users,
+        ctx.section,
+        ctx.tz,
+        ctx.week_ago,
+    )
     # ---- users & access -------------------------------------------------
     sec = section("Users & access")
     usernames = []
@@ -312,7 +352,21 @@ def collect_status(hours_back: int = 24) -> dict:
             check(sec, "Active users (24h)", "green", "Nobody has used the Hub in the last 24h")
     except Exception as e:
         check(sec, "Active users (24h)", "red", f"Could not read user activity: {e}")
+    ctx.usernames = usernames
 
+
+def _section_workers(ctx: SimpleNamespace) -> None:
+    """Build the "Workers & processes" section: background worker runs, failures and the dead-letter ledger."""
+    import fyp.core.data_io as data_io
+
+    check, day_ago, now, section, tz, week_ago = (
+        ctx.check,
+        ctx.day_ago,
+        ctx.now,
+        ctx.section,
+        ctx.tz,
+        ctx.week_ago,
+    )
     # ---- workers --------------------------------------------------------
     sec = section("Workers & processes")
     stats_doc = {}
@@ -437,7 +491,24 @@ def collect_status(hours_back: int = 24) -> dict:
             check(sec, "Task failures (dead-letter)", "green", "None in the last 48h")
     except Exception as e:
         check(sec, "Task failures", "red", f"Could not read ledger: {e}")
+    ctx.stats_doc = stats_doc
 
+
+def _section_pipeline(ctx: SimpleNamespace) -> None:
+    """Build the "Pipeline & queues" section: scrape and annotation queues, refresh runs and enrichment plans."""
+    import fyp.core.data_io as data_io
+
+    check, day_ago, epoch, now, prev_queues, section, stat, stats_doc, tz = (
+        ctx.check,
+        ctx.day_ago,
+        ctx.epoch,
+        ctx.now,
+        ctx.prev_queues,
+        ctx.section,
+        ctx.stat,
+        ctx.stats_doc,
+        ctx.tz,
+    )
     # ---- pipeline & queues ---------------------------------------------
     sec = section("Pipeline & queues")
     queue_now = {}
@@ -589,7 +660,22 @@ def collect_status(hours_back: int = 24) -> dict:
             check(sec, "Uploads awaiting ingest", "green", "None")
     except Exception as e:
         check(sec, "Ingest manifests", "red", f"Could not read: {e}")
+    ctx.pending_cids = pending_cids
+    ctx.queue_now = queue_now
 
+
+def _section_collections(ctx: SimpleNamespace) -> None:
+    """Build the "Collections & ingest" section: collections, ingest activity and bookkeeping leftovers."""
+    import fyp.core.data_io as data_io
+
+    check, now, pending_cids, prev_collections, section, tz = (
+        ctx.check,
+        ctx.now,
+        ctx.pending_cids,
+        ctx.prev_collections,
+        ctx.section,
+        ctx.tz,
+    )
     # ---- collections ----------------------------------------------------
     sec = section("Collections & ingest")
     current_collections = set()
@@ -710,7 +796,12 @@ def collect_status(hours_back: int = 24) -> dict:
         check(sec, "Structure sentinel", *_structure_review_check(review_queue()))
     except Exception as e:
         check(sec, "Structure sentinel", "red", f"Could not read: {e}")
+    ctx.current_collections = current_collections
 
+
+def _section_scraping(ctx: SimpleNamespace) -> None:
+    """Build the "Scraping health" section: scraper failure rates, alerts and session cookies."""
+    check, section, tz = (ctx.check, ctx.section, ctx.tz)
     # ---- scraping health ------------------------------------------------
     sec = section("Scraping health")
     try:
@@ -762,6 +853,10 @@ def collect_status(hours_back: int = 24) -> dict:
         except Exception as e:
             check(sec, f"Cookie · {platform}", "red", f"Could not check: {e}")
 
+
+def _section_platform(ctx: SimpleNamespace) -> None:
+    """Build the "Platform & infrastructure" section: the public site, dependencies and infrastructure checks."""
+    check, hours_back, section = (ctx.check, ctx.hours_back, ctx.section)
     # ---- platform & infrastructure -------------------------------------
     sec = section("Platform & infrastructure")
     try:
@@ -842,6 +937,17 @@ def collect_status(hours_back: int = 24) -> dict:
     except Exception as e:
         check(sec, "yt-dlp", "yellow", f"Could not check releases: {e}")
 
+
+def _summarise(ctx: SimpleNamespace) -> dict:
+    """Roll the checks up into the overall status and return the document."""
+    current_collections, doc, now, queue_now, state, usernames = (
+        ctx.current_collections,
+        ctx.doc,
+        ctx.now,
+        ctx.queue_now,
+        ctx.state,
+        ctx.usernames,
+    )
     # ---- overall --------------------------------------------------------
     worst = "green"
     counts = {"green": 0, "blue": 0, "yellow": 0, "red": 0}
