@@ -1514,6 +1514,18 @@ def _group_level_components(
     return events_pca_scores, comp_interpretations, numerical_means_raw
 
 
+def _factor_columns_to_keep(fyp_factors, grouping_factors, columns):
+    """The factor columns to carry into the PCA frame, in a stable order.
+
+    Keeps the order of ``fyp_factors + grouping_factors`` (var-schema order),
+    drops duplicates (the grouping keys are also factors) and anything missing
+    from ``columns``. A set intersection here made the column order of every
+    ``{study}_PCA.parquet`` depend on the process's string hash seed.
+    """
+    present = set(columns)
+    return [c for c in dict.fromkeys(fyp_factors + grouping_factors) if c in present]
+
+
 def _scale_and_assemble(
     events_pca_scores,
     numerical_means_raw,
@@ -1544,8 +1556,9 @@ def _scale_and_assemble(
 
     events_pca_scores_scaled.reset_index(inplace=True)
 
-    # Ensure we don't select duplicate columns if grouping_factors overlap with the time columns
-    cols_to_keep = list(set(fyp_factors + grouping_factors) & set(study_recoded_dataset.columns))
+    cols_to_keep = _factor_columns_to_keep(
+        fyp_factors, grouping_factors, study_recoded_dataset.columns
+    )
 
     # Shuffle rows to ensure random output order and avoid systematic bias (e.g. always picking the 'first' row)
     # when reducing the dataset to unique metadata combinations.

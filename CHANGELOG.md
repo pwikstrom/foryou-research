@@ -25,6 +25,19 @@ public version. Entries below describe the Hub as it stands at that release.
   their x is a keyboard-reachable button with an accessible name. The
   contract editor still closes only from its own button.
 
+### Fixed
+
+- **PCA files keep the same column order in every run.** The factor
+  columns after the grouping keys in each study's `{study}_PCA.parquet`
+  (for example `local_week`, `local_weekday`, `is_weekend`,
+  `source_platform`) were ordered by the process's string hash seed, so two
+  refreshes of the same study could write the same values in a different
+  column order. They now follow the variable schema's order. PCA files
+  written from now on may have their factor columns in a different order
+  from existing ones; the values are unchanged. Nothing in the Hub reads
+  these columns by position, so the Correlations tab and its group
+  statistics are unaffected.
+
 ### Internal
 
 - **A stricter lint bar.** Ruff now also enforces the bugbear, simplify,
