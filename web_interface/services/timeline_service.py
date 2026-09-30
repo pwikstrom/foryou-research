@@ -675,6 +675,85 @@ def get_timeline_data(
     # Sort by period just in case
     df = df.sort_values(by="period")
 
+    df, date_index_map = _study_cells_filter(collection_id, df, study)
+
+    if df.empty:
+        return {"dates": [], "variables": {}, "counts": period_counts}
+
+    dates = df["period"].tolist()
+
+    # Formatted Labels
+    date_labels = []
+    for d_str in dates:
+        try:
+            dt = pd.to_datetime(d_str)
+            lbl = dt.strftime("%d/%m/%y")
+            date_labels.append(lbl)
+        except (ValueError, TypeError):
+            date_labels.append(str(d_str))
+
+    variables = _variable_series(df, schema_map, viz_vars)
+
+    # Extra-data (engagement activity) counts per period, plus per-type breakdown
+    extra_data_counts = (
+        df["extra_data_count"].tolist() if "extra_data_count" in df.columns else None
+    )
+    extra_data_breakdown = {t: df[t].tolist() for t in ENGAGEMENT_TYPES if t in df.columns}
+
+    result = {
+        "dates": dates,
+        "date_labels": date_labels,
+        "variables": variables,
+        "counts": period_counts,
+        "variables_order": viz_vars,
+    }
+    # For the per-user "Customize variables" panel: the uncomposed global list
+    # and the vars already covered by the cached parquet (an include outside
+    # this set will pay a one-time re-aggregation on first load).
+    # machine_state is a synthetic always-on series prepended server-side; it
+    # belongs to the global set so per-user composition can never drop it.
+    if "machine_state" not in global_vars:
+        global_vars = ["machine_state"] + global_vars
+    result["variables_global"] = global_vars
+    covered = get_timeline_covered_vars(collection_id, interval)
+    result["variables_covered"] = sorted(covered) if covered is not None else list(variables.keys())
+    result["all_variables_order"] = meta.get("all_variables_order", [])
+    result["schema_map_lite"] = {
+        v: {
+            k: schema_map[v][k]
+            for k in ("display_name", "section", "description")
+            if k in schema_map[v]
+        }
+        for v in result["all_variables_order"]
+        if v in schema_map
+    }
+
+    if extra_data_counts is not None:
+        result["extra_data_counts"] = extra_data_counts
+    if extra_data_breakdown:
+        result["extra_data_breakdown"] = extra_data_breakdown
+    # The engagement series the chart may draw, in canonical order with their
+    # UI labels — the frontend builds its dropdown from this, not from a list
+    # of its own.
+    result["engagement_types"] = [
+        {"key": t, "label": ENGAGEMENT_LABELS[t]} for t in ENGAGEMENT_TYPES
+    ]
+
+    _attach_timeline_analysis(collection_id, date_index_map, date_labels, dates, interval, result)
+
+    # Inject the synthetic "Other" bucket into the per-day counts whenever
+    # analyse_timeline rolled low-occurrence categories into one, so the
+    # frontend sidebar can surface it and plot its per-day share.  Done
+    # here (not in analyse_timeline) because analyse_timeline should not
+    # mutate its input, and we want the injection to apply equally whether
+    # the analysis was freshly computed or loaded from cache.
+    _inject_other_bucket(result)
+
+    return result
+
+
+def _study_cells_filter(collection_id, df, study):
+    """Restrict df to the (collection, day) cells the study kept after sampling. Returns the filtered frame and a map from original to kept period index (None when nothing was dropped)."""
     # Study-aware filter: drop days outside the study's sampled (cid, day)
     # cells. Sidecar absence / pre-v2 / missing collection entry => no filter
     # (back-compat with timelines opened before the study has been refreshed).
@@ -700,22 +779,11 @@ def get_timeline_data(
                             for old_i, p in enumerate(original_periods)
                             if p in new_index
                         }
+    return df, date_index_map
 
-    if df.empty:
-        return {"dates": [], "variables": {}, "counts": period_counts}
 
-    dates = df["period"].tolist()
-
-    # Formatted Labels
-    date_labels = []
-    for d_str in dates:
-        try:
-            dt = pd.to_datetime(d_str)
-            lbl = dt.strftime("%d/%m/%y")
-            date_labels.append(lbl)
-        except (ValueError, TypeError):
-            date_labels.append(str(d_str))
-
+def _variable_series(df, schema_map, viz_vars):
+    """Per-variable series for the timeline: daily means for numeric variables, per-category counts and shares for categorical ones."""
     variables = {}
 
     # Common per-period denominators read once.
@@ -851,52 +919,11 @@ def get_timeline_data(
             "default_all": var == "machine_state",
             "display_name": display_name,
         }
+    return variables
 
-    # Extra-data (engagement activity) counts per period, plus per-type breakdown
-    extra_data_counts = (
-        df["extra_data_count"].tolist() if "extra_data_count" in df.columns else None
-    )
-    extra_data_breakdown = {t: df[t].tolist() for t in ENGAGEMENT_TYPES if t in df.columns}
 
-    result = {
-        "dates": dates,
-        "date_labels": date_labels,
-        "variables": variables,
-        "counts": period_counts,
-        "variables_order": viz_vars,
-    }
-    # For the per-user "Customize variables" panel: the uncomposed global list
-    # and the vars already covered by the cached parquet (an include outside
-    # this set will pay a one-time re-aggregation on first load).
-    # machine_state is a synthetic always-on series prepended server-side; it
-    # belongs to the global set so per-user composition can never drop it.
-    if "machine_state" not in global_vars:
-        global_vars = ["machine_state"] + global_vars
-    result["variables_global"] = global_vars
-    covered = get_timeline_covered_vars(collection_id, interval)
-    result["variables_covered"] = sorted(covered) if covered is not None else list(variables.keys())
-    result["all_variables_order"] = meta.get("all_variables_order", [])
-    result["schema_map_lite"] = {
-        v: {
-            k: schema_map[v][k]
-            for k in ("display_name", "section", "description")
-            if k in schema_map[v]
-        }
-        for v in result["all_variables_order"]
-        if v in schema_map
-    }
-
-    if extra_data_counts is not None:
-        result["extra_data_counts"] = extra_data_counts
-    if extra_data_breakdown:
-        result["extra_data_breakdown"] = extra_data_breakdown
-    # The engagement series the chart may draw, in canonical order with their
-    # UI labels — the frontend builds its dropdown from this, not from a list
-    # of its own.
-    result["engagement_types"] = [
-        {"key": t, "label": ENGAGEMENT_LABELS[t]} for t in ENGAGEMENT_TYPES
-    ]
-
+def _attach_timeline_analysis(collection_id, date_index_map, date_labels, dates, interval, result):
+    """Attach the collection's timeline analysis to result (in place): the cached one, or one computed and cached now unless the collection has too few active days."""
     # Attach pre-computed analysis data if available, or generate if missing
     analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"
     try:
@@ -990,16 +1017,6 @@ def get_timeline_data(
 
     except Exception as e:
         print(f"Warning: Could not load or generate analysis for {collection_id}/{interval}: {e}")
-
-    # Inject the synthetic "Other" bucket into the per-day counts whenever
-    # analyse_timeline rolled low-occurrence categories into one, so the
-    # frontend sidebar can surface it and plot its per-day share.  Done
-    # here (not in analyse_timeline) because analyse_timeline should not
-    # mutate its input, and we want the injection to apply equally whether
-    # the analysis was freshly computed or loaded from cache.
-    _inject_other_bucket(result)
-
-    return result
 
 
 def _inject_other_bucket(result: dict) -> None:
