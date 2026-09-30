@@ -41,6 +41,13 @@ public version. Entries below describe the Hub as it stands at that release.
   workers each carried their own loop for running a self-chaining job's links
   in a local subprocess; they now share `chain_locally` in
   `web_interface/tasks/worker_runner.py`.
+- **The five longest functions are split into named steps.** The ops
+  report's `collect_status` (one function per report section), PCA's
+  `calculate_scaled_pca_scores` (load, checks, filters, components, scaling,
+  save), `get_timeline_data` and `_analyse_variable` (share matrix, trend
+  statistics, per-category results) and the Sessions refresh's setup link.
+  Each was checked on the local data: identical output, speed and peak
+  memory before and after.
 - **Shared JSON fetch helpers.** `static/js/core/api.js` provides `getJSON`
   and `postJSON`; the four admin and coding scripts that carried private
   copies now use them.
