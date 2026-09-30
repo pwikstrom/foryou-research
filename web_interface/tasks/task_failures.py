@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import utc_now_iso
 
 logger = get_logger(__name__)
 
@@ -45,9 +46,7 @@ DISPOSITION_DEAD = "dead"
 _REDACT_ARG_KEYS = {"launched_by", "item_ids", "collections", "arms_spec"}
 
 
-def _now_iso() -> str:
-    """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(UTC).isoformat()
+_now_iso = utc_now_iso
 
 
 def _redact_args(task_args: dict | None) -> dict:

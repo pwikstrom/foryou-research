@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import local_now_iso
 
 logger = get_logger(__name__)
 
@@ -122,14 +123,7 @@ def now_stamp() -> str:
         return datetime.now(UTC).strftime("%H:%M:%S")
 
 
-def _now_iso() -> str:
-    """Return the current local time as a tz-aware ISO-8601 string."""
-    try:
-        tz_name = _cf().get("misc", {}).get("TIME_ZONE", "UTC")
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("UTC")
-    return datetime.now(tz=tz).isoformat(timespec="seconds")
+_now_iso = local_now_iso
 
 
 def new_run_id() -> str:

@@ -24,10 +24,11 @@ Rules, shared with ``run_logs``:
   ones fall off the front. Roughly a few weeks of nightly cycles.
 """
 
-from datetime import UTC, datetime
+from functools import partial
 
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import utc_now_iso
 
 logger = get_logger(__name__)
 
@@ -79,9 +80,7 @@ KINDS: dict[str, tuple[str, str]] = {
 }
 
 
-def _now_iso() -> str:
-    """An offset-aware UTC instant, so the UI renders it in the viewer's zone."""
-    return datetime.now(UTC).isoformat(timespec="seconds")
+_now_iso = partial(utc_now_iso, timespec="seconds")
 
 
 def _empty_doc() -> dict:

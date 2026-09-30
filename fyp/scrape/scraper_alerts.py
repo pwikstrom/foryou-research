@@ -15,10 +15,9 @@ clobber each other. Every function is non-raising by design: alerting must
 never break or block scraping itself.
 """
 
-from datetime import UTC, datetime
-
 import fyp.core.data_io as data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import utc_now_iso
 
 logger = get_logger(__name__)
 
@@ -41,9 +40,7 @@ KIND_SESSION_EXPIRED = "session_expired"
 KIND_CIRCUIT_BREAKER = "circuit_breaker"
 
 
-def _now_iso() -> str:
-    """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(UTC).isoformat()
+_now_iso = utc_now_iso
 
 
 def load_alerts() -> dict:

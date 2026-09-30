@@ -58,7 +58,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-from datetime import UTC, datetime
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -67,6 +67,7 @@ import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
 from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
+from fyp.core.runtime import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1765,5 +1766,4 @@ def activity(platform: str | None = None) -> dict:
     return {"kind": "waiting", "worker": None, "message": None, "started_at": None}
 
 
-def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+now_iso = utc_now_iso

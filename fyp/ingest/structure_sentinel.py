@@ -43,12 +43,12 @@ this module only produces verdicts and owns the approve/reject review flow.
 import json
 import math
 import re
-from datetime import UTC, datetime
 
 import pandas as pd
 
 from fyp.core import data_io
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import utc_now_iso
 from fyp.core.utils import read_zip_members
 
 logger = get_logger(__name__)
@@ -130,9 +130,7 @@ _HTML_TS_RE = re.compile(
 )
 
 
-def _now_iso() -> str:
-    """Current UTC time as an ISO-8601 string."""
-    return datetime.now(UTC).isoformat()
+_now_iso = utc_now_iso
 
 
 def _normalize_key(key: str) -> str:

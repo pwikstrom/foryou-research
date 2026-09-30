@@ -8,7 +8,9 @@ Modules alias these under their historical private names (``_cf``,
 """
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def cf() -> dict:
@@ -39,3 +41,26 @@ def graceful_stop_requested(process_name: str) -> bool:
     """
     root = Path(cf()["paths"]["project_root"])
     return (root / "tmp" / "graceful_stop" / f"{process_name}.stop").exists()
+
+
+def utc_now_iso(timespec: str = "auto") -> str:
+    """The current UTC time as an ISO-8601 string with a ``+00:00`` offset.
+
+    Args:
+        timespec: As for ``datetime.isoformat`` (``"seconds"`` drops the
+            microseconds).
+    """
+    return datetime.now(UTC).isoformat(timespec=timespec)
+
+
+def local_now_iso() -> str:
+    """The current time in the configured ``[misc] TIME_ZONE``, to the second.
+
+    Offset-aware (e.g. ``+10:00``); UTC when the setting is missing, invalid
+    or the config cannot be read.
+    """
+    try:
+        tz = ZoneInfo(cf().get("misc", {}).get("TIME_ZONE", "UTC"))
+    except Exception:
+        tz = ZoneInfo("UTC")
+    return datetime.now(tz=tz).isoformat(timespec="seconds")

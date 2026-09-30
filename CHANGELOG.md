@@ -18,6 +18,10 @@ public version. Entries below describe the Hub as it stands at that release.
   existing findings turned up no live bug: mutable argument defaults became
   `None`, closures that read a loop variable bind it explicitly, and
   exceptions raised while handling another now chain it. No behaviour change.
+- **One home for "now" timestamps.** Eleven module copies of the current-time
+  helper are now two functions in `fyp/core/runtime.py`: `utc_now_iso()`
+  (optionally to the second) and `local_now_iso()` (the configured time
+  zone). Every stored format is unchanged, pinned by a frozen-clock test.
 
 ## [0.4.0] — 2026-09-30
 

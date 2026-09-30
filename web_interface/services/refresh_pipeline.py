@@ -42,6 +42,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from fyp.core.runtime import utc_now_iso
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -490,8 +492,7 @@ def new_run_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+_now = utc_now_iso
 
 
 def load_run(*, reload: bool = True) -> dict | None:

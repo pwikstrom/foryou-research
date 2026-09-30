@@ -10,11 +10,9 @@ is wrapped in a broad try/except that only emits a log line.
 """
 
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import fyp.core.data_io as data_io
-from fyp.core.fyp_config import fyp_cf
+from fyp.core.runtime import local_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +28,7 @@ def _log_filename(username: str) -> str:
     return f"{username}_log.json"
 
 
-def _now_iso() -> str:
-    tz_name = fyp_cf.get("misc", {}).get("TIME_ZONE", "UTC")
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("UTC")
-    return datetime.now(tz=tz).isoformat(timespec="seconds")
+_now_iso = local_now_iso
 
 
 def record(

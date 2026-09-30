@@ -32,7 +32,7 @@ import hashlib
 import re
 import secrets
 import threading
-from datetime import UTC, datetime
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -42,6 +42,7 @@ import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
 from fyp.core.logging_setup import get_logger
 from fyp.core.runtime import cf as _cf
+from fyp.core.runtime import utc_now_iso
 
 logger = get_logger(__name__)
 
@@ -62,9 +63,7 @@ _INDEX_LOCK = threading.Lock()
 _ENUM_SPEC_RE = re.compile(r"enum:([A-Za-z0-9_]+)")
 
 
-def _now_iso() -> str:
-    """Return the current UTC time as a seconds-precision ISO string."""
-    return datetime.now(UTC).isoformat(timespec="seconds")
+_now_iso = partial(utc_now_iso, timespec="seconds")
 
 
 def coder_slug(username: str) -> str:

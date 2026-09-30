@@ -30,6 +30,7 @@ from fyp.annotation import gemini_calls
 from fyp.core import data_io
 from fyp.core.artifacts import ENRICHMENT_STATUS_FILE
 from fyp.core.fyp_config import get_config
+from fyp.core.runtime import utc_now_iso
 from fyp.scrape import scrape_contract as sc
 from fyp.scrape.platform_scraper import THROTTLE_CATEGORIES, cleanup_temp_files, get_scraper
 
@@ -71,9 +72,7 @@ _state_lock = threading.Lock()  # guards the in-memory document
 _current: dict | None = None  # in-memory result (authoritative between saves)
 
 
-def _now_iso() -> str:
-    """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(UTC).isoformat()
+_now_iso = utc_now_iso
 
 
 def _never_run_stub() -> dict:
