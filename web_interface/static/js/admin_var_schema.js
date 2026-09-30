@@ -3,7 +3,9 @@
  * Loads /api/manage/schema and renders a read-only metadata table. The only
  * editable cells are the four presentation-surface checkboxes; toggling one
  * saves immediately (debounced) to /api/manage/presentation with optimistic
- * concurrency via the etag returned on GET.
+ * concurrency via the etag returned on GET. "Arrange default layout" opens
+ * the shared variable customizer (static/js/variable_prefs.js) in admin mode
+ * to edit membership plus the default order in one place.
  *
  * No build step; this file is served as-is.  Styling uses CSS custom
  * properties from style.css (see DEVELOPING.md "Frontend Styling Rules").
@@ -47,6 +49,19 @@
     };
 
     const SURFACE_GROUP_HEADING = 'Default show/hide of variables in the UI';
+
+    // Mirrors HIDDEN_SECTIONS + the skip role in
+    // web_interface/services/user_variables.py: such variables never reach a
+    // user-facing list, so their surface checkboxes are locked.
+    function _neverShownReason(row) {
+        if (String(row.section || '').trim().toLowerCase() === 'backstage') {
+            return 'Backstage variable — never shown to users.';
+        }
+        if (String(row.role || '').trim().toLowerCase() === 'skip') {
+            return 'Skip role — not in study data, never shown to users.';
+        }
+        return null;
+    }
 
     // Module state — bound once when the schema tab is first opened.
     const state = {
@@ -187,8 +202,9 @@
         // is historical — any non-blank means ON). Toggling saves immediately.
         if (col in PRIO_COLUMNS) {
             const checked = String(current).trim() !== '' && String(current) !== '<NA>';
-            return `<td style="${baseStyle} text-align: center;">
-                <input type="checkbox" ${checked ? 'checked' : ''}
+            const locked = _neverShownReason(row);
+            return `<td style="${baseStyle} text-align: center;"${locked ? ` title="${_esc(locked)}"` : ''}>
+                <input type="checkbox" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}
                     onchange="vsTogglePrio(${rowIdx}, '${_esc(col)}', this.checked)">
             </td>`;
         }
@@ -400,6 +416,62 @@
         }
     }
 
+    // ---------- default layout (shared customizer, admin mode) ----------
+
+    async function _arrangeLayout() {
+        if (!window.VariablePrefs) return;
+        if (_saveTimer || _saving) {
+            _setStatus('Finish saving the checkbox changes first, then try again.', 'error');
+            return;
+        }
+        let catalog;
+        try {
+            if (!state.loaded) await _load();
+            catalog = await getJSON('/api/user/variable-catalog');
+        } catch (e) {
+            _setStatus(`Error: ${e.message}`, 'error');
+            return;
+        }
+        VariablePrefs.openCustomizer({
+            mode: 'admin',
+            catalog,
+            surface: 'filter',
+            adminSave: payload => _saveLayout(payload, catalog),
+            onApply: () => _setStatus('Default layout saved.', 'ok'),
+        });
+    }
+
+    // Persist the customizer's surfaces + order. Variables the customizer
+    // never lists (backstage/skip) keep whatever membership they have, so an
+    // arrangement never silently rewrites them.
+    async function _saveLayout(payload, catalog) {
+        const listed = new Set(catalog.all_variables_order || []);
+        const surfaces = {};
+        for (const [col, surface] of Object.entries(PRIO_COLUMNS)) {
+            if (!(surface in payload.surfaces)) continue;
+            const unlisted = state.rows
+                .filter(r => !listed.has(r.variable_name)
+                    && String(r[col] ?? '').trim() !== '' && String(r[col]) !== '<NA>')
+                .map(r => r.variable_name);
+            surfaces[surface] = payload.surfaces[surface].concat(unlisted);
+        }
+        const res = await fetch(PRESENTATION_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ surfaces, order: payload.order, etag: state.etag }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+            await _load();
+            throw new Error('Someone else changed the defaults meanwhile. The page has reloaded; open the layout again.');
+        }
+        if (!res.ok) {
+            throw new Error(body.message || body.error || `Save failed (HTTP ${res.status}).`);
+        }
+        state.etag = body.etag || state.etag;
+        await _load();
+    }
+
     function _esc(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;')
@@ -455,6 +527,7 @@
     window.vsShowAllColumns = _showAllColumns;
     window.vsResetColumns = _resetColumns;
     window.vsReload = () => _load(true);
+    window.vsArrangeLayout = _arrangeLayout;
 
     // The annotation-contract card (now on the versions page) announces
     // activations/reverts; the contract drives var_schema metadata, so drop

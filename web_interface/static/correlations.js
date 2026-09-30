@@ -34,28 +34,40 @@ function refreshCurrentView() {
 
 // --- Per-user variable preferences (shared "viz" surface) ---
 
+// The user's effective viz variables, in their arranged order (null when the
+// metadata carries no preference inputs).
 function getEffectiveVizBases() {
     const md = pcaData.metadata;
     if (!md || !window.VariablePrefs || !md.all_variables_order) return null;
-    const eff = VariablePrefs.effective('viz', md.all_variables_order, md.viz_priority || []);
-    return new Set(eff);
+    return VariablePrefs.effectiveFor('viz', md);
 }
 
 
 // Filter derived numeric columns by their base variable's effective viz
-// membership. Columns with no known base variable are always shown, and an
-// empty result falls back to the full list so the tab never goes blank.
+// membership, and arrange them in the effective order (several columns derived
+// from one base keep their relative order). Columns with no known base variable
+// are always shown and keep their slot, and an empty result falls back to the
+// full list so the tab never goes blank.
 function filterColsByPrefs(cols) {
     const md = pcaData.metadata;
     if (!md) return cols;
     const bases = md.numeric_col_bases || {};
     const eff = getEffectiveVizBases();
-    if (!eff || eff.size === 0) return cols;
+    if (!eff || eff.length === 0) return cols;
+    const rank = new Map(eff.map((v, i) => [v, i]));
     const out = cols.filter(c => {
         const b = bases[c];
-        return !b || eff.has(b);
+        return !b || rank.has(b);
     });
-    return out.length ? out : cols;
+    if (!out.length) return cols;
+    const slots = [];
+    out.forEach((c, i) => { if (bases[c]) slots.push(i); });
+    const ranked = slots.map(i => out[i])
+        .map((c, k) => [c, k])
+        .sort((x, y) => (rank.get(bases[x[0]]) - rank.get(bases[y[0]])) || (x[1] - y[1]))
+        .map(x => x[0]);
+    slots.forEach((i, k) => { out[i] = ranked[k]; });
+    return out;
 }
 
 

@@ -34,9 +34,12 @@ the schema hash so editing them never invalidates study caches:
 
 - **Presentation store** (`fyp/annotation/var_presentation.py`) — the four
   `web_*_prio` membership flags (which variables appear on the filter /
-  timeline / viz / display surfaces), stored as `users/var_presentation.json`
-  and seeded once from `config/var_presentation_defaults.json`. Edited via
-  Admin → Variable Visibility.
+  timeline / viz / display surfaces) plus an optional per-surface default
+  `order` (applied within each section on top of the computed order), stored
+  as `users/var_presentation.json` and seeded once from
+  `config/var_presentation_defaults.json`. Edited via Admin → Variable
+  Visibility. Variables in the `backstage` section or with the `skip` role
+  never reach a user-facing list, whatever the store says.
 - **Hashtag stoplist** (`fyp/annotation/irrelevant_words.py`) — junk tokens
   dropped during hashtag extraction, stored as `users/irrelevant_words.json`
   and seeded from `[labels] IRRELEVANT_WORDS` in `config.toml`. Supports

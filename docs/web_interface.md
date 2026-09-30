@@ -379,14 +379,28 @@ chart edge handles over the daily-activities chart (`POST
 /api/manage/studies/daily_activities` serves the full-span series so the user
 can pick a window).
 
-**Per-user variable preferences.** Each user can include or exclude
-variables per surface (filter / viz / detail panel / timeline) via My stuff →
-Preferences → Variable customizations (panels fed by the study-independent
-`GET /api/user/variable-catalog`). The choices are stored as deltas in
-`user.settings.variable_prefs` and composed as `(global ∪ include) − exclude`
-— client-side by `static/js/variable_prefs.js`, and server-side for the
-Timelines tab and the Explore filter-stats endpoint (`/api/explore/filter`
-computes distribution stats only for the user's effective viz set). The
+**Per-user variable preferences.** Each user can include, exclude and
+reorder variables per surface (filter / viz / detail panel / timeline) in My
+stuff → Preferences → Variable customizations: one dual-list dialog with a
+tab per surface (`VariablePrefs.openCustomizer` in
+`static/js/variable_prefs.js`, fed by the study-independent `GET
+/api/user/variable-catalog`). Reordering is within a section; section order
+stays fixed. The choices are stored as deltas in
+`user.settings.variable_prefs` (`include` / `exclude`, plus an optional
+`order`) and composed as `(global ∪ include) − exclude`, arranged by the
+surface's default order and then the user's own — client-side by
+`VariablePrefs.effectiveFor`, and server-side (`compose_effective_variables`)
+for the Timelines tab and the Explore filter-stats endpoint
+(`/api/explore/filter` computes distribution stats only for the user's
+effective viz set). Orders are applied by one rule on both sides
+(`apply_section_order`): within each section, the listed variables are
+re-sorted in place and unlisted ones keep their slot. The default order per
+surface (`default_order` in the metadata) is the computed order — section,
+then categorical before numerical, then A–Z — re-sorted by the admins'
+arrangement from Admin → Variable Visibility → Arrange default layout, which
+opens the same dialog in admin mode. Variables in the `backstage` section and
+those with the `skip` role are left out of every list
+(`HIDDEN_SECTIONS` in `services/study_data.py`). The
 same free-form settings merge (`POST /api/user/settings`) backs other
 per-user UI state, e.g. the Home tab's dismissible "Getting started" panel
 (`getting_started_dismissed`) — the permission-keyed first-run surface for

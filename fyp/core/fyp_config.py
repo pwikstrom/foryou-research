@@ -1060,6 +1060,11 @@ def load_var_schema(cf, verbose=False):
             index=vs.index,
         )
 
+    # The admins' default order per surface. It re-sorts variables within their
+    # section (load_schema_metadata), so it lives beside the schema rather than
+    # in a DataFrame column, and like the prio columns never touches the hash.
+    cf["var_presentation_order"] = vp.presentation_order(presentation)
+
     cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf, _presentation_raw)
     if verbose:
         print(

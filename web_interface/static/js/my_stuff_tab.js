@@ -105,10 +105,11 @@
     function renderVariablePrefsStatus() {
         const el = document.getElementById('variable-prefs-status');
         if (!el || !window.VariablePrefs) return;
-        const customized = ['filter', 'display', 'timeline', 'viz'].filter(s => VariablePrefs.isCustomized(s));
+        const customized = VariablePrefs.SURFACES.filter(s => VariablePrefs.isCustomized(s))
+            .map(s => VariablePrefs.SURFACE_LABELS[s]);
         el.textContent = customized.length
-            ? `Active customizations: ${customized.join(', ')}.`
-            : 'No active customizations.';
+            ? `Customized: ${customized.join(', ')}.`
+            : 'Using the defaults.';
     }
 
     async function resetVariablePrefs() {
@@ -117,47 +118,33 @@
         renderVariablePrefsStatus();
     }
 
-    // The "Customize variables" panels live here now (the per-tab gear buttons
-    // are gone). The catalog behind them — canonical variable order, global
+    // The variable customizer lives here (the per-tab gear buttons are gone).
+    // The catalog behind it — computed and default variable orders, global
     // per-surface ON lists, schema map — is study-independent, fetched once.
     let _varCatalog = null;
 
     async function _getVarCatalog() {
-        if (_varCatalog) return _varCatalog;
-        const resp = await fetch('/api/user/variable-catalog');
-        if (!resp.ok) throw new Error('Failed to load variable catalog');
-        _varCatalog = await resp.json();
+        if (!_varCatalog) _varCatalog = await getJSON('/api/user/variable-catalog');
         return _varCatalog;
     }
 
-    const _VAR_SURFACES = {
-        filter: { globalKey: 'filter_priority', title: 'Customize filter variables' },
-        viz: { globalKey: 'viz_priority', title: 'Customize visualized variables' },
-        display: { globalKey: 'display_priority', title: 'Customize detail-panel fields' },
-        timeline: { globalKey: 'timeline_priority', title: 'Customize timeline variables' },
-    };
-
     async function openVariablePrefsPanel(surface) {
         if (!window.VariablePrefs) return;
-        const spec = _VAR_SURFACES[surface];
-        if (!spec) return;
         let catalog;
         try {
             catalog = await _getVarCatalog();
         } catch (e) {
             console.error('Variable catalog unavailable', e);
+            showAppAlert('The variable list could not be loaded. Please try again.');
             return;
         }
-        VariablePrefs.openPanel({
-            surface: surface,
-            title: spec.title,
-            allOrder: catalog.all_variables_order || [],
-            globalList: catalog[spec.globalKey] || [],
-            schemaMap: catalog.schema_map || {},
-            sectionOrder: catalog.section_order || null,
+        VariablePrefs.openCustomizer({
+            mode: 'user',
+            catalog: catalog,
+            surface: surface || 'filter',
             // Mounted tabs refresh themselves via the prefs-changed event that
-            // VariablePrefs.save() broadcasts; here only the status line needs
-            // an explicit update.
+            // VariablePrefs.saveMany() broadcasts; here only the status line
+            // needs an explicit update.
             onApply: renderVariablePrefsStatus,
         });
     }

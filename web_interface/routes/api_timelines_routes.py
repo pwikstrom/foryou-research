@@ -108,11 +108,15 @@ def api_timeline_data():
         return jsonify(result), 400
 
     if prefs:
+        sections = {
+            v: m.get("section", "") for v, m in (result.get("schema_map_lite") or {}).items()
+        }
         result["variables_order"] = compose_effective_variables(
             result.get("variables_global", []),
             prefs,
             result.get("variables_order", []),
             available=set(result.get("variables", {}).keys()),
+            section_of=sections,
         )
 
     return jsonify(make_serializable(result))

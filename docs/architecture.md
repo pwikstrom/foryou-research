@@ -85,8 +85,8 @@ DataFrame from these contracts plus three **version registries**
 (`annotation_versioning`/`scrape_versioning`/`activity_versioning`, id
 prefixes `av_`/`sv_`/`acv_`) that stamp per-row provenance and keep
 superseded ("legacy") fields readable. Admin-editable presentation flags
-(which variables appear on which UI surface) live separately in
-`var_presentation.json` and are never part of the schema hash.
+(which variables appear on which UI surface, and in what default order) live
+separately in `var_presentation.json` and are never part of the schema hash.
 
 **The schema hash matters**: study caches key on it. Metadata-only edits are
 hash-neutral by design; structural changes bump it and trigger re-recoding.

@@ -235,6 +235,7 @@ def get_schema():
             # The presentation store is the only admin-editable payload left
             # (the metadata is contract-owned); its etag guards saves.
             "presentation": presentation.get("surfaces", {}),
+            "presentation_order": vp.presentation_order(presentation),
             "prio_columns": dict(vp.SURFACE_TO_PRIO_COLUMN),
             "etag": vp.compute_presentation_etag(presentation),
             "current_hash": compute_var_schema_hash(),
@@ -274,7 +275,9 @@ def save_presentation_endpoint():
     """Persist the global web-surface membership flags (the admin defaults).
 
     Body: ``{"surfaces": {filter|timeline|viz|display: [variable_name, ...]},
-    "etag": <presentation etag from GET /api/manage/schema>}``. Refuses on a
+    "order": {surface: [variable_name, ...]},   # optional default order
+    "etag": <presentation etag from GET /api/manage/schema>}``. An ``order``
+    surface mapped to ``[]`` goes back to the computed order. Refuses on a
     stale etag (409) or unknown variable names (400). Presentation edits can
     never change the study hash — asserted server-side as a guard.
     """
@@ -285,14 +288,17 @@ def save_presentation_endpoint():
 
     body = request.get_json(force=True, silent=False) or {}
     surfaces = body.get("surfaces")
+    order = body.get("order")
     etag = body.get("etag")
     if not isinstance(surfaces, dict):
         return jsonify({"error": "surfaces must be an object"}), 400
+    if order is not None and not isinstance(order, dict):
+        return jsonify({"error": "order must be an object"}), 400
     known = set(fyp_cf["var_schema"]["variable_name"].astype("string"))
     unknown = sorted(
         {
             n
-            for names in surfaces.values()
+            for names in [*surfaces.values(), *(order or {}).values()]
             if isinstance(names, list)
             for n in names
             if n not in known
@@ -303,7 +309,9 @@ def save_presentation_endpoint():
 
     old_hash = compute_var_schema_hash()
     try:
-        result = vp.save_presentation(surfaces, expected_etag=etag, updated_by=current_actor())
+        result = vp.save_presentation(
+            surfaces, expected_etag=etag, updated_by=current_actor(), order=order
+        )
     except vp.PresentationConflict as e:
         return jsonify(
             {

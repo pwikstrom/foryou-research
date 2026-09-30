@@ -461,7 +461,7 @@ function renderViewerFilters(metadata) {
 
     // Per-user composed filter set (same 'filter' surface as the Explore tab).
     const priority = (window.VariablePrefs && metadata.all_variables_order)
-        ? VariablePrefs.effective('filter', metadata.all_variables_order, metadata.filter_priority || [])
+        ? VariablePrefs.effectiveFor('filter', metadata)
         : metadata.filter_priority;
     let availableCols = [];
 
@@ -1461,10 +1461,10 @@ function renderMetadata(item) {
     const globalDisplay = meta.display_priority || [];
     const schemaMap = meta.schema_map || {};
 
-    // Per-user composition of the detail-panel membership: (global ∪ include)
-    // − exclude; the pre-sorted display_priority stays the ordering source.
+    // Per-user composition of the detail-panel membership and order: (global ∪
+    // include) − exclude, arranged by the default and the user's own order.
     const priorityList = (window.VariablePrefs && meta.all_variables_order)
-        ? VariablePrefs.effective('display', meta.all_variables_order, globalDisplay)
+        ? VariablePrefs.effectiveFor('display', meta)
         : globalDisplay;
     const effectiveDisplay = new Set(priorityList);
 

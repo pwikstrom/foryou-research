@@ -82,6 +82,7 @@ def api_user_variable_catalog():
         "viz_priority": meta.get("viz_priority") or [],
         "display_priority": meta.get("display_priority") or [],
         "timeline_priority": meta.get("timeline_priority") or [],
+        "default_order": meta.get("default_order") or {},
         "section_order": meta.get("section_order") or [],
         "schema_map": meta.get("schema_map") or {},
     }
@@ -135,8 +136,9 @@ VARIABLE_PREF_SURFACES = ("filter", "display", "timeline", "viz")
 def _validate_variable_prefs(prefs) -> str | None:
     """Shape-check a posted ``variable_prefs`` blob; return an error string or None.
 
-    Expected shape: ``{surface: {"include": [names], "exclude": [names]}}`` with
-    surfaces limited to :data:`VARIABLE_PREF_SURFACES`. An empty dict resets all
+    Expected shape: ``{surface: {"include": [names], "exclude": [names],
+    "order": [names]}}`` (``order`` optional: the user's arrangement, applied
+    within sections) with surfaces limited to :data:`VARIABLE_PREF_SURFACES`. An empty dict resets all
     customizations. Variable names are not checked against the schema here —
     unknown names are simply ignored at composition time, which lets prefs
     survive schema evolution.
@@ -149,7 +151,7 @@ def _validate_variable_prefs(prefs) -> str | None:
         if not isinstance(delta, dict):
             return f"surface {surface!r} must be an object"
         for key, names in delta.items():
-            if key not in ("include", "exclude"):
+            if key not in ("include", "exclude", "order"):
                 return f"surface {surface!r}: unknown key {key!r}"
             if not isinstance(names, list) or len(names) > 500:
                 return f"surface {surface!r}.{key} must be a list of at most 500 names"

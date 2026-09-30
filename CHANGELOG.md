@@ -18,6 +18,24 @@ public version. Entries below describe the Hub as it stands at that release.
   a comment was made, and can filter and count by it, but the text is
   removed from Video Analysis, Explore and search. No role except admin has
   it at first; tick it for each role that should keep reading comments.
+- **Variables can be reordered, and customizing them is one dialog.** My
+  Stuff → Preferences → Variable customizations now opens a single dialog
+  with a tab for each place variables appear (Filters, Visualized, Detail
+  panel, Timelines). Available variables sit on the left and shown ones on
+  the right; add or remove them with the arrow buttons, a double-click or
+  the keyboard, search or pick a section to find one, and drag (or use ↑/↓)
+  to change their order within a section. Admins arrange the default layout
+  everyone starts from with the same dialog, from Admin → Variable
+  Visibility → Arrange default layout.
+
+### Changed
+
+- **Backstage variables are no longer offered to users.** Pipeline
+  bookkeeping fields (scrape and annotation status flags, storage links,
+  contract versions and the like) and variables with the `skip` role no
+  longer appear in filters, charts, the detail panel, Timelines or the
+  customization dialog. Admins still see them in the Variable Visibility
+  table, where their checkboxes are now locked.
 
 ### Fixed
 

@@ -310,11 +310,11 @@ function renderFiltersV2(metadata, sliceId) {
     const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
     container.innerHTML = '';
 
-    // Per-user composition: (global ∪ include) − exclude over the canonical
-    // candidate order. Dynamic prepends (user tags etc.) ride along as
-    // non-schema extras inside filter_priority.
+    // Per-user composition: (global ∪ include) − exclude in the surface's
+    // default order, then the user's own order. Dynamic prepends (user tags
+    // etc.) ride along as non-schema extras inside filter_priority.
     const priority = (window.VariablePrefs && metadata.all_variables_order)
-        ? VariablePrefs.effective('filter', metadata.all_variables_order, metadata.filter_priority || [])
+        ? VariablePrefs.effectiveFor('filter', metadata)
         : metadata.filter_priority;
     let availableCols = [];
 
@@ -868,7 +868,7 @@ function renderStatsV2(stats1, stats2) {
     if (!metadata) return;
 
     const priority = (window.VariablePrefs && metadata.all_variables_order)
-        ? VariablePrefs.effective('viz', metadata.all_variables_order, metadata.viz_priority || [])
+        ? VariablePrefs.effectiveFor('viz', metadata)
         : metadata.viz_priority;
     let colsToRender = [];
 

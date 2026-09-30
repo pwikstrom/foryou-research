@@ -8,12 +8,15 @@ This module owns them as ``var_presentation.json`` (storage location
 
     {"version": 1,
      "surfaces": {"filter": [...], "timeline": [...], "viz": [...], "display": [...]},
+     "order": {"filter": [...], ...},            # optional
      "updated_at": "...", "updated_by": "..."}
 
-Membership only — ordering stays derived (section → categorical-before-numeric
-→ alphabetical, see ``web_interface.services.user_variables.load_schema_metadata``). Presentation edits
-can never change the study hash (``web_*`` columns are excluded from
-``compute_var_schema_hash``).
+``surfaces`` is membership. ``order`` is the admin's default arrangement per
+surface: the computed order (section → categorical-before-numeric →
+alphabetical, see ``web_interface.services.user_variables.load_schema_metadata``)
+is re-sorted WITHIN each section by it; a surface with no ``order`` entry keeps
+the computed order. Presentation edits can never change the study hash (``web_*``
+columns and the order are excluded from ``compute_var_schema_hash``).
 
 ``load_var_schema`` synthesizes the in-memory var_schema from the contracts +
 version registries and fills the prio columns from this store; when the store
@@ -137,10 +140,19 @@ def _migrate_retired_names(payload: dict) -> dict:
         migrated[surface] = mapped
         if mapped != sorted(set(names)):
             changed = True
+    order = payload.get("order") or {}
+    migrated_order: dict = {}
+    for surface, names in order.items():
+        mapped = _dedupe([RETIRED_TO_GENERIC.get(n, n) for n in names or []])
+        migrated_order[surface] = mapped
+        if mapped != list(names or []):
+            changed = True
     if not changed:
         return payload
     out = dict(payload)
     out["surfaces"] = migrated
+    if migrated_order:
+        out["order"] = migrated_order
     out["updated_at"] = _dt.datetime.now().isoformat(timespec="seconds")
     out["updated_by"] = "retired-column-migration"
     try:
@@ -150,14 +162,35 @@ def _migrate_retired_names(payload: dict) -> dict:
     return out
 
 
+def _dedupe(names: list) -> list:
+    """Drop repeated names, keeping each one's first position."""
+    return list(dict.fromkeys(names))
+
+
+def presentation_order(payload: dict | None) -> dict:
+    """Return the ``{surface: [names]}`` default order of a presentation payload."""
+    order = (payload or {}).get("order") or {}
+    return {s: list(order[s]) for s in SURFACES if isinstance(order.get(s), list) and order[s]}
+
+
 def compute_presentation_etag(payload: dict | None = None) -> str:
-    """Deterministic etag of the presentation content (sha256 of canonical JSON)."""
+    """Deterministic etag of the presentation content (sha256 of canonical JSON).
+
+    Covers the default order as well as membership: the schema fingerprint is
+    built from this etag, so a reorder-only save must change it or other
+    containers would never reload the new order.
+    """
     if payload is None:
         payload = load_presentation()
     if payload is None:
         return "missing"
     surfaces = {s: sorted(payload.get("surfaces", {}).get(s, []) or []) for s in SURFACES}
+    order = presentation_order(payload)
     canonical = json.dumps(surfaces, sort_keys=True)
+    if order:
+        # Appended only when present, so a store without an order keeps the etag
+        # (and schema fingerprint) it had before orders existed.
+        canonical += json.dumps(order, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
 
 
@@ -165,12 +198,16 @@ def save_presentation(
     surfaces: dict,
     expected_etag: str | None = None,
     updated_by: str = "",
+    order: dict | None = None,
 ) -> dict:
     """Persist the per-surface membership lists; returns ``{"etag": ...}``.
 
     Args:
         surfaces: ``{surface: [variable_name, ...]}`` — unknown surface keys are
             rejected; each list is deduplicated and sorted for stable storage.
+        order: optional ``{surface: [variable_name, ...]}`` default order. A
+            surface mapped to an empty list goes back to the computed order;
+            surfaces left out (and ``order=None``) keep their stored order.
         expected_etag: when given, the save is refused (PresentationConflict)
             if the stored content has changed since the caller read it.
         updated_by: username recorded in the payload for audit.
@@ -187,6 +224,15 @@ def save_presentation(
     for s, names in surfaces.items():
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
             raise ValueError(f"surface {s!r} must be a list of variable names")
+    if order is not None:
+        if not isinstance(order, dict):
+            raise ValueError("order must be an object")
+        unknown = [s for s in order if s not in SURFACES]
+        if unknown:
+            raise ValueError(f"unknown order surfaces: {unknown}")
+        for s, names in order.items():
+            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+                raise ValueError(f"order {s!r} must be a list of variable names")
 
     if expected_etag is not None and expected_etag != compute_presentation_etag():
         raise PresentationConflict(
@@ -198,9 +244,16 @@ def save_presentation(
         s: sorted(set(surfaces.get(s, current.get("surfaces", {}).get(s, []) or [])))
         for s in SURFACES
     }
+    merged_order = presentation_order(current)
+    for s, names in (order or {}).items():
+        if names:
+            merged_order[s] = _dedupe(names)
+        else:
+            merged_order.pop(s, None)
     payload = {
         "version": 1,
         "surfaces": merged,
+        **({"order": merged_order} if merged_order else {}),
         "updated_at": _dt.datetime.now().isoformat(timespec="seconds"),
         "updated_by": updated_by,
     }

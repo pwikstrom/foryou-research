@@ -240,7 +240,12 @@ def test_reload_var_schema_if_changed_picks_up_presentation_edit():
         )
     finally:
         if snap is not None:
-            vp.save_presentation(snap.get("surfaces", {}), updated_by="phase1-restore")
+            snap_order = vp.presentation_order(snap)
+            vp.save_presentation(
+                snap.get("surfaces", {}),
+                updated_by="phase1-restore",
+                order={s: snap_order.get(s, []) for s in vp.SURFACES},
+            )
         reload_var_schema_if_changed()
 
 

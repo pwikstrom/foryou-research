@@ -156,6 +156,13 @@ def _prefetch_user_jsons(usernames: list[str]) -> None:
 # every web variable list and exposed to the frontend as ``section_order``.
 SECTION_ORDER = ["Activity", "Item metadata", "Popularity", "AI Annotations"]
 
+# Sections whose variables never reach a user-facing variable list: the
+# pipeline's own bookkeeping (scrape/annotation status flags, storage links,
+# contract versions, ...). ``load_schema_metadata`` drops them — together with
+# ``role = "skip"`` variables, which recoding removes from study data — from
+# every surface list and from the per-user customizer. Compared lowercased.
+HIDDEN_SECTIONS = {"backstage"}
+
 # ``scale`` values that count as categorical for the categorical-before-numerical
 # ordering rule. Everything else (numeric/datetime/blank) is numerical.
 _CAT_SCALES = {

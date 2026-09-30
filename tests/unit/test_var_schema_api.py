@@ -129,7 +129,12 @@ def _snapshot_presentation():
 
 def _restore_presentation(snap):
     if snap is not None:
-        vp.save_presentation(snap.get("surfaces", {}), updated_by="test-restore")
+        snap_order = vp.presentation_order(snap)
+        vp.save_presentation(
+            snap.get("surfaces", {}),
+            updated_by="test-restore",
+            order={s: snap_order.get(s, []) for s in vp.SURFACES},
+        )
     load_var_schema(fyp_cf, verbose=False)
 
 
@@ -288,6 +293,64 @@ def test_post_presentation_persists_and_reloads(client):
         _restore_presentation(snap)
 
 
+def test_post_presentation_persists_default_order(client):
+    snap = _snapshot_presentation()
+    try:
+        _login(client, _TEST_ADMIN_USERNAME)
+        body = client.get("/api/manage/schema").get_json()
+        from web_interface.services.user_variables import load_schema_metadata
+
+        meta = load_schema_metadata({})
+        # Two filter variables of one section, saved in reverse order.
+        by_section = {}
+        for v in meta["all_variables_order"]:
+            by_section.setdefault(meta["schema_map"][v]["section"], []).append(v)
+        pair = next(vs[:2] for vs in by_section.values() if len(vs) >= 2)
+        surfaces = {k: list(v) for k, v in body["presentation"].items()}
+        surfaces["filter"] = sorted(set(surfaces.get("filter", [])) | set(pair))
+        wanted = [pair[1], pair[0]]
+        res = client.post(
+            "/api/manage/presentation",
+            data=json.dumps(
+                {"surfaces": surfaces, "order": {"filter": wanted}, "etag": body["etag"]}
+            ),
+            content_type="application/json",
+        )
+        after = load_schema_metadata({})
+        fp = after["filter_priority"]
+        again = client.get("/api/manage/schema").get_json()
+        ok = (
+            res.status_code == 200
+            and res.get_json().get("etag") != body["etag"]
+            and fp.index(pair[1]) < fp.index(pair[0])
+            and again.get("presentation_order", {}).get("filter") == wanted
+        )
+        _check(
+            "test_post_presentation_persists_default_order",
+            ok,
+            f"status={res.status_code} pair={pair} filter={fp[:10]}",
+        )
+        bad = client.post(
+            "/api/manage/presentation",
+            data=json.dumps(
+                {
+                    "surfaces": {},
+                    "order": {"filter": ["no_such_variable_xyz"]},
+                    "etag": again["etag"],
+                }
+            ),
+            content_type="application/json",
+        )
+        _check(
+            "test_post_presentation_rejects_unknown_order_variable",
+            bad.status_code == 400
+            and "no_such_variable_xyz" in ((bad.get_json() or {}).get("unknown") or []),
+            f"status={bad.status_code}",
+        )
+    finally:
+        _restore_presentation(snap)
+
+
 # ------- driver -------
 
 
@@ -304,6 +367,7 @@ def main():
                 test_post_presentation_rejects_stale_etag,
                 test_post_presentation_rejects_unknown_variable,
                 test_post_presentation_persists_and_reloads,
+                test_post_presentation_persists_default_order,
             ]
             for t in tests:
                 try:

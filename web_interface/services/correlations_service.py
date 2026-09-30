@@ -606,6 +606,7 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         "display_ids": display_ids,
         "viz_priority": prefs_meta.get("viz_priority", []),
         "all_variables_order": prefs_meta.get("all_variables_order", []),
+        "default_order": prefs_meta.get("default_order", {}),
         "section_order": prefs_meta.get("section_order", []),
         "views": STAT_VIEWS,
         "default_method": correlation_method(),

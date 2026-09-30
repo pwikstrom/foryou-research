@@ -5,7 +5,7 @@ import pandas as pd
 import fyp.core.data_io as data_io
 from fyp.core.fyp_config import fyp_cf
 
-from .study_data import _CAT_SCALES, SECTION_ORDER
+from .study_data import _CAT_SCALES, HIDDEN_SECTIONS, SECTION_ORDER
 
 # --- Explorer State ---
 
@@ -243,23 +243,69 @@ def get_accessible_studies(
     return sorted(accessible_studies, key=_sort_key)
 
 
-def compose_effective_variables(global_list, prefs, all_order, available=None):
+def apply_section_order(names, order, section_of=None):
+    """Re-sort ``names`` by ``order`` without letting variables leave their section.
+
+    Per-section slot-fill: within each section, the positions held by variables
+    listed in ``order`` are refilled with those same variables, sorted by their
+    index in ``order``. Unlisted variables (a variable added after the order was
+    saved, say) keep their slot, and sections never interleave. The same rule
+    lives in ``static/js/variable_prefs.js`` (``applySectionOrder``).
+
+    Args:
+        names: the list to re-sort (already grouped by section).
+        order: preferred order; names not in ``names`` are ignored.
+        section_of: ``{name: section}`` mapping or callable. Without it the
+            whole list is treated as one section.
+
+    Returns:
+        A new list holding exactly the items of ``names``.
+    """
+    names = list(names)
+    if not order:
+        return names
+    rank = {}
+    for i, v in enumerate(order):
+        rank.setdefault(v, i)
+    if section_of is None:
+        sec = lambda v: None  # noqa: E731
+    elif callable(section_of):
+        sec = section_of
+    else:
+        sec = section_of.get
+    slots = {}
+    for i, v in enumerate(names):
+        if v in rank:
+            slots.setdefault(sec(v), []).append(i)
+    out = list(names)
+    for idxs in slots.values():
+        ranked = sorted((names[i] for i in idxs), key=rank.__getitem__)
+        for i, v in zip(idxs, ranked, strict=True):
+            out[i] = v
+    return out
+
+
+def compose_effective_variables(global_list, prefs, all_order, available=None, section_of=None):
     """Compose a per-user effective variable list for one surface.
 
     ``effective = (global ∪ include) − exclude``, ordered by ``all_order`` (the
-    canonical derived order). Unknown names in the prefs are ignored, so stored
-    preferences survive schema evolution. When ``available`` is given, includes
-    are clipped to it (used by timelines, where a variable needs aggregated
-    data to be renderable).
+    surface's default order — ``default_order[surface]`` from
+    :func:`load_schema_metadata`) and then by the user's own ``order`` within
+    each section. Unknown names in the prefs are ignored, so stored preferences
+    survive schema evolution. When ``available`` is given, includes are clipped
+    to it (used by timelines, where a variable needs aggregated data to be
+    renderable).
 
     Args:
         global_list: the admin-set global ON list for the surface.
-        prefs: ``{"include": [...], "exclude": [...]}`` or None/empty.
-        all_order: full canonical-ordered candidate list.
+        prefs: ``{"include": [...], "exclude": [...], "order": [...]}`` or None/empty.
+        all_order: full default-ordered candidate list.
         available: optional iterable of variables that actually have data.
+        section_of: ``{name: section}`` (or callable) for the user order's
+            per-section slot-fill; None treats the list as one section.
 
     Returns:
-        list[str] in canonical order.
+        list[str] in default order, re-sorted by the user's order.
     """
     prefs = prefs or {}
     include = set(prefs.get("include") or [])
@@ -272,6 +318,7 @@ def compose_effective_variables(global_list, prefs, all_order, available=None):
         # only user includes are clipped to what has data.
         base = {v for v in base if v in avail or v in set(global_list)}
     ordered = [v for v in all_order if v in base]
+    ordered = apply_section_order(ordered, prefs.get("order"), section_of)
     # Preserve anything not in all_order (e.g. synthetic vars like
     # machine_state prepended by the server) in its original position.
     extras = [v for v in global_list if v not in all_order and v in base]
@@ -308,6 +355,18 @@ def load_schema_metadata(metadata):
                 .str.lower()
             )
 
+            # Backstage bookkeeping and role=skip variables (dropped from study
+            # data by recoding) never reach a user-facing list. They stay in
+            # schema_map below, which other code reads for display names.
+            _roles = (
+                schema_df["role"].astype("string").fillna("").str.strip().str.lower()
+                if "role" in schema_df.columns
+                else pd.Series("", index=schema_df.index)
+            )
+            _listed = ~(
+                _sections.str.strip().str.lower().isin(HIDDEN_SECTIONS) | (_roles == "skip")
+            )
+
             schema_df["_sec_rank"] = _sections.map(
                 lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else len(SECTION_ORDER)
             )
@@ -316,24 +375,45 @@ def load_schema_metadata(metadata):
             schema_df["_sort_name"] = _names
             order_cols = ["_sec_rank", "_section", "_cat_num", "_sort_name"]
 
-            def _ordered(prio_col):
-                """Return ON variables for ``prio_col`` in canonical sort order."""
-                if prio_col not in schema_df.columns:
+            listed_df = schema_df[_listed].sort_values(order_cols)
+            section_of = dict(
+                zip(
+                    listed_df["variable_name"],
+                    listed_df["_section"].fillna("").astype(str),
+                    strict=True,
+                )
+            )
+            # Full candidate list in the canonical (computed) order, regardless
+            # of the on/off flags.
+            all_order = listed_df["variable_name"].tolist()
+            admin_order = fyp_cf.get("var_presentation_order") or {}
+
+            # Each surface's default order: the computed order re-sorted within
+            # sections by the admins' saved arrangement (var_presentation.json).
+            # Per-user preferences compose against it — effective = (global ∪
+            # include) − exclude, then the user's own order — client-side
+            # (VariablePrefs.effectiveFor) and server-side
+            # (compose_effective_variables).
+            default_order = {
+                surface: apply_section_order(all_order, admin_order.get(surface), section_of)
+                for surface in ("filter", "viz", "display", "timeline")
+            }
+
+            def _ordered(surface, prio_col):
+                """Return ON variables for ``prio_col`` in the surface's default order."""
+                if prio_col not in listed_df.columns:
                     return []
-                is_on = pd.to_numeric(schema_df[prio_col], errors="coerce").notna()
-                return schema_df[is_on].sort_values(order_cols)["variable_name"].tolist()
+                is_on = pd.to_numeric(listed_df[prio_col], errors="coerce").notna()
+                on = set(listed_df.loc[is_on, "variable_name"])
+                return [v for v in default_order[surface] if v in on]
 
             metadata["section_order"] = list(SECTION_ORDER)
-            metadata["display_priority"] = _ordered("web_display_prio")
-            metadata["viz_priority"] = _ordered("web_viz_prio")
-            metadata["timeline_priority"] = _ordered("web_timeline_prio")
-            metadata["filter_priority"] = _ordered("web_filter_prio")
-            # Full candidate list in the same canonical order, regardless of the
-            # on/off flags. Per-user variable preferences compose against this
-            # (effective = (global ∪ include) − exclude) client-side.
-            metadata["all_variables_order"] = schema_df.sort_values(order_cols)[
-                "variable_name"
-            ].tolist()
+            metadata["display_priority"] = _ordered("display", "web_display_prio")
+            metadata["viz_priority"] = _ordered("viz", "web_viz_prio")
+            metadata["timeline_priority"] = _ordered("timeline", "web_timeline_prio")
+            metadata["filter_priority"] = _ordered("filter", "web_filter_prio")
+            metadata["all_variables_order"] = all_order
+            metadata["default_order"] = default_order
 
             if "section" not in schema_df.columns:
                 schema_df["section"] = "General"

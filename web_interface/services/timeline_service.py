@@ -624,9 +624,13 @@ def get_timeline_data(
     global_vars = list(viz_vars)
     if extra_vars:
         known = set(meta.get("all_variables_order", []))
-        wanted = {v for v in extra_vars if v in known and v not in viz_vars}
-        # Canonical order comes from all_variables_order, not request order.
-        viz_vars = viz_vars + [v for v in meta.get("all_variables_order", []) if v in wanted]
+        wanted = {v for v in extra_vars if v in known and v not in viz_vars} | set(viz_vars)
+        # Includes slot into the surface's default order (computed order plus
+        # the admins' arrangement), not request order or the end of the list.
+        default_order = (meta.get("default_order") or {}).get("timeline") or meta.get(
+            "all_variables_order", []
+        )
+        viz_vars = [v for v in default_order if v in wanted]
     # extra_data is never a timeline series: its raw cells would become
     # category keys carrying donors' comment text. The engagement breakdown
     # (extra_data_breakdown) is its timeline form.
@@ -722,6 +726,9 @@ def get_timeline_data(
     covered = get_timeline_covered_vars(collection_id, interval)
     result["variables_covered"] = sorted(covered) if covered is not None else list(variables.keys())
     result["all_variables_order"] = meta.get("all_variables_order", [])
+    result["default_order"] = (meta.get("default_order") or {}).get(
+        "timeline", result["all_variables_order"]
+    )
     result["schema_map_lite"] = {
         v: {
             k: schema_map[v][k]
