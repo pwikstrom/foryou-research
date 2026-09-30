@@ -58,7 +58,7 @@ MAP_FILE = "video_map.parquet"
 NICHES_FILE = "video_niches.json"
 MAP_META_FILE = "video_map_meta.json"
 
-# Defaults. n_niches mirrors niche_detection's micro-genre granularity; the
+# Defaults. n_niches sets the micro-genre granularity; the
 # map sample keeps the dashboard scatter renderable while clustering stays
 # full-corpus. The analysis tabs surface the fine niche directly and rely on
 # their existing top-K + "Other"/rare-pruning logic to tame the cardinality.

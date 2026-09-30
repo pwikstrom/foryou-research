@@ -344,7 +344,6 @@ foryou-research/
 │       ├── datasets/            # Dataset build steps: loading, sampling, merge, refresh sidecars, enrichment status
 │       ├── calc_collection_stats.py  # Donation-level statistics
 │       ├── activity_analysis.py # Activity-based analysis
-│       ├── experimental/        # Research analyses the app does not use: niche_detection, session_profile, sequence_model
 │       ├── embeddings.py        # Dense embeddings for annotated videos (model-scoped shard store)
 │       ├── embedding_store.py   # Random-access dense sidecar over the shards (float16 parts, id index, corpus mean)
 │       ├── embedding_backends/  # EmbeddingBackend ABC + registry: gemini / qwen_api / qwen_local

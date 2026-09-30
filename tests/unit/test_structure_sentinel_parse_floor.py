@@ -1,7 +1,7 @@
 """The parse-rate floor: a file whose parser kept almost nothing quarantines
 without any learned baseline.
 
-Pinned by the 2026-09-07 file whose 85,933 raw rows became 900: the drift
+Pinned by a file whose parser kept about 1 % of its raw rows: the drift
 layer needed five accepted files' statistics and had fewer, so nothing made
 the operator look before approving. The floor needs no history. It is
 computed on the rows the parser should have read (raw rows minus the

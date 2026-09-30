@@ -111,8 +111,7 @@ _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Records keyed by their own id: TikTok's Watch Live History is a map from
     # live-stream id to record, its Order History one from order id. Left as
     # is, every new id read as a new key path, so any export with live
-    # history warned, and the ids swamped the baseline (4,098 of 4,383 export
-    # key paths in a replay of the corpus).
+    # history warned, and the ids swamped the baseline's key paths.
     (re.compile(r"^\d{6,}$"), "<id>"),
 ]
 

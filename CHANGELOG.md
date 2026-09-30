@@ -25,6 +25,15 @@ public version. Entries below describe the Hub as it stands at that release.
   their x is a keyboard-reachable button with an accessible name. The
   contract editor still closes only from its own button.
 
+### Removed
+
+- **Research analyses and corpus scripts the Hub does not use.**
+  `fyp/analysis/experimental/` (text-based niche detection, within-session
+  profiling, predictive sequence modelling) with its flat aliases
+  `fyp.niche_detection`, `fyp.session_profile` and `fyp.sequence_model`, and
+  the snapshot-only scripts `scripts/intake_report.py` and
+  `scripts/replay_ingestion.py`. Nothing in the app imported them.
+
 ### Fixed
 
 - **PCA files keep the same column order in every run.** The factor
@@ -141,10 +150,7 @@ errors that no longer show their exception text.
   parser never ingests (TikTok's Off TikTok Activity, ads data, direct
   messages, settings) are now counted per file under their own reason
   instead of inflating `not_parseable`, which is once again only the rows
-  the parser failed to read. Found through the methods paper's intake
-  report: a September upload had lost 85,033 of 85,933 rows to
-  "not parseable" that were tracking-pixel records without a timestamp,
-  excluded by design.
+  the parser failed to read.
 - **Parse-rate floor in the structure sentinel.** A file whose parser kept
   less than 10 % of the rows it should have read (raw rows minus the
   sections it excludes by design) is quarantined whatever the baseline's
@@ -181,8 +187,7 @@ errors that no longer show their exception text.
   time zone, check the offset inference. Files that repeat an earlier one
   byte for byte are told apart from re-donations with new content. Refuses
   to run against GCS.
-- **`scripts/intake_report.py`.** Every figure a methods write-up needs
-  about ingestion, computed from a downloaded snapshot of the `recoded`
+- **`scripts/intake_report.py`.** Ingestion statistics computed from a downloaded snapshot of the `recoded`
   storage location and never from the live bucket: intake attrition per
   route, the ledger outcome distribution, the structure sentinel's
   denominators, false-positive split, time in quarantine and a
@@ -424,23 +429,20 @@ errors that no longer show their exception text.
   watch history.** A TikTok export's like and bookmark lists reach years
   further back than its watch history, so an engagement older than the
   file's first play belongs to a viewing that is not in the data, and the
-  windowless fallback linked it to a later re-watch of the same video: in a
-  replay of the corpus, 1,946 of the 2,004 bookmarks whose nearest play lay
-  a day or more away were of this kind (and 923 of 1,092 such likes). Such
+  windowless fallback linked it to a later re-watch of the same video. Such
   rows now stay unlinked; adjacency and the Instagram case (a like after the
   one logged view) are unchanged. Stored rows keep their old tokens until
   refolded (`scripts/migrate_engagement_vocabulary.py`).
 
 - **My Collections counts viewing sessions.** Every row carries a session
   id, so a login, a follow or a like from before the watch history formed a
-  session of its own; across the TikTok corpus two thirds of all sessions
-  held no viewing. The participant's session count, longest session and
+  session of its own, and many sessions held no viewing. The participant's session count, longest session and
   binge share were computed over all of them. They are now computed over
   viewing rows.
 - **A follower no longer joins a donor's sittings.** Session assignment
   counted `followed_by` rows, another account following the donor, as
   activity, so a follow arriving between two sittings less than fifteen
-  minutes from each joined them (156 sittings in the TikTok corpus). Those
+  minutes from each joined them. Those
   rows are left out of session assignment and carry no `session_id`
   (`RECEIVED_ACTIVITY_TYPES` in `fyp.core.utils`). Session ids renumber for
   the affected collections on the next ingest refresh. The Sessions tab
@@ -450,8 +452,8 @@ errors that no longer show their exception text.
 - **The structure sentinel no longer reads record ids as structure.**
   TikTok's Watch Live History and Order History are maps keyed by the live
   stream's or the order's id, so every new id was a "previously unseen key
-  path": any export with live history warned, and the ids made up 4,098 of
-  the 4,383 key paths in a replay's export baseline. Keys of six or more
+  path": any export with live history warned, and the ids made up most of
+  the export baseline's key paths. Keys of six or more
   digits now collapse to `<id>`, as direct-message partner names already
   collapsed to `chat history with *`.
 - **The sentinel's kept ratio leaves out records excluded by design.** It
@@ -469,8 +471,7 @@ errors that no longer show their exception text.
   looked for siblings among surviving rows, recorded the new file as
   `added_as_new` with no siblings. It now also finds stored files whose
   collection the merge folded into the new file's (`pre_cids` and the
-  merge's `last_cid_remap`). A replay of the TikTok export corpus found 162
-  of 202 merges mislabelled this way.
+  merge's `last_cid_remap`).
 - **A too-small TikTok export is ledgered with its true record count.** The
   parser returned an empty frame for an export with ten or fewer viewing
   records, so the ledger's `raw_rows` read 0. Parsers now report what they
@@ -484,10 +485,9 @@ errors that no longer show their exception text.
   September 2026 write the comment section's dates with the zone spelled
   out (`2026-08-01 12:00:00 UTC`). The parser's strict date format rejected
   them, so every comment in those exports was counted `not_parseable` and
-  lost: 4,428 comments across eight exports, and exactly the ones that name
-  their video (`originalPostUrl`) rather than borrowing one from the
-  forward fill. The suffix is now accepted. Found by
-  `scripts/replay_ingestion.py`. The ledger had counted the loss, but
+  lost, and exactly the ones that name their video (`originalPostUrl`)
+  rather than borrowing one from the forward fill. The suffix is now
+  accepted. The ledger had counted the loss, but
   comments are a small share of an export, so each file's parse rate stayed
   far above the sentinel's 10 % floor and nothing flagged it.
 

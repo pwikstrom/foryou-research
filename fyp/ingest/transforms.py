@@ -257,8 +257,7 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     fallback. An export's like and bookmark lists reach years further back
     than its watch history, so the viewing such an engagement belongs to is
     not in the data, and its nearest play of the same item is a later
-    re-watch: in a replay of the TikTok corpus, 1,946 of the 2,004 bookmarks
-    whose nearest play lay a day or more away were of this kind.
+    re-watch.
 
     Every play that received a folded token says how: ``link_method`` is
     ``"adjacent"``, ``"nearest_play"``, or ``"adjacent,nearest_play"`` when

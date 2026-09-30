@@ -367,12 +367,12 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
         "in_dataset": {"user_id": "a"},
         "withdrawn": {"user_id": "a"},
         "pending": {"user_id": "a"},
-        "user_data_tiktok_2": {"user_id": "wendto1712@gmail.com"},
+        "user_data_tiktok_2": {"user_id": "p-3@example.test"},
         "unowned_orphan": {"display_collection_id": "x"},
         "explicitly_unassigned": {"user_id": None},
     }
     assert _linked_collections_missing(tags, {"pending"}) == [
-        "user_data_tiktok_2 (owner wendto1712@gmail.com)"
+        "user_data_tiktok_2 (owner p-3@example.test)"
     ]
 
 

@@ -288,46 +288,6 @@ are flagged `client_reviewed`, and the structure sentinel evaluates them
 against a separate `__reviewed` baseline whose stat distributions fit pruned
 files. Sections a donor leaves out are never drift on either baseline.
 
-### Intake statistics and corpus replay
-
-Two scripts describe the ingestion corpus for write-ups. Both run only
-against a **downloaded snapshot** of `recoded/`, wired in through a
-throwaway config directory under `--out` that `FYP_CONFIG_PATH` names (so the
-checkout's `config.local.toml` and `.env` are never read), and refuse if
-storage would resolve to GCS.
-
-- `python scripts/intake_report.py --snapshot <dir> --out <dir>` computes
-  attrition per route, the outcome distribution, the sentinel's denominators,
-  false-positive split and time in quarantine (with a quarantined-vs-accepted
-  comparison by route and donor region), time-zone resolution levels with a
-  calibration of the inference against supplied zones, and the sensitivity of
-  the session gap, comment-link window and donor-merge threshold.
-  `--skip-parquet` gives the ledger and verdict parts in seconds;
-  `--classification` reads the filled-in `quarantine_worksheet.csv` back.
-  Time in quarantine starts at the ledger's `uploaded_at`, because a
-  verdict's `ts_evaluated` is overwritten on every run and re-stamped after
-  an approval.
-- `python scripts/replay_ingestion.py --snapshot <dir> --out <dir>`
-  re-ingests the snapshot's raw exports (TikTok `activity_data/ddp/ddp_raw`
-  and `activity_data/aio/aio_raw`, plus `instagram/instagram_raw` and
-  `youtube/youtube_raw`) one file at a time in donation order, leaving out
-  byte-identical repeats of an earlier file unless `--keep-copies`, and
-  finishing with `add_local_time_features` + `add_session_ids` as the refresh
-  does. It runs through `load_raw` → `process` → `migrate_sub_collections` as
-  `run_ingest_refresh` does, but without the sentinel or the post-save side
-  effects, into a scratch store under `--out` (the snapshot is only read).
-  Its `platform_mapping` report checks each platform's rows against the
-  activity contract (every column present with its declared Arrow type,
-  required values, activity types against the module's
-  `emitted_activity_types`). It runs the code in the checkout, so it
-  describes what today's pipeline does with the donation history, not what
-  happened at the time. Each file's mtime is set to its donation time,
-  because `ts_added_to_dataset` — and so the newest-wins dedup and the
-  canonical collection id — comes from it. When a re-donation supersedes
-  every row of an older file, the older file leaves no row to be a sibling,
-  so `build_per_file_summary` reports the new file as `added_as_new`; the
-  replay records the true merge from `last_cid_remap`.
-
 ## 2. Scraping (`fyp/scrape/`)
 
 `fyp/scrape/scrape.py` is platform-agnostic orchestration: per-platform queues
@@ -1023,9 +983,7 @@ On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
 (`stats.py`), timeline metrics (`timeline_analysis.py`), session and
 binge-episode segmentation (`fyp/analysis/sessions/`), sequence windowing
 (`sequence_analysis.py`), dense semantic embeddings + niche clustering + 2D
-map (`embeddings.py`, `video_map.py`). Research analyses the app does not use
-(text-based niche detection, within-session profiling, predictive sequence
-modelling) live in `fyp/analysis/experimental/`. The session boundaries themselves are stamped at ingest:
+map (`embeddings.py`, `video_map.py`). The session boundaries themselves are stamped at ingest:
 `session_id` is set on every activity row (`fyp/ingest/base.py`
 `assign_session_ids`, a `[sessions] session_gap_s` = 900 s gap rule on
 `utc_timestamp` alone), which is what lets the enrichment planner sample

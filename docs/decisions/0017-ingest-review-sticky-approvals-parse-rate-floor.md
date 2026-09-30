@@ -13,11 +13,11 @@ its end, so a review recorded while the run held the ledger in memory was
 erased. And the sentinel re-evaluated an approved file from scratch, so it
 could quarantine it again for the same findings.
 
-**A warn verdict hid a near-total loss.** One upload lost 85,033 of its
-85,933 rows. They sat in sections the TikTok parser excludes by design, but
+**A warn verdict hid a near-total loss.** One upload lost nearly all of its
+rows. They sat in sections the TikTok parser excludes by design, but
 were counted as `not_parseable`. The drift layer had too few accepted files
 for that source to notice anything, the verdict was only a warning, and the
-operator approved it in 97 s.
+operator approved it within minutes.
 
 ## Decision
 

@@ -18,7 +18,6 @@ one with `python scripts/gen_import_graph.py` (see the end of this file).
 | `fyp/scrape/` | eager re-exports from `.scrape` (and `.consolidate`, `.failures`, `.slideshow`, split out of it) + forwarding `__getattr__`; **must not boot config** | `scrape`, `consolidate`, `failures`, `slideshow`, `platform_scraper`, `tiktok_dl`, `instagram_dl`, `youtube_dl`, `scraper_cookies`, `scrape_queues`, `scrape_contract`, `scrape_versioning`, `scraper_alerts`, `connectivity` |
 | `fyp/annotation/` | inert | `machine_annotation`, `gemini_calls`, `response_parsing`, `annotation_refinement`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words`, `backends/` |
 | `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `embedding_store`, `embedding_backends/`, `video_map`, `session_explorer`, `sessions/` (`inputs`, `segment`, `plan`, `publish`), `entropy_metrics`, `sequence_analysis`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `datasets/` (`common`, `loading`, `sampling`, `merge`, `refresh`, `enrichment_status`) |
-| `fyp/analysis/experimental/` | inert | research analyses the app does not import: `niche_detection`, `session_profile`, `sequence_model` (their flat shims still resolve) |
 
 Most modules also keep an old flat path (`fyp/<module>.py`) as a
 back-compat shim for code outside this repository. First-party code imports

@@ -159,7 +159,8 @@ docs_private/
 # Research sandboxes / scratch notebooks / manuscript drafts — never commit
 sandbox/
 tests/scratchpads/
-NMS_manuscript_scaffold.docx
+*.docx
+/PUBLICATIONS.md
 
 # Notebooks, anywhere, unconditionally — this repo holds none by policy. Their
 # saved outputs carry real feed rows (creator handles, captions, item ids), so a
