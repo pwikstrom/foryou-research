@@ -2,7 +2,7 @@
 
 A release bump touches five files; Zenodo reads ``.zenodo.json`` in preference
 to ``CITATION.cff``, so a missed file mislabels the archived snapshot. This
-pins them together, along with the release date and the changelog link.
+pins them together, along with the release date and the changelog links.
 """
 
 import json
@@ -54,3 +54,12 @@ def test_release_date_and_changelog_link_match():
         _read("CHANGELOG.md"),
         re.M,
     ), f"CHANGELOG.md lacks the [{version}] link"
+
+
+def test_unreleased_link_compares_from_the_latest_release():
+    version, _ = _latest_changelog_release()
+    assert re.search(
+        rf"^\[Unreleased\]: \S+/compare/v{re.escape(version)}\.\.\.HEAD$",
+        _read("CHANGELOG.md"),
+        re.M,
+    ), f"CHANGELOG.md's [Unreleased] link must compare from v{version}"

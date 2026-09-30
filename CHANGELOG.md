@@ -10,6 +10,18 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-30
+
+The ingestion-fidelity release: more of each export is read (TikTok shares
+and reposts, Instagram saves and comments) under one engagement vocabulary
+across platforms, a replay of every stored export checked the activity table
+against its contract, and a run of ingestion, structure-sentinel and scraper
+fixes came out of it. New accounts now verify their email address. Underneath,
+the code was restructured without changing what it does: one import path per
+module, one registry for the background workers, clear package boundaries,
+one lint and format bar, a production image about half the size, and API
+errors that no longer show their exception text.
+
 ### Added
 
 - **More of the export is read.** TikTok share history and reposts become
@@ -189,59 +201,12 @@ public version. Entries below describe the Hub as it stands at that release.
   per reload). My Studies viewers without the Data Pipeline tab load only the
   two study scripts (318 KB and five requests fewer), and public pages no
   longer load the slider stylesheet.
-- **Internal: one import path per module, one lint bar, content-hashed
-  assets.** First-party code now imports every `fyp` module by its canonical
-  subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
-  `fyp/<name>.py` alias shims stay for outside callers, and ruff's banned-api
-  rule rejects them inside the repository. `pyproject.toml` is the single
-  enforced ruff rule set for CI, pre-commit and `scripts/verify.sh`, which also
-  check `ruff format`; the tree was formatted and import-sorted once
-  (listed in `.git-blame-ignore-revs`). Templates reference scripts and
-  stylesheets through `asset_url()`, which versions each URL by the file's
-  content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
-  checks that `docs/routes.md` matches the URL map and that the release
-  version agrees across its five files. No behaviour change.
-- **Internal: single sources of truth for workers, accessors and route
-  checks.** Every background worker is declared once in
-  `web_interface/tasks/worker_registry.py` (module, entry point, Cloud Tasks
-  deadline, retry safety, launch surfaces); the nine tables that used to repeat
-  those facts, and every chained link's deadline, derive from it, and the
-  `fyp` library no longer holds the web app's worker script paths. Shared
-  helpers replace copied code: `fyp.core.runtime` (config, labels, Cloud Run
-  detection, graceful stop), `VIDEO_VIEW_TYPES` for the play/observe pair,
-  the scrapers' download-and-store steps, the stub-login test client, and one
-  study-parameter check for the analysis endpoints. No behaviour change;
-  verified by before/after snapshots of the worker wiring and of every
-  route's anonymous and missing-/denied-study responses.
-- **Internal: module boundaries.** `web_interface/` is organised into
-  packages: `routes/` (the HTTP surface only), `services/`, `auth/` (accounts
-  and access control), `tasks/` (worker registry, launch, status, logs and the
-  Cloud Tasks runtime, which used to live in a route module), `workers/` (one
-  module per background worker) and `integrations/` (email, Slack); a unit
-  test keeps services, tasks and workers from importing route modules. The
-  `data_service.py` and `routes/management_routes.py` re-export facades are
-  gone. Oversized modules are split along their seams: the Sessions, account
-  and Explore routes; in `fyp`, `scrape`, `session_explorer` (now the
-  `fyp.analysis.sessions` package), `machine_annotation`, `organize_datasets`
-  (the `fyp.analysis.datasets` package) and `ingest/base`, each of which still
-  re-exports the names that moved; and the 9,400-line Data Pipeline script
-  and `main.js`'s worker controls. `fyp/core` no longer reaches into
-  `fyp.annotation` for the var-schema vocabulary, and ingest-only code (the
-  structure sentinel, the AIO donation fetch, time-zone inference) lives in
-  `fyp/ingest`. 67 CSS rules that could never match are removed. Local worker
-  commands change form: `python -m web_interface.workers.run_queue_scraper
-  --platform youtube` replaces `python web_interface/run_queue_scraper.py`.
-  No behaviour change: every moved definition was checked AST-identical to
-  the original, and the var-schema hash is unchanged.
 - **A smaller production image.** 103 packages nothing in the app imports
   (the Jupyter stack, plotting libraries, unused Google and geo clients) left
   `requirements.txt`, and the base image no longer ships the compilers it
   builds with: the app image drops from 1.43 GB to 0.79 GB compressed.
   deno and Node.js are pinned to exact versions, Node from its checksummed
   release tarball. Notebook tooling is available as the `notebook` extra.
-- **Unused research analyses moved to `fyp/analysis/experimental/`**
-  (niche detection from annotation text, within-session profiling, sequence
-  modelling); dead functions and two unused images were removed.
 - **Documentation reorganised; a decision log.** `docs/decisions/` records,
   with dates and evidence, why the Hub works the way it does; the how-to docs
   keep the rules and link there. Each topic now has one home doc (install,
@@ -253,12 +218,6 @@ public version. Entries below describe the Hub as it stands at that release.
 - **Faster status polling and user lookups.** Hot request paths read their
   JSON in one storage round-trip instead of an existence probe plus a read
   (a task-status read on GCS: ~129 ms → ~62 ms).
-- **Internal: tests that could not fail now can.** 34 checks in the ab_eval
-  and var-schema tests only printed their result; eleven test files ran no
-  test under pytest; one golden test was missing from the safety-net runner.
-  All now run and pass, guarded by a runner-coverage test. Fourteen scratch
-  scripts named like tests are deleted.
-
 - **One engagement vocabulary across platforms.** Donor engagement is now
   stored as `fave` (a like), `save` (a bookmark), `comment` and `share` on
   every platform, and labelled Like / Save / Comment / Share everywhere the
@@ -666,6 +625,61 @@ public version. Entries below describe the Hub as it stands at that release.
 
 - **Semantic-map labels stay white after switching to the dark theme.** The
   theme safety net no longer remaps figures their tab has just re-rendered.
+
+### Internal
+
+- **One import path per module, one lint bar, content-hashed
+  assets.** First-party code now imports every `fyp` module by its canonical
+  subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
+  `fyp/<name>.py` alias shims stay for outside callers, and ruff's banned-api
+  rule rejects them inside the repository. `pyproject.toml` is the single
+  enforced ruff rule set for CI, pre-commit and `scripts/verify.sh`, which also
+  check `ruff format`; the tree was formatted and import-sorted once
+  (listed in `.git-blame-ignore-revs`). Templates reference scripts and
+  stylesheets through `asset_url()`, which versions each URL by the file's
+  content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
+  checks that `docs/routes.md` matches the URL map and that the release
+  version agrees across its five files. No behaviour change.
+- **Single sources of truth for workers, accessors and route
+  checks.** Every background worker is declared once in
+  `web_interface/tasks/worker_registry.py` (module, entry point, Cloud Tasks
+  deadline, retry safety, launch surfaces); the nine tables that used to repeat
+  those facts, and every chained link's deadline, derive from it, and the
+  `fyp` library no longer holds the web app's worker script paths. Shared
+  helpers replace copied code: `fyp.core.runtime` (config, labels, Cloud Run
+  detection, graceful stop), `VIDEO_VIEW_TYPES` for the play/observe pair,
+  the scrapers' download-and-store steps, the stub-login test client, and one
+  study-parameter check for the analysis endpoints. No behaviour change;
+  verified by before/after snapshots of the worker wiring and of every
+  route's anonymous and missing-/denied-study responses.
+- **Module boundaries.** `web_interface/` is organised into
+  packages: `routes/` (the HTTP surface only), `services/`, `auth/` (accounts
+  and access control), `tasks/` (worker registry, launch, status, logs and the
+  Cloud Tasks runtime, which used to live in a route module), `workers/` (one
+  module per background worker) and `integrations/` (email, Slack); a unit
+  test keeps services, tasks and workers from importing route modules. The
+  `data_service.py` and `routes/management_routes.py` re-export facades are
+  gone. Oversized modules are split along their seams: the Sessions, account
+  and Explore routes; in `fyp`, `scrape`, `session_explorer` (now the
+  `fyp.analysis.sessions` package), `machine_annotation`, `organize_datasets`
+  (the `fyp.analysis.datasets` package) and `ingest/base`, each of which still
+  re-exports the names that moved; and the 9,400-line Data Pipeline script
+  and `main.js`'s worker controls. `fyp/core` no longer reaches into
+  `fyp.annotation` for the var-schema vocabulary, and ingest-only code (the
+  structure sentinel, the AIO donation fetch, time-zone inference) lives in
+  `fyp/ingest`. 67 CSS rules that could never match are removed. Local worker
+  commands change form: `python -m web_interface.workers.run_queue_scraper
+  --platform youtube` replaces `python web_interface/run_queue_scraper.py`.
+  No behaviour change: every moved definition was checked AST-identical to
+  the original, and the var-schema hash is unchanged.
+- **Unused research analyses moved to `fyp/analysis/experimental/`**
+  (niche detection from annotation text, within-session profiling, sequence
+  modelling); dead functions and two unused images were removed.
+- **Tests that could not fail now can.** 34 checks in the ab_eval
+  and var-schema tests only printed their result; eleven test files ran no
+  test under pytest; one golden test was missing from the safety-net runner.
+  All now run and pass, guarded by a runner-coverage test. Fourteen scratch
+  scripts named like tests are deleted.
 
 ## [0.3.0] — 2026-09-10
 
@@ -1277,7 +1291,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.0
 [0.3.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.1.0
