@@ -94,7 +94,7 @@
 
         } catch (error) {
             console.error('Error:', error);
-            alert('Error loading users: ' + error.message);
+            await showAppAlert('Error loading users: ' + error.message);
         }
     }
 
@@ -1550,7 +1550,7 @@
         const overlay = document.getElementById('userDetailModal');
         const username = overlay && overlay.dataset.username;
         if (!username || !noteId) return;
-        if (!confirm('Delete this note?')) return;
+        if (!(await showAppConfirm('Delete this note?', { okLabel: 'Delete', danger: true }))) return;
         const status = document.getElementById('userModalNoteStatus');
         try {
             const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
@@ -1583,11 +1583,11 @@
                 const data = await response.json();
                 throw new Error(data.error || 'Failed to reset password');
             }
-            alert('Password updated successfully');
+            await showAppAlert('Password updated successfully');
             closeUserModal();
             loadUsers();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1678,7 +1678,7 @@
             loadUsers();
             loadOrphanParticipants();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1713,12 +1713,12 @@
             if (!response.ok) throw new Error(data.error || 'Failed to resend the link');
             setTimeout(loadUsers, 1500); // the sent-at stamp lands after the background send
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
     async function markVerified(username) {
-        if (!confirm(`Mark ${username} as verified without the emailed link?`)) return;
+        if (!(await showAppConfirm(`Mark ${username} as verified without the emailed link?`, { okLabel: 'Mark verified' }))) return;
         try {
             const response = await fetch('/api/admin/users', {
                 method: 'PUT',
@@ -1731,7 +1731,7 @@
             }
             loadUsers();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1750,7 +1750,7 @@
 
             loadUsers(); // Refresh list
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1770,9 +1770,9 @@
                 throw new Error(data.error || 'Failed to reset password');
             }
 
-            alert('Password updated successfully');
+            await showAppAlert('Password updated successfully');
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1782,7 +1782,7 @@
         const password = document.getElementById('newPassword').value;
 
         if (!username || !displayUsername || !password) {
-            alert('Please enter email, username and password');
+            await showAppAlert('Please enter email, username and password');
             return;
         }
 
@@ -1805,7 +1805,7 @@
             document.getElementById('newPassword').value = '';
             loadUsers();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1816,7 +1816,7 @@
             loadUsers();
             loadOrphanParticipants();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
         }
     }
 
@@ -1843,7 +1843,7 @@
                 if (u) u.display_username = desired;
             });
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
             input.value = previous; // revert
         } finally {
             input.disabled = false;
@@ -1869,7 +1869,7 @@
 
             loadUsers();
         } catch (error) {
-            alert('Error: ' + error.message);
+            await showAppAlert('Error: ' + error.message);
             loadUsers(); // Reset UI
         }
     }
@@ -2031,7 +2031,7 @@
             }
         } catch (e) {
             console.error(e);
-            alert("Error loading roles: " + e.message);
+            await showAppAlert("Error loading roles: " + e.message);
         }
     }
 
@@ -2164,12 +2164,12 @@
             nameInput.value = '';
             loadRoles();
         } catch (e) {
-            alert(e.message);
+            await showAppAlert(e.message);
         }
     }
 
     async function deleteRole(roleName) {
-        if (!confirm(`Are you sure you want to delete role '${roleName}'?`)) return;
+        if (!(await showAppConfirm(`Are you sure you want to delete role '${roleName}'?`, { okLabel: 'Delete role', danger: true }))) return;
 
         try {
             const response = await fetch(`/api/admin/roles?role_name=${encodeURIComponent(roleName)}`, {
@@ -2183,7 +2183,7 @@
 
             loadRoles();
         } catch (e) {
-            alert(e.message);
+            await showAppAlert(e.message);
         }
     }
 

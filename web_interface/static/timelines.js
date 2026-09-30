@@ -2253,7 +2253,7 @@ window.timelines = {
 
     voteMachineAnnotation: function () {
         if (!this.currentStatsPeriod || !this.currentDonationId) {
-            alert('Selection data missing.');
+            showAppAlert('Selection data missing.');
             return;
         }
 
@@ -2281,14 +2281,14 @@ window.timelines = {
                     btn.style.backgroundColor = 'var(--color-success)';
                     // Disable button completely or leave it success state (allow re-click but backend handles dupes)
                 } else {
-                    alert('Failed to vote: ' + data.error);
+                    showAppAlert('Failed to vote: ' + data.error);
                     btn.innerText = originalText;
                     btn.disabled = false;
                 }
             })
             .catch(err => {
                 console.error(err);
-                alert('Network error submitting vote.');
+                showAppAlert('Network error submitting vote.');
                 btn.innerText = originalText;
                 btn.disabled = false;
             });
@@ -2300,7 +2300,7 @@ window.timelines = {
         const collection = this.collectionList.find(d => d.collection_id === this.currentDonationId);
         const study = collection && collection.study;
         if (!study) {
-            alert('No study found for this collection.');
+            showAppAlert('No study found for this collection.');
             return;
         }
 

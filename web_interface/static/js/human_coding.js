@@ -182,7 +182,7 @@
             submitBtn.textContent = st.mode === "vote" ? "Submit votes" : "Submit coding";
             renderItem();
         } catch (e) {
-            alert(`Could not open task: ${e.message}`);
+            await showAppAlert(`Could not open task: ${e.message}`);
         }
     }
 

@@ -933,12 +933,12 @@ async function loadChunkFor(index) {
             })
         });
         if (!res.ok) {
-            alert(serverFailureMessage(res.status));
+            await showAppAlert(serverFailureMessage(res.status));
             return false;
         }
         const data = await res.json();
         if (data.error) {
-            alert(data.error);
+            await showAppAlert(data.error);
             return false;
         }
 
@@ -993,14 +993,14 @@ async function applyViewerFilters(focusItemId = null) {
         // that into a message that says what happened; letting res.json() throw
         // sends every one of them to the generic catch below instead.
         if (!res.ok) {
-            alert(serverFailureMessage(res.status));
+            await showAppAlert(serverFailureMessage(res.status));
             return false;
         }
 
         const data = await res.json();
 
         if (data.error) {
-            alert(data.error);
+            await showAppAlert(data.error);
             return false;
         }
 
@@ -1090,7 +1090,7 @@ async function applyViewerFilters(focusItemId = null) {
 
     } catch (e) {
         console.error(e);
-        alert("Could not reach the server to filter items. Check your connection, "
+        await showAppAlert("Could not reach the server to filter items. Check your connection, "
               + "then try again.");
         return false;
     }
@@ -2046,7 +2046,7 @@ async function saveTaggingModal() {
             loadViewerItem(viewerData.currentIndex); // Re-render
             closeTaggingModal();
         }
-    } catch (e) { console.error(e); alert("Error saving tags"); }
+    } catch (e) { console.error(e); await showAppAlert("Error saving tags"); }
 }
 
 // ── Extra-data slider markers & skip navigation ──

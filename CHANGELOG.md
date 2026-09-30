@@ -10,6 +10,15 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Messages and confirmations use the Hub's own dialog.** The admin pages,
+  Timelines, Video Analysis and coding tasks showed some errors and
+  confirmations in the browser's native pop-up; they now use the in-app
+  dialog the rest of the Hub already used, with clearer buttons ("Delete
+  role", "Mark verified") and destructive actions shown in red. Resetting a
+  password still asks in a browser prompt.
+
 ### Internal
 
 - **A stricter lint bar.** Ruff now also enforces the bugbear, simplify,
