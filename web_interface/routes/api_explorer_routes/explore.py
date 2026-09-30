@@ -9,7 +9,7 @@ from flask_login import current_user
 
 import fyp.core.data_io as data_io
 from web_interface.auth.accounts import user_manager
-from web_interface.auth.permissions import permission_required
+from web_interface.auth.permissions import can_read_sensitive_activity, permission_required
 from web_interface.routes._access import require_accessible_study, study_access_error
 from web_interface.services import explorer_backend as explorer
 from web_interface.services.study_data import (
@@ -499,6 +499,7 @@ def api_explorer_metadata_base():
         if cache_is_fresh:
             try:
                 metadata = data_io.load_json(storage_location="cache", filename=canonical_filename)
+                explorer.scrub_extra_data_stats(metadata)
                 metadata = _finalize_base_metadata(metadata, study)
                 if metadata is not None:
                     return jsonify(make_serializable(metadata))
@@ -697,6 +698,7 @@ def api_explorer_metadata():
             potential_metadata = data_io.load_json(
                 storage_location="cache", filename=f"{study}_explorer_metadata.json"
             )
+            explorer.scrub_extra_data_stats(potential_metadata)
 
             # Force refresh of dynamic metadata (User Tags & Has Annotation)
             # We must re-calculate these every time because the cache might be stale w.r.t user actions
@@ -1131,6 +1133,7 @@ def api_explorer_filter():
         study,
         context="explorer",
         columns=_filter_request_columns(data, current_user.settings, full_col_types=full_col_types),
+        hide_comment_text=not can_read_sensitive_activity(current_user),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404

@@ -10,6 +10,23 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Comment text is a per-role permission.** A new "Sensitive activity —
+  read comment text" row on the User Roles page decides which roles can
+  read what donors wrote in their comments. Roles without it still see that
+  a comment was made, and can filter and count by it, but the text is
+  removed from Video Analysis, Explore and search. No role except admin has
+  it at first; tick it for each role that should keep reading comments.
+
+### Fixed
+
+- **Comment text no longer appears in summary statistics.** The engagement
+  column's Explore statistics listed its most common raw values, which could
+  include comment text; they now count likes, saves, comments and shares.
+  The column is no longer offered as a Timelines series either, where the
+  engagement breakdown already covers it.
+
 ## [0.4.1] — 2026-09-30
 
 A maintenance release. Error messages and confirmations use the Hub's own

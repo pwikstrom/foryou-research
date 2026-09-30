@@ -216,15 +216,9 @@ def get_metadata(df, column_types, verbose=False):
         # with document-frequency counts and their UI labels ("Like" for
         # `fave`) — the stored token stays the filter value.
         if col == "extra_data":
-            counts = dict.fromkeys(ENGAGEMENT_TYPES, 0)
-            for cell in df[col].dropna():
-                for t in parse_extra_data_tokens(cell):
-                    if t in counts:
-                        counts[t] += 1
+            counts = extra_data_token_counts(df[col])
             items_list = [
-                {"value": t, "label": ENGAGEMENT_LABELS[t], "count": counts[t]}
-                for t in ENGAGEMENT_TYPES
-                if counts[t] > 0
+                {"value": t, "label": ENGAGEMENT_LABELS[t], "count": n} for t, n in counts.items()
             ]
             base_meta.update(
                 {
@@ -835,6 +829,49 @@ def _list_value_counts_top(col_data: pd.Series, n: int = 20) -> dict:
     return {str(v): int(c) for v, c in zip(top_values, top_counts)}
 
 
+def extra_data_token_counts(series) -> dict:
+    """Rows carrying each engagement token in a folded extra_data column.
+
+    ``{token: rows}`` in ``ENGAGEMENT_TYPES`` order, zero counts left out. The
+    one summary of extra_data the Hub serves: the raw cells hold donors'
+    comment text, which only the per-row views may show (and only to roles
+    with the sensitive-activity permission).
+    """
+    counts = dict.fromkeys(ENGAGEMENT_TYPES, 0)
+    for cell in series.dropna():
+        for t in parse_extra_data_tokens(cell):
+            if t in counts:
+                counts[t] += 1
+    return {t: n for t, n in counts.items() if n > 0}
+
+
+def scrub_extra_data_stats(metadata):
+    """Replace a raw-cell ``total_stats.extra_data`` with token counts, in place.
+
+    Metadata JSON written before ``get_current_stats`` special-cased extra_data
+    holds its top-20 raw cells, comment text included. The filter metadata
+    already carries the exact per-token counts, so they stand in; without them
+    the entry is dropped. Returns ``metadata``.
+    """
+    total_stats = (metadata or {}).get("total_stats")
+    if not isinstance(total_stats, dict) or "extra_data" not in total_stats:
+        return metadata
+    current = total_stats["extra_data"]
+    if isinstance(current, dict) and set(current) <= set(ENGAGEMENT_TYPES):
+        return metadata
+    values = (metadata.get("extra_data") or {}).get("values") or []
+    counts = {
+        v["value"]: v["count"]
+        for v in values
+        if isinstance(v, dict) and v.get("value") in ENGAGEMENT_TYPES
+    }
+    if counts:
+        total_stats["extra_data"] = counts
+    else:
+        del total_stats["extra_data"]
+    return metadata
+
+
 def get_current_stats(df, column_types, number_meta=None, verbose=False):
     """Build per-column display stats (density histograms for numbers).
 
@@ -868,6 +905,9 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
         different columns (no shared mutable state; Arrow/numpy kernels
         release the GIL, which is what makes the thread pool below pay off).
         """
+        if col == "extra_data":
+            return extra_data_token_counts(df[col])
+
         if dtype == "number":
             col_data = df[col]
 

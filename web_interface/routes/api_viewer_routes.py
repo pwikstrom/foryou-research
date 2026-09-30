@@ -17,7 +17,11 @@ from fyp.core.fyp_config import fyp_cf
 from fyp.ingest import platform_url_templates
 
 from ..auth.accounts import user_manager
-from ..auth.permissions import permission_required, user_has_permission
+from ..auth.permissions import (
+    can_read_sensitive_activity,
+    permission_required,
+    user_has_permission,
+)
 from ..services import explorer_backend as explorer
 from ..services.study_data import (
     enrich_with_user_tags,
@@ -126,6 +130,7 @@ def api_viewer_ids():
         study,
         context="viewer",
         columns=_ids_columns(filters, search_query, full_col_types=full_col_types),
+        hide_comment_text=not can_read_sensitive_activity(current_user),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
@@ -490,7 +495,12 @@ def api_viewer_item(study, item_id):
 
     # Row selection happens against the cached frame, so this never materialises
     # the whole study to return one row.
-    df, col_types = get_explorer_rows(study, item_id=item_id, row_index=row_idx)
+    df, col_types = get_explorer_rows(
+        study,
+        item_id=item_id,
+        row_index=row_idx,
+        hide_comment_text=not can_read_sensitive_activity(current_user),
+    )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 

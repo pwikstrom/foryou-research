@@ -136,6 +136,22 @@ def test_votes_key_granted_to_existing_roles_but_not_student():
     print("PASS: votes key granted to existing roles, student skipped")
 
 
+def test_sensitive_activity_key_is_never_granted_at_boot():
+    # Comment text is private by default: no existing, custom or seeded role
+    # gains the key from the boot migration or the default seeding.
+    rm, _stub = _make_role_manager(
+        {
+            "viewer": {"permissions": ["tab.explore"]},
+            "custom": {"permissions": ["tab.admin.general", "tab.admin.schema"]},
+            "admin": {"permissions": ["*"]},
+        }
+    )
+    for name, role in rm.roles.items():
+        if name != "admin":
+            assert "data.sensitive_activity" not in role["permissions"], name
+    print("PASS: sensitive-activity key granted to no role at boot")
+
+
 def test_ensure_defaults_seeds_student_role():
     from web_interface.auth.permissions import STUDENT_PERMISSIONS
 
@@ -171,6 +187,7 @@ def run():
     test_migration_is_idempotent_and_skips_wildcard()
     test_enrichment_key_implies_scrape_and_annotation()
     test_votes_key_granted_to_existing_roles_but_not_student()
+    test_sensitive_activity_key_is_never_granted_at_boot()
     test_ensure_defaults_seeds_student_role()
 
 

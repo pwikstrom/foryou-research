@@ -62,7 +62,7 @@ def viewer(client, monkeypatch):
     # in production (the category branch of filter_dataframe is dtype-gated).
     from web_interface.services import explorer_backend
 
-    def _data(study, context=None, columns=None):
+    def _data(study, context=None, columns=None, hide_comment_text=True):
         df = _frame()
         col_types = explorer_backend.classify_columns(df)
         # Honour the projection the route asks for, so these tests also cover

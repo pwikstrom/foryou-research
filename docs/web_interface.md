@@ -86,6 +86,19 @@ explicit grant. A boot-time migration
 backfills explicit grants into studies from before that rule (see
 [decision 0007](decisions/0007-empty-study-access-means-nobody.md)).
 
+`data.sensitive_activity` ("Sensitive activity — read comment text" on the
+User Roles page) gates the text of comments donors wrote. It is in no
+default set and no boot-time grant, so every non-admin role starts without
+it. A role without it still sees *that* a comment was made (the bare
+`comment` engagement token, its counts and the engagement filter), never
+what was said: `study_data.get_explorer_data` / `get_explorer_rows` strip
+`comment:<text>` tokens from `extra_data` unless the caller passes
+`hide_comment_text=False` (the per-user routes pass
+`not can_read_sensitive_activity(current_user)`), and global search runs on
+the stripped column. Summaries never carry the raw cells for anyone:
+`extra_data` stats are per-token counts, it is never a Timelines series, and
+the My Collections favourite emoji reaches only the donor and key holders.
+
 Participants who own donated collections additionally get an auto-managed
 study pair — `__me__{username}` ("Just Me", their own collections,
 materialised) and `__me_plus__{username}` ("Everyone & Me", composed at read

@@ -14,7 +14,7 @@ from cachetools import LRUCache
 import fyp.core.data_io as data_io
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 from fyp.analysis.studies import init_study_defs, is_composed_study, participant_me_name
-from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES
+from fyp.core.activity_vocabulary import VIDEO_VIEW_TYPES, redact_comment_text
 from fyp.core.fyp_config import fyp_cf
 
 from . import explorer_backend as explorer
@@ -528,6 +528,7 @@ def get_explorer_metadata_cached(study):
         return {}
     if not isinstance(payload, dict):
         return {}
+    explorer.scrub_extra_data_stats(payload)
     with _explorer_meta_lock:
         _explorer_meta_cache[study] = (mtime, payload)
     return payload
@@ -752,7 +753,22 @@ def is_study_frame_cached(study):
 # wait_for_frame follow-up in explore.js).
 
 
-def get_explorer_data(study, context=None, columns=None, verbose=False):
+def _hide_comment_text(frame):
+    """``frame`` with its extra_data swapped for a comment-text-free copy.
+
+    The swap happens on a shallow copy, so it rebinds one column of a new
+    frame and never writes into the cached one. One vectorized pass (~1 ms on
+    a 240k-row study, ~10 ms on the 2.4M-row sessions study), so it runs per
+    request rather than being cached.
+    """
+    if "extra_data" not in frame.columns:
+        return frame
+    out = frame.copy(deep=False)
+    out["extra_data"] = redact_comment_text(frame["extra_data"])
+    return out
+
+
+def get_explorer_data(study, context=None, columns=None, verbose=False, hide_comment_text=True):
     """Return the rows the web layer exposes for ``study``, plus column types.
 
     The returned frame is a **read-only column view** of the cached frame, not
@@ -771,6 +787,11 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
             is free in itself; it pays off in the per-row work downstream
             (sorts, dedups, stats) that would otherwise span every column.
         verbose: When True, print cache hits and load progress.
+        hide_comment_text: Strip the donors' comment text from ``extra_data``
+            (the bare ``comment`` token stays). On by default so a caller that
+            forgets to ask fails closed; routes pass
+            ``not can_read_sensitive_activity(current_user)``. Global search
+            runs on the returned frame, so the text is unsearchable too.
 
     Returns:
         Tuple of (frame, column-type mapping), or (None, None) when the study
@@ -791,6 +812,8 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
     # nothing and hands back a distinct DataFrame object, so the attrs stamp
     # below and any column add/drop downstream cannot reach the cache entry.
     view = df[keep]
+    if hide_comment_text:
+        view = _hide_comment_text(view)
 
     # Stash the dataset status on the DataFrame so routes can surface a
     # clear message when an empty result is caused by missing enrichment
@@ -896,7 +919,7 @@ def search_column_value_counts(study, column):
     return entry
 
 
-def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
+def get_explorer_rows(study, item_id=None, row_index=None, verbose=False, hide_comment_text=True):
     """Return just the rows for one item, without touching the other millions.
 
     The Video Analysis detail panel needs one row and every column. Routing that
@@ -912,6 +935,8 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
     fallback cannot tell apart (it would answer every occurrence with the
     first one's row). ``_cached_study_frame`` guarantees those labels are a
     unique RangeIndex, so a match here is the exact row the viewer is showing.
+
+    ``hide_comment_text`` strips comment text as in :func:`get_explorer_data`.
 
     Returns (frame, col_types); the frame is empty when nothing matches, and
     (None, None) when the study has no recoded dataset.
@@ -947,6 +972,8 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
             rows = df.iloc[0:0]
 
     rows = rows.copy()
+    if hide_comment_text:
+        rows = _hide_comment_text(rows)
     try:
         rows.attrs["fyp_dataset_status"] = status
     except Exception:

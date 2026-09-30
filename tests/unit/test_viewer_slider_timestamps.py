@@ -74,7 +74,7 @@ def viewer(client, monkeypatch):
         lambda *a, **k: [_STUDY],
     )
 
-    def _data(study, context=None, columns=None):
+    def _data(study, context=None, columns=None, hide_comment_text=True):
         df = _frame()
         col_types = explorer_backend.classify_columns(df)
         if columns is not None:
@@ -140,7 +140,7 @@ def test_time_marks_are_exact_for_a_small_result_set(viewer, monkeypatch):
 
     n_small = 120
 
-    def _small(study, context=None, columns=None):
+    def _small(study, context=None, columns=None, hide_comment_text=True):
         df = _frame().head(n_small)
         return df, explorer_backend.classify_columns(df)
 
@@ -161,7 +161,7 @@ def test_payload_survives_a_study_with_no_timestamp_column(viewer, monkeypatch):
     from web_interface.routes import api_viewer_routes as routes
     from web_interface.services import explorer_backend
 
-    def _no_ts(study, context=None, columns=None):
+    def _no_ts(study, context=None, columns=None, hide_comment_text=True):
         df = _frame()[["item_id", "niche_name"]]
         return df, explorer_backend.classify_columns(df)
 

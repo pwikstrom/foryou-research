@@ -13,7 +13,7 @@ from flask_login import current_user
 
 from web_interface.tasks import worker_registry
 
-from ..auth.permissions import permission_required
+from ..auth.permissions import can_read_sensitive_activity, permission_required
 from ._access import current_user_ctx, owned_collection_access_error
 
 my_collections_bp = Blueprint("my_collections_bp", __name__)
@@ -493,4 +493,17 @@ def api_my_collection_personality(collection_id):
     bundle = build_personality([collection_id])
     if bundle is None:
         return jsonify({"error": "No donated activity data found for this collection"}), 404
+    if bundle.get("emoji") is not None and not _may_read_comment_text(collection_id):
+        # The favourite emoji is read out of the donor's comment text.
+        bundle = {**bundle, "emoji": None}
     return jsonify(bundle)
+
+
+def _may_read_comment_text(collection_id) -> bool:
+    """The donor always may; anyone else (Edit Collections holders) needs the sensitive-activity key."""
+    if can_read_sensitive_activity(current_user):
+        return True
+    from ..services.collection_accounts import collections_for_user
+
+    username, _role, _is_admin = current_user_ctx()
+    return str(collection_id) in {str(c) for c in collections_for_user(username)}

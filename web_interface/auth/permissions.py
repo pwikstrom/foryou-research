@@ -55,7 +55,15 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.system_info", "label": "Admin — System Information"},
     {"key": "tab.admin.ops_report", "label": "Admin — Daily Ops Report"},
     {"key": "feature.annotation_votes", "label": "Voting — annotation demand signals"},
+    {"key": "data.sensitive_activity", "label": "Sensitive activity — read comment text"},
 ]
+
+
+# Reading what donors wrote in their comments. Roles without it still see
+# THAT a comment was made (the bare `comment` engagement token, its counts
+# and filters) but never the text. Deliberately in no default set and no
+# boot-time grant: every non-admin role starts without it.
+SENSITIVE_ACTIVITY_KEY = "data.sensitive_activity"
 
 
 ALL_PERMISSION_KEYS: set[str] = {entry["key"] for entry in PERMISSION_CATALOG}
@@ -256,6 +264,11 @@ def user_has_permission(user, perm_key: str) -> bool:
         prefix = perm_key + "."
         return any(p.startswith(prefix) for p in perms)
     return False
+
+
+def can_read_sensitive_activity(user) -> bool:
+    """True when ``user`` may read comment text (``SENSITIVE_ACTIVITY_KEY``)."""
+    return user_has_permission(user, SENSITIVE_ACTIVITY_KEY)
 
 
 def get_user_permissions(user) -> list[str]:

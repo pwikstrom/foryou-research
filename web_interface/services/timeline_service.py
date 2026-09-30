@@ -627,6 +627,10 @@ def get_timeline_data(
         wanted = {v for v in extra_vars if v in known and v not in viz_vars}
         # Canonical order comes from all_variables_order, not request order.
         viz_vars = viz_vars + [v for v in meta.get("all_variables_order", []) if v in wanted]
+    # extra_data is never a timeline series: its raw cells would become
+    # category keys carrying donors' comment text. The engagement breakdown
+    # (extra_data_breakdown) is its timeline form.
+    viz_vars = [v for v in viz_vars if v != "extra_data"]
 
     if "machine_state" not in viz_vars:
         viz_vars = ["machine_state"] + viz_vars

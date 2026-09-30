@@ -81,6 +81,33 @@ def engagement_label(token: str) -> str:
     return STANDALONE_ENGAGEMENT_LABELS.get(token, str(token).title())
 
 
+# A folded `comment:<text>` token. The text never holds a comma (the fold
+# collapses them, see ingest.transforms._engagement_token), so it runs to the
+# next comma or the end of the cell.
+_COMMENT_TEXT_PATTERN = r"(?i)(^|,)(\s*comment)\s*:[^,]*"
+_COMMENT_TEXT_RE = re.compile(_COMMENT_TEXT_PATTERN)
+
+
+def strip_comment_text(s):
+    """A folded extra_data cell with each comment's text removed: ``"fave,comment:hi"`` → ``"fave,comment"``.
+
+    The bare ``comment`` token stays, so the cell still says a comment was
+    made and ``parse_extra_data_tokens`` reads it exactly as before.
+    """
+    if not isinstance(s, str) or not s:
+        return s
+    return _COMMENT_TEXT_RE.sub(r"\1\2", s)
+
+
+def redact_comment_text(series):
+    """``strip_comment_text`` over a whole extra_data column, vectorized; the dtype is kept.
+
+    One regex pass over the whole column (~1 ms on a 240k-row study): a
+    case-insensitive "has a comment" prefilter costs more than it saves.
+    """
+    return series.str.replace(_COMMENT_TEXT_PATTERN, r"\1\2", regex=True)
+
+
 def parse_extra_data_tokens(s) -> set:
     """Parse a folded extra_data cell into its normalised engagement-type tokens."""
     if not isinstance(s, str) or not s:
