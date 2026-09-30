@@ -297,7 +297,6 @@ def run_sessions_refresh(
     import pandas as pd
 
     import fyp.analysis.sessions.inputs as sessions_inputs
-    import fyp.analysis.sessions.plan as sessions_plan
     import fyp.analysis.sessions.publish as sessions_publish
     import fyp.core.data_io as data_io
     from fyp.analysis import embedding_store, embeddings
@@ -396,255 +395,9 @@ def run_sessions_refresh(
     # original keeps running. Setup completes in seconds, so the deadline is
     # trivially met and retries of the initial task can no longer fork.
     if "run_id" not in task_args:
-        reporter.log("Starting Sessions refresh...")
-        # The setup link streams the whole play file to discover coverage, which
-        # takes minutes on a large corpus. Report progress from the first moment
-        # so the card shows a live phase instead of a bare "Initializing...".
-        reporter.update_progress(0, "Planning refresh...")
-        if _flag(task_args.get("skip_if_busy", "")) and restarts == 0 and _foreign_run_active():
-            reporter.log(
-                "Another sessions refresh appears to be running — skipping this (chained) run."
-            )
-            reporter.update_progress(100, "Skipped — refresh already running")
-            reporter.emit_data({"sessions_mode": "skipped_busy"})
-            return None
-        params = {**sessions_inputs.default_params(), **overrides}
-        collections = None
-        if collections_str:
-            collections = [c.strip() for c in str(collections_str).split(",") if c.strip()]
-            reporter.log(f"Targeted refresh for {len(collections)} collection(s).")
-
-        model = embeddings.active_embedding_backend().model_id()
-        try:
-            corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(
-                model, reporter=reporter
-            )
-        except (ValueError, embedding_store.CorpusMeanDrift):
-            corpus_mean, n_vectors, store_fp = None, 0, ""
-        reporter.log(f"Embedding store: {n_vectors:,} vectors (model={model})")
-        annotations_fp = sessions_inputs.annotation_corpus_fingerprint()
-
-        # Coverage-scoped discovery: only collections selected by >=1 study,
-        # only their in-window plays. Always global — an explicit collections
-        # list narrows the plan below, never the discovery, so staleness and
-        # drops are computed against the whole corpus.
-        reporter.update_progress(0, "Discovering covered collections...")
-        coverage = sessions_inputs.compute_coverage_spec()
-        discovered = sessions_inputs.discover_covered_collections(coverage)
-        # Pinned at setup and carried through the chain: every shard must use
-        # the same session-extreme column set or the publish concat would see
-        # mismatched schemas (e.g. a video_map rebuild landing mid-chain).
-        trend_cols = sessions_inputs.trend_numeric_columns()
-        reporter.log(f"Session min/max columns for {len(trend_cols)} trend variable(s).")
-
-        artifact_files = (
-            sessions_inputs.SESSIONS_FILE,
-            sessions_inputs.EPISODES_FILE,
-            sessions_inputs.WINDOWS_FILE,
-            sessions_inputs.PLAYS_FILE,
+        return _setup_link(
+            reporter, task_args, overrides, collections_str, restarts, stale_only, _chain_args
         )
-        artifacts_exist = all(
-            data_io.exists(storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=f)
-            for f in artifact_files
-        )
-        meta_old = None
-        if data_io.exists(
-            storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=sessions_inputs.META_FILE
-        ):
-            meta_old = data_io.load_json(
-                storage_location=sessions_inputs.ARTIFACT_LOCATION,
-                filename=sessions_inputs.META_FILE,
-            )
-        plays_schema_ok = True
-        if artifacts_exist:
-            old_cols = data_io.get_parquet_columns(
-                storage_location=sessions_inputs.ARTIFACT_LOCATION,
-                filename=sessions_inputs.PLAYS_FILE,
-            )
-            plays_schema_ok = sorted(old_cols or []) == sorted(
-                sessions_publish.plays_table(None).schema.names
-            )
-
-        scope = {str(c) for c in collections} if collections else None
-
-        # Where did the enrichment change land? A routine append (newly
-        # annotated videos, embedded and folded in) touches only the
-        # collections that contain those videos; the planner rebuilds
-        # everything unless this proves the change local.
-        covered = {cid for cid, _ in discovered}
-        annotations_max_ts = (meta_old or {}).get("annotations_max_ts")
-        try:
-            escope = sessions_plan.enrichment_change_scope(
-                meta_old, store_fp, int(n_vectors), annotations_fp, model, covered
-            )
-            if escope.get("reason") and escope.get("reason") != "enrichment unchanged":
-                verb = "local" if escope.get("local") else "not local"
-                reporter.log(f"Enrichment change is {verb}: {escope['reason']}.")
-            # The watermark the published meta records: freshly scanned when
-            # the corpus moved, else carried from the previous build, else
-            # scanned now (a first build, or one from before the watermark).
-            annotations_max_ts = escope.get("annotations_max_ts") or annotations_max_ts
-            if annotations_max_ts is None and annotations_fp:
-                annotations_max_ts = sessions_plan.annotation_corpus_max_ts()
-        except Exception as exc:
-            # Scoping is an optimisation: if it cannot be computed the plan
-            # falls back to the full rebuild it always did.
-            reporter.log(
-                f"Enrichment-change scoping skipped ({type(exc).__name__}: {exc}) "
-                "— any enrichment change rebuilds every collection."
-            )
-            escope = None
-
-        plan = sessions_plan.compute_refresh_plan(
-            discovered,
-            coverage,
-            meta_old,
-            params,
-            model,
-            trend_cols,
-            artifacts_exist,
-            plays_schema_ok=plays_schema_ok,
-            scope=scope,
-            store_fp=store_fp,
-            annotations_fp=annotations_fp,
-            enrichment_scope=escope,
-        )
-        if not stale_only and plan["mode"] != "full":
-            # Forced refresh: rebuild the requested set regardless of
-            # staleness. Unscoped -> full overwrite; scoped -> merge.
-            refresh = [cid for cid, _ in discovered if scope is None or cid in scope]
-            if scope is None:
-                plan = {
-                    "mode": "full",
-                    "reason": "forced full rebuild",
-                    "refresh": refresh,
-                    "drop": [],
-                }
-            else:
-                plan = {
-                    "mode": "merge",
-                    "reason": "targeted refresh",
-                    "refresh": refresh,
-                    "drop": plan["drop"],
-                }
-        elif plan["mode"] == "full" and (stale_only or scope is not None):
-            reporter.log(
-                f"Cannot refresh incrementally ({plan['reason']}) — "
-                "running a full rebuild of every covered collection."
-            )
-        reporter.log(
-            f"Plan: mode={plan['mode']} ({plan['reason']}); "
-            f"{len(plan['refresh'])} to segment, "
-            f"{len(plan['drop'])} to drop; "
-            f"{len(discovered)} covered collection(s) total."
-        )
-
-        if plan["mode"] == "noop":
-            reporter.update_progress(100, "Up to date")
-            reporter.log("Sessions artifacts are up to date — nothing to do.")
-            # The chart says "up to date" rather than implying work happened:
-            # the pipeline dispatches this step on a maybe, and the worker's own
-            # fingerprints are the final word.
-            reporter.emit_data({"sessions_mode": "noop"})
-            return None
-
-        counts = dict(discovered)
-        remaining = plan["refresh"]
-        total = len(remaining)
-        run_id = str(task_args.get("log_run_id") or uuid.uuid4().hex[:12])
-
-        if plan["mode"] == "merge" and total == 0:
-            # Pure-drop merge (collections left every study, nothing stale):
-            # no batches to segment, so fold the drops in right here — the
-            # stream is bounded and the setup deadline is trivially met.
-            sessions_publish.sweep_stale_run_files(run_id)
-            meta = _merge_meta(
-                meta_old,
-                {"refresh": [], "drop": plan["drop"]},
-                params,
-                model,
-                store_fp,
-                n_vectors,
-                embeddings.active_embedding_backend().dim(),
-                trend_cols,
-                annotations_fp,
-                annotations_max_ts,
-            )
-            sessions_publish.merge_publish_artifacts(
-                run_id,
-                n_chunks=0,
-                refresh_cids=[],
-                drop_cids=plan["drop"],
-                expected={},
-                meta=meta,
-                trend_cols=trend_cols,
-                reporter=reporter,
-                covered_collections=0,
-            )
-            reporter.update_progress(100, "Done")
-            reporter.emit_data({"sessions_mode": "drop_only"})
-            reporter.log(
-                f"Dropped {len(plan['drop'])} collection(s) that left "
-                "every study; nothing to segment."
-            )
-            return None
-
-        if plan["mode"] == "full" and total == 0:
-            # Publish empty artifacts (fresh install / no studies) so the
-            # tab renders a clean empty state instead of a missing-file error.
-            sessions_publish.sweep_stale_run_files(run_id)
-            meta = sessions_publish.build_artifacts(
-                reporter=reporter, params=overrides or None, coverage=coverage
-            )
-            reporter.update_progress(100, "Done")
-            reporter.emit_data({"sessions_mode": "empty"})
-            reporter.log("No covered collections with in-window play rows; wrote empty artifacts.")
-            return None if not meta.get("cancelled") else None
-
-        sessions_publish.sweep_stale_run_files(run_id)
-        # Seed the run manifest into the progress file: the batch links read
-        # the coverage windows from it, and the final link builds the meta's
-        # per-collection block from it — Cloud Tasks payloads stay small.
-        manifest = {
-            "mode": plan["mode"],
-            "refresh": plan["refresh"],
-            "drop": plan["drop"],
-            "coverage": {cid: coverage.get(cid, []) for cid in plan["refresh"]},
-            "counts": {cid: int(counts.get(cid, 0)) for cid in plan["refresh"]},
-        }
-
-        def _seed(progress):
-            progress = progress if isinstance(progress, dict) else {}
-            progress["manifest"] = manifest
-            return progress
-
-        data_io.update_json(
-            storage_location=sessions_inputs.ARTIFACT_LOCATION,
-            filename=_progress_filename(run_id),
-            mutate=_seed,
-            default=None,
-        )
-
-        reporter.log(
-            f"Setup complete: {total} collection(s) to segment; chaining to the first batch."
-        )
-        return {
-            "chain": True,
-            "next_task_args": _chain_args(
-                0,
-                remaining,
-                run_id,
-                params,
-                trend_cols,
-                model,
-                store_fp,
-                total,
-                plan["mode"],
-                annotations_fp,
-                annotations_max_ts,
-            ),
-            "dispatch_deadline_seconds": worker_registry.deadline_for("sessions_refresh"),
-        }
     else:
         params = json.loads(task_args["params_json"])
         model = str(task_args["embedding_model"])
@@ -906,6 +659,278 @@ def run_sessions_refresh(
     )
     reporter.log("Sessions refresh completed.")
     return None
+
+
+def _setup_link(reporter, task_args, overrides, collections_str, restarts, stale_only, chain_args):
+    """Run the chain's setup link: plan the refresh and chain to the first batch.
+
+    Discovers the covered collections, pins the embedding corpus mean and the
+    annotation fingerprint, and computes the refresh plan. A no-op, pure-drop
+    or empty plan finishes here; otherwise the run manifest is seeded and the
+    first batch link is returned as the chain continuation.
+
+    Args:
+        reporter: The link's status reporter.
+        task_args: The initial task's arguments (no ``run_id`` yet).
+        overrides: Segmentation parameter overrides from ``task_args``.
+        collections_str: The comma-separated collection scope, if any.
+        restarts: How many times this chain has restarted.
+        stale_only: Refresh only collections whose inputs changed.
+        chain_args: Builds the next link's ``task_args`` (``_chain_args``).
+
+    Returns:
+        The chain continuation for the first batch, or None when done.
+    """
+    import fyp.analysis.sessions.inputs as sessions_inputs
+    import fyp.analysis.sessions.plan as sessions_plan
+    import fyp.analysis.sessions.publish as sessions_publish
+    import fyp.core.data_io as data_io
+    from fyp.analysis import embedding_store, embeddings
+
+    reporter.log("Starting Sessions refresh...")
+    # The setup link streams the whole play file to discover coverage, which
+    # takes minutes on a large corpus. Report progress from the first moment
+    # so the card shows a live phase instead of a bare "Initializing...".
+    reporter.update_progress(0, "Planning refresh...")
+    if _flag(task_args.get("skip_if_busy", "")) and restarts == 0 and _foreign_run_active():
+        reporter.log(
+            "Another sessions refresh appears to be running — skipping this (chained) run."
+        )
+        reporter.update_progress(100, "Skipped — refresh already running")
+        reporter.emit_data({"sessions_mode": "skipped_busy"})
+        return None
+    params = {**sessions_inputs.default_params(), **overrides}
+    collections = None
+    if collections_str:
+        collections = [c.strip() for c in str(collections_str).split(",") if c.strip()]
+        reporter.log(f"Targeted refresh for {len(collections)} collection(s).")
+
+    model = embeddings.active_embedding_backend().model_id()
+    try:
+        corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(model, reporter=reporter)
+    except (ValueError, embedding_store.CorpusMeanDrift):
+        corpus_mean, n_vectors, store_fp = None, 0, ""
+    reporter.log(f"Embedding store: {n_vectors:,} vectors (model={model})")
+    annotations_fp = sessions_inputs.annotation_corpus_fingerprint()
+
+    # Coverage-scoped discovery: only collections selected by >=1 study,
+    # only their in-window plays. Always global — an explicit collections
+    # list narrows the plan below, never the discovery, so staleness and
+    # drops are computed against the whole corpus.
+    reporter.update_progress(0, "Discovering covered collections...")
+    coverage = sessions_inputs.compute_coverage_spec()
+    discovered = sessions_inputs.discover_covered_collections(coverage)
+    # Pinned at setup and carried through the chain: every shard must use
+    # the same session-extreme column set or the publish concat would see
+    # mismatched schemas (e.g. a video_map rebuild landing mid-chain).
+    trend_cols = sessions_inputs.trend_numeric_columns()
+    reporter.log(f"Session min/max columns for {len(trend_cols)} trend variable(s).")
+
+    artifact_files = (
+        sessions_inputs.SESSIONS_FILE,
+        sessions_inputs.EPISODES_FILE,
+        sessions_inputs.WINDOWS_FILE,
+        sessions_inputs.PLAYS_FILE,
+    )
+    artifacts_exist = all(
+        data_io.exists(storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=f)
+        for f in artifact_files
+    )
+    meta_old = None
+    if data_io.exists(
+        storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=sessions_inputs.META_FILE
+    ):
+        meta_old = data_io.load_json(
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
+            filename=sessions_inputs.META_FILE,
+        )
+    plays_schema_ok = True
+    if artifacts_exist:
+        old_cols = data_io.get_parquet_columns(
+            storage_location=sessions_inputs.ARTIFACT_LOCATION,
+            filename=sessions_inputs.PLAYS_FILE,
+        )
+        plays_schema_ok = sorted(old_cols or []) == sorted(
+            sessions_publish.plays_table(None).schema.names
+        )
+
+    scope = {str(c) for c in collections} if collections else None
+
+    # Where did the enrichment change land? A routine append (newly
+    # annotated videos, embedded and folded in) touches only the
+    # collections that contain those videos; the planner rebuilds
+    # everything unless this proves the change local.
+    covered = {cid for cid, _ in discovered}
+    annotations_max_ts = (meta_old or {}).get("annotations_max_ts")
+    try:
+        escope = sessions_plan.enrichment_change_scope(
+            meta_old, store_fp, int(n_vectors), annotations_fp, model, covered
+        )
+        if escope.get("reason") and escope.get("reason") != "enrichment unchanged":
+            verb = "local" if escope.get("local") else "not local"
+            reporter.log(f"Enrichment change is {verb}: {escope['reason']}.")
+        # The watermark the published meta records: freshly scanned when
+        # the corpus moved, else carried from the previous build, else
+        # scanned now (a first build, or one from before the watermark).
+        annotations_max_ts = escope.get("annotations_max_ts") or annotations_max_ts
+        if annotations_max_ts is None and annotations_fp:
+            annotations_max_ts = sessions_plan.annotation_corpus_max_ts()
+    except Exception as exc:
+        # Scoping is an optimisation: if it cannot be computed the plan
+        # falls back to the full rebuild it always did.
+        reporter.log(
+            f"Enrichment-change scoping skipped ({type(exc).__name__}: {exc}) "
+            "— any enrichment change rebuilds every collection."
+        )
+        escope = None
+
+    plan = sessions_plan.compute_refresh_plan(
+        discovered,
+        coverage,
+        meta_old,
+        params,
+        model,
+        trend_cols,
+        artifacts_exist,
+        plays_schema_ok=plays_schema_ok,
+        scope=scope,
+        store_fp=store_fp,
+        annotations_fp=annotations_fp,
+        enrichment_scope=escope,
+    )
+    if not stale_only and plan["mode"] != "full":
+        # Forced refresh: rebuild the requested set regardless of
+        # staleness. Unscoped -> full overwrite; scoped -> merge.
+        refresh = [cid for cid, _ in discovered if scope is None or cid in scope]
+        if scope is None:
+            plan = {
+                "mode": "full",
+                "reason": "forced full rebuild",
+                "refresh": refresh,
+                "drop": [],
+            }
+        else:
+            plan = {
+                "mode": "merge",
+                "reason": "targeted refresh",
+                "refresh": refresh,
+                "drop": plan["drop"],
+            }
+    elif plan["mode"] == "full" and (stale_only or scope is not None):
+        reporter.log(
+            f"Cannot refresh incrementally ({plan['reason']}) — "
+            "running a full rebuild of every covered collection."
+        )
+    reporter.log(
+        f"Plan: mode={plan['mode']} ({plan['reason']}); "
+        f"{len(plan['refresh'])} to segment, "
+        f"{len(plan['drop'])} to drop; "
+        f"{len(discovered)} covered collection(s) total."
+    )
+
+    if plan["mode"] == "noop":
+        reporter.update_progress(100, "Up to date")
+        reporter.log("Sessions artifacts are up to date — nothing to do.")
+        # The chart says "up to date" rather than implying work happened:
+        # the pipeline dispatches this step on a maybe, and the worker's own
+        # fingerprints are the final word.
+        reporter.emit_data({"sessions_mode": "noop"})
+        return None
+
+    counts = dict(discovered)
+    remaining = plan["refresh"]
+    total = len(remaining)
+    run_id = str(task_args.get("log_run_id") or uuid.uuid4().hex[:12])
+
+    if plan["mode"] == "merge" and total == 0:
+        # Pure-drop merge (collections left every study, nothing stale):
+        # no batches to segment, so fold the drops in right here — the
+        # stream is bounded and the setup deadline is trivially met.
+        sessions_publish.sweep_stale_run_files(run_id)
+        meta = _merge_meta(
+            meta_old,
+            {"refresh": [], "drop": plan["drop"]},
+            params,
+            model,
+            store_fp,
+            n_vectors,
+            embeddings.active_embedding_backend().dim(),
+            trend_cols,
+            annotations_fp,
+            annotations_max_ts,
+        )
+        sessions_publish.merge_publish_artifacts(
+            run_id,
+            n_chunks=0,
+            refresh_cids=[],
+            drop_cids=plan["drop"],
+            expected={},
+            meta=meta,
+            trend_cols=trend_cols,
+            reporter=reporter,
+            covered_collections=0,
+        )
+        reporter.update_progress(100, "Done")
+        reporter.emit_data({"sessions_mode": "drop_only"})
+        reporter.log(
+            f"Dropped {len(plan['drop'])} collection(s) that left every study; nothing to segment."
+        )
+        return None
+
+    if plan["mode"] == "full" and total == 0:
+        # Publish empty artifacts (fresh install / no studies) so the
+        # tab renders a clean empty state instead of a missing-file error.
+        sessions_publish.sweep_stale_run_files(run_id)
+        meta = sessions_publish.build_artifacts(
+            reporter=reporter, params=overrides or None, coverage=coverage
+        )
+        reporter.update_progress(100, "Done")
+        reporter.emit_data({"sessions_mode": "empty"})
+        reporter.log("No covered collections with in-window play rows; wrote empty artifacts.")
+        return None if not meta.get("cancelled") else None
+
+    sessions_publish.sweep_stale_run_files(run_id)
+    # Seed the run manifest into the progress file: the batch links read
+    # the coverage windows from it, and the final link builds the meta's
+    # per-collection block from it — Cloud Tasks payloads stay small.
+    manifest = {
+        "mode": plan["mode"],
+        "refresh": plan["refresh"],
+        "drop": plan["drop"],
+        "coverage": {cid: coverage.get(cid, []) for cid in plan["refresh"]},
+        "counts": {cid: int(counts.get(cid, 0)) for cid in plan["refresh"]},
+    }
+
+    def _seed(progress):
+        progress = progress if isinstance(progress, dict) else {}
+        progress["manifest"] = manifest
+        return progress
+
+    data_io.update_json(
+        storage_location=sessions_inputs.ARTIFACT_LOCATION,
+        filename=_progress_filename(run_id),
+        mutate=_seed,
+        default=None,
+    )
+
+    reporter.log(f"Setup complete: {total} collection(s) to segment; chaining to the first batch.")
+    return {
+        "chain": True,
+        "next_task_args": chain_args(
+            0,
+            remaining,
+            run_id,
+            params,
+            trend_cols,
+            model,
+            store_fp,
+            total,
+            plan["mode"],
+            annotations_fp,
+            annotations_max_ts,
+        ),
+        "dispatch_deadline_seconds": worker_registry.deadline_for("sessions_refresh"),
+    }
 
 
 if __name__ == "__main__":
