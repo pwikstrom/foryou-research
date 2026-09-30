@@ -68,29 +68,11 @@
         }
     }
 
-    async function _getJson(url) {
-        const res = await fetch(url);
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || body.message || res.statusText);
-        return body;
-    }
-
-    async function _postJson(url, payload, method) {
-        const res = await fetch(url, {
-            method: method || "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload === undefined ? undefined : JSON.stringify(payload),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error || body.message || res.statusText);
-        return body;
-    }
-
     // ---------- setup form ----------
 
     async function loadRuns() {
         try {
-            const body = await _getJson(`${BASE}/runs`);
+            const body = await getJSON(`${BASE}/runs`);
             st.runs = body.runs || [];
             const sel = document.getElementById("hev-run-select");
             if (!sel) return;
@@ -109,7 +91,7 @@
 
     async function loadUsers() {
         try {
-            const body = await _getJson(`${BASE}/users`);
+            const body = await getJSON(`${BASE}/users`);
             st.users = body.users || [];
             const box = document.getElementById("hev-user-list");
             if (!box) return;
@@ -139,7 +121,7 @@
         box.innerHTML = '<span style="color: var(--color-text-muted);">Loading variables…</span>';
         sel.disabled = true;
         try {
-            const body = await _getJson(`${BASE}/runs/${encodeURIComponent(sel.value)}/variables`);
+            const body = await getJSON(`${BASE}/runs/${encodeURIComponent(sel.value)}/variables`);
             st.variables = body.variables || [];
             box.innerHTML = st.variables.map(v => {
                 const values = v.values && v.values.length
@@ -221,7 +203,7 @@
         }
         try {
             await _busy(btn, "Creating…", async () => {
-                await _postJson(`${BASE}/tasks`, {
+                await postJSON(`${BASE}/tasks`, {
                     run_id: runId, task_type: taskType, variables, coders, arms,
                 });
                 _status(`${taskType === "vote" ? "Vote" : "Coding"} task created on ${runId}.`);
@@ -247,7 +229,7 @@
         const box = document.getElementById("hev-task-list");
         if (!box) return;
         try {
-            const body = await _getJson(`${BASE}/tasks`);
+            const body = await getJSON(`${BASE}/tasks`);
             st.tasks = body.tasks || [];
             if (!st.tasks.length) {
                 box.innerHTML = '<span class="text-sm" style="color: var(--color-text-muted);">No human tasks yet.</span>';
@@ -256,7 +238,7 @@
             const cards = await Promise.all(st.tasks.map(async t => {
                 let detail = null;
                 try {
-                    detail = await _getJson(
+                    detail = await getJSON(
                         `${BASE}/tasks/${encodeURIComponent(t.run_id)}/${encodeURIComponent(t.task_type)}`);
                 } catch (e) { /* card renders from the index entry alone */ }
                 return _taskCard(t, detail);
@@ -336,7 +318,7 @@
     async function hevResendInvite(btn, runId, taskType, username) {
         try {
             btn.disabled = true;
-            await _postJson(
+            await postJSON(
                 `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/notify`,
                 { username });
             _status(`Invitation sent to ${username}.`);
@@ -352,7 +334,7 @@
         if (!sel || !sel.value) return;
         try {
             await _busy(btn, "Inviting…", async () => {
-                await _postJson(
+                await postJSON(
                     `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/coders`,
                     { coders: [sel.value] });
                 _status(`${sel.value} invited.`);
@@ -366,7 +348,7 @@
     async function hevRecompute(btn, runId, taskType) {
         try {
             await _busy(btn, "Recomputing…", async () => {
-                await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/recompute`);
+                await postJSON(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}/recompute`);
                 _status(`Results recomputed for ${runId}.`);
                 await hevRefreshTasks();
             });
@@ -379,7 +361,7 @@
         if (!_armTwoClick(btn, "Really delete?")) return;
         try {
             await _busy(btn, "Deleting…", async () => {
-                await _postJson(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`,
+                await postJSON(`${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`,
                     undefined, "DELETE");
                 _status(`Task deleted from ${runId}.`);
                 await Promise.all([hevRefreshTasks(), loadRuns()]);

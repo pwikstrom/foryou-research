@@ -151,29 +151,6 @@
         return false;
     }
 
-    async function _getJson(url) {
-        const res = await fetch(url);
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || body.message || res.statusText);
-        return body;
-    }
-
-    async function _postJson(url, payload, method) {
-        const res = await fetch(url, {
-            method: method || "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload === undefined ? undefined : JSON.stringify(payload),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            const err = new Error(body.error || body.message || (body.errors || []).join("; ") || res.statusText);
-            err.body = body;
-            err.status = res.status;
-            throw err;
-        }
-        return body;
-    }
-
     // Immediate feedback for async buttons: disable + relabel for the whole
     // request, restore in finally. `btn` may be null (falls through to fn).
     async function _busy(btn, busyLabel, fn) {
@@ -193,7 +170,7 @@
 
     async function loadCandidates() {
         try {
-            const body = await _getJson(CAND);
+            const body = await getJSON(CAND);
             st.candidates = body.candidates || [];
             st.defaultContract = body.default_contract || null;
             renderCandidates();
@@ -208,7 +185,7 @@
     // backend again at run start regardless).
     async function loadBackends() {
         try {
-            const body = await _getJson("/api/manage/annotation/backends");
+            const body = await getJSON("/api/manage/annotation/backends");
             st.backends = body.backends || [];
             renderArmPicker();
         } catch (e) {
@@ -390,7 +367,7 @@
         if (!nameFlow.text) { abeCancelName(); return; }
         try {
             await _busy(btn, "Saving…", () =>
-                _postJson(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite }));
+                postJSON(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite }));
             abeCancelName();
             _statusContracts(`Candidate '${name}' saved.`);
             await loadCandidates();
@@ -411,7 +388,7 @@
     // including the two-click overwrite handling.
     async function duplicateCandidate(name, btn) {
         try {
-            const body = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
+            const body = await _busy(btn, "…", () => getJSON(`${CAND}/${encodeURIComponent(name)}`));
             nameFlow.text = body.text;
             _showNameRow(`Duplicate '${name}' as:`, `${name}-copy`.slice(0, 40));
         } catch (e) {
@@ -447,7 +424,7 @@
     // Save the candidate's TOML text as a local <name>.toml file.
     async function downloadCandidate(name, btn) {
         try {
-            const body = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
+            const body = await _busy(btn, "…", () => getJSON(`${CAND}/${encodeURIComponent(name)}`));
             const blob = new Blob([body.text || ""], { type: "application/toml" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -496,8 +473,8 @@
 
     async function viewContract(name, btn) {
         try {
-            const cand = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
-            const rendered = await _postJson(`${AC}/preview`, { contract: cand.contract });
+            const cand = await _busy(btn, "…", () => getJSON(`${CAND}/${encodeURIComponent(name)}`));
+            const rendered = await postJSON(`${AC}/preview`, { contract: cand.contract });
             if (rendered.valid === false) {
                 throw new Error((rendered.errors || []).join("; ") || "contract does not validate");
             }
@@ -509,8 +486,8 @@
 
     async function viewActiveContract(btn) {
         try {
-            const parsed = await _busy(btn, "…", () => _getJson(`${AC}/parsed`));
-            const rendered = await _getJson(`${AC}/rendered`);
+            const parsed = await _busy(btn, "…", () => getJSON(`${AC}/parsed`));
+            const rendered = await getJSON(`${AC}/rendered`);
             _showContractModal("Active contract", parsed.contract, rendered.prompt, rendered.schema);
         } catch (e) {
             _statusContracts(`Could not show the active contract: ${e.message}`, true);
@@ -538,7 +515,7 @@
     async function activateCandidate(name, btn, testedBackend) {
         try {
             const body = await _busy(btn, "Checking…", () =>
-                _postJson(`${CAND}/${encodeURIComponent(name)}/activate`,
+                postJSON(`${CAND}/${encodeURIComponent(name)}/activate`,
                     testedBackend ? { backend: testedBackend } : {}));
             const impact = body.impact || {};
             const be = body.backend || {};
@@ -548,7 +525,7 @@
             let impactNoSwitch = impact;
             if (offerSwitch) {
                 try {
-                    const alt = await _postJson(`${CAND}/${encodeURIComponent(name)}/activate`, {});
+                    const alt = await postJSON(`${CAND}/${encodeURIComponent(name)}/activate`, {});
                     impactNoSwitch = alt.impact || impact;
                 } catch (e) { /* fall back to the switch impact */ }
             }
@@ -647,7 +624,7 @@
             const payload = { text, confirm: true, expected_etag: etag };
             if (doSwitch) payload.switch_backend = switchBackend;
             const res = await _busy(btn, "Activating…", () =>
-                builtinDefault ? _postJson(`${AC}/revert`, {}) : _postJson(AC, payload));
+                builtinDefault ? postJSON(`${AC}/revert`, {}) : postJSON(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
             _statusContracts(res.note || `'${name}' is now the active contract.`);
@@ -668,7 +645,7 @@
         if (!_armTwoClick(btn, "sure?")) return;
         try {
             await _busy(btn, "…", () =>
-                _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
+                postJSON(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
             _statusContracts(`Candidate '${name}' deleted.`);
             // Drop any test arms that referenced the deleted candidate.
             st.testArms = st.testArms.filter(a => a.source !== "candidate" || a.name !== name);
@@ -682,7 +659,7 @@
 
     async function loadEvalSets() {
         try {
-            st.evalSets = await _getJson(EVALSETS);
+            st.evalSets = await getJSON(EVALSETS);
             renderSetPicker();
         } catch (e) {
             _status(`Failed to load test sets: ${e.message}`, true);
@@ -705,7 +682,7 @@
 
     async function loadEvalSet(name) {
         try {
-            const body = await _getJson(name ? `${EVALSET}?name=${encodeURIComponent(name)}` : EVALSET);
+            const body = await getJSON(name ? `${EVALSET}?name=${encodeURIComponent(name)}` : EVALSET);
             st.evalSet = body;
             st.setDirty = false;
             renderEvalSet();
@@ -723,7 +700,7 @@
         }
         try {
             // Selecting a set also makes it the one a run will use.
-            st.evalSet = await _postJson(`${EVALSETS}/${encodeURIComponent(name)}/activate`);
+            st.evalSet = await postJSON(`${EVALSETS}/${encodeURIComponent(name)}/activate`);
             st.setDirty = false;
             st.evalSets.active = name;
             renderEvalSet();
@@ -791,10 +768,10 @@
         if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
         try {
             if (setNameFlow.mode === "rename") {
-                await _postJson(`${EVALSETS}/${encodeURIComponent(st.evalSet.name)}/rename`,
+                await postJSON(`${EVALSETS}/${encodeURIComponent(st.evalSet.name)}/rename`,
                     { new_name: name });
             } else {
-                await _postJson(EVALSETS, {
+                await postJSON(EVALSETS, {
                     name,
                     copy_from: setNameFlow.mode === "duplicate" ? st.evalSet.name : undefined,
                 });
@@ -817,7 +794,7 @@
         if (!_armTwoClick(btn, "Delete — sure?")) return;
         try {
             await _busy(btn, "Deleting…", () =>
-                _postJson(`${EVALSETS}/${encodeURIComponent(name)}`, undefined, "DELETE"));
+                postJSON(`${EVALSETS}/${encodeURIComponent(name)}`, undefined, "DELETE"));
             st.setDirty = false;
             await loadEvalSets();
             await loadEvalSet(st.evalSets.active);
@@ -908,7 +885,7 @@
         if (btn) { btn.disabled = true; btn.textContent = "Sampling…"; }
         _status("Sampling…");
         try {
-            const body = await _postJson(`${EVALSET}/sample`,
+            const body = await postJSON(`${EVALSET}/sample`,
                 { n, platforms: platform ? [platform] : undefined });
             const ids = st.evalSet.item_ids || [];
             let added = 0;
@@ -937,7 +914,7 @@
         if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
         _status("Saving test set…");
         try {
-            const body = await _postJson(EVALSET, {
+            const body = await postJSON(EVALSET, {
                 item_ids: st.evalSet.item_ids || [], name: st.evalSet.name || undefined,
             });
             st.evalSet = { ...st.evalSet, ...body };
@@ -1083,7 +1060,7 @@
                 _status("Checking the cost of this test run…");
                 let est;
                 try {
-                    est = await _postJson(`${EVAL}/estimate`, { n_arms: st.testArms.length });
+                    est = await postJSON(`${EVAL}/estimate`, { n_arms: st.testArms.length });
                 } finally {
                     if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Start test run…"; }
                 }
@@ -1100,7 +1077,7 @@
             _setRunning(true);
             _status("Starting test run…");
             const nameInput = document.getElementById("abe-run-name");
-            const body = await _postJson(`${EVAL}/run`, {
+            const body = await postJSON(`${EVAL}/run`, {
                 arms_spec: _armsSpec(),
                 eval_set: st.evalSet.name || undefined,
                 name: (nameInput && nameInput.value.trim()) || undefined,
@@ -1165,7 +1142,7 @@
 
     async function abeCancelRun(btn) {
         try {
-            await _busy(btn, "Cancelling…", () => _postJson("/api/stop/ab_eval", {}));
+            await _busy(btn, "Cancelling…", () => postJSON("/api/stop/ab_eval", {}));
             _status("Cancel requested — the test run stops after the in-flight items.");
         } catch (e) {
             _status(`Cancel failed: ${e.message}`, true);
@@ -1177,7 +1154,7 @@
     async function abeRefreshRuns(btn) {
         try {
             const body = await _busy(btn && btn.tagName === "BUTTON" ? btn : null,
-                "Refreshing…", () => _getJson(`${EVAL}/runs`));
+                "Refreshing…", () => getJSON(`${EVAL}/runs`));
             st.runs = body.runs || [];
             const picker = document.getElementById("abe-run-picker");
             if (picker) {
@@ -1216,7 +1193,7 @@
         const picker = document.getElementById("abe-run-picker");
         if (picker) picker.disabled = true;
         try {
-            st.currentRun = await _getJson(`${EVAL}/runs/${encodeURIComponent(runId)}`);
+            st.currentRun = await getJSON(`${EVAL}/runs/${encodeURIComponent(runId)}`);
             renderRun();
         } catch (e) {
             container.innerHTML = `<span class="text-sm" style="color: var(--color-danger);">${_esc(e.message)}</span>`;
@@ -1231,7 +1208,7 @@
         if (!_armTwoClick(btn, "Delete — sure?")) return;
         try {
             await _busy(btn, "Deleting…", () =>
-                _postJson(`${EVAL}/runs/${encodeURIComponent(st.currentRunId)}`, undefined, "DELETE"));
+                postJSON(`${EVAL}/runs/${encodeURIComponent(st.currentRunId)}`, undefined, "DELETE"));
             _status("Run deleted.");
             await abeRefreshRuns();
             const picker = document.getElementById("abe-run-picker");
@@ -1971,7 +1948,7 @@
 
     async function _armRows(arm) {
         if (!st.rowsCache[arm]) {
-            const body = await _getJson(
+            const body = await getJSON(
                 `${EVAL}/runs/${encodeURIComponent(st.currentRunId)}/rows?arm=${encodeURIComponent(arm)}`);
             st.rowsCache[arm] = body.rows || [];
         }

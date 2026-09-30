@@ -261,7 +261,10 @@ there is no version to bump. Because of that, a response whose hash matches
 the file served is sent as `Cache-Control: public, max-age=31536000,
 immutable`, and browsers reuse it without a revalidation request (a mismatched
 hash, as during a deploy, keeps the default revalidation). Shared helpers (`escapeHtml`, `showToast`) live
-once in `static/js/core/dom_utils.js`, loaded in `base.html` `<head>`: all
+once in `static/js/core/dom_utils.js`, and the JSON fetch helpers
+(`getJSON`, `postJSON`: parsed body, or an `Error` carrying the server's
+message, `.status` and `.body`) in `static/js/core/api.js` (app pages only),
+both loaded in `base.html` `<head>`: all
 scripts share one global scope, and `tests/unit/test_js_global_collisions.py`
 fails if two files define the same top-level name.
 

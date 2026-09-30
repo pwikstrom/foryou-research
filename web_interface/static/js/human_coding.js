@@ -30,24 +30,6 @@
         return div.innerHTML;
     }
 
-    async function _getJson(url) {
-        const res = await fetch(url);
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || body.message || res.statusText);
-        return body;
-    }
-
-    async function _postJson(url, payload) {
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload || {}),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error || body.message || res.statusText);
-        return body;
-    }
-
     function _armTwoClick(btn, confirmLabel) {
         if (!btn) return true;
         if (btn.dataset.armed === "1") {
@@ -87,7 +69,7 @@
     async function refreshTasks() {
         let body;
         try {
-            body = await _getJson(`${BASE}/my-tasks`);
+            body = await getJSON(`${BASE}/my-tasks`);
         } catch (e) {
             return;   // not logged in / endpoint unavailable — keep the tab hidden
         }
@@ -179,7 +161,7 @@
 
     async function hcOpenTask(runId, taskType, btn) {
         try {
-            const body = await _busy(btn, "Opening…", () => _getJson(
+            const body = await _busy(btn, "Opening…", () => getJSON(
                 `${BASE}/tasks/${encodeURIComponent(runId)}/${encodeURIComponent(taskType)}`));
             st.task = body;
             st.mode = body.task_type || "coding";
@@ -264,7 +246,7 @@
         if (st.mode !== "vote") { hcMarkDirty(); return; }
         const item = _currentItem();
         try {
-            await _postJson(
+            await postJSON(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/responses`,
                 { item_id: item.item_id, note: _currentNote() });
@@ -333,7 +315,7 @@
         const voteButtons = document.querySelectorAll("#hc-vote-form button");
         voteButtons.forEach(b => { b.disabled = true; });
         try {
-            await _postJson(
+            await postJSON(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/responses`,
                 { item_id: item.item_id, values: { choice: value }, note: _currentNote() });
@@ -487,7 +469,7 @@
         if (!st.dirty && !hadResponse) return true;
         if (!_hasAnyValue(values) && !note && !hadResponse) return true;
         try {
-            await _postJson(
+            await postJSON(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/responses`,
                 { item_id: item.item_id, values, note });
@@ -553,7 +535,7 @@
             ? `Submit with ${total - answered} uncoded?` : "Really submit?";
         if (!_armTwoClick(btn, label)) return;
         try {
-            await _busy(btn, "Submitting…", () => _postJson(
+            await _busy(btn, "Submitting…", () => postJSON(
                 `${BASE}/tasks/${encodeURIComponent(st.task.run_id)}/` +
                 `${encodeURIComponent(st.task.task_type)}/submit`, {}));
             st.readOnly = true;

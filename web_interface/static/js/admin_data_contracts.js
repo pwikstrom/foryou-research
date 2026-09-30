@@ -159,20 +159,13 @@
         return html;
     }
 
-    async function _getJSON(url) {
-        const res = await fetch(url);
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error || (url + " -> HTTP " + res.status));
-        return body;
-    }
-
     async function _toggleRaw(kind) {
         const pre = document.getElementById("dcRaw-" + kind);
         if (!pre) return;
         if (pre.style.display !== "none") { pre.style.display = "none"; return; }
         if (!pre.textContent) {
             try {
-                const body = await _getJSON("/api/manage/data-contracts/" + kind + "/raw");
+                const body = await getJSON("/api/manage/data-contracts/" + kind + "/raw");
                 pre.textContent = body.toml || "";
             } catch (e) {
                 pre.textContent = "Failed to load TOML: " + e.message;
@@ -189,7 +182,7 @@
             return;
         }
         try {
-            const body = await _getJSON("/api/manage/data-contracts/" + kind + "/versions/" +
+            const body = await getJSON("/api/manage/data-contracts/" + kind + "/versions/" +
                 encodeURIComponent(version));
             delete body.field_metadata; // bulky per-field snapshot; the digest is the readable part
             pre.textContent = JSON.stringify(body, null, 2);
@@ -207,14 +200,14 @@
         _status("Loading contracts…");
         try {
             const payloads = await Promise.all(
-                KINDS.map((s) => _getJSON("/api/manage/data-contracts/" + s.kind)),
+                KINDS.map((s) => getJSON("/api/manage/data-contracts/" + s.kind)),
             );
             container.innerHTML = KINDS.map((s, i) => _sectionHtml(s, payloads[i])).join("");
             _status("");
             for (const spec of KINDS.filter((s) => s.versioned)) {
                 const slot = document.getElementById("dcVersions-" + spec.kind);
                 try {
-                    const data = await _getJSON("/api/manage/data-contracts/" + spec.kind + "/versions");
+                    const data = await getJSON("/api/manage/data-contracts/" + spec.kind + "/versions");
                     slot.innerHTML = _versionTable(spec.kind, data);
                 } catch (e) {
                     slot.innerHTML = '<div class="text-sm" style="color: var(--color-danger);">' +

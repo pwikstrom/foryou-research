@@ -26,6 +26,9 @@ public version. Entries below describe the Hub as it stands at that release.
   workers each carried their own loop for running a self-chaining job's links
   in a local subprocess; they now share `chain_locally` in
   `web_interface/tasks/worker_runner.py`.
+- **Shared JSON fetch helpers.** `static/js/core/api.js` provides `getJSON`
+  and `postJSON`; the four admin and coding scripts that carried private
+  copies now use them.
 
 ## [0.4.0] — 2026-09-30
 
