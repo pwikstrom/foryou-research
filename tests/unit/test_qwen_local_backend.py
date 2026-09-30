@@ -169,7 +169,8 @@ def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
 
     path, cleanup = qwen_local._fetch_media("123", "tiktok")
     assert path is not None and os.path.exists(path)
-    assert open(path, "rb").read() == b"mp4-bytes"
+    with open(path, "rb") as fh:
+        assert fh.read() == b"mp4-bytes"
     cleanup()
     assert not os.path.exists(path)
 

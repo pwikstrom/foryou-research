@@ -518,7 +518,9 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 filtered_df[col]
                 .astype("string")
                 .map(
-                    lambda s: bool(parse_extra_data_tokens(s) & selected) if pd.notna(s) else False
+                    lambda s, selected=selected: (
+                        bool(parse_extra_data_tokens(s) & selected) if pd.notna(s) else False
+                    )
                 )
             )
             filtered_df = filtered_df[mask]
@@ -526,7 +528,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
         search_set = set(str(v) for v in val)  # Ensure strings
 
-        def robust_check(x):
+        def robust_check(x, search_set=search_set):
             if not isinstance(x, (list, np.ndarray)):
                 return False
             try:

@@ -740,7 +740,7 @@ def _journal_worker_started(name: str, started_by: str, task_args: dict | None) 
 def start_process(
     name: str,
     module: str | None,
-    args: list = [],
+    args: list | None = None,
     study_name: str | None = None,
     task_args: dict | None = None,
     started_by: str = "",
@@ -766,6 +766,8 @@ def start_process(
             that seeded the run also observes the completion and needs no
             round-trip.
     """
+    if args is None:
+        args = []
 
     # A local scrape-queue drain (laptop, FYP_FORCE_GCS) holds a lease on the
     # shared storage — refuse conflicting work while it is fresh.

@@ -195,7 +195,7 @@ def clean_up_machine_annotations(some_events, verbose=False):
             # no accepted_labels list) or the fuzzy-match-normalized series
             # (when there is). That keeps the membership check against
             # keep_set consistent with how keep_set was built.
-            def _fast_replace(x):
+            def _fast_replace(x, keep_set=keep_set):
                 if isinstance(x, (list, np.ndarray)):
                     return [y if y in keep_set else _cf()["labels"]["OTHER_THINGS"] for y in x]
                 if isinstance(x, str):

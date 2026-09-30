@@ -546,7 +546,7 @@ class ForYouBaseCollection(ABC):
             logger.info(f"Saved {len(seed):,} donated enrichment-seed rows to {fn}.")
 
     def load_raw(
-        self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None
+        self, skip_these_raw_files: list[str] | None = None, held_for_review: set[str] | None = None
     ):
         """Load every raw file in ``raw_path`` that is not in the skip set.
 
@@ -559,6 +559,8 @@ class ForYouBaseCollection(ABC):
                 entries stay pending until an admin approves or rejects the
                 file, so the name-collision tripwire must not fire on them.
         """
+        if skip_these_raw_files is None:
+            skip_these_raw_files = []
         if self.verbose:
             logger.info(
                 f"Loading raw data for collection '{self.source_platform}_{self.data_source}'."

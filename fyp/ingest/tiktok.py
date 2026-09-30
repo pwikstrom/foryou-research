@@ -590,9 +590,11 @@ class TikTokAIOCollection(TikTokDDPCollection):
         return is_cloud_run()
 
     def load_raw(
-        self, skip_these_raw_files: list[str] = [], held_for_review: set[str] | None = None
+        self, skip_these_raw_files: list[str] | None = None, held_for_review: set[str] | None = None
     ):
         """Fetch recent donations and participant metadata from AWS, then load files."""
+        if skip_these_raw_files is None:
+            skip_these_raw_files = []
         from .donations import (
             get_donation_metadata_from_aio_aws,
             get_recent_data_donations_from_aio_aws,

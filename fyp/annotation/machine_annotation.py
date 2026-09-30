@@ -337,7 +337,7 @@ def annotate_videos_loop_from_list(
             items_to_remove = set(ok_ids) | set(fail_ids)
             prune_counts = {}
 
-            def _prune(fresh_queue):
+            def _prune(fresh_queue, items_to_remove=items_to_remove, prune_counts=prune_counts):
                 fresh_queue = fresh_queue if isinstance(fresh_queue, list) else []
                 updated_queue = [v for v in fresh_queue if v not in items_to_remove]
                 prune_counts["after"] = len(updated_queue)

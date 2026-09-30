@@ -665,13 +665,13 @@ def run_sessions_refresh(
                 corpus_mean, n_vectors, _ = embedding_store.get_corpus_mean(
                     model, expected_fp=store_fp
                 )
-            except embedding_store.CorpusMeanDrift:
+            except embedding_store.CorpusMeanDrift as drift:
                 if restarts >= MAX_CHAIN_RESTARTS:
                     raise RuntimeError(
                         f"Embedding store changed mid-chain {restarts + 1} times "
                         f"— giving up; run Sessions refresh again once "
                         f"embeddings_refresh has settled."
-                    )
+                    ) from drift
                 reporter.log(
                     "Embedding store changed mid-chain (new shards landed). "
                     f"Restarting from scratch (restart {restarts + 1}/{MAX_CHAIN_RESTARTS})."

@@ -442,7 +442,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
         raise PendingPreviewError(
             f"This doesn't look like a valid {label} export "
             f"(we couldn't read it: {exc}). Please check the file and try again."
-        )
+        ) from exc
     if len(one_df) < inst.min_required_rows_per_raw_file:
         raise PendingPreviewError(
             f"We could read the file, but it holds almost no {label} activity "
@@ -466,7 +466,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
         raise PendingPreviewError(
             f"We couldn't make sense of the activities in this {label} export "
             f"({exc}). Please check the file and try again."
-        )
+        ) from exc
     df = inst.data
     if df is None or len(df) < inst.min_required_rows_per_raw_file:
         raise PendingPreviewError(

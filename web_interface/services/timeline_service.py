@@ -475,7 +475,7 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
                 .reset_index()
             )
             extra_cols[f"{var}_counts"] = cells.groupby(group_col).apply(
-                lambda d: json.dumps(dict(zip(d[var], (int(n) for n in d["n"])))),
+                lambda d, var=var: json.dumps(dict(zip(d[var], (int(n) for n in d["n"])))),
                 include_groups=False,
             )
             # A tag seen only on zero-weight plays (play_duration 0, a
@@ -483,7 +483,9 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
             # dict omits it, as the matrix form always did (`if v > 0`).
             weighted = cells[cells["w"] > 0]
             wjson = weighted.groupby(group_col).apply(
-                lambda d: json.dumps(dict(zip(d[var], (round(float(w), 2) for w in d["w"])))),
+                lambda d, var=var: json.dumps(
+                    dict(zip(d[var], (round(float(w), 2) for w in d["w"])))
+                ),
                 include_groups=False,
             )
             # Days whose every tag was weightless still get a row — an empty

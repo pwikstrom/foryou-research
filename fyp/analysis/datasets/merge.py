@@ -289,11 +289,13 @@ def _ensure_enrichment_status_columns(merged: pd.DataFrame) -> pd.DataFrame:
 
 def new_merge(
     study_name: str = None,
-    all_datasets: dict = {},
+    all_datasets: dict | None = None,
     verbose: bool = False,
     save_to_cache: bool = True,
 ) -> pd.DataFrame:
     """Merge activity data with scrape + annotation data, add calculated columns, and optionally cache."""
+    if all_datasets is None:
+        all_datasets = {}
 
     logger.info("Merging all datasets...")
 
@@ -305,9 +307,6 @@ def new_merge(
 
     if study_name not in _cf()["study_defs"].keys() and save_to_cache:
         raise ValueError(f"study_name '{study_name}' not found in config")
-
-    if all_datasets is None:
-        raise ValueError("all_datasets must be specified")
 
     for k in all_datasets:
         if all_datasets[k] is None:

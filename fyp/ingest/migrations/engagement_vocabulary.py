@@ -162,9 +162,13 @@ def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable =
         keys = pd.Series(
             list(zip(grp["item_id"].astype(str), _utc_ns(grp["utc_timestamp"]))), index=grp.index
         )
-        hit = keys.map(lambda k: k in bookmark_keys and k not in ambiguous)
+        hit = keys.map(
+            lambda k, bookmark_keys=bookmark_keys, ambiguous=ambiguous: (
+                k in bookmark_keys and k not in ambiguous
+            )
+        )
         n_hit = int(hit.sum())
-        n_amb = int(keys.map(lambda k: k in ambiguous).sum())
+        n_amb = int(keys.map(lambda k, ambiguous=ambiguous: k in ambiguous).sum())
         if n_hit:
             df.loc[hit[hit].index, "activity_type"] = "save"
         report["retagged"] += n_hit

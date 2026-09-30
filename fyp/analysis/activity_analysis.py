@@ -85,7 +85,7 @@ def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
             )
             raise ValueError(
                 "Input format not supported. Expect DatetimeIndex or (date, hour) MultiIndex."
-            )
+            ) from e
 
     # Calculate Stats
     # hourly_stats should be ready from DatetimeIndex block

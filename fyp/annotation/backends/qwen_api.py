@@ -285,7 +285,8 @@ class QwenApiBackend(AnnotationBackend):
                 row["finish_reason"] = "DNF - media too large"
                 return row
 
-            video_b64 = base64.b64encode(open(local_video, "rb").read()).decode()
+            with open(local_video, "rb") as fh:
+                video_b64 = base64.b64encode(fh.read()).decode()
             start = _dt.datetime.now()
             text, usage, finish = self._call_with_retry(
                 key, api_cf, full_prompt, f"data:video/mp4;base64,{video_b64}"

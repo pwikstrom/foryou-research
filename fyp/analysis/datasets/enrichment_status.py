@@ -217,9 +217,11 @@ def patch_enrichment_status(
 
 
 def update_enrichment_status(
-    all_datasets: dict = {}, save_to_disk: bool = True, verbose: bool = False
+    all_datasets: dict | None = None, save_to_disk: bool = True, verbose: bool = False
 ) -> pd.DataFrame:
     """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
+    if all_datasets is None:
+        all_datasets = {}
 
     _t_start = _time.perf_counter()
     activity_columns = ["item_id", common.collection_id_column]

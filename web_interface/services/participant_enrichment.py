@@ -297,7 +297,7 @@ def check_first_batch_completions() -> list[str]:
             if user:
                 user_manager.update_user_settings(owner, {"hub_tour_real_data_pending": True})
 
-            def _mark(current, cid=cid):
+            def _mark(current, cid=cid, n_done=n_done, user=user, wants_email=wants_email):
                 current = current if isinstance(current, dict) else {}
                 if cid in current and isinstance(current[cid], dict):
                     current[cid] = {

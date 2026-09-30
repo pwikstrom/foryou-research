@@ -594,7 +594,7 @@ def _is_emoji(s: str) -> bool:
 
 
 def recode_tokenise(
-    a_description: str | pd.Series, recoding_policy: dict = {}
+    a_description: str | pd.Series, recoding_policy: dict | None = None
 ) -> dict | pd.DataFrame:
     """Extract the ``hashtags`` from free text (the scrape caption ``desc``).
 
@@ -609,6 +609,8 @@ def recode_tokenise(
     The stoplist is loaded per invocation (one store read per recode run), so
     a long-lived worker picks up admin edits without a restart.
     """
+    if recoding_policy is None:
+        recoding_policy = {}
 
     # chars to strip from a token before testing it (keeps letters + emojis)
     remove_chars = ",.:;!)(*/&|^%$#@<>?'`’1234567890"
@@ -640,7 +642,9 @@ def recode_tokenise(
 _LEADING_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
-def recode_numeric(value: str | pd.Series, recoding_policy: dict = {}) -> float | pd.Series:
+def recode_numeric(
+    value: str | pd.Series, recoding_policy: dict | None = None
+) -> float | pd.Series:
     """Generic numeric recode: extract the number from a value and, when the
     contract declares a bounded range for the field (``normalize_range`` in the
     policy), rescale it to a 0-1 ratio.
@@ -651,6 +655,8 @@ def recode_numeric(value: str | pd.Series, recoding_policy: dict = {}) -> float 
     taken), so it reproduces the retired ``recode_scores`` / ``recode_speech_vs_music``
     on old data while consuming clean integers from a retyped contract.
     """
+    if recoding_policy is None:
+        recoding_policy = {}
     rng = recoding_policy.get("normalize_range")
 
     if isinstance(value, pd.Series):
@@ -678,7 +684,9 @@ def recode_numeric(value: str | pd.Series, recoding_policy: dict = {}) -> float 
 _POSITIVE_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
-def recode_numeric_mean(value: str | pd.Series, recoding_policy: dict = {}) -> float | pd.Series:
+def recode_numeric_mean(
+    value: str | pd.Series, recoding_policy: dict | None = None
+) -> float | pd.Series:
     """Per-item mean for an array-of-numbers field (the value is pipe-joined).
 
     Each item is reduced to the mean of its own numbers (so a clean integer
@@ -688,6 +696,8 @@ def recode_numeric_mean(value: str | pd.Series, recoding_policy: dict = {}) -> f
     age midpoints) on legacy data while consuming clean integers from a retyped
     contract. No backfill.
     """
+    if recoding_policy is None:
+        recoding_policy = {}
     if isinstance(value, pd.Series):
         return value.apply(lambda x: recode_numeric_mean(x, recoding_policy))
 
@@ -1141,7 +1151,9 @@ def recode_events_df(
                             f"Warning: Vectorized recode failed for '{c}' ({e}). Falling back to map (allow_scalar_fallback=true)."
                         )
                         try:
-                            cool_events[c] = cool_events[c].map(lambda x: func(x, this_var_schema))
+                            cool_events[c] = cool_events[c].map(
+                                lambda x, func=func, schema=this_var_schema: func(x, schema)
+                            )
                         except Exception as map_e:
                             raise Exception(
                                 f"Error: Map recode also failed for '{c}': ({map_e})."

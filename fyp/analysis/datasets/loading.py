@@ -340,7 +340,7 @@ def load_collection_data(
 
 def load_study_datasets(
     study_name: str = None,
-    all_datasets: dict = {},
+    all_datasets: dict | None = None,
     load_from_cache: bool = True,
     enrichment_status: pd.DataFrame | None = None,
     verbose: bool = False,
@@ -349,6 +349,8 @@ def load_study_datasets(
 
     Handles caching, date-range filtering, and optional sampling based on the study definition.
     """
+    if all_datasets is None:
+        all_datasets = {}
 
     if study_name is None:
         raise ValueError("study_name must be specified")

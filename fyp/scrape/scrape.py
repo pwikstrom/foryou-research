@@ -1471,7 +1471,7 @@ def download_video_threads(
 
 
 def scraper_loop_from_list(
-    video_list=[],
+    video_list=None,
     study_name=None,
     batch_size=500,
     max_batches=None,
@@ -1483,6 +1483,8 @@ def scraper_loop_from_list(
     process_name: str | None = None,
 ):
 
+    if video_list is None:
+        video_list = []
     max_batches = max_batches if max_batches is not None else np.inf
     platform_resolved = platform or scrape_queues.default_platform()
     stop_key = process_name or f"queue_scraper_{platform_resolved}"

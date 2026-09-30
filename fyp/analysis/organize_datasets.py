@@ -152,7 +152,7 @@ def select_videos_from_study_dataset(
 
 def create_study_recoded_dataset(
     study_name: str = None,
-    all_datasets: dict = {},
+    all_datasets: dict | None = None,
     save_to_cache: bool = True,
     load_from_cache: bool = True,
     enrichment_status: pd.DataFrame | None = None,
@@ -170,6 +170,8 @@ def create_study_recoded_dataset(
     from full rebuilds ("full_rebuild"). Pass `force_full_rebuild=True` to
     bypass the sidecar check.
     """
+    if all_datasets is None:
+        all_datasets = {}
 
     if study_name is None:
         raise ValueError("study_name must be specified")
