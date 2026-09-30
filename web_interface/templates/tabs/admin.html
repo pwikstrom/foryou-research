@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <div id="admin" class="tab-pane">
 
     <!-- Sidebar Navigation — grouped into labeled sections; a group header
@@ -203,12 +204,7 @@
 {% endif %}
 
 <!-- User detail modal -->
-<div id="userDetailModal" class="modal" style="display: none; align-items: flex-start; justify-content: center; padding-top: 6vh;"
-    onclick="closeUserModal()">
-    <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 90%; max-width: 720px; max-height: 85vh; overflow-y: auto;">
-        <span class="close" onclick="closeUserModal()"
-            style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);">&times;</span>
+{% call modal("userDetailModal", "closeUserModal()", style="display: none; align-items: flex-start; justify-content: center; padding-top: 6vh;", content_style="width: 90%; max-width: 720px; max-height: 85vh; overflow-y: auto;", close_style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);") %}
 
         <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">
             <span id="userModalUsername"></span>
@@ -318,7 +314,6 @@
             <button onclick="modalResetPassword()" class="action-btn text-xs">Reset Password</button>
             <button onclick="modalDeleteUser()" class="action-btn btn-danger text-xs">Delete User</button>
         </div>
-    </div>
-</div>
+{% endcall %}
 
 <script src="{{ asset_url('js/admin_tab.js') }}"></script>

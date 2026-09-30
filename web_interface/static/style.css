@@ -1857,6 +1857,17 @@ span.gantt-run { cursor: default; }
     right: 15px;
 }
 
+/* The modal close control is a real <button> (templates/_macros.html modal()):
+   drop the browser's button chrome so it looks like the old &times; glyph. */
+button.close-button,
+button.close {
+    background: none;
+    border: 0;
+    padding: 0;
+    line-height: inherit;
+    font-family: inherit;
+}
+
 .close-button:hover,
 .close-button:focus,
 .close:hover,

@@ -416,6 +416,15 @@ newly invited users, which also links into the public `/thehub` page
   viewer never reaches — `tests/unit/test_data_management_scripts.py` lists
   the allowed calls. The worker cards, status poll and log modal are
   `static/js/worker_control.js`, loaded right after `main.js`.
+- A `.modal` dialog is built with the `modal()` macro in
+  `templates/_macros.html` (`{% call modal(id, close, ...) %}...{% endcall %}`):
+  backdrop, box and a real close `<button class="modal-close">`, which
+  `main.js` clicks when Escape is pressed on the topmost open modal. The
+  contract editor is the deliberate exception (no close on Escape or the
+  backdrop, it holds unsaved work). Messages and confirmations use
+  `showAppAlert` / `showAppConfirm`, never the browser's `alert`/`confirm`;
+  `tests/unit/test_modal_markup.py` and `test_js_no_native_dialogs.py`
+  enforce both.
 - Still-deferred frontend work: removing inline `onclick=` handlers, and
   hex-color/token cleanup. The inline handlers pin functions to `window`, so
   a handler's function cannot be moved into a module scope or renamed

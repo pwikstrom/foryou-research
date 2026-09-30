@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <div id="timelines" class="tab-pane">
 
     <!-- Control Bar -->
@@ -50,11 +51,7 @@
         </div>
 
         <!-- Timeline Stats Modal -->
-        <div id="timeline-stats-modal" class="modal"
-            onclick="document.getElementById('timeline-stats-modal').style.display='none'">
-            <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 560px; font-size: var(--text-sm);">
-                <span class="close"
-                    onclick="document.getElementById('timeline-stats-modal').style.display='none'">&times;</span>
+        {% call modal("timeline-stats-modal", "document.getElementById('timeline-stats-modal').style.display='none'", content_style="max-width: 560px; font-size: var(--text-sm);") %}
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; margin-right: 30px; gap: 10px;">
                     <h3 id="timeline-stats-title" class="text-body font-semibold" style="margin: 0; color: var(--color-text-primary);">Period Stats</h3>
                     <div style="display: flex; gap: 6px; flex-shrink: 0;">
@@ -73,8 +70,7 @@
                 <div id="timeline-stats-content" style="max-height: 60vh; overflow-y: auto;">
                     <p class="text-sm" style="color: var(--color-text-secondary);">Loading stats...</p>
                 </div>
-            </div>
-        </div>
+        {% endcall %}
 
     </div>
 

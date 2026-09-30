@@ -502,6 +502,19 @@ function _showAppDialog({ message, title = null, okLabel = 'OK', cancelLabel = n
     return new Promise(resolve => { _appDialogResolver = resolve; });
 }
 
+// Escape closes the topmost open .modal by clicking its close button, exactly as a
+// click on the x would. A modal without one (the contract editor, which holds
+// unsaved work) is left open, and while the app dialog is up Escape is its own.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.getElementById('app-dialog-overlay')?.classList.contains('visible')) return;
+    const zIndex = (el) => parseInt(getComputedStyle(el).zIndex, 10) || 0;
+    const open = [...document.querySelectorAll('.modal')]
+        .filter(m => getComputedStyle(m).display !== 'none')
+        .sort((a, b) => zIndex(a) - zIndex(b));
+    open.pop()?.querySelector('.modal-close')?.click();
+});
+
 // Pretty alert: one OK button. Resolves when dismissed. Safe to fire-and-forget.
 function showAppAlert(message, opts = {}) {
     return _showAppDialog({ ...opts, message, cancelLabel: null });

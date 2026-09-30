@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <!-- Human testing sub-page. All content rendered by
      static/js/admin_human_eval.js from the /api/manage/human-eval/* endpoints. -->
 <h2 style="margin: 0 0 8px 0;">Reliability Control</h2>
@@ -105,20 +106,13 @@
 
 <!-- Task preview modal: the coder's form for the currently selected
      variables, rendered read-only before any task is created. -->
-<div id="hev-preview-modal" class="modal" style="display: none; align-items: flex-start;
-        justify-content: center; padding-top: 5vh;" onclick="hevClosePreview()">
-    <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 92%; max-width: 720px; max-height: 88vh; overflow-y: auto; position: relative;">
-        <span class="close" onclick="hevClosePreview()"
-            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
-                   font-size: var(--text-h3);">&times;</span>
+{% call modal("hev-preview-modal", "hevClosePreview()", style="display: none; align-items: flex-start; justify-content: center; padding-top: 5vh;", content_style="width: 92%; max-width: 720px; max-height: 88vh; overflow-y: auto; position: relative;", close_style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);") %}
         <h3 style="margin: 0 0 4px 0; color: var(--color-text-heading);">Task preview</h3>
         <p class="text-xs" style="color: var(--color-text-muted); margin: 0 0 12px 0;">
             What a coder will see per video (alongside the video player), for the
             variables currently selected. Nothing is saved from this preview.
         </p>
         <div id="hev-preview-body" class="text-sm"></div>
-    </div>
-</div>
+{% endcall %}
 
 <script src="{{ asset_url('js/admin_human_eval.js') }}" defer></script>

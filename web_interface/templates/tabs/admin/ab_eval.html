@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <!-- Annotation testing sub-page. All content rendered by
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
 <h2 style="margin: 0 0 8px 0;">Contracts</h2>
@@ -201,13 +202,7 @@
 </section>
 
 <!-- Per-item side-by-side modal -->
-<div id="abe-item-modal" class="modal" style="display: none; align-items: flex-start;
-        justify-content: center; padding-top: 5vh;" onclick="abeCloseItemModal()">
-    <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 94%; max-width: 1250px; max-height: 88vh; overflow-y: auto; position: relative;">
-        <span class="close" onclick="abeCloseItemModal()"
-            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
-                   font-size: var(--text-h3);">&times;</span>
+{% call modal("abe-item-modal", "abeCloseItemModal()", style="display: none; align-items: flex-start; justify-content: center; padding-top: 5vh;", content_style="width: 94%; max-width: 1250px; max-height: 88vh; overflow-y: auto; position: relative;", close_style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);") %}
         <div style="display: flex; align-items: center; gap: 12px; margin: 0 28px 12px 0; flex-wrap: wrap;">
             <h3 style="margin: 0; color: var(--color-text-heading);">
                 <span class="abe-item-chrome">Item </span><span id="abe-item-id" class="font-mono"></span><span class="abe-item-chrome"> &mdash; field by field</span>
@@ -231,7 +226,6 @@
             </div>
             <div id="abe-item-body" class="text-xs" style="overflow-x: auto; flex: 1; min-width: 0;"></div>
         </div>
-    </div>
-</div>
+{% endcall %}
 
 <script src="{{ asset_url('js/admin_ab_eval.js') }}" defer></script>

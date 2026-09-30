@@ -11,3 +11,21 @@
     {% if step %}data-step="{{ step }}" {% endif %}aria-label="{{ text }}"
     data-tooltip="{{ text }}">&#9432;</span>
 {%- endmacro %}
+
+{# A .modal dialog: backdrop, content box and a real close button, with the
+   caller's markup inside the box. Import with
+   {% from "_macros.html" import modal %} and use {% call modal(...) %}.
+     close     JS run by the x button, and by Escape: main.js clicks the
+               .modal-close of the topmost open modal.
+     backdrop  JS run on a click outside the box (default: close; '' for none).
+   The style arguments pass through to the backdrop, the box and the button. #}
+{% macro modal(id, close, backdrop=none, style='', content_style='', content_class='',
+               close_class='close', close_style='') -%}
+{%- set on_backdrop = close if backdrop is none else backdrop -%}
+<div id="{{ id }}" class="modal"{% if style %} style="{{ style }}"{% endif %}{% if on_backdrop %} onclick="{{ on_backdrop }}"{% endif %}>
+    <div class="modal-content{% if content_class %} {{ content_class }}{% endif %}" onclick="event.stopPropagation()"{% if content_style %} style="{{ content_style }}"{% endif %}>
+        <button type="button" class="{{ close_class }} modal-close" aria-label="Close" onclick="{{ close }}"{% if close_style %} style="{{ close_style }}"{% endif %}>&times;</button>
+        {{ caller() }}
+    </div>
+</div>
+{%- endmacro %}

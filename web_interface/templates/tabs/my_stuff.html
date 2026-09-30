@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <div id="my_stuff" class="tab-pane">
 
     <!-- Sidebar Navigation.
@@ -375,9 +376,7 @@
             <!-- Data withdrawal: delete a processed collection from the
                  dataset (30-day restore window). The participant must type
                  the collection id to enable the button. -->
-            <div id="myc-withdraw-modal" class="modal" onclick="mycCloseWithdrawModal(event)">
-                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 520px;">
-                    <span class="close-button" onclick="mycCloseWithdrawModal()">&times;</span>
+            {% call modal("myc-withdraw-modal", "mycCloseWithdrawModal()", backdrop="mycCloseWithdrawModal(event)", content_style="max-width: 520px;", close_class="close-button") %}
                     <h3 style="margin-top: 0;">Delete this collection?</h3>
                     <p class="text-sm" style="margin: 0 0 10px 0;">
                         This removes <strong id="myc-withdraw-cid-label"></strong> from the research
@@ -402,28 +401,22 @@
                             onclick="mycSubmitWithdraw()"
                             style="background: var(--color-danger); color: #fff; border: none; border-radius: 4px; padding: 4px 14px; cursor: pointer; opacity: 0.5;">Delete from the dataset</button>
                     </div>
-                </div>
-            </div>
+            {% endcall %}
 
             <!-- Per-platform "how do I get my data" guide. One modal, one
                  content block per platform (shared with the public wizard via
                  partials/_platform_howto.html); the video iframe is lazy-loaded
                  on open (data-src) and unloaded on close to stop playback. -->
-            <div id="myc-howto-modal" class="modal" onclick="mycCloseHowtoModal(event)">
-                <div class="modal-content myc-howto" onclick="event.stopPropagation()">
-                    <span class="close-button" onclick="mycCloseHowtoModal()">&times;</span>
+            {% call modal("myc-howto-modal", "mycCloseHowtoModal()", backdrop="mycCloseHowtoModal(event)", content_class="myc-howto", close_class="close-button") %}
                     {% with mode='modal', id_prefix='myc' %}
                         {% include 'partials/_platform_howto.html' %}
                     {% endwith %}
-                </div>
-            </div>
+            {% endcall %}
 
             <!-- Simplified donation upload: no tags, no account choice, no
                  collection-id control. The account is the logged-in user and
                  the filename becomes the collection id. -->
-            <div id="myc-upload-modal" class="modal" onclick="mycCloseUploadModal(event)">
-                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 480px;">
-                    <span class="close-button" onclick="mycCloseUploadModal()">&times;</span>
+            {% call modal("myc-upload-modal", "mycCloseUploadModal()", backdrop="mycCloseUploadModal(event)", content_style="max-width: 480px;", close_class="close-button") %}
                     <h3 id="myc-upload-title" style="margin-top: 0;">Add your data</h3>
                     <p id="myc-upload-hint" class="text-sm" style="color: var(--color-text-muted);"></p>
                     <input type="file" id="myc-upload-file" style="display: none;">
@@ -453,8 +446,7 @@
                         <h4>Consent for participating in The For You Research Project</h4>
                         {% include 'partials/_consent_statement.html' %}
                     </div>
-                </div>
-            </div>
+            {% endcall %}
         </div>
         {% endif %}
 
@@ -464,12 +456,9 @@
     <!-- Study Methods modal: plain-language provenance note, opened per row from
          the My Studies table (was on Explore, where it could only ever show the
          one active study). -->
-    <div id="study-methods-modal" class="modal" onclick="closeStudyMethodsModal(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <span class="close-button" onclick="closeStudyMethodsModal()">&times;</span>
+    {% call modal("study-methods-modal", "closeStudyMethodsModal()", backdrop="closeStudyMethodsModal(event)", close_class="close-button") %}
             <div id="study-methods-content" class="help-text"></div>
-        </div>
-    </div>
+    {% endcall %}
     {% endif %}
 </div>
 

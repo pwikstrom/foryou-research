@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <!-- Annotation contract form editor (full-screen modal, launched from the
      contract card on the Annotation versions page). All content is rendered
      by static/js/admin_contract_editor.js from the /parsed endpoint. -->
@@ -61,13 +62,7 @@
 </div>
 
 <!-- Editor's own impact/confirm modal (the JSON-contract analogue of #ac-modal) -->
-<div id="ace-impact-modal" class="modal" style="display: none; align-items: flex-start;
-        justify-content: center; padding-top: 8vh; z-index: 1001;" onclick="aceCloseImpact()">
-    <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;">
-        <span class="close" onclick="aceCloseImpact()"
-            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
-                   font-size: var(--text-h3);">&times;</span>
+{% call modal("ace-impact-modal", "aceCloseImpact()", style="display: none; align-items: flex-start; justify-content: center; padding-top: 8vh; z-index: 1001;", content_style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;", close_style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);") %}
         <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Review contract change</h3>
         <div id="ace-impact-body" class="text-sm"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
@@ -77,5 +72,4 @@
             <button id="ace-impact-confirm-btn" onclick="aceConfirmSave()" class="btn-save text-sm"
                 style="padding: 6px 14px;">Activate contract</button>
         </div>
-    </div>
-</div>
+{% endcall %}

@@ -1,3 +1,4 @@
+{% from "_macros.html" import modal %}
 <!-- Annotation Contract and Version Control sub-page -->
 
 <h2 style="margin: 0 0 8px 0;">Versions</h2>
@@ -48,13 +49,7 @@
      (re-activate a recorded version) and "Prefer" (promote the version
      analyses read). admin_annotation_versions.js sets the title, body and
      confirm label per action; acConfirmUpload dispatches on the mode. -->
-<div id="ac-modal" class="modal" style="display: none; align-items: flex-start;
-        justify-content: center; padding-top: 8vh;" onclick="acCloseModal()">
-    <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;">
-        <span class="close" onclick="acCloseModal()"
-            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
-                   font-size: var(--text-h3);">&times;</span>
+{% call modal("ac-modal", "acCloseModal()", style="display: none; align-items: flex-start; justify-content: center; padding-top: 8vh;", content_style="width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; position: relative;", close_style="position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: var(--text-h3);") %}
         <h3 id="ac-modal-title" style="margin: 0 0 12px 0; color: var(--color-text-heading);">Activate this version</h3>
         <div id="ac-modal-body" class="text-sm"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
@@ -64,8 +59,7 @@
             <button id="ac-confirm-btn" onclick="acConfirmUpload()" class="btn-save text-sm"
                 style="padding: 6px 14px;">Activate</button>
         </div>
-    </div>
-</div>
+{% endcall %}
 
 <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Annotation versions</h3>
 

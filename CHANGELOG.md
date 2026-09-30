@@ -18,6 +18,12 @@ public version. Entries below describe the Hub as it stands at that release.
   dialog the rest of the Hub already used, with clearer buttons ("Delete
   role", "Mark verified") and destructive actions shown in red. Resetting a
   password still asks in a browser prompt.
+- **Escape closes a dialog, and its close button is a real button.** The
+  Hub's pop-up dialogs (help, user details, study methods, upload and
+  withdraw, reliability previews, contract and version reviews, period
+  stats, Edit Collection) now close on Escape, the topmost one first, and
+  their x is a keyboard-reachable button with an accessible name. The
+  contract editor still closes only from its own button.
 
 ### Internal
 
