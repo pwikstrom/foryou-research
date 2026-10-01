@@ -47,7 +47,7 @@ _OVERLAYS = [
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
     {
         "key": "faves_per_K_play",
-        "label": "Faves per 1K plays",
+        "label": "Likes per 1K plays",
         "kind": "numeric",
         "field": "faves_per_K_play",
         "decimals": 3,
