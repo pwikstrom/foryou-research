@@ -29,7 +29,7 @@ role = "measure"
 scale = "numeric"
 transform = "log1p"
 display_name = "Days since posted"
-description = "Number of days elapsed between the item's post time and this activity — freshness of the served item. Log-transformed (log1p) before group averaging in the PCA/correlations frame."
+description = "Number of days elapsed between the item's post time and this activity — freshness of the served item."
 
 [[fields]]
 name = "completion_rate"

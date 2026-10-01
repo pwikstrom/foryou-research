@@ -117,8 +117,8 @@ scope = "base"
 dtype = "string[pyarrow]"
 section = "Item metadata"
 scale = "raw"
-display_name = "Desc raw"
-description = "Description text."
+display_name = "Description (full)"
+description = "Description text, including hashtags."
 
 [[fields]]
 name = "create_time"
@@ -136,7 +136,7 @@ dtype = "string[pyarrow]"
 section = "Item metadata"
 scale = "text"
 display_name = "Author ID"
-description = "Stable platform identifier for the item's creator."
+description = "The platform's identifier for the item's creator."
 
 [[fields]]
 name = "duration"
@@ -146,7 +146,7 @@ section = "Item metadata"
 role = "measure"
 scale = "numeric"
 display_name = "Video duration"
-description = "Length of the item in seconds."
+description = "Length of the video in seconds."
 
 [[fields]]
 name = "author_name"
@@ -164,7 +164,7 @@ dtype = "string[pyarrow]"
 section = "Item metadata"
 scale = "text"
 display_name = "Author handle"
-description = "The creator's unique @username handle (author_name holds the display name)."
+description = "The creator's unique @username handle."
 
 [[fields]]
 name = "play_count"
@@ -175,7 +175,7 @@ role = "measure"
 scale = "numeric"
 transform = "log1p"
 display_name = "Play count"
-description = "Total plays/views of the item. Log-transformed (log1p) before group averaging in the PCA/correlations frame."
+description = "Total plays of the item."
 
 [[fields]]
 name = "fave_count"
@@ -183,8 +183,8 @@ scope = "base"
 dtype = "int64[pyarrow]"
 section = "Popularity"
 scale = "numeric"
-display_name = "Fave count"
-description = "Total likes/faves on the item (called likes on Instagram/YouTube; hidden-like items carry no value)."
+display_name = "Like count"
+description = "Total likes on the item."
 
 [[fields]]
 name = "comment_count"
@@ -193,7 +193,7 @@ dtype = "int64[pyarrow]"
 section = "Popularity"
 scale = "numeric"
 display_name = "Comment count"
-description = "Total comments on the item (missing when comments are disabled or not extracted)."
+description = "Total comments on the item."
 
 [[fields]]
 name = "share_count"
@@ -202,7 +202,7 @@ dtype = "int64[pyarrow]"
 section = "Popularity"
 scale = "numeric"
 display_name = "Share count"
-description = "Total shares of the item (NA on platforms that expose no share count, e.g. Instagram/YouTube)."
+description = "Total shares of the item."
 
 [[fields]]
 name = "save_count"
@@ -211,7 +211,7 @@ dtype = "int64[pyarrow]"
 section = "Popularity"
 scale = "numeric"
 display_name = "Save count"
-description = "Number of times the item was saved/collected (NA on platforms that expose no save count, e.g. Instagram/YouTube)."
+description = "Number of times the item was saved."
 
 [[fields]]
 name = "faves_per_K_play"
@@ -220,8 +220,8 @@ dtype = "double[pyarrow]"
 section = "Popularity"
 role = "measure"
 scale = "numeric"
-display_name = "Faves per 1K plays"
-description = "Likes per thousand plays (likes / plays * 1000)."
+display_name = "Likes per 1K plays"
+description = "Likes per thousand plays."
 derived = true
 per_k_of = "play_count"
 
@@ -233,7 +233,7 @@ section = "Popularity"
 role = "measure"
 scale = "numeric"
 display_name = "Comments per 1K plays"
-description = "Comments per thousand plays (comments / plays * 1000)."
+description = "Comments per thousand plays."
 derived = true
 per_k_of = "play_count"
 
@@ -245,7 +245,7 @@ section = "Popularity"
 role = "measure"
 scale = "numeric"
 display_name = "Shares per 1K plays"
-description = "Shares per thousand plays (shares / plays * 1000)."
+description = "Shares per thousand plays."
 derived = true
 per_k_of = "play_count"
 
@@ -257,7 +257,7 @@ section = "Popularity"
 role = "measure"
 scale = "numeric"
 display_name = "Saves per 1K plays"
-description = "Saves per thousand plays (saves / plays * 1000)."
+description = "Saves per thousand plays."
 derived = true
 per_k_of = "play_count"
 
@@ -270,7 +270,7 @@ role = "measure"
 scale = "numeric"
 transform = "log1p"
 display_name = "Plays per day"
-description = "Average plays per day since upload (play_count / days since upload), computed at scrape time — virality velocity of the served item. Log-transformed (log1p) before group averaging in the PCA/correlations frame."
+description = "Average plays per day since item was posted."
 derived = true
 
 # ===========================================================================
@@ -318,7 +318,7 @@ dtype = "string[pyarrow]"
 section = "Item metadata"
 scale = "text"
 display_name = "Music ID"
-description = "TBD"
+description = "TikTok's song identifier"
 
 [[fields]]
 name = "music_title"
