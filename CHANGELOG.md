@@ -10,6 +10,12 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-08
+
+Comment text becomes a per-role permission, and variables are customized
+and ordered in one dialog. Scraped media now saves on Linux installs where
+`/tmp` is its own filesystem, such as a fresh Ubuntu install.
+
 ### Added
 
 - **Comment text is a per-role permission.** A new "Sensitive activity —
@@ -40,6 +46,11 @@ public version. Entries below describe the Hub as it stands at that release.
   order are now set only in Arrange default layout; the table marks each
   variable's default surfaces with a ✓ and stays a reference for the
   contract-owned details.
+- **Plainer names and descriptions for scraped variables.** "Fave count" is
+  now "Like count" and "Faves per 1K plays" is now "Likes per 1K plays",
+  including on the Semantic Space likes overlay. "Desc raw" is now
+  "Description (full)", and the engagement and creator descriptions are
+  shorter.
 
 ### Fixed
 
@@ -1399,7 +1410,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.5.0
 [0.4.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.1
 [0.4.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.0
 [0.3.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.3.0

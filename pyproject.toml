@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fyp-pipeline"
-version = "0.4.1"
+version = "0.5.0"
 description = "For You Data Hub short-video research data pipeline (ingestion, scraping, LLM annotation, analysis)"
 requires-python = ">=3.12"
 # Loose floor pins for the packages fyp/ actually imports. requirements.txt
