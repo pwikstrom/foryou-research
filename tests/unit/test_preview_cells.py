@@ -65,8 +65,12 @@ def _make_corpus(seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     raw["local_date"] = raw["local_timestamp"].dt.normalize()
 
     all_items = sorted(raw["item_id"].unique())
-    scraped = {i for i in all_items if hash(i) % 10 < 7}  # ~70% scraped
-    annotated = {i for i in scraped if hash(i) % 10 < 3}  # annotated subset of scraped
+    # Drawn from the seeded rng, not hash(): str hashes are salted per process
+    # (PYTHONHASHSEED), so a hash-based split changed on every CI run and about
+    # one draw in 150 pushed the annotated-frame estimate past its tolerance.
+    bucket = dict(zip(all_items, rng.randint(0, 10, len(all_items)), strict=True))
+    scraped = {i for i in all_items if bucket[i] < 7}  # ~70% scraped
+    annotated = {i for i in scraped if bucket[i] < 3}  # annotated subset of scraped
     status = pd.DataFrame(
         {
             "item_id": all_items,
