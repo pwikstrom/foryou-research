@@ -439,7 +439,7 @@ def download_single_video(
                             if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
                                 if verbose:
                                     logger.info("Moving slideshow to media folder...")
-                                os.replace(temp_mp4, final_mp4)
+                                data_io.move_local_file(temp_mp4, final_mp4)
                                 scrape_metadata.loc[0, "video_downloaded"] = True
                             else:
                                 if verbose:

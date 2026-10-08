@@ -5,6 +5,7 @@ load/save/list/exists helpers every other module goes through.
 """
 
 import datetime as _dt
+import errno
 import json
 import os
 import shutil
@@ -484,6 +485,33 @@ def _atomic_local_write(primary: str, write) -> None:
         except OSError:
             pass
         raise
+
+
+def move_local_file(src: str, dst: str) -> None:
+    """Move a local file to ``dst``, also across filesystems.
+
+    One ``os.replace`` when ``src`` and ``dst`` share a filesystem. When they
+    do not (``EXDEV``: e.g. a tmpfs ``/tmp`` and a home-directory media
+    folder on Linux, or two drives on Windows), ``src`` is copied into a hidden
+    temp file beside ``dst`` and swapped in with ``os.replace``, then removed.
+    Either way a reader of ``dst`` never sees a partial file, and an existing
+    ``dst`` is replaced. A failed copy leaves ``dst`` and ``src`` untouched.
+
+    Args:
+        src: Path of the finished file to move.
+        dst: Absolute destination path, in a directory that already exists.
+    """
+    try:
+        os.replace(src, dst)
+        return
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+    _atomic_local_write(dst, lambda tmp_path: shutil.copy2(src, tmp_path))
+    try:
+        os.remove(src)
+    except OSError as e:
+        logger.warning(f"[DATA_IO] Moved '{src}' to '{dst}' but could not remove the source: {e}")
 
 
 def _write_text_file(text: str):

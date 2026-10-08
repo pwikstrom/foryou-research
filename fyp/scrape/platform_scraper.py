@@ -24,6 +24,8 @@ from os.path import join
 
 import pandas as pd
 
+import fyp.core.data_io as data_io
+
 # Sibling import goes through the package (never the old-path shim) — see
 # the shim-poisoning rule in docs/fyp-import-graph.md.
 from fyp.scrape import scrape_contract as sc
@@ -110,16 +112,17 @@ def store_media_file(downloaded: str, save_path: str, filename: str, stream_to_b
     """Move a finished download to its media location.
 
     Uploads to ``{save_path}/{filename}`` in ``stream_to_bucket`` when given
-    (the temp file stays; callers clean up), otherwise renames it to
-    ``save_path/filename`` — atomic when source and target share a
-    filesystem, so a concurrent reader never sees a partial file.
+    (the temp file stays; callers clean up), otherwise moves it to
+    ``save_path/filename`` with :func:`data_io.move_local_file`, which also
+    works when the temp folder is on another filesystem (a tmpfs ``/tmp`` on
+    Linux) and never lets a concurrent reader see a partial file.
     """
     if stream_to_bucket is not None:
         stream_to_bucket.blob(f"{save_path}/{filename}").upload_from_filename(downloaded)
         return
     target = join(save_path, filename)
     if downloaded != target:
-        os.replace(downloaded, target)
+        data_io.move_local_file(downloaded, target)
 
 
 # Platform-scraper subclasses live in their own ``fyp/scrape/<platform>_dl.py``

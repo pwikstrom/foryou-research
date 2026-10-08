@@ -48,6 +48,13 @@ public version. Entries below describe the Hub as it stands at that release.
   include comment text; they now count likes, saves, comments and shares.
   The column is no longer offered as a Timelines series either, where the
   engagement breakdown already covers it.
+- **Scraped media is saved on Linux installs where `/tmp` is its own
+  filesystem.** Videos and photo-carousel slideshows are downloaded to the
+  temp folder and then moved into the local media folder. On systems where
+  `/tmp` is a separate filesystem, such as a fresh Ubuntu install, that move
+  failed with "Invalid cross-device link" and no media was saved. The move
+  now copies the file across in that case, and a reader still never sees a
+  half-written file.
 
 ## [0.4.1] — 2026-09-30
 
