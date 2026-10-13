@@ -230,3 +230,25 @@ def test_completion_helper_caps():
     assert completion([60], [20], cap=3.0).tolist() == [3.0]
     out = completion([5], [0.5], cap=3.0, min_length_s=1)
     assert out.isna().all()
+
+
+def test_load_creators_covers_scraped_videos_without_annotation(tmp_path, monkeypatch):
+    """Creator signals must see every scraped video, not only those in the
+    micro-niche map (which holds annotated videos only)."""
+    from fyp.core.fyp_config import fyp_cf
+
+    d = tmp_path / "recoded"
+    d.mkdir()
+    monkeypatch.setitem(fyp_cf["paths"], "recoded", str(d))
+    monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)
+    pd.DataFrame(
+        {
+            "item_id": ["a", "b", "c"],
+            "author_handle": ["x", "x", None],
+            "create_time": pd.to_datetime(["2025-01-01", "2025-01-02", None]),
+        }
+    ).to_parquet(d / "scrapes_recoded.parquet")
+    out = inputs.load_creators({"a", "b", "c", "zz"})
+    assert sorted(out.index) == ["a", "b", "c"]
+    assert out.loc["a", "author"] == "x" and pd.isna(out.loc["c", "author"])
+    assert out.loc["b", "created"] == pd.Timestamp("2025-01-02")

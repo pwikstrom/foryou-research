@@ -10,6 +10,17 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-10-13
+
+### Fixed
+
+- **The two creator-based off-feed signals missed most videos.** "Same
+  creator as the previous play" and "posting-order run" read the creator
+  from the micro-niche map, which holds annotated videos only, so they never
+  fired between videos that were scraped but not yet annotated. They now
+  read the creator and posting time of every scraped video. A sessions
+  refresh rebuilds every collection to correct the marks.
+
 ## [0.6.0] — 2026-10-13
 
 The Sessions tab marks plays the For You feed probably did not serve, and
@@ -1451,7 +1462,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.1
 [0.6.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.0
 [0.5.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.5.0
 [0.4.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.1

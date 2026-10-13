@@ -394,6 +394,52 @@ def load_video_features(
     return feat.merge(scr, on="item_id", how="left").set_index("item_id")
 
 
+def load_creators(item_ids: set[str]) -> pd.DataFrame:
+    """Creator handle and posting time of every scraped video among ``item_ids``.
+
+    The off-feed signals need these for every scraped video, annotated or
+    not; :func:`load_video_features` starts from the micro-niche map, which
+    holds annotated videos only.
+
+    Returns:
+        A frame indexed by ``item_id`` with ``author`` and ``created``
+        (empty when nothing is scraped).
+    """
+    empty = pd.DataFrame({"author": [], "created": pd.Series([], dtype="datetime64[ns]")})
+    empty.index.name = "item_id"
+    if not item_ids:
+        return empty
+    try:
+        available = (
+            data_io.get_parquet_columns(
+                storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE
+            )
+            or []
+        )
+    except Exception:
+        return empty
+    author_col = next((c for c in ("author_handle", "author_uniqueId") if c in available), None)
+    cols = ["item_id"] + [c for c in (author_col, "create_time") if c and c in available]
+    if len(cols) == 1:
+        return empty
+    scr = data_io.load_parquet_selective(
+        storage_location=embeddings.STORE_LOCATION,
+        filename=embeddings.SCRAPES_FILE,
+        columns=cols,
+        filters=[("item_id", "in", [str(i) for i in item_ids])],
+    )
+    if scr is None or scr.empty:
+        return empty
+    out = pd.DataFrame({"item_id": scr["item_id"].astype(str)})
+    out["author"] = scr[author_col].astype("string") if author_col else pd.NA
+    out["created"] = (
+        pd.to_datetime(scr["create_time"], errors="coerce", utc=True).dt.tz_convert(None)
+        if "create_time" in scr.columns
+        else pd.NaT
+    )
+    return out.drop_duplicates("item_id").set_index("item_id")
+
+
 def load_story_texts(item_ids: set[str]) -> dict[str, str]:
     """Per-item AI story summaries for one batch's items, for the search blob.
 

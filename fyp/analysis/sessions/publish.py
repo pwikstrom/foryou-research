@@ -189,7 +189,10 @@ def attach_offfeed_signals(
     Args:
         plays: A :func:`load_plays`-shaped frame (already clipped to the
             coverage windows).
-        feat: :func:`load_video_features` result (``author``, ``created``).
+        feat: Creator ``author`` and posting time ``created`` per item_id,
+            for every scraped video (:func:`inputs.load_creators`; the
+            micro-niche-map features cover annotated videos only, which
+            would hide the creator signals between unannotated videos).
         events: :func:`load_search_follow` result for the same collections.
         params: Resolved parameters (``offfeed_window_s``,
             ``offfeed_min_run``).
@@ -366,7 +369,9 @@ def build_batch(
     )
     stories = inputs.load_story_texts(set(batch_ids))
     id_sets = inputs.enrichment_id_sets(model, item_ids=set(batch_ids), include_embedded=False)
-    plays = attach_offfeed_signals(plays, feat, inputs.load_search_follow(cids), p)
+    plays = attach_offfeed_signals(
+        plays, inputs.load_creators(set(batch_ids)), inputs.load_search_follow(cids), p
+    )
     # Bake the per-item display text into the plays frame here, so both the
     # chained worker and the in-process driver publish it with no extra reads.
     plays = attach_play_texts(plays, feat, stories)
