@@ -314,9 +314,16 @@ def segment_session(
     first tolerated video, so the videos that ended one binge are available to
     open the next — they are never silently dropped.
 
+    Plays without a vector are normally left out of ``seq``, so the videos on
+    either side become neighbours. Passing them in with ``row_idx`` -1 (or
+    None) instead makes each one an interruption: it never joins or opens a
+    run, and it spends the ``max_skip`` budget (unless flicked past), so a
+    gap in what is observed can end a run but never glue two halves together.
+
     Args:
         seq: Time-ordered ``(item_id, row_idx, ts, dur)`` tuples for the
-            session's embedded plays.
+            session's plays (embedded ones; plus missing ones with ``row_idx``
+            -1 when gaps should count as interruptions).
         U: Directional vector store.
         cut: Focus threshold on mean cosine distance to the recent centroid.
         mem: Number of recent members the centroid is taken over.
@@ -357,21 +364,30 @@ def segment_session(
     i = 0
     while i < len(seq):
         iid, ridx, ts, dur = seq[i]
+        # A missing play (no vector: row None or negative) can never join or
+        # open a run; inside a run it is an interruption like an off-theme one.
+        missing = ridx is None or ridx < 0
         if cur is None:
+            if missing:
+                i += 1
+                continue
             cur = fresh(iid, ridx, ts, dur)
             pending = []
             pending_counted = 0
             i += 1
             continue
-        if iid in cur["seen"]:
+        if not missing and iid in cur["seen"]:
             # A rewatch extends the span but is not a new member — otherwise a
             # repeat loop collapses the effective rank and fakes a binge.
             cur["n_plays"] += 1
             cur["end_ts"] = ts
             i += 1
             continue
-        centroid = U[cur["idx"][-mem:]].mean(axis=0)
-        dist = 1.0 - float(U[ridx] @ centroid)
+        if missing:
+            dist = np.inf
+        else:
+            centroid = U[cur["idx"][-mem:]].mean(axis=0)
+            dist = 1.0 - float(U[ridx] @ centroid)
         if dist <= cut:
             cur["ids"].append(iid)
             cur["idx"].append(ridx)
@@ -882,11 +898,18 @@ def build_session_group(
             for iid, v in zip(g["item_id"], g["offfeed_signals"]):
                 key = str(iid)
                 item_signals[key] = item_signals.get(key, 0) | (0 if pd.isna(v) else int(v))
-        emb = g[g["_emb"]]
-        seq = [
-            (iid, id2idx[iid], ts, du)
-            for iid, ts, du in zip(emb["item_id"], emb["_ts"], emb["play_duration"])
-        ]
+        if p.get("missing_as_interruption"):
+            # Every play, with -1 for those without a vector: gaps interrupt.
+            seq = [
+                (iid, id2idx.get(iid, -1), ts, du)
+                for iid, ts, du in zip(g["item_id"], g["_ts"], g["play_duration"])
+            ]
+        else:
+            emb = g[g["_emb"]]
+            seq = [
+                (iid, id2idx[iid], ts, du)
+                for iid, ts, du in zip(emb["item_id"], emb["_ts"], emb["play_duration"])
+            ]
         eps = []
         for ep_idx, ep in enumerate(
             segment_session(

@@ -233,3 +233,54 @@ def test_default_params_carries_max_skip_from_config():
     assert "binge_max_skip" in cfg, "config.toml [sessions] must carry binge_max_skip"
     assert int(cfg["binge_max_skip"]) == p["max_skip"]
     assert float(cfg["binge_min_minutes"]) == p["min_minutes"]
+
+
+def _seq_missing(rows, minutes_apart=1.0):
+    """Like _seq, but None marks a missing play (no vector) with row -1."""
+    t0 = pd.Timestamp("2026-01-01T10:00:00")
+    return [
+        (
+            f"m{i}" if r is None else f"v{r}",
+            -1 if r is None else r,
+            t0 + pd.Timedelta(minutes=minutes_apart * i),
+            10.0,
+        )
+        for i, r in enumerate(rows)
+    ]
+
+
+def test_missing_plays_interrupt_instead_of_gluing_neighbours():
+    U = _vectors()
+    # Two on-theme halves separated by three missing plays.
+    rows = [0, 1, 2, 3, None, None, None, 4, 5, 6, 7]
+    glued = sessions_segment.segment_session(
+        [s for s in _seq_missing(rows) if s[1] >= 0], U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES
+    )
+    assert len(glued) == 1 and len(glued[0]["idx"]) == 8  # skipped gaps glue the halves
+    split = sessions_segment.segment_session(
+        _seq_missing(rows), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES
+    )
+    assert [len(e["idx"]) for e in split] == [4, 4]  # three gaps exceed max_skip=2
+
+
+def test_missing_plays_are_tolerated_up_to_the_budget_and_never_members():
+    U = _vectors()
+    eps = sessions_segment.segment_session(
+        _seq_missing([0, 1, 2, None, None, 3, 4]), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES
+    )
+    assert len(eps) == 1
+    assert eps[0]["n_skipped"] == 2 and all(r >= 0 for r in eps[0]["idx"])
+
+
+def test_missing_plays_never_open_a_run():
+    U = _vectors()
+    eps = sessions_segment.segment_session(
+        _seq_missing([None, None, 0, 1, 2, 3]), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES
+    )
+    assert len(eps) == 1 and eps[0]["ids"][0] == "v0"
+    assert (
+        sessions_segment.segment_session(
+            _seq_missing([None] * 6), U, CUT, MEM, MIN_VIDEOS, MIN_MINUTES
+        )
+        == []
+    )

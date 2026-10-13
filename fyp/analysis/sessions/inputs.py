@@ -168,6 +168,8 @@ def default_params() -> dict:
         "max_windows": int(cfg.get("max_windows", MAX_WINDOWS)),
         "offfeed_window_s": float(cfg.get("offfeed_window_s", offfeed.WINDOW_S)),
         "offfeed_min_run": int(cfg.get("offfeed_min_run", offfeed.MIN_RUN)),
+        "missing_as_interruption": str(cfg.get("missing_as_interruption", False)).strip().lower()
+        in ("1", "true", "yes", "on"),
     }
 
 

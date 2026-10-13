@@ -10,6 +10,17 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-10-13
+
+### Added
+
+- **Gaps can interrupt focused session episodes.** With
+  `[sessions] missing_as_interruption = true`, a play whose video has no
+  embedding counts as an interruption instead of being skipped, so a stretch
+  of unobserved videos can end an episode but never join two halves into one.
+  Off by default. The episode detector (`segment_session`) also accepts such
+  plays directly, for analyses that use the same rule.
+
 ## [0.6.2] — 2026-10-13
 
 ### Added
@@ -1477,7 +1488,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.3
 [0.6.2]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.2
 [0.6.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.1
 [0.6.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.0

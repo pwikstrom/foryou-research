@@ -258,6 +258,12 @@ max_windows = 3
 # Shortest run of one creator's plays in posting order that marks them all.
 # offfeed_min_run = 3
 
+# Plays whose video has no embedding: false (default) leaves them out of the
+# detector's sequence, so the videos on either side become neighbours; true
+# makes each one an interruption that spends the binge_max_skip budget, so a
+# gap can end an episode but never glue two halves together.
+# missing_as_interruption = false
+
 # Build each study collection only within its studies' date windows (plus a
 # 3-day pad). false builds every study collection over its whole history; the
 # tab still shows each study only its own window, so this widens the

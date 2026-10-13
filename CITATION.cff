@@ -43,7 +43,7 @@ identifiers:
   - type: doi
     value: "10.5281/zenodo.23333191"
     description: "Archived snapshot of version 0.6.2"
-version: 0.6.2
+version: 0.6.3
 date-released: "2026-10-13"
 keywords:
   - data donation

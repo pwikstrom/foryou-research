@@ -1169,6 +1169,13 @@ were annotated, and that no gap is long enough to hide a run of similar
 videos. `scripts/session_campaign.py --rule attempted --max-gap N` selects
 sessions to complete under that rule.
 
+**Missing videos in the detector.** By default the detector sees only plays
+with an embedding, so the plays on either side of an unembedded one become
+neighbours. With `[sessions] missing_as_interruption = true` each such play is
+an interruption instead: it never joins or opens an episode and spends the
+`binge_max_skip` budget (unless flicked past). `segment_session` takes such
+plays as `row_idx` -1, so analysis code can use the same rule.
+
 ### Refresh dependencies
 
 Each step is a background job. The graph is declared once, in
