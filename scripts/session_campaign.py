@@ -173,16 +173,22 @@ def _no_reason_failures(manifest: dict) -> list[str]:
     none, and the scraper then recorded every failure, retryable ones
     included, as final. Read without consolidating the record files.
     """
-    from fyp.analysis.sessions import inputs
     from fyp.scrape.failures import load_failed_scrapes_detail
+
+    ids = _session_video_ids(manifest)
+    detail = load_failed_scrapes_detail(consolidate=False)
+    return sorted(i for i in ids if i in detail and detail[i] is None)
+
+
+def _session_video_ids(manifest: dict) -> set[str]:
+    """Every distinct video played in the manifest's selected sessions."""
+    from fyp.analysis.sessions import inputs
 
     sessions = manifest.get("sessions") or []
     selected = {str(s["session_id"]) for s in sessions}
     cids = sorted({str(s["collection_id"]) for s in sessions})
     plays = inputs.load_plays(cids)
-    ids = set(plays.loc[plays["session_id"].astype(str).isin(selected), "item_id"].astype(str))
-    detail = load_failed_scrapes_detail(consolidate=False)
-    return sorted(i for i in ids if i in detail and detail[i] is None)
+    return set(plays.loc[plays["session_id"].astype(str).isin(selected), "item_id"].astype(str))
 
 
 def cmd_queue(args) -> int:
@@ -192,13 +198,21 @@ def cmd_queue(args) -> int:
     from web_interface.services import collection_enrichment
 
     manifest = _load_manifest(args.name)
-    ids = sorted(set(manifest.get("to_scrape") or []) | set(manifest.get("to_annotate") or []))
+    if args.from_sessions:
+        # Every video of the selected sessions, so videos that were not on the
+        # manifest's lists (e.g. earlier failures that came back on a retry)
+        # are queued too.
+        ids = sorted(_session_video_ids(manifest))
+        source = "videos in the selected sessions"
+    else:
+        ids = sorted(set(manifest.get("to_scrape") or []) | set(manifest.get("to_annotate") or []))
+        source = "videos"
     status = collection_enrichment.load_status(ids)
     by_platform, annotate = collection_enrichment.classify_for_enrichment(
         ids, status, default_platform="tiktok"
     )
     print(
-        f"Manifest {args.name}: {len(ids)} videos; now {sum(map(len, by_platform.values()))} "
+        f"Manifest {args.name}: {len(ids)} {source}; now {sum(map(len, by_platform.values()))} "
         f"to scrape, {len(annotate)} to annotate"
     )
     retry: list[str] = []
@@ -308,6 +322,11 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", action="store_true")
     q = sub.add_parser("queue")
     q.add_argument("--name", required=True)
+    q.add_argument(
+        "--from-sessions",
+        action="store_true",
+        help="consider every video of the selected sessions, not only the manifest's lists",
+    )
     q.add_argument(
         "--retry-no-reason",
         type=int,

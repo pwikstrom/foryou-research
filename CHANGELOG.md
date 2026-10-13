@@ -19,6 +19,9 @@ public version. Entries below describe the Hub as it stands at that release.
   failure, retryable ones included, was recorded as final. The new attempt
   records a reason either way. `report` can apply another coverage rule than
   the manifest's (`--rule`, `--coverage`, `--max-gap`, `--no-gap-rule`).
+  `queue --from-sessions` considers every video of the selected sessions, so
+  videos that were not on the manifest's lists (such as earlier failures that
+  came back on a retry) are queued for annotation too.
 - `load_failed_scrapes_detail(consolidate=False)` reads the failed-scrapes
   record without consolidating its files, for read-only callers such as a
   dry run.
