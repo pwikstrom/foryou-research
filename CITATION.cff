@@ -40,6 +40,9 @@ identifiers:
   - type: doi
     value: "10.5281/zenodo.23332557"
     description: "Archived snapshot of version 0.6.1"
+  - type: doi
+    value: "10.5281/zenodo.23333191"
+    description: "Archived snapshot of version 0.6.2"
 version: 0.6.2
 date-released: "2026-10-13"
 keywords:
