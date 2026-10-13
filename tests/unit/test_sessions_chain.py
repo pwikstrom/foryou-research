@@ -58,6 +58,9 @@ def corpus(tmp_path, monkeypatch):
         monkeypatch.setitem(fyp_cf["paths"], loc, str(d))
     monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)
     monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_cache", False)
+    # These tests exercise study-window clipping; the committed config builds
+    # whole histories.
+    monkeypatch.setitem(fyp_cf["sessions"], "clip_to_study_windows", True)
 
     model = embeddings.active_embedding_backend().model_id()
     rng = np.random.default_rng(0)
