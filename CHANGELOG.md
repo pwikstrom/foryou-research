@@ -26,9 +26,10 @@ public version. Entries below describe the Hub as it stands at that release.
   participants with a per-month cap and a budget, and queues exactly their
   missing videos (annotation through the batch annotator), so that whole
   sessions can be analysed.
-- `[sessions] clip_to_study_windows` (default true): set it to false to build
-  each study collection over its whole history rather than its studies' date
-  windows.
+- `[sessions] clip_to_study_windows`. The committed config sets it to false:
+  the Sessions build now covers each study collection's whole history rather
+  than only its studies' date windows. A study still shows only its own
+  window; the admin all-sessions view shows more.
 - The sessions build records the code version that built it
   (`sessions_meta.json` `code_version`; pass the commit to the app image
   build as `_GIT_SHA`).

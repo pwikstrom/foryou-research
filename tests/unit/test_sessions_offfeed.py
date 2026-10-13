@@ -221,7 +221,8 @@ def test_coverage_spec_without_clip_spans_the_whole_history():
     clipped = inputs.compute_coverage_spec(studies, clip=True)
     assert clipped["c1"] == [["2025-02-26", "2025-04-04"]]
     full = inputs.compute_coverage_spec(studies, clip=False)
-    assert full["c1"][0][0] < "1971" and full["c1"][0][1] > "2099"
+    # The same wide window a study with no saved bounds gets.
+    assert full == inputs.compute_coverage_spec({"st": {"SELECTED_COLLECTIONS": ["c1"]}}, clip=True)
 
 
 def test_completion_helper_caps():

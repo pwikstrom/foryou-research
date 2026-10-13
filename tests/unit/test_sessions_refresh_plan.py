@@ -38,7 +38,14 @@ def _rec(windows, n_plays) -> dict:
 
 def test_coverage_pads_and_uses_end_of_day():
     spec = sessions_inputs.compute_coverage_spec(
-        {"S": {"SELECTED_COLLECTIONS": ["a"], "START_DATE": "2026-03-10", "END_DATE": "2026-03-20"}}
+        {
+            "S": {
+                "SELECTED_COLLECTIONS": ["a"],
+                "START_DATE": "2026-03-10",
+                "END_DATE": "2026-03-20",
+            }
+        },
+        clip=True,
     )
     # start -3d; END means through end-of-day, so bound is +1d, then +3d pad.
     assert spec == {"a": [["2026-03-07", "2026-03-24"]]}
@@ -57,7 +64,8 @@ def test_coverage_merges_overlapping_study_windows():
                 "START_DATE": "2026-03-12",
                 "END_DATE": "2026-03-20",
             },
-        }
+        },
+        clip=True,
     )
     # 03-10 end -> bound 03-14 after pad; S2 start pads back to 03-09: overlap.
     assert spec == {"a": [["2026-02-26", "2026-03-24"]]}
@@ -76,13 +84,14 @@ def test_coverage_keeps_disjoint_windows_separate():
                 "START_DATE": "2026-06-01",
                 "END_DATE": "2026-06-05",
             },
-        }
+        },
+        clip=True,
     )
     assert spec["a"] == [["2025-12-29", "2026-01-09"], ["2026-05-29", "2026-06-09"]]
 
 
 def test_coverage_absent_bounds_fall_back_wide():
-    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
+    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}}, clip=True)
     assert spec == {"a": WIDE}
 
 

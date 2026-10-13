@@ -699,13 +699,14 @@ def compute_coverage_spec(
     for cfg in study_defs.values():
         if not isinstance(cfg, dict):
             continue
-        start = _study_bound(cfg, "START_DATE", _WIDE_START) - pad
+        # Unclipped: every collection gets the same wide window a study with
+        # no saved bounds gets.
+        bounds = cfg if clip else {}
+        start = _study_bound(bounds, "START_DATE", _WIDE_START) - pad
         # Stored END_DATE means "through the end of that day": +1d exclusive.
-        end = _study_bound(cfg, "END_DATE", _WIDE_END) + pd.Timedelta(days=1) + pad
+        end = _study_bound(bounds, "END_DATE", _WIDE_END) + pd.Timedelta(days=1) + pad
         if end <= start:
             continue
-        if not clip:
-            start, end = pd.Timestamp(_WIDE_START), pd.Timestamp(_WIDE_END)
         for cid in cfg.get("SELECTED_COLLECTIONS") or []:
             raw.setdefault(str(cid), []).append((start, end))
 
