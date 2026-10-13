@@ -245,14 +245,14 @@
                         <h4 class="text-h3 font-semibold">Zoom in on a single sitting</h4>
                         <p class="prose">
                             Sessions ranks individual viewing sessions, filterable by duration,
-                            plays, coverage, low-entropy stretches and binge count, and lays each
-                            one out as a session strip: detected binges, low-entropy sequences,
+                            plays, coverage, low-entropy stretches and number of focused session episodes,
+                            and lays each one out as a session strip: detected episodes, low-entropy sequences,
                             and a video panel that opens straight into Video Analysis.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
-                        <img src="{{ url_for('static', filename='landing/sessions.webp') }}" alt="Sessions tab: ranked session list with session-strip timeline and detected binges" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-                        <figcaption>Sessions: one sitting, minute by minute, binges detected</figcaption>
+                        <img src="{{ url_for('static', filename='landing/sessions.webp') }}" alt="Sessions tab: ranked session list with session-strip timeline and detected focused session episodes" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Sessions: one sitting, minute by minute, focused session episodes detected</figcaption>
                     </figure>
                 </div>
                 {% endif %}
@@ -282,7 +282,7 @@
                             Once annotated, every video becomes a 1536-dimensional embedding built from
                             its variables and content, then projected into a readable 2D semantic space
                             where similar videos sit together. Semantic Space clusters that map into
-                            fine-grained, automatically named "niches" - emergent micro-genres you can
+                            fine-grained, automatically named "micro-niches" you can
                             focus on, label, and colour by content category or popularity. Because it
                             spans the entire annotated corpus, the map is a bird's-eye view of what the
                             feed is made of, independent of any single study.

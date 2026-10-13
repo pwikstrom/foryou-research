@@ -204,7 +204,7 @@ through the rest. It never touches your data directory.
 |---|---|---|
 | Machine annotation (media on local disk) | yes | yes |
 | Machine annotation (media on GCS) | yes | **no** |
-| Embeddings, semantic map, niche naming | yes | yes |
+| Embeddings, semantic map, micro-niche naming | yes | yes |
 
 The one real difference is media storage. Media kept on GCS is handed to
 Gemini as a `gs://` URI, which only Vertex AI can read; the plain Gemini API
@@ -415,7 +415,7 @@ outside the app.
 
 ## Embedding backends
 
-The Semantic Space pipeline (video embeddings → niche clustering → 2D map)
+The Semantic Space pipeline (video embeddings → micro-niche clustering → 2D map)
 normally embeds with Gemini. Its API details are explicit in
 `config/config.toml` under `[embedding.gemini]` (`model_id`, `dim`,
 `location`, `task_type`) — upgrading the Gemini embedding model is a config
@@ -461,8 +461,8 @@ anything) is still missing, with the exact command to fix it.
   corpus under the new model; the old model's vectors are kept, so switching
   back costs nothing. Rebuild the video map after the re-embed — the Semantic
   Space tab shows a "built with a different model" banner until you do.
-- **Niche naming degrades gracefully.** Naming the ~150 niches is a Gemini
-  text call when Gemini is configured; without it, niches get deterministic
+- **Micro-niche naming degrades gracefully.** Naming the ~150 micro-niches is a Gemini
+  text call when Gemini is configured; without it, micro-niches get deterministic
   labels built from their most distinctive terms. (Routing naming through the
   local annotation model is a possible future `local_llm` mode.)
 - **Cloud Run never runs a local backend.** On a deployed instance the

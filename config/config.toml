@@ -206,7 +206,7 @@ local_media = "~/fyp_local/media"
 # artifacts must be rebuilt to match.
 session_gap_s = 900
 
-# Binge (focus-episode) segmentation, applied by the sessions_refresh worker.
+# Focused-session-episode ("binge") segmentation, applied by the sessions_refresh worker.
 # A binge grows while the next distinct embedded video's mean cosine distance
 # to the centroid of the last binge_mem members stays <= binge_cut; it is kept
 # if it spans >= binge_min_videos distinct videos over >= binge_min_minutes.
@@ -250,6 +250,17 @@ binge_min_minutes = 1.0
 # mean pairwise distance are kept per session.
 window_n = 6
 max_windows = 3
+
+# Off-feed signals (fyp/analysis/sessions/offfeed.py), defaults shown; uncomment
+# to override. Baked in at build, so a change needs a sessions_refresh.
+# Seconds before a play in which a search or follow by the donor marks it.
+# offfeed_window_s = 120
+# Shortest run of one creator's plays in posting order that marks them all.
+# offfeed_min_run = 3
+
+# Build each study collection only within its studies' date windows (plus a
+# 3-day pad). false builds every study collection over its whole history.
+# clip_to_study_windows = true
 
 # Worker processes the sessions_refresh worker segments with, per chain link.
 # "auto" = one fewer than the machine's cores (a forked pool; platforms

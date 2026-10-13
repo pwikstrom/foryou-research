@@ -470,12 +470,12 @@ class RunContext:
         changed = self.result_int("video_map_refresh", "map_niche_changed")
         if changed is None:
             return "the semantic map was rebuilt"
-        return f"{changed:,} video(s) changed niche"
+        return f"{changed:,} video(s) changed micro-niche"
 
     def no_change_reason(self) -> str:
         """Why a step with no fresh input is being pruned."""
         if self.ran("video_map_refresh") and not self.map_moved():
-            return "no video changed niche"
+            return "no video changed micro-niche"
         if self.ran("embeddings_refresh"):
             embedded = self.result_int("embeddings_refresh", "embeddings_embedded_run")
             if embedded is not None and embedded <= 0:

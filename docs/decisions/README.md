@@ -69,3 +69,4 @@ records; describe what happened, not who or where.
 | [0025](0025-instagram-authentication.md) | 2026-09-23 | Instagram authentication | Anonymous first; the logged-in session spent sparingly |
 | [0026](0026-only-final-scrape-failures-count.md) | 2026-09-25 | Only final scrape failures count | Retryable failures stay recorded but no longer exclude an item |
 | [0027](0027-network-outages-are-waited-out.md) | 2026-09-27 | Network outages are waited out | A connectivity gate keeps outages away from the guards and alerts |
+| [0028](0028-offfeed-signals.md) | 2026-10-13 | Off-feed signals annotate plays | Plays the For You feed probably did not serve are marked, not filtered; one implementation in fyp |

@@ -226,7 +226,7 @@ async function loadSemanticSpace() {
         if (info) {
             info.setAttribute('data-tooltip',
                 `${data.total_mapped.toLocaleString()} videos shown · `
-                + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`
+                + `${data.n_niches} micro-niches · ${data.total_videos.toLocaleString()} embedded`
                 + _ssPreservationText(data.neighbour_preservation));
         }
         _ssWireControls();
@@ -274,7 +274,7 @@ function _ssComputeCentroids() {
             .sort((a, b) => a - b);
         return {
             niche: +n,
-            name: meta.name || `Niche ${n}`,
+            name: meta.name || `Micro-niche ${n}`,
             size: meta.size || acc[n].xs.length,
             terms: meta.terms || [],
             typicality_pct: (meta.typicality_pct == null) ? null : meta.typicality_pct,
@@ -346,7 +346,7 @@ function _ssRenderNicheList() {
     if (!list || !_ssData) { return; }
     const matches = _ssNicheMatches();
     if (!matches.length) {
-        list.innerHTML = '<div class="ss-niche-empty text-sm">No niche matches that search.</div>';
+        list.innerHTML = '<div class="ss-niche-empty text-sm">No micro-niche matches that search.</div>';
         _ssRenderNicheCount(0);
         return;
     }
@@ -376,8 +376,8 @@ function _ssRenderNicheCount(shown) {
     const total = ((_ssData && _ssData._centroids) || []).length;
     const overflows = !!list && list.scrollHeight > list.clientHeight + 1;
     let text = _ssNicheQuery.trim()
-        ? `${shown.toLocaleString()} of ${total.toLocaleString()} niches match`
-        : `${total.toLocaleString()} niches`;
+        ? `${shown.toLocaleString()} of ${total.toLocaleString()} micro-niches match`
+        : `${total.toLocaleString()} micro-niches`;
     if (overflows) { text += ' · scroll for more'; }
     el.textContent = text;
 }
@@ -424,7 +424,7 @@ function _ssSetFocusNiche(nicheId, opts) {
     const label = document.getElementById('ss-niche-trigger-label');
     if (label) {
         const c = nicheId === null ? null : _ssCentroid(nicheId);
-        label.textContent = c ? `${c.name} (${c.size.toLocaleString()})` : '— all niches —';
+        label.textContent = c ? `${c.name} (${c.size.toLocaleString()})` : '— all micro-niches —';
     }
     const clear = document.getElementById('ss-niche-clear');
     if (clear) { clear.hidden = nicheId === null; }
@@ -445,21 +445,21 @@ function _ssPreservationText(np) {
         + `neighbours in the full embedding space, ${pct}% are still drawn among its ${np.k} `
         + `nearest here — against ${chance}% for a random layout. The projection cannot `
         + `honour every relationship at once, so treat closeness on the map as evidence and `
-        + `check anything that matters against the measured readings (typicality, closest niches).`;
+        + `check anything that matters against the measured readings (typicality, closest micro-niches).`;
 }
 
 
 // Tooltip copy for the typicality reading. The map cannot express this, so the
 // tooltip says so — a niche near the middle of the picture is not the same
 // thing as a niche near the middle of the corpus.
-const _SS_TYPICALITY_TIP = 'How close this niche sits to the average of the whole corpus, '
+const _SS_TYPICALITY_TIP = 'How close this micro-niche sits to the average of the whole corpus, '
     + 'measured in the full embedding space. It cannot be read off the map: the projection '
-    + 'places each niche next to its nearest neighbours and is free to put that neighbourhood '
+    + 'places each micro-niche next to its nearest neighbours and is free to put that neighbourhood '
     + 'anywhere on the page, so the middle of the picture is not the middle of the corpus.';
 
 // Tooltip copy for the defining terms — the words that separate this niche from
 // the rest of the corpus, not merely the words most common inside it.
-const _SS_TERMS_TIP = 'The words that most distinguish this niche\'s videos from the rest of '
+const _SS_TERMS_TIP = 'The words that most distinguish this micro-niche\'s videos from the rest of '
     + 'the corpus. Videos are positioned by how they would be described in words like these, '
     + 'but the map can only show part of that structure — read closeness as a hint, not a '
     + 'measurement.';
@@ -467,18 +467,18 @@ const _SS_TERMS_TIP = 'The words that most distinguish this niche\'s videos from
 // Tooltip copy for the isolation reading. Deliberately spells out that this is
 // NOT typicality: the two rank the niches independently, and reading one as the
 // other is the mistake the pair exists to prevent.
-const _SS_ISOLATION_TIP = 'How far this niche sits from its nearest neighbouring niche, '
+const _SS_ISOLATION_TIP = 'How far this micro-niche sits from its nearest neighbouring micro-niche, '
     + 'measured in the full embedding space. This asks a different question from typicality: '
-    + 'a niche can sit far from the corpus average and still keep close company — several '
-    + 'related niches beside it — or be thoroughly ordinary and yet have nothing near it. '
+    + 'a micro-niche can sit far from the corpus average and still keep close company — several '
+    + 'related micro-niches beside it — or be thoroughly ordinary and yet have nothing near it. '
     + 'Unlike apparent separation on the map, this is measured. "Crowded" here means other '
-    + 'niches sit close by, not that this niche holds many videos.';
+    + 'micro-niches sit close by, not that this micro-niche holds many videos.';
 
 // Tooltip copy for the measured nearest niches. This is the reading the picture
 // cannot give, so the tooltip says plainly that the two can disagree.
-const _SS_NEAREST_TIP = 'The niches most similar to this one, measured in the full embedding '
+const _SS_NEAREST_TIP = 'The micro-niches most similar to this one, measured in the full embedding '
     + 'space rather than read off the map. Several are usually drawn far away: the projection '
-    + 'can only place a niche in one spot and cannot honour every relationship at once. Where '
+    + 'can only place a micro-niche in one spot and cannot honour every relationship at once. Where '
     + 'this list and the picture disagree, this list is the accurate one.';
 
 
@@ -487,7 +487,7 @@ const _SS_NEAREST_TIP = 'The niches most similar to this one, measured in the fu
 // it against, so neither is dropped — they are just put in the right order.
 function _ssReadingHtml(label, comparative, pct, bands, tip) {
     const word = _ssQualitative(pct, bands);
-    const exact = `More ${comparative} than ${pct}% of other niches. ${tip}`;
+    const exact = `More ${comparative} than ${pct}% of other micro-niches. ${tip}`;
     return `<span><span class="meta-tooltip tooltip-wide tooltip-below" `
         + `data-tooltip="${escapeHtml(exact)}">${label}</span>: ${escapeHtml(word)}</span>`;
 }
@@ -504,7 +504,7 @@ function _ssRenderNicheInfo(focusNiche) {
     const meta = (_ssData.niches || {})[focusNiche] || {};
     const parts = [
         `<span class="font-semibold" style="color: var(--color-text-primary);">`
-        + `${escapeHtml(meta.name || ('Niche ' + focusNiche))}</span>`,
+        + `${escapeHtml(meta.name || ('Micro-niche ' + focusNiche))}</span>`,
         `<span>${(meta.size || 0).toLocaleString()} videos</span>`
     ];
     // Absent on maps built before typicality was added; the bar just omits it
@@ -529,8 +529,8 @@ function _ssRenderNicheInfo(focusNiche) {
         const flashable = (meta.nearest_ids || []).some(n => _ssCentroid(n));
         const btn = flashable
             ? ` <button type="button" id="ss-flash-nearest" class="ss-flash-btn text-xxs meta-tooltip tooltip-below"`
-                + ` data-tooltip="Pulse these niches on the map — they are usually drawn nowhere near this one."`
-                + ` aria-label="Show the closest niches on the map">◎</button>`
+                + ` data-tooltip="Pulse these micro-niches on the map — they are usually drawn nowhere near this one."`
+                + ` aria-label="Show the closest micro-niches on the map">◎</button>`
             : '';
         // Each neighbour is a control, not just a name: the list answers "which
         // niches are like this one", and the obvious next question — "show me
@@ -544,7 +544,7 @@ function _ssRenderNicheInfo(focusNiche) {
                 : `<button type="button" class="ss-niche-link" data-niche="${id}">${escapeHtml(nm)}</button>`;
         }).join(', ');
         parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `
-            + `data-tooltip="${escapeHtml(_SS_NEAREST_TIP)}">Closest niches</span>: `
+            + `data-tooltip="${escapeHtml(_SS_NEAREST_TIP)}">Closest micro-niches</span>: `
             + `${links}${btn}</span>`);
     }
     if ((meta.terms || []).length) {
@@ -569,7 +569,7 @@ function _ssRenderNicheInfo(focusNiche) {
             if (!c) { return; }
             _ssShowNicheDialog({
                 nicheId: id, nicheName: c.name, size: c.size,
-                intro: 'Measured as one of the closest niches to the focused one:'
+                intro: 'Measured as one of the closest micro-niches to the focused one:'
             });
         };
     });
@@ -751,12 +751,12 @@ function _ssTrajVisible() {
 }
 
 
-// Build the "Colour by" dropdown: Niche (always) + every overlay the backend
+// Build the "Colour by" dropdown: Micro-niche (always) + every overlay the backend
 // advertised for this map.
 function _ssPopulateColorModes() {
     const sel = document.getElementById('ss-color-mode');
     if (!sel) { return; }
-    const opts = ['<option value="niche">Niche</option>'];
+    const opts = ['<option value="niche">Micro-niche</option>'];
     (_ssData.overlays || []).forEach(o => {
         opts.push(`<option value="${o.key}">${o.label}</option>`);
     });
@@ -1176,7 +1176,7 @@ function _ssShowNicheDialog(info) {
             <span class="text-h3 font-semibold">What would you like to do?</span>
         </div>
         <p class="text-body" style="margin: 12px 0 6px; color: var(--color-text-secondary);">
-            ${escapeHtml(info.intro || 'Niche:')}
+            ${escapeHtml(info.intro || 'Micro-niche:')}
         </p>
         <div class="drilldown-filter-preview" style="margin-bottom: 10px;">
             <span class="font-semibold" style="color: var(--color-accent);">${escapeHtml(info.nicheName)}</span>
@@ -1186,13 +1186,13 @@ function _ssShowNicheDialog(info) {
         <p class="text-sm" style="margin: 0 0 16px; color: var(--color-text-muted);">
             ${canDrill
                 ? (info.story
-                    ? 'Video Analysis will be filtered to the whole niche, not this single video.'
-                    : 'Video Analysis will be filtered to this niche.')
+                    ? 'Video Analysis will be filtered to the whole micro-niche, not this single video.'
+                    : 'Video Analysis will be filtered to this micro-niche.')
                 : escapeHtml(blocked)}
         </p>
         <div class="drilldown-actions" style="flex-wrap: wrap;">
             <button class="btn btn-discreet ss-dlg-cancel">Cancel</button>
-            <button class="btn btn-discreet ss-dlg-focus">Focus this niche</button>
+            <button class="btn btn-discreet ss-dlg-focus">Focus this micro-niche</button>
             <button class="btn btn-primary ss-dlg-go"${canDrill ? '' : ' disabled'}>Open in Video Analysis</button>
         </div>
     `;
@@ -1486,7 +1486,7 @@ function _ssIsolateCategory(cat) {
 function _ssRenderLegend(mode, overlay, catColorMap) {
     const legend = document.getElementById('ss-legend');
     if (!legend) { return; }
-    const openHint = '<span class="ss-legend-hint">Click a point to focus or open its niche.</span>'; 
+    const openHint = '<span class="ss-legend-hint">Click a point to focus or open its micro-niche.</span>'; 
     if (overlay && overlay.kind === 'categorical' && catColorMap) {
         _ssLegendCats = _ssDistinct(overlay.field);
         const swatches = _ssLegendCats.map((c, i) => {
@@ -1497,7 +1497,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
                 + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
                 + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
         }).join('');
-        const hint = '<span class="ss-legend-hint">Click a swatch to show or hide it, double-click to show only it. Click a point to focus or open its niche.</span>';
+        const hint = '<span class="ss-legend-hint">Click a swatch to show or hide it, double-click to show only it. Click a point to focus or open its micro-niche.</span>';
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;
@@ -1512,7 +1512,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
             + `<span>≥${_ssFmtNum(hi)}</span>` + openHint;
     } else {
         _ssLegendCats = null;
-        legend.innerHTML = `<span>Coloured by niche</span>${openHint}`;
+        legend.innerHTML = `<span>Coloured by micro-niche</span>${openHint}`;
     }
 }
 

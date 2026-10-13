@@ -1,4 +1,4 @@
-"""Session-level data quality and focused-episode ("binge") exploration.
+"""Session-level data quality and focused-session-episode ("binge") exploration.
 
 Production port of the embedding-entropy study's episode segmenter. For every
 collection it reduces the persistent viewing sessions (the ingest-assigned
@@ -10,7 +10,7 @@ collection it reduces the persistent viewing sessions (the ingest-assigned
   mean pairwise cosine distance over :data:`WINDOW_N` distinct embedded
   videos).
 * ``cache/session_episodes.parquet`` — one row per detected **focus episode**
-  ("binge" in the UI): a maximal within-session run whose content stays
+  ("focused session episode" in the UI, ``binge_*`` in config): a maximal within-session run whose content stays
   semantically focused on the embeddings, with its geometry (stationary binge
   vs directed drift), content attribution (niche / author / valence), and the
   ordered member list the UI's side-by-side players render.

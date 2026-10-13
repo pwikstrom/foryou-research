@@ -69,12 +69,12 @@ def run_video_map_refresh(
     reporter.update_progress(100, "Done")
     reporter.log(
         f"Video map refresh complete: {result['videos']:,} videos, "
-        f"{result['niches']} niches, {result['mapped']:,} mapped."
+        f"{result['niches']} micro-niches, {result['mapped']:,} mapped."
     )
 
     reporter.log(
-        f"Niche assignment: {result.get('niche_changed', 0):,} video(s) changed "
-        f"niche, {result.get('new_videos', 0):,} newly mapped."
+        f"Micro-niche assignment: {result.get('niche_changed', 0):,} video(s) changed "
+        f"micro-niche, {result.get('new_videos', 0):,} newly mapped."
     )
     return None
 
@@ -100,7 +100,7 @@ if __name__ == "__main__":
         run_video_map_refresh,
         "video_map_refresh",
         arg_specs=[
-            (("--n-niches",), {"type": int, "default": None, "help": "Number of niches"}),
+            (("--n-niches",), {"type": int, "default": None, "help": "Number of micro-niches"}),
             (("--map-sample",), {"type": int, "default": None, "help": "Videos projected to 2D"}),
             (("--pca-dim",), {"type": int, "default": None, "help": "PCA dimensionality"}),
             (
@@ -115,10 +115,10 @@ if __name__ == "__main__":
                 ("--reset-labels",),
                 {
                     "action": "store_true",
-                    "help": "Regenerate every niche name from scratch (no carry-over from the previous build).",
+                    "help": "Regenerate every micro-niche name from scratch (no carry-over from the previous build).",
                 },
             ),
         ],
         make_task_args=_make_task_args,
-        description="Cluster embeddings into niches + 2D map",
+        description="Cluster embeddings into micro-niches + 2D map",
     )

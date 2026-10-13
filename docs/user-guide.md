@@ -231,7 +231,7 @@ Video autostart is a per-user preference (My stuff → My Preferences).
 
 Semantic Space is a map of the whole annotated corpus — every dot is a video,
 placed so that videos described in similar ways sit near each other. Around
-150 automatically named **niches** (micro-genres found by clustering) organise
+150 automatically named **micro-niches** (groups of similar videos found by clustering) organise
 the map. It is a browsing surface, not a chart: there are no axes or units,
 and only closeness carries meaning — never read distance, blob size, empty
 space or an island's isolation as a finding. The tab's own help text (the
@@ -239,20 +239,20 @@ space or an island's isolation as a finding. The tab's own help text (the
 accuracy figure ("layout keeps N% of true neighbours") alongside the corpus
 counts in the **Info** tooltip at the left of the control bar.
 
-**Controls.** All sit in the control bar under the menu; the focused niche's
+**Controls.** All sit in the control bar under the menu; the focused micro-niche's
 readings and the trajectory controls live in a rail to the right of the map.
 
-- **Colour by** — Niche, Content category or Popularity (plays). Content
+- **Colour by** — Micro-niche, Content category or Popularity (plays). Content
   category is deliberately excluded from the text the embedding is built
-  from, so structure in those colours independently corroborates the niches.
-- **Focus niche** — a searchable picker (hundreds of entries, sortable by
-  Most videos, A–Z, Most typical, Most isolated). Focusing a niche isolates
+  from, so structure in those colours independently corroborates the micro-niches.
+- **Focus micro-niche** — a searchable picker (hundreds of entries, sortable by
+  Most videos, A–Z, Most typical, Most isolated). Focusing a micro-niche isolates
   it on the map and fills the rail to the right of the map with its size,
-  typicality, isolation, genuinely closest niches, defining terms and
+  typicality, isolation, genuinely closest micro-niches, defining terms and
   category shares. Typicality and isolation are measured in the full
   embedding space, not on the 2D picture, so they are trustworthy where the
   layout is not. Clear the focus with the × button.
-- **Niche labels** toggles the name overlays; **Dot size** scales every dot
+- **Micro-niche labels** toggles the name overlays; **Dot size** scales every dot
   on top of the zoom-driven growth.
 - **Explore collection trajectories** — a disclosure in the right-hand rail
   that opens overlay controls: pick a **Collection** and an **Interval** (Monthly / Weekly /
@@ -260,8 +260,9 @@ readings and the trajectory controls live in a rail to the right of the map.
   scrubber to animate how that participant's feed moved through the space
   over time.
 
-**Interacting with dots.** Hover a dot for its niche and a one-line summary;
-click it to open the video in Video Analysis, filtered to its niche. A
+**Interacting with dots.** Hover a dot for its micro-niche and a one-line summary;
+click it to either focus that micro-niche on the map or open Video Analysis
+filtered to the whole micro-niche. A
 freshness banner appears when the embedding store is being topped up or a
 fresher map is available.
 
@@ -269,13 +270,18 @@ fresher map is available.
 
 *Visible to all seeded roles.*
 
-Sessions explores individual viewing sessions and the **binges** inside them —
-runs of consecutive videos whose content stays semantically close together on
-the AI embeddings. A viewing session is one sitting with the app: a run of
-activity with no gap longer than 15 minutes, fixed when the collection is
-ingested. A session can only be analysed once every video in it is annotated,
-which is why the automatic enrichment loop takes whole sessions (see *Edit Collections* under section 3)
-and counts the collection's **analysis-ready sessions**.
+Sessions explores individual viewing sessions and the **focused session
+episodes** inside them: runs of at least four distinct videos whose content
+stays semantically close together on the AI embeddings, over at least a
+minimum span set in the config (currently 1 minute). A viewing session is one
+sitting with the app: a run of activity with no gap longer than 15 minutes,
+fixed when the collection is ingested. Episodes are detected on whatever
+videos in a session are embedded, and the **Coverage** column shows how much
+of the session that is. To raise coverage, the automatic enrichment loop
+scrapes and annotates whole sessions (see *Edit Collections* under section 3)
+and counts the collection's **analysis-ready sessions**. Episodes used to be
+called "binges" in the UI, and the code, config and API keep that older name
+(`binge_*` config keys, `n_episodes`), as they keep `niche*` for micro-niches.
 
 **Left rail: the session table.** All of the active study's sessions, one
 row each; sort by clicking any column heading. A session is the study's
@@ -299,18 +305,26 @@ captions and creators. Notable columns:
 **Right pane: session detail.** Selecting a session draws:
 
 - The **Session strip** — a real-time axis with one mark per play, width =
-  watch time. Coloured bands are detected binges; grey bars are plays whose
+  watch time. Coloured bands are detected focused session episodes; grey bars are plays whose
   video has no embedding; dashed outlines are the low-entropy sequences.
   Hover any mark for details; clicking a variable in a "(more info)" panel
   adds a per-variable line plot on the same time axis.
-- A selector column listing the session's **Binges** and **Low-entropy
-  sequences** (up to three non-overlapping best windows, found independently
-  of the binge detector — so they can confirm a binge or reveal a focused
-  stretch it missed). Each carries an (i) tooltip with its exact definition,
-  and each binge is badged as *stationary* (dwelling in one topic) or
-  *drifting* (the rabbit-hole shape).
-- Picking a binge or sequence loads it into the shared video player, where
-  Prev/Next steps through it in watch order; the video's niche, creator,
+- A selector column listing the session's **Focused session episodes** and
+  **Low-entropy sequences** (up to three non-overlapping best windows, found
+  independently of the episode detector — so they can confirm an episode or
+  reveal a focused stretch it missed). Each carries an (i) tooltip with its
+  exact definition, and each episode is badged as *stationary* (staying
+  within one topic area) or *directed* (moving away from where it started more
+  consistently than a random reordering of the same videos would).
+- **Off-feed marks.** A watch history does not say how a video was opened.
+  A play is marked *likely off-feed* when the For You feed probably did not
+  serve it: it came shortly after a search or follow, it is by the same
+  creator as the previous play, or it is part of a run of one creator's
+  videos in posting order. Each episode card says how many of its videos are
+  likely off-feed. The creator signals need scraped videos, so some off-feed
+  viewing goes unmarked. Episodes are still detected on all plays.
+- Picking an episode or sequence loads it into the shared video player, where
+  Prev/Next steps through it in watch order; the video's micro-niche, creator,
   watch time and story summary sit below the player with an "Open in Video
   Analysis" button. A video plays when it is in the study and its media was
   downloaded; otherwise the player slot says which of the two is missing.
@@ -489,7 +503,7 @@ videos to have annotated, set with a log-scaled slider. The panel shows the
 collection's size, how many **analysis-ready days** it already has (at least
 ten annotated videos on the day) and how many **analysis-ready sessions**
 (a sitting of at least ten plays with every video annotated or failed for
-good — what the Sessions tab can work with), a per-day activity chart (stacked by enrichment state, with a red line
+good, so the Sessions tab sees the whole sitting), a per-day activity chart (stacked by enrichment state, with a red line
 estimating where each day would land under the current settings), a linear
 coverage bar with the target marked on it, and a live readout translating
 the target into items, estimated cost (with the active model) and the time

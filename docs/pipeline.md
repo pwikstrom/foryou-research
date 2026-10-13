@@ -981,8 +981,8 @@ time from the default study plus the user's data, and SYSTEM study
 definitions are excluded from all-studies sweeps.
 On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
 (`stats.py`), timeline metrics (`timeline_analysis.py`), session and
-binge-episode segmentation (`fyp/analysis/sessions/`), sequence windowing
-(`sequence_analysis.py`), dense semantic embeddings + niche clustering + 2D
+focused-session-episode segmentation (`fyp/analysis/sessions/`), sequence windowing
+(`sequence_analysis.py`), dense semantic embeddings + micro-niche clustering + 2D
 map (`embeddings.py`, `video_map.py`). The session boundaries themselves are stamped at ingest:
 `session_id` is set on every activity row (`fyp/ingest/base.py`
 `assign_session_ids`, a `[sessions] session_gap_s` = 900 s gap rule on
@@ -994,7 +994,7 @@ Every study refresh also writes a **methods/provenance note**
 (`{study}_methods.json` in `cache`, built by
 `web_interface/services/methods_note.py`): a plain-language, export-ready
 record of the study's filters, sample sizes, the annotation/scrape/activity
-contract versions present in the rows, the embedding model behind any niche
+contract versions present in the rows, the embedding model behind any micro-niche
 columns, and refresh dates. Both study-refresh workers write it on every
 refresh — including short-circuited ones, so a newly *preferred* annotation
 version reaches the note without a rebuild. Surfaced as the "Methods" panel
@@ -1036,7 +1036,7 @@ Design points:
   [decision 0009](decisions/0009-embeddings-single-flight-lease.md)).
 - `build_niche_map` consumes only the active model's vectors, writes
   provenance to `recoded/video_map_meta.json` (`embedding_model` / `dim` /
-  `naming_mode` / …), and **niche naming degrades to deterministic
+  `naming_mode` / …), and **micro-niche naming degrades to deterministic
   term-based labels when Gemini is not configured** (the `_ask` seam is the
   hook for a future `local_llm` naming mode).
 - Gating mirrors annotation: `process_routes.api_start` refuses
@@ -1050,9 +1050,9 @@ Design points:
 
 Enabling the alternatives: [installation.md](installation.md#enabling-local-embeddings).
 
-### The niche map and its per-video measures
+### The micro-niche map and its per-video measures
 
-`video_map.py` clusters the video embeddings into niches and a 2D semantic
+`video_map.py` clusters the video embeddings into micro-niches and a 2D semantic
 map (with `video_map_meta.json` provenance). It also emits two per-video
 **percentiles**, `typicality_pct` and `niche_isolation_pct`, joined into every
 study frame by `datasets.merge._join_niche_columns` as numeric measures,
@@ -1065,13 +1065,13 @@ warning at merge time). The fix is to refresh embeddings and the video map
 BEFORE recoding studies.
 
 The map is warm-started: `video_map_refresh` seeds its k-means from the
-previous build's niches — each old niche's members averaged in the current
+previous build's micro-niches — each old micro-niche's members averaged in the current
 PCA space, `n_init=1` — so an append refines the old partition instead of
-redrawing it and ~150/150 niche names carry over without a Gemini naming
-pass. `reset_labels`, a missing previous map, a changed niche count or a
-niche with under five surviving members cold-start instead.
+redrawing it and ~150/150 micro-niche names carry over without a Gemini naming
+pass. `reset_labels`, a missing previous map, a changed micro-niche count or a
+micro-niche with under five surviving members cold-start instead.
 
-The niche map's fingerprint for study-cache freshness is a hash over its
+The micro-niche map's fingerprint for study-cache freshness is a hash over its
 `(item_id, niche)` pairs, not a file stat: `build_niche_map` rewrites the
 parquet on every run (fresh 2D coordinates, a new `built_at`), so a stat
 would report a change after a rebuild that moved nothing and force every
@@ -1079,7 +1079,7 @@ study to rebuild anyway.
 
 ### Sessions refresh
 
-The Sessions tab's artifacts (session index, binge episodes, low-entropy
+The Sessions tab's artifacts (session index, focused session episodes, low-entropy
 windows, and a `sessions_plays.parquet` detail fast path) are built by
 `fyp/analysis/sessions/` + `entropy_metrics.py` over a dense
 random-access embedding sidecar (`fyp/analysis/embedding_store.py`), by the
@@ -1089,8 +1089,17 @@ collections against the sidecar and writes per-link shards; the final link
 folds them into the artifacts. The chain pins one corpus-mean fingerprint at
 link 0 and restarts (bounded) if the shard store moves mid-run.
 
+A focused session episode is a run of distinct embedded videos in one session
+whose content stays close together on the embeddings. The UI used to call
+these "binges", and the map's clusters "niches"; the docs and the UI now say
+focused session episode and micro-niche. Code, config and API names keep the
+older identifiers: the `binge_*` config keys, `n_episodes`, the `binges` scope
+value, and the `niche*` columns and keys.
+
 - **Study-window scope.** Only collections in at least one study are built,
-  within the padded union of their studies' date windows.
+  within the padded union of their studies' date windows (a 3-day pad on each
+  side). `[sessions] clip_to_study_windows = false` builds every study
+  collection over its whole history instead.
 - **Incremental by default.** `stale_only` mode re-segments only the
   collections whose coverage windows or in-window play/annotated counts
   moved, and returns immediately when none did — a second line of defence
@@ -1128,17 +1137,39 @@ link 0 and restarts (bounded) if the shard store moves mid-run.
   Data Pipeline → Dataset Assembly, where "Force full rebuild" re-segments
   every covered collection.
 
+**Off-feed signals.** A watch history lists every video the donor played,
+whether the For You feed served it or the donor opened it from a search, a
+creator's profile or a shared link, and it does not say which. The sessions
+build marks each play with a bitmask of three signals
+(`fyp/analysis/sessions/offfeed.py`):
+
+1. a search (bit 1) or a follow (bit 2) by the donor in the 2 minutes before
+   the play (`[sessions] offfeed_window_s`, default 120 seconds);
+2. the same creator as the previous play in the session (bit 4);
+3. part of a run of 3 or more plays by one creator in strictly increasing or
+   strictly decreasing posting order, the order of a creator's profile page
+   (bit 8; `[sessions] offfeed_min_run`, default 3).
+
+The mask is stored as `offfeed_signals` (int8, 0 = no signal) on
+`sessions_plays.parquet`. Each episode carries `n_offfeed` and
+`offfeed_share` over its members, plus `member_offfeed` (one mask per
+member); the session index carries `n_offfeed` and `offfeed_share` over all of
+the session's plays. The creator signals need a scraped author and posting
+time, so they only fire between scraped videos and undercount. The signals
+mark plays and filter nothing: episodes are still detected on all plays. Both
+config keys are baked in at build, so changing them needs a sessions refresh.
+
 ### Refresh dependencies
 
 Each step is a background job. The graph is declared once, in
 `web_interface/services/refresh_pipeline.py`:
 
 ```
-consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca }
-                                    └────────────────────────────→ { timelines ‖ sessions }
+consolidate → embeddings → video_map (micro-niches) → study definitions → { meta ‖ pca }
+                                    └──────────────────────────────────→ { timelines ‖ sessions }
 ```
 
-Timelines and sessions both read the niche map — timelines joins the niche
+Timelines and sessions both read the micro-niche map — timelines joins the micro-niche
 columns through `new_merge`, sessions reads the map's trend columns — so a map
 rebuild invalidates them even when no study changed. They are scheduled as fork
 leaves regardless, which keeps the dispatch an out-tree with a single fan-out
@@ -1149,7 +1180,7 @@ Dataset Assembly card plans the same cascade of dependents. What actually gets
 dispatched is decided one completion at a time from what each finished step
 reports — `map_niche_changed` / `map_cold_start` from the map, `studies_changed`
 from the study refresh, `embeddings_embedded_run` from the embeddings worker.
-A warm-started map rebuild that moves no video between niches therefore runs
+A warm-started map rebuild that moves no video between micro-niches therefore runs
 nothing downstream at all. Only a positive "nothing changed" prunes; an absent
 signal is unknown, and unknown always runs (see
 [decision 0014](decisions/0014-refresh-runs.md)). How a run is scoped and

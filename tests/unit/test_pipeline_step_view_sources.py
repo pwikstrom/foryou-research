@@ -178,7 +178,10 @@ def test_pruned_rows_are_inert_and_carry_their_reason(stores, monkeypatch):
     """A skipped step says WHY, and adopts no work that ran outside the run."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
     record = _record("video_map_refresh", kind="card", in_flight=False)
-    record["steps"]["timelines_refresh"] = {"state": "pruned", "reason": "no video changed niche"}
+    record["steps"]["timelines_refresh"] = {
+        "state": "pruned",
+        "reason": "no video changed micro-niche",
+    }
     stores["seed"](record)
     # Ran during the window, but this run deliberately skipped it.
     stores["process_stats"]["timelines_refresh"] = {
@@ -191,7 +194,7 @@ def test_pruned_rows_are_inert_and_carry_their_reason(stores, monkeypatch):
 
     row = rows["timelines_refresh"]
     assert row["state"] == "pruned", row
-    assert row["reason"] == "no video changed niche"
+    assert row["reason"] == "no video changed micro-niche"
     assert all(
         row[k] is None
         for k in (

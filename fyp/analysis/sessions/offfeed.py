@@ -23,7 +23,7 @@ and third signals can only fire between scraped videos, and an unknown
 creator or posting time never counts as a match: the signals undercount.
 
 Pure numpy/pandas, no storage or config access, so analysis scripts outside
-the Hub can import it (see docs/decisions/0022-offfeed-signals.md).
+the Hub can import it (see docs/decisions/0028-offfeed-signals.md).
 """
 
 import numpy as np

@@ -130,7 +130,7 @@ function renderStudyMethodsNote(study, note) {
 
     // Semantic map
     if (note.semantic_map && note.semantic_map.embedding_model) {
-        parts.push(`<p class="text-sm">Topic clusters ("niches") come from a semantic map built with the `
+        parts.push(`<p class="text-sm">Topic clusters ("micro-niches") come from a semantic map built with the `
             + `<strong>${escapeHtml(note.semantic_map.embedding_model)}</strong> embedding model`
             + `${note.semantic_map.built_at ? ` on ${fmtD(note.semantic_map.built_at)}` : ''}.</p>`);
     }

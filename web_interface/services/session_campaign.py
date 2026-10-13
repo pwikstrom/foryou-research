@@ -275,7 +275,9 @@ def select_sessions(
         "covered_long_before": int(sum(have.values())),
         "selected_sessions": len(selected),
         "covered_long_after_if_all_succeed": int(sum(after.values())),
-        "participants_at_target_before": int(sum(1 for c in participants if have.get(c, 0) >= target)),
+        "participants_at_target_before": int(
+            sum(1 for c in participants if have.get(c, 0) >= target)
+        ),
         "participants_at_target_after": int(sum(1 for v in after.values() if v >= target)),
         "expected_annotations": round(spent, 1),
         "videos_to_scrape": int(selected["n_to_scrape"].sum()) if len(selected) else 0,
@@ -302,5 +304,7 @@ def campaign_items(
 
 def manifest_hash(manifest: dict) -> str:
     """SHA-256 of the manifest's selection (parameters, sessions, items)."""
-    core = {k: manifest[k] for k in ("params", "sessions", "to_scrape", "to_annotate") if k in manifest}
+    core = {
+        k: manifest[k] for k in ("params", "sessions", "to_scrape", "to_annotate") if k in manifest
+    }
     return hashlib.sha256(json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()

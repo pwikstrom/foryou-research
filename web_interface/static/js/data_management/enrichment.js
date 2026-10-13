@@ -1047,7 +1047,7 @@ const REFRESH_START_OPTIONS = {
     ],
     video_map_refresh: [
         { key: 'reset_labels', label: 'Reset all labels', danger: true,
-          help: 'Regenerate every niche name from scratch instead of carrying stable ones over. Cluster ids are kept, so saved niche-filtered analyses still point at the same clusters.' },
+          help: 'Regenerate every micro-niche name from scratch instead of carrying stable ones over. Cluster ids are kept, so saved micro-niche-filtered analyses still point at the same clusters.' },
     ],
     sessions_refresh: [
         { key: 'force', label: 'Force full rebuild',
@@ -1236,7 +1236,7 @@ function _pendingWork(step, impact) {
                 : '';
         case 'video_map_refresh':
             return n(impact.new_annotations)
-                ? 'Re-clusters the niches once the new videos are embedded' : '';
+                ? 'Re-clusters the micro-niches once the new videos are embedded' : '';
         case 'recode_refresh_studies':
         case 'meta_refresh_groups':
         case 'pca_refresh':

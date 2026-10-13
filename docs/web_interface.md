@@ -36,7 +36,7 @@ Run (see `create_app` in `fyp_data_hub.py`):
 | `api_timelines_routes.py` | Timelines tab |
 | `api_correlations_routes.py` | Correlations tab |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
-| `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences); its data and statistics are `services/sessions_data.py` and `services/sessions_stats.py` |
+| `api_sessions_routes.py` | Sessions tab (session index + focused session episodes + low-entropy sequences); its data and statistics are `services/sessions_data.py` and `services/sessions_stats.py` |
 | `management/` (package) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, data contracts, A/B evaluation, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` (the runtime behind it is `tasks/runtime.py`) |
@@ -326,7 +326,7 @@ what it writes follow it automatically. The graph and the rules live in one
 registry, `services/refresh_pipeline.py`, together with the predicates that
 decide, at each completion, whether the next step has anything to do. A step
 is dispatched only when an upstream step reports that something actually
-changed (embeddings written, videos that moved niche, study datasets rebuilt);
+changed (embeddings written, videos that moved micro-niche, study datasets rebuilt);
 the rule is to prune only on a positive statement of no change, so a missing
 signal always runs. The run is recorded in `process_stats["refresh_pipeline"]`
 and drawn as a wall-clock Gantt above the cards, with a header naming its
@@ -338,7 +338,7 @@ The Consolidate card is one origin among several. Its start dialog carries
 still reports the outcome of a run it started. **Scope:** a run is planned for
 exactly what the consolidation touched — its affected studies and collections
 are the scope of recode, metadata, correlations and timelines, and that scope
-wins even when the semantic map moved videos between niches, because a
+wins even when the semantic map moved videos between micro-niches, because a
 warm-started rebuild moves a couple of percent of the corpus on almost every
 run and widening would turn every run into a full refresh (see [decision
 0014](decisions/0014-refresh-runs.md)). The only unscoped run is one started

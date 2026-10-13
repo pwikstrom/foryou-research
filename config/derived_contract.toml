@@ -97,8 +97,8 @@ dtype = "string[pyarrow]"
 section = "AI Annotations"
 role = "measure"
 scale = "categorical"
-display_name = "Niche"
-description = "Embeddings-derived micro-genre (KMeans cluster of video embeddings, Gemini-named). High-cardinality: tabs surface the top niches by frequency and fold the long tail into 'Other'. Best-effort-stable across map rebuilds."
+display_name = "Micro-niche"
+description = "Embeddings-derived micro-niche (KMeans cluster of video embeddings, Gemini-named). High-cardinality: tabs surface the top micro-niches by frequency and fold the long tail into 'Other'. Best-effort-stable across map rebuilds."
 
 [[fields]]
 name = "niche"
@@ -106,8 +106,8 @@ dtype = "int64[pyarrow]"
 section = "AI Annotations"
 role = "skip"
 scale = "raw"
-display_name = "Niche ID"
-description = "Integer niche cluster id (join key to video_niches.json); hidden from tabs."
+display_name = "Micro-niche ID"
+description = "Integer micro-niche cluster id (join key to video_niches.json); hidden from tabs."
 
 # The two embedding-geometry measures, joined from video_map.parquet alongside
 # the niche label. Both are percentiles, not raw scores: the underlying cosine
@@ -130,8 +130,8 @@ dtype = "double[pyarrow]"
 section = "AI Annotations"
 role = "measure"
 scale = "numeric"
-display_name = "Niche isolation"
-description = "How much company the video's micro-genre keeps — its niche's percentile distance to the NEAREST other niche (100 = the most isolated niche in the corpus). Measured on the same reduced vectors the clustering consumed, and empirically independent of Typicality: a niche can sit far from the corpus average yet keep close company, or be thoroughly ordinary with nothing beside it."
+display_name = "Micro-niche isolation"
+description = "How much company the video's micro-niche keeps — its micro-niche's percentile distance to the NEAREST other micro-niche (100 = the most isolated micro-niche in the corpus). Measured on the same reduced vectors the clustering consumed, and empirically independent of Typicality: a micro-niche can sit far from the corpus average yet keep close company, or be thoroughly ordinary with nothing beside it."
 
 # Recode fan-out of the scrape-owned `desc` (produced by recode_tokenise). Owned
 # here rather than the scrape contract so they never enter BaseScraper.base_columns.

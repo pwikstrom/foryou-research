@@ -171,7 +171,7 @@ approval conditions treat *any* donation-derived record as in scope
 should note this and handle it in their data-management plan.
 
 **Cleared on the next refresh, not immediately.** Session-level artifacts
-(the Sessions tab's session index, binge episodes, and play cache) and
+(the Sessions tab's session index, focused session episodes, and play cache) and
 per-study sequence caches do carry collection identifiers; the delete
 task does not rewrite them. They drop the deleted collection the next
 time a sessions refresh / dataset assembly runs — **run one as part of a

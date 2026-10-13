@@ -625,7 +625,7 @@ def _name_niches(
         renamed = _dedupe_niche_names(meta, _exemplars, lambda prompt: None)
         if reporter is not None:
             reporter.log(
-                f"Named {len(to_name)} niches from top terms (Gemini not "
+                f"Named {len(to_name)} micro-niches from top terms (Gemini not "
                 f"configured; {len(carried_names)} carried over from previous "
                 f"build, {n_retried} generic labels retried, {renamed} duplicate "
                 f"labels renamed)."
@@ -680,8 +680,8 @@ def _name_niches(
     if naming_errors:
         mode, _ = gemini_client.gemini_mode()
         warn = (
-            f"WARNING: {len(naming_errors)} niche-naming call(s) failed "
-            f"(model={naming_model}, gemini_mode={mode}); affected niches fall "
+            f"WARNING: {len(naming_errors)} micro-niche naming call(s) failed "
+            f"(model={naming_model}, gemini_mode={mode}); affected micro-niches fall "
             f"back to term-based labels. First error: {naming_errors[0][:300]}"
         )
         if reporter is not None:
@@ -690,7 +690,7 @@ def _name_niches(
             logger.warning(warn)
     if reporter is not None:
         reporter.log(
-            f"Named {len(to_name)} niches via {naming_model} "
+            f"Named {len(to_name)} micro-niches via {naming_model} "
             f"({len(carried_names)} carried over from previous build, "
             f"{n_retried} generic labels retried, {renamed} duplicate labels "
             f"renamed)."
@@ -810,7 +810,7 @@ def build_niche_map(
     typicality = _typicality(matrix)
 
     if reporter is not None:
-        reporter.update_progress(35, f"Clustering into {n_niches} niches...")
+        reporter.update_progress(35, f"Clustering into {n_niches} micro-niches...")
     n_niches = min(n_niches, len(item_ids))
     # Warm-start from the previous partition unless the operator asked for a
     # reset: the fit then refines the old niches instead of redrawing them, so
@@ -831,12 +831,12 @@ def build_niche_map(
         _log(f"Clustering cold-started with k-means++ ({warm_reason}).")
         kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=0, n_init=5, batch_size=4096)
     labels = kmeans.fit_predict(reduced)
-    _log(f"Assigned {len(item_ids):,} videos to {n_niches} niches.")
+    _log(f"Assigned {len(item_ids):,} videos to {n_niches} micro-niches.")
 
     # Stabilise niche ids/names against the previous build so saved
     # niche-filtered analyses survive a rebuild (see _align_labels_to_previous).
     if reporter is not None:
-        reporter.update_progress(45, "Aligning niche ids to previous build...")
+        reporter.update_progress(45, "Aligning micro-niche ids to previous build...")
     labels, niche_carry, prev_niche_per_item = _align_labels_to_previous(
         item_ids, labels, "niche", "niche_name"
     )
@@ -857,18 +857,18 @@ def build_niche_map(
         new_videos = int((~known).sum())
         niche_changed = int((labels[known] != prev_niche_per_item[known].astype(np.int32)).sum())
     _log(
-        f"Niche assignment: {niche_changed:,} video(s) changed niche, "
+        f"Micro-niche assignment: {niche_changed:,} video(s) changed micro-niche, "
         f"{new_videos:,} newly mapped (cold_start={cold_start})."
     )
     if reset_labels:
         # Force a full re-naming: cluster ids stay aligned to the previous build
         # (saved niche-filtered analyses survive) but every name is regenerated.
         niche_carry = {}
-        _log("reset_labels=True: regenerating all niche names (no carry-over).")
+        _log("reset_labels=True: regenerating all micro-niche names (no carry-over).")
 
     # Pull video_story + first content_category aligned to item_ids for naming.
     if reporter is not None:
-        reporter.update_progress(50, "Loading stories for niche naming...")
+        reporter.update_progress(50, "Loading stories for micro-niche naming...")
     anno = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename=embeddings.ANNOTATIONS_FILE,
@@ -892,7 +892,7 @@ def build_niche_map(
 
     naming_mode = "gemini" if _naming_available() else "terms"
     if reporter is not None:
-        reporter.update_progress(60, f"Naming niches ({naming_mode})...")
+        reporter.update_progress(60, f"Naming micro-niches ({naming_mode})...")
     niche_meta = _name_niches(
         item_ids,
         labels,
@@ -1058,7 +1058,7 @@ def build_niche_map(
         niche_assignment_hash = hashlib.blake2b(_row_hashes.tobytes(), digest_size=16).hexdigest()
     except Exception as exc:
         _log(
-            f"Could not fingerprint the niche assignment ({exc}); "
+            f"Could not fingerprint the micro-niche assignment ({exc}); "
             f"study caches will fall back to the file stat."
         )
         niche_assignment_hash = None
@@ -1081,7 +1081,7 @@ def build_niche_map(
     )
 
     _log(
-        f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} niches) "
+        f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} micro-niches) "
         f"and {MAP_META_FILE} (model={embed_model}, naming={naming_mode})."
     )
     return {

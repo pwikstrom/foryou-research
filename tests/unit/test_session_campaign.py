@@ -56,7 +56,7 @@ def _ids(prefix, n):
 
 
 def _all_done(ids):
-    return {i: (True, False, True, True, False) for i in ids}
+    return dict.fromkeys(ids, (True, False, True, True, False))
 
 
 def test_session_table_counts_and_cost():
@@ -82,7 +82,7 @@ def _scenario():
             ids = _ids(f"{cid}s{j}_", 60)
             spec.append((cid, f"{cid}_s{j}", month, ids))
             rows.update(_all_done(ids[missing:]))
-            rows.update({i: (True, False, True, False, False) for i in ids[:missing]})
+            rows.update(dict.fromkeys(ids[:missing], (True, False, True, False, False)))
     plays = _plays(spec)
     states = sc.item_states(plays["item_id"].unique(), _status(rows))
     return plays, states, sc.session_table(plays, states)
@@ -119,7 +119,7 @@ def test_infeasible_and_short_sessions_are_not_candidates():
     spec, rows = [], {}
     long_dead = _ids("d", 60)
     spec.append(("c1", "dead", "2025-01", long_dead))
-    rows.update({i: (False, True, False, False, False) for i in long_dead[:20]})
+    rows.update(dict.fromkeys(long_dead[:20], (False, True, False, False, False)))
     rows.update(_all_done(long_dead[20:]))
     short = _ids("s", 10)
     spec.append(("c1", "short", "2025-01", short))

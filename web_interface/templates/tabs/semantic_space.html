@@ -11,32 +11,32 @@
         <label class="ss-bar-field">
             <span class="corr-control-label">Colour by</span>
             <select id="ss-color-mode" class="dropdown">
-                <option value="niche">Niche</option>
+                <option value="niche">Micro-niche</option>
                 <option value="category">Content category</option>
                 <option value="popularity">Popularity (plays)</option>
             </select>
         </label>
 
-        <!-- Focus niche: a search + sort combobox rather than a plain
+        <!-- Focus micro-niche: a search + sort combobox rather than a plain
              <select>. The niche list runs to hundreds of entries and is
              the tab's main instrument for finding one, so it has to be
              searchable and re-orderable by the readings the map
              publishes (size, typicality, isolation). -->
         <div class="ss-bar-field">
-            <span class="corr-control-label">Focus niche</span>
+            <span class="corr-control-label">Focus micro-niche</span>
             <div class="ss-niche-picker" id="ss-niche-picker">
                 <button type="button" id="ss-niche-trigger" class="ss-niche-trigger"
                         aria-haspopup="listbox" aria-expanded="false">
-                    <span id="ss-niche-trigger-label">— all niches —</span>
+                    <span id="ss-niche-trigger-label">— all micro-niches —</span>
                     <span class="ss-niche-caret" aria-hidden="true">▾</span>
                 </button>
                 <div id="ss-niche-panel" class="ss-niche-panel" hidden>
                     <div class="ss-niche-panel-head">
                         <input type="text" id="ss-niche-search" class="ss-niche-search text-sm"
-                               placeholder="Search niches…" autocomplete="off"
-                               aria-label="Search niches by name or defining term">
+                               placeholder="Search micro-niches…" autocomplete="off"
+                               aria-label="Search micro-niches by name or defining term">
                         <select id="ss-niche-sort" class="dropdown text-xs"
-                                aria-label="Sort the niche list">
+                                aria-label="Sort the micro-niche list">
                             <option value="size">Most videos</option>
                             <option value="name">A–Z</option>
                             <option value="typicality">Most typical</option>
@@ -44,18 +44,18 @@
                         </select>
                     </div>
                     <div id="ss-niche-list" class="ss-niche-list" role="listbox"
-                         aria-label="Niches"></div>
+                         aria-label="Micro-niches"></div>
                     <div id="ss-niche-count" class="ss-niche-count text-xxs"
                          aria-live="polite"></div>
                 </div>
             </div>
             <button type="button" id="ss-niche-clear" class="ss-niche-clear meta-tooltip tooltip-below"
-                    data-tooltip="Show all niches again" aria-label="Clear the focus niche" hidden>&times;</button>
+                    data-tooltip="Show all micro-niches again" aria-label="Clear the focus micro-niche" hidden>&times;</button>
         </div>
 
         <label class="bar-checkbox">
             <input type="checkbox" id="ss-show-labels" checked>
-            Niche labels
+            Micro-niche labels
         </label>
 
         <!-- Dots already grow as the reader zooms in (see _ssZoomFactor);

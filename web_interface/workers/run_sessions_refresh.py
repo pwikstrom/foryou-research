@@ -1065,7 +1065,7 @@ if __name__ == "__main__":
                 {
                     "type": int,
                     "default": None,
-                    "help": "Consecutive off-theme videos a binge survives",
+                    "help": "Consecutive off-theme videos a focused session episode survives",
                 },
             ),
             (
@@ -1086,6 +1086,6 @@ if __name__ == "__main__":
             ),
         ],
         make_task_args=_make_task_args,
-        description="Build the Sessions-tab artifacts (session index, binge "
-        "episodes, low-entropy windows)",
+        description="Build the Sessions-tab artifacts (session index, focused "
+        "session episodes, low-entropy windows)",
     )

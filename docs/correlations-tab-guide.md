@@ -37,7 +37,7 @@ matters for interpretation.
 
 ### 2.1 Components of categorical variables — "Content category (C0) (15.5%)"
 
-Categorical annotations (content category, main activity, niche, type of story,
+Categorical annotations (content category, main activity, micro-niche, type of story,
 gender, ethnicity, …) can take dozens of values, so a day's feed is a
 *distribution* over those values. For each such variable the Hub runs a
 principal-component analysis (PCA) over the day-level distributions and offers
@@ -54,20 +54,20 @@ the resulting **components** (C0, C1, …) as axes:
   "(share of feed)" column instead; see §2.4.
 - **Only each variable's leading three components are offered.** PCA produces
   as many components as a variable has structure, but the tail is not
-  interpretable: a variable with ~150 niches spreads its variance over a dozen
+  interpretable: a variable with ~150 micro-niches spreads its variance over a dozen
   components explaining 5–15% each, none of which anyone reads substantively.
   The cap is applied *per variable* (not as a single variance floor across all
   of them), so a small variable whose third component still carries 20%+ keeps
   it, while the long tail of a high-cardinality variable is dropped. Each
   variable always keeps its C0, so no variable disappears from the tab.
   Components below 5% variance are dropped from the remaining slots.
-- **Each variable has its own PCA.** Content-category components and niche
+- **Each variable has its own PCA.** Content-category components and micro-niche
   components live in different mathematical spaces. Correlating them is
-  meaningful ("days heavy in this content contrast are also heavy in that niche
+  meaningful ("days heavy in this content contrast are also heavy in that micro-niche
   contrast") but they are not shared axes — the heatmap marks family boundaries
   with separator lines for exactly this reason.
 
-### 2.2 Entropy — "Niche (entropy)"
+### 2.2 Entropy — "Micro-niche (entropy)"
 
 For each categorical variable you also get its **Shannon entropy**: how evenly
 the day's feed was spread across the variable's values. Low entropy = a
@@ -125,10 +125,10 @@ organized by what they measure:
   embedded videos for closeness to the corpus mean direction (100 = closest to
   the average of everything the corpus is about, low = distinctive). The day
   mean answers "how mainstream was this collection-day's feed?".
-- **Niche isolation** — how much company the video's micro-genre keeps: its
-  niche's percentile distance to the *nearest other* niche (100 = the most
-  isolated niche in the corpus). Empirically independent of Typicality — a
-  niche can sit far from the corpus average and still keep close company, or be
+- **Micro-niche isolation** — how much company the video's micro-niche keeps: its
+  micro-niche's percentile distance to the *nearest other* micro-niche (100 = the most
+  isolated micro-niche in the corpus). Empirically independent of Typicality — a
+  micro-niche can sit far from the corpus average and still keep close company, or be
   thoroughly ordinary with nothing beside it.
 
 > **These two are percentiles, not distances, and they are computed by the

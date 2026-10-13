@@ -18,8 +18,8 @@ downloaded media to a pluggable LLM backend (Google Gemini by default;
 hosted Qwen or fully-local models) for structured content annotation. A
 **consolidation + recode** step merges activity, scrape, and annotation data
 into per-study datasets, which the **analysis layer** (PCA, ANOVA,
-PERMANOVA, timelines, sequence analysis, semantic embeddings, session/binge
-profiling) and the **Flask dashboard** consume.
+PERMANOVA, timelines, sequence analysis, semantic embeddings, session and
+focused-session-episode profiling) and the **Flask dashboard** consume.
 
 ```
 donation zips ─► ingest ─► activity parquet ─┐
@@ -145,7 +145,7 @@ Two additions keep the heavy analysis paths O(batch) rather than O(corpus):
   from ever centring on a stale mean. This is what made the sessions build
   batch-sized and fixed the PCA refresh's memory blow-up.
 - **Sessions subsystem**. `fyp/analysis/sessions/` segments
-  sessions and binge episodes; `web_interface/workers/run_sessions_refresh.py`
+  sessions and focused session episodes; `web_interface/workers/run_sessions_refresh.py`
   is a self-chaining Cloud Task that segments a few collections per link
   against the sidecar and folds per-link shards into the Sessions-tab
   artifacts on the final link. The build is scoped to the collections and

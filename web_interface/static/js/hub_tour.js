@@ -213,7 +213,7 @@
             list.push({
                 target: '#sess-detail',
                 title: 'Sessions: inside a single scroll',
-                body: 'One sitting on the feed, play by play. The coloured bands are binges: runs of videos whose content stays close together. Pick one and step through it in watch order.',
+                body: 'One sitting on the feed, play by play. The coloured bands are focused session episodes: runs of videos whose content stays close together. Pick one and step through it in watch order.',
                 onEnter: async () => {
                     await ensureDefaultStudy();
                     navigate('sessions');

@@ -10,6 +10,40 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Off-feed plays are marked on the Sessions tab.** A watch history does not
+  say how each video was opened. Plays that the For You feed probably did not
+  serve are now marked "likely off-feed": those that came shortly after a
+  search or follow, those by the same creator as the previous play, and runs
+  of one creator's videos in the order they were posted (the order of a
+  profile page). The player and the play list show the signals, each focused
+  session episode says how many of its videos are likely off-feed, and the
+  session header counts them. Episodes are still detected on all plays. A
+  sessions refresh rebuilds every collection once to add the marks.
+- **Session campaigns.** `scripts/session_campaign.py` selects long viewing
+  sessions that are close to fully scraped and annotated, balanced across
+  participants with a per-month cap and a budget, and queues exactly their
+  missing videos (annotation through the batch annotator), so that whole
+  sessions can be analysed.
+- `[sessions] clip_to_study_windows` (default true): set it to false to build
+  each study collection over its whole history rather than its studies' date
+  windows.
+- The sessions build records the code version that built it
+  (`sessions_meta.json` `code_version`; pass the commit to the app image
+  build as `_GIT_SHA`).
+
+### Changed
+
+- **"Focused session episode" replaces "binge"** on the Sessions tab and in
+  the docs, and **"micro-niche" replaces "niche"** throughout (Semantic Space,
+  variable names, help). Code, config keys and API names are unchanged.
+- The Sessions tab says "viewing time" instead of "dwell", and shows looped
+  plays as, for example, "(looped, 2.5x)" instead of capping at 100%.
+- The "directed" episode badge describes what the test shows (content moving
+  away from where it started more directly than chance) and no longer calls it
+  the rabbit-hole shape. The help text gives the current minimum episode span.
+
 ## [0.5.0] — 2026-10-08
 
 Comment text becomes a per-role permission, and variables are customized

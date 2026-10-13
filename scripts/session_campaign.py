@@ -77,7 +77,9 @@ def cmd_plan(args) -> int:
     exclude = set()
     if args.exclude_file:
         exclude = {
-            line.strip() for line in Path(args.exclude_file).read_text().splitlines() if line.strip()
+            line.strip()
+            for line in Path(args.exclude_file).read_text().splitlines()
+            if line.strip()
         }
     cids = _study_collections(exclude)
     plays, status, states = _load_inputs(cids)

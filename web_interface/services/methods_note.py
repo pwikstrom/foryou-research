@@ -164,7 +164,7 @@ def _semantic_map_block(df_study: pd.DataFrame | None) -> dict | None:
             "embedding_model": meta.get("embedding_model"),
             "built_at": meta.get("built_at"),
             "n_niches": meta.get("n_niches"),
-            "note": "Topic-cluster (niche) columns come from a semantic map of video embeddings.",
+            "note": "Topic-cluster (micro-niche) columns come from a semantic map of video embeddings.",
         }
     except Exception as exc:
         logger.warning(f"[MethodsNote] Could not read video_map_meta.json: {exc}")
