@@ -211,6 +211,7 @@ def cmd_queue(args) -> int:
             f"retrying {len(retry)} (seed {args.seed})"
         )
         if args.retry_out:
+            Path(args.retry_out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.retry_out).write_text("\n".join(retry) + "\n")
             print(f"Retry sample written to {args.retry_out} (keep it gitignored)")
     if args.dry_run:
