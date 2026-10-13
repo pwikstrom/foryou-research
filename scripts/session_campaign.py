@@ -215,6 +215,10 @@ def cmd_queue(args) -> int:
             print(f"Retry sample written to {args.retry_out} (keep it gitignored)")
     if args.dry_run:
         return 0
+    if args.retry_only:
+        # Only the earlier failures: safe before consolidation, when the
+        # manifest's other videos may already be scraped but look unscraped.
+        by_platform, annotate = {}, []
     for platform, items in by_platform.items():
         scrape_queues.append_to_scrape_queue(platform, items)
         print(f"Queued {len(items)} for scraping on {platform}")
@@ -312,6 +316,11 @@ def main(argv=None) -> int:
     )
     q.add_argument("--seed", type=int, default=0, help="seed for the --retry-no-reason draw")
     q.add_argument("--retry-out", default=None, help="write the retried ids here (gitignored)")
+    q.add_argument(
+        "--retry-only",
+        action="store_true",
+        help="queue only the --retry-no-reason videos, not the manifest's (safe before consolidation)",
+    )
     q.add_argument("--dry-run", action="store_true")
     r = sub.add_parser("report")
     r.add_argument("--name", required=True)
