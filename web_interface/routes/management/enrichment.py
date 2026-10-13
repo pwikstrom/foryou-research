@@ -826,50 +826,23 @@ def queue_voted_videos():
             }
         )
 
-    # 3. Check Enrichment Status
+    # 3. Check Enrichment Status: what still needs a scrape, what can be
+    # annotated now (the shared rule; an id absent from the status file has
+    # never been scraped).
     df_status = load_enrichment_status()
+    if df_status is not None and not df_status.empty and "item_id" not in df_status.columns:
+        df_status = df_status.reset_index()
+        if "index" in df_status.columns and "item_id" not in df_status.columns:
+            df_status = df_status.rename(columns={"index": "item_id"})
+    if df_status is not None and df_status.empty:
+        df_status = None
 
     default_platform = scrape_queues.default_platform()
-    new_scrape = []
-    new_annotate = []
-    item_platform: dict[str, str] = {}
-
-    if df_status is not None and not df_status.empty:
-        if "item_id" not in df_status.columns:
-            df_status = df_status.reset_index()
-            if "index" in df_status.columns and "item_id" not in df_status.columns:
-                df_status = df_status.rename(columns={"index": "item_id"})
-
-        # Convert status ids to set for fast lookup
-        status_records = df_status.set_index("item_id").to_dict("index")
-
-        for item in target_item_ids:
-            if item in status_records:
-                rec = status_records[item]
-                is_scraped = rec.get("scraped_ok", False)
-                is_annotated = rec.get("annotated_ok", False)
-                scrape_fail = rec.get("scrape_fail", False)
-                annotated_fail = rec.get("annotated_fail", False)
-                has_media = rec.get("video_downloaded", False)
-                plat = rec.get("source_platform")
-                item_platform[item] = plat if isinstance(plat, str) and plat else default_platform
-
-                # Annotation needs an mp4: metadata-only items (e.g.
-                # YouTube long-form past the media duration cap) are not
-                # annotatable and stay out of the queue.
-                if not is_scraped and not scrape_fail:
-                    new_scrape.append(item)
-                elif is_scraped and has_media and not is_annotated and not annotated_fail:
-                    new_annotate.append(item)
-            else:
-                # Item not in enrichment status -> hasn't been scraped yet
-                new_scrape.append(item)
-    else:
-        # No enrichment file -> everything needs scraping
-        new_scrape = list(target_item_ids)
-
-    new_scrape = list(set(new_scrape))
-    new_annotate = list(set(new_annotate))
+    scrape_by_platform, new_annotate = collection_enrichment.classify_for_enrichment(
+        target_item_ids, df_status, default_platform
+    )
+    item_platform = {i: p for p, ids in scrape_by_platform.items() for i in ids}
+    new_scrape = list(item_platform)
 
     new_scrape, scrape_cap_info = _apply_queue_cap(new_scrape, "scrape")
     new_annotate, annotate_cap_info = _apply_queue_cap(new_annotate, "annotation")
@@ -895,14 +868,7 @@ def queue_voted_videos():
     if new_annotate:
         # Atomic append: ids claimed/pruned meanwhile by an annotation
         # worker are never clobbered by this write.
-        data_io.update_json(
-            storage_location="cache",
-            filename="to_annotate.json",
-            mutate=lambda current: list(
-                set(current if isinstance(current, list) else []) | set(new_annotate)
-            ),
-            default=[],
-        )
+        collection_enrichment.queue_for_annotation(new_annotate)
 
     return jsonify(
         {

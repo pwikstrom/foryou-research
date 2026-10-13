@@ -1386,6 +1386,56 @@ def handoff_scraped(
     return {"ready": eligible, "in_flight": remaining}
 
 
+def classify_for_enrichment(
+    item_ids, status: pd.DataFrame | None, default_platform: str, platform_of: dict | None = None
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Split ids into what still needs a scrape and what can be annotated now.
+
+    The one classification behind every "queue these videos" action: an id
+    not yet scraped (and not permanently failed) goes to its platform's scrape
+    queue; a scraped id with media that is neither annotated nor permanently
+    failed goes to annotation (the :func:`annotation_eligible` rule). Anything
+    else is done or dead and is left alone.
+
+    Args:
+        item_ids: Candidate ids.
+        status: Enrichment status indexed by item_id (or with an ``item_id``
+            column); None means nothing has been scraped.
+        default_platform: Scrape queue for ids whose platform is unknown.
+        platform_of: Optional {item_id: platform}, taking precedence over the
+            status's ``source_platform``.
+
+    Returns:
+        ``({platform: [ids to scrape]}, [ids to annotate])``, each sorted.
+    """
+    ids = list(dict.fromkeys(str(i) for i in item_ids if str(i)))
+    if status is not None and status.index.name != "item_id" and "item_id" in status.columns:
+        status = status.assign(item_id=status["item_id"].astype(str)).drop_duplicates("item_id")
+        status = status.set_index("item_id")
+    platform_of = platform_of or {}
+    to_annotate = set(annotation_eligible(ids, status)) if status is not None else set()
+    idx = pd.Index(ids)
+
+    def _flag(name: str) -> np.ndarray:
+        if status is None or name not in status.columns:
+            return np.zeros(len(ids), dtype=bool)
+        return status[name].reindex(idx).fillna(False).to_numpy(dtype=bool)
+
+    needs_scrape = ~_flag("scraped_ok") & ~_flag("scrape_fail")
+    status_platform = (
+        status["source_platform"].reindex(idx).to_numpy()
+        if status is not None and "source_platform" in status.columns
+        else np.full(len(ids), None)
+    )
+    to_scrape: dict[str, list[str]] = {}
+    for iid, need, plat in zip(ids, needs_scrape, status_platform):
+        if not need:
+            continue
+        p = platform_of.get(iid) or (plat if isinstance(plat, str) and plat else default_platform)
+        to_scrape.setdefault(p, []).append(iid)
+    return {p: sorted(v) for p, v in to_scrape.items()}, sorted(to_annotate)
+
+
 def queue_for_annotation(item_ids: list[str]) -> int:
     """Append ids to the global annotation queue atomically. Returns how many."""
     ids = [str(i) for i in item_ids if str(i)]
