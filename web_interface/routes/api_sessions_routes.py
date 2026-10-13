@@ -87,6 +87,8 @@ _OVERVIEW_COLS = [
     "episode_play_frac",
     "dominant_niche",
     "n_niches",
+    "n_offfeed",
+    "offfeed_share",
 ]
 
 # Columns the overview's ad-hoc range filters (the collapsible filter panel)
@@ -605,6 +607,9 @@ def api_sessions_detail():
                 if f is None
                 else sessions_data.clean(f.get("sensitivity_score")),
                 "episode_idx": episode_idx,
+                # Off-feed signal bitmask (fyp.analysis.sessions.offfeed);
+                # None on artifacts built before the signals existed.
+                "offfeed": sessions_data.clean(row.get("offfeed_signals")),
             }
         )
 

@@ -1008,6 +1008,8 @@ def session_episodes(collection_id: str, session_id: str) -> list[dict]:
         ts = _as_list(row["member_ts"])
         dwell = _as_list(row["member_dwell_s"])
         roll = _as_list(row["member_rolling_cosdist"])
+        # Absent on artifacts built before the off-feed signals.
+        off = _as_list(row["member_offfeed"]) if "member_offfeed" in row.index else []
         for i, iid in enumerate(ids):
             members.append(
                 {
@@ -1015,6 +1017,7 @@ def session_episodes(collection_id: str, session_id: str) -> list[dict]:
                     "ts": ts[i] if i < len(ts) else None,
                     "dwell_s": clean(dwell[i]) if i < len(dwell) else None,
                     "rolling_cosdist": clean(roll[i]) if i < len(roll) else None,
+                    "offfeed": clean(off[i]) if i < len(off) else None,
                 }
             )
         ep = {
@@ -1045,6 +1048,8 @@ def session_episodes(collection_id: str, session_id: str) -> list[dict]:
                 "advertising_share",
                 "mean_political",
                 "mean_sensitivity",
+                "n_offfeed",
+                "offfeed_share",
             )
         }
         ep["members"] = members

@@ -1,4 +1,5 @@
-// Sessions tab — session-quality explorer + binge / low-entropy-sequence inspector.
+// Sessions tab — session-quality explorer + focused-session-episode /
+// low-entropy-sequence inspector. (Code and API names still say `binge`/`episode`.)
 //
 // Left rail: the active study's sessions as a sticky-header table, sortable by
 // clicking column headings. Main pane: the selected session's play-by-play
@@ -67,7 +68,31 @@ const SESS_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 const SESS_PARAM_FALLBACKS = {
     min_videos: 4, min_minutes: 1, max_skip: 2, flick_seconds: 3, window_n: 6,
     max_windows: 3, context_plays: 3, drift_p: 0.05, trend_min_videos: 7,
+    offfeed_window_s: 120, offfeed_min_run: 3,
 };
+
+// Off-feed signal bits (fyp/analysis/sessions/offfeed.py SIG_*).
+const SESS_OFFFEED_BITS = [
+    [1, 'search', (p) => `a search in the ${Math.round(p.offfeed_window_s / 60)} minutes before`],
+    [2, 'follow', (p) => `a follow in the ${Math.round(p.offfeed_window_s / 60)} minutes before`],
+    [4, 'same creator', () => 'same creator as the previous play'],
+    [8, 'posting order', (p) => `part of a run of ${p.offfeed_min_run}+ videos by one creator in posting order`],
+];
+
+// Plain-language list of the signals set in one bitmask ('' when none).
+function sessOffFeedSignals(mask) {
+    const m = Number(mask);
+    if (!Number.isFinite(m) || m <= 0) { return []; }
+    const p = sessParams();
+    return SESS_OFFFEED_BITS.filter(([bit]) => (m & bit) !== 0).map(([, , text]) => text(p));
+}
+
+const SESS_OFFFEED_EXPLAINER = 'The watch history does not say how a video was opened. '
+    + 'A play is marked likely off-feed when it was probably not served by the For You feed: '
+    + 'it came shortly after a search or follow, it is by the same creator as the previous play '
+    + '(the feed rarely shows one creator twice in a row), or it belongs to a run of videos by '
+    + 'one creator in the order they were posted, which is the order of a creator’s profile. '
+    + 'The creator signals need scraped videos, so some off-feed viewing goes unmarked.';
 
 
 
@@ -92,10 +117,10 @@ function sessCreatorTooltip(c) {
             + 'so this run cannot be classified as single- or multi-creator.';
     }
     const base = c.n_creators === 1
-        ? 'Every attributed video in this run is by the SAME creator — the donor was '
-          + 'sitting on one account, rather than being served a topic assembled across creators.'
-        : `${c.n_creators} different creators — the feed assembled this run across accounts, `
-          + 'not from one creator’s page.';
+        ? 'Every attributed video in this run is by the same creator. The For You feed '
+          + 'rarely shows one creator twice in a row, so runs like this were usually watched '
+          + 'from the creator’s profile or a link (see the off-feed marks).'
+        : `${c.n_creators} different creators: the run was assembled across accounts.`;
     return c.n_attributed < c.n_items
         ? `${base} Counted over the ${c.n_attributed} of ${c.n_items} videos with a known creator.`
         : base;
@@ -172,7 +197,7 @@ const SESS_FILTERS = [
       bounds: (r) => [Math.floor(r[0] * 1000), Math.ceil(r[1] * 1000)],
       fmt: (v) => (v / 1000).toFixed(2),
       param: (v) => String(v / 1000) },
-    { key: 'binges', label: 'Binge count', rangeKey: 'n_episodes',
+    { key: 'binges', label: 'Episode count', rangeKey: 'n_episodes',
       paramMin: 'f_binges_min', paramMax: 'f_binges_max',
       bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
       fmt: (v) => String(v),
@@ -319,9 +344,9 @@ function sessBuildVarMaxRow(varMaxRanges, varLabels) {
     const tooltip = 'Pick a per-video variable; sessions are kept when the LARGEST '
         + 'value across the session’s videos falls in this range. Sessions with '
         + 'no value for the variable are hidden while the range is narrowed.';
-    const scopeTooltip = 'ON: keep sessions where at least one BINGE’s largest value '
-        + 'of the variable falls in the range — the filter looks inside binges only, '
-        + 'so sessions without a matching binge are hidden. OFF: the largest value '
+    const scopeTooltip = 'ON: keep sessions where at least one focused session episode’s largest value '
+        + 'of the variable falls in the range — the filter looks inside episodes only, '
+        + 'so sessions without a matching episode are hidden. OFF: the largest value '
         + 'is taken across the whole session.';
     const options = ['<option value="">Filter by variable max…</option>']
         .concat(vars.map(v => `<option value="${escapeHtml(v)}"${v === sessState.varMax.col ? ' selected' : ''}>`
@@ -334,7 +359,7 @@ function sessBuildVarMaxRow(varMaxRanges, varLabels) {
             <select class="sess-varmax-select text-xxs">${options.join('')}</select>
             <label class="sess-varmax-scope text-xxs meta-tooltip" data-tooltip="${escapeHtml(scopeTooltip)}">
                 <input type="checkbox" class="sess-varmax-scope-cb"${sessState.varMax.scope === 'binges' ? ' checked' : ''}${sessState.varMax.col ? '' : ' disabled'}>
-                binges only
+                episodes only
             </label>
         </div>
         <div class="sess-varmax-slider"></div>`;
@@ -583,10 +608,10 @@ const SESS_COLUMNS = [
         + `embedding distance over any ${p.window_n} consecutive distinct embedded videos. `
         + '0 = near-identical content, ~0.9+ = unrelated. Lower = a more homogeneous '
         + 'stretch existed. Click the header to rank sessions by it.' },
-    { key: 'n_episodes', label: 'Binges', defaultOrder: 'desc',
-      tooltip: (p) => 'Detected binges in this session. A superscript ✳ marks a session '
-        + 'containing at least one DIRECTED binge — one whose content travels rather than '
-        + 'circling a topic, established against reorderings of that binge’s own videos '
+    { key: 'n_episodes', label: 'Episodes', defaultOrder: 'desc',
+      tooltip: (p) => 'Focused session episodes detected in this session. A superscript ✳ marks a session '
+        + 'containing at least one DIRECTED episode — one whose content moves away from where it '
+        + 'started more directly than reorderings of that episode’s own videos '
         + `at p < ${p.drift_p}.` },
 ];
 
@@ -842,17 +867,19 @@ function sessApplyParamCopy() {
     const p = sessParams();
     const binge = document.getElementById('sess-binge-help');
     if (binge) {
-        binge.dataset.tooltip = `A binge is a maximal run of ${p.min_videos}+ distinct videos `
+        binge.dataset.tooltip = `A focused session episode is a maximal run of ${p.min_videos}+ distinct videos `
             + `(over ${p.min_minutes}+ minutes) within the session where each next video stays `
-            + 'semantically close to the running centre of the previous ones. Rewatches extend a '
-            + 'binge but don’t count as new videos. '
+            + 'semantically close to the running centre of the previous ones. Rewatches extend an '
+            + 'episode but don’t count as new videos. '
             + `Up to ${p.max_skip} off-theme videos in a row (typically ads) are tolerated without `
-            + 'ending the binge — an immediate return to the theme means it never ended. '
+            + 'ending the episode — an immediate return to the theme means it never ended. '
             + (p.flick_seconds > 0
                 ? `Off-theme videos flicked past in under ${p.flick_seconds}s don't count toward `
                     + 'that limit — rejecting a video is not leaving the theme. '
                 : '')
-            + 'Tolerated videos are not members and are reported separately as "off-theme skipped".';
+            + 'Tolerated videos are not members and are reported separately as "off-theme skipped". '
+            + 'Episodes are detected on all plays, including plays the For You feed probably did '
+            + 'not serve; each card says how many of its videos are likely off-feed.';
     }
     const seq = document.getElementById('sess-seq-help');
     if (seq) {
@@ -862,35 +889,39 @@ function sessApplyParamCopy() {
             + 'embeddings (the best one is the session’s score in the table). Because all windows '
             + 'are the same size, their spectral entropy is directly comparable — “low entropy” '
             + 'means the content spans few independent semantic directions. Found by exhaustive '
-            + 'search, independent of the binge detector, so they can confirm a binge or reveal a '
+            + 'search, independent of the episode detector, so they can confirm an episode or reveal a '
             + 'focused stretch it missed. '
             + `Sequences carry no trend scan: at ${p.window_n} videos only a perfectly ordered `
             + 'variable could survive correction, and roughly 3% of sequences show one by chance, '
-            + 'so any result would be noise. Binges are scanned instead.';
+            + 'so any result would be noise. Episodes are scanned instead.';
     }
 }
 
 
 
 
-// Share of the video's full length that was watched, as a whole percent
-// (dwell ÷ video duration, clipped to 0–100). Null when either is unknown.
-function sessCompletionPct(dwellS, durationS) {
+// Viewing time ÷ video length (completion), uncapped. Null when either is
+// unknown. Above 1 the video looped.
+function sessCompletion(dwellS, durationS) {
     const dwell = Number(dwellS);
     const dur = Number(durationS);
     if (!Number.isFinite(dwell) || !Number.isFinite(dur) || dur <= 0) { return null; }
-    return Math.round(100 * Math.min(Math.max(dwell / dur, 0), 1));
+    return Math.max(dwell / dur, 0);
 }
 
 
 
 
-// "12s (40%)" — watch time with the completion share when the video's length
-// is known (it isn't for unscraped videos).
+// "12s (40%)", or "50s (looped, 2.5×)" — viewing time with completion when the
+// video's length is known (it isn't for unscraped videos).
 function sessDwellText(dwellS, durationS) {
     if (dwellS == null) { return null; }
-    const pct = sessCompletionPct(dwellS, durationS);
-    return `${Math.round(dwellS)}s${pct != null ? ` (${pct}%)` : ''}`;
+    const c = sessCompletion(dwellS, durationS);
+    let share = '';
+    if (c != null) {
+        share = c > 1 ? ` (looped, ${c.toFixed(1)}×)` : ` (${Math.round(100 * c)}%)`;
+    }
+    return `${Math.round(dwellS)}s${share}`;
 }
 
 
@@ -989,9 +1020,9 @@ function sessBingeCell(s, params) {
     const directed = s.n_directed_episodes;
     const mark = (directed != null && directed > 0)
         ? `<sup class="meta-tooltip" style="color: var(--color-warning); cursor: help;" data-tooltip="${escapeHtml(
-            `${directed} of ${s.n_episodes} binge(s) here are DIRECTED — the content travels `
-            + `rather than circling one topic, at p < ${p.drift_p} against `
-            + 'reorderings of the binge’s own videos.')}">✳</sup>`
+            `${directed} of ${s.n_episodes} episode(s) here are DIRECTED — the content moves `
+            + 'away from where it started more directly than reorderings of the episode’s own '
+            + `videos (p < ${p.drift_p}).`)}">✳</sup>`
         : '';
     return `<span style="color: var(--color-accent);" class="font-medium">${s.n_episodes}</span>${mark}`;
 }
@@ -1207,6 +1238,10 @@ function sessRenderDetailHeader(data) {
         `coverage ${(100 * (s.coverage_embedded || 0)).toFixed(0)}% embedded / ${(100 * (s.coverage_annotated || 0)).toFixed(0)}% annotated / ${(100 * (s.coverage_scraped || 0)).toFixed(0)}% scraped`,
         `low-entropy min ${score}`,
         s.dominant_niche ? `mostly “${escapeHtml(s.dominant_niche)}”` : null,
+        (s.n_offfeed != null && s.n_offfeed > 0)
+            ? `<span class="meta-tooltip tooltip-below" data-tooltip="${escapeHtml(SESS_OFFFEED_EXPLAINER)}">`
+              + `${s.n_offfeed} of ${s.n_plays} plays likely off-feed</span>`
+            : null,
     ].filter(Boolean);
     const ranges = data.session_ranges || [];
     const outsideBadge = s.in_study === false
@@ -1402,11 +1437,12 @@ function sessRenderStrip(data) {
         const p = plays[Number(idx)];
         const bits = [
             `#${Number(idx) + 1}` + (p.niche_name
-                ? ` · <b>${escapeHtml(p.niche_name)}</b>` : ' · <i>no niche</i>'),
+                ? ` · <b>${escapeHtml(p.niche_name)}</b>` : ' · <i>no micro-niche</i>'),
             p.story ? escapeHtml(p.story.slice(0, 160)) : null,
-            `${sessFmtTs(p.ts)} · dwell ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
+            `${sessFmtTs(p.ts)} · viewing time ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
             p.embedded ? null : 'not embedded',
-            (p.episode_idx != null) ? `binge ${p.episode_idx + 1}` : null,
+            (p.episode_idx != null) ? `episode ${p.episode_idx + 1}` : null,
+            p.offfeed ? `likely off-feed: ${sessOffFeedSignals(p.offfeed).join('; ')}` : null,
         ].filter(Boolean);
         tooltip.innerHTML = bits.join('<br>');
         tooltip.style.display = 'block';
@@ -1584,11 +1620,39 @@ function sessSkippedHtml(ep) {
     if (!n) { return ''; }
     const max = sessParams().max_skip;
     return `<span class="meta-tooltip sess-skipped" data-tooltip="${escapeHtml(
-        `${n} video${n > 1 ? 's' : ''} inside this binge were off-theme — most often ads. `
-        + `The binge survives up to ${max} watched ones in a row (flicked-past videos don't `
-        + 'count), on the view that an immediate return to the theme means the binge never '
+        `${n} video${n > 1 ? 's' : ''} inside this episode were off-theme — most often ads. `
+        + `The episode survives up to ${max} watched ones in a row (flicked-past videos don't `
+        + 'count), on the view that an immediate return to the theme means the episode never '
         + 'ended. They are not counted as members: they '
         + 'do not enter the focus score, the distance metrics, or the creator count.')}">${n} off-theme skipped</span>`;
+}
+
+
+
+
+// How many of an episode's videos carry an off-feed signal, and which ones.
+// Empty on artifacts built before the signals existed.
+function sessOffFeedHtml(ep) {
+    if (ep.n_offfeed == null) { return ''; }
+    const n = sessNum(ep.n_offfeed, 0);
+    const k = sessNum(ep.n_distinct, 0);
+    if (!n) {
+        return `<span class="meta-tooltip" data-tooltip="${escapeHtml(
+            'None of this episode’s videos carries an off-feed signal. ' + SESS_OFFFEED_EXPLAINER)}">no off-feed marks</span>`;
+    }
+    const counts = new Map();
+    for (const m of ep.members || []) {
+        for (const [bit, label] of SESS_OFFFEED_BITS) {
+            if ((Number(m.offfeed) & bit) !== 0) { counts.set(label, (counts.get(label) || 0) + 1); }
+        }
+    }
+    const which = [...counts.entries()].map(([label, c]) => `${label} ${c}`).join(', ');
+    const mostly = k && n / k >= 0.5
+        ? ' <span class="sess-badge text-xxs">mostly off-feed</span>' : '';
+    return `<span class="meta-tooltip" data-tooltip="${escapeHtml(
+        `${n} of ${k} videos in this episode were probably not served by the For You feed`
+        + (which ? ` (${which}; a video can carry more than one signal)` : '') + '. '
+        + SESS_OFFFEED_EXPLAINER)}">${n} of ${k} likely off-feed${which ? ` (${escapeHtml(which)})` : ''}</span>${mostly}`;
 }
 
 
@@ -1606,9 +1670,9 @@ function sessBingeShape(ep) {
             tooltip: ep.n_distinct != null && ep.n_distinct < 5
                 ? `Only ${ep.n_distinct} videos — too few to tell a real direction from `
                   + 'chance: with so few videos, every possible watch order looks about '
-                  + 'as "straight" as every other, so no binge this short can be shown '
+                  + 'as "straight" as every other, so no episode this short can be shown '
                   + 'to be directed, whatever its shape.'
-                : 'This binge predates the directedness check. Rebuild the sessions '
+                : 'This episode predates the directedness check. Rebuild the sessions '
                   + 'artifacts (Dataset Assembly → Sessions) to compute it.',
         };
     }
@@ -1616,13 +1680,14 @@ function sessBingeShape(ep) {
     if (p < cut) {
         return {
             label: 'directed',
-            tooltip: 'Directed: the content travels — the binge ends on noticeably '
-                + 'different content from where it began (the "rabbit hole" shape). '
+            tooltip: 'Directed: the content moves away from where it started — the episode '
+                + 'ends on noticeably different content from where it began. '
                 + 'How we know: we compared the actual watch order against random '
                 + `shufflings of the same videos, and only ${(100 * p).toFixed(1)}% of `
-                + 'shufflings move this consistently from start to finish — so the '
-                + 'real order almost certainly heads somewhere on purpose rather than '
-                + `by chance (p = ${p.toFixed(3)}; we call a binge directed below ${cut}).`,
+                + 'shufflings move this consistently from start to finish, so the '
+                + 'real order is unlikely to be chance '
+                + `(p = ${p.toFixed(3)}; we call an episode directed below ${cut}). `
+                + 'It says nothing about why: the feed, the viewer’s own choices or both.',
         };
     }
     return {
@@ -1650,8 +1715,8 @@ function sessTrendHtml(scan) {
         const t = scan.trend;
         const arrow = t.direction === 'rising' ? '↑' : '↓';
         return wrap(
-            `${arrow} ${t.label} ${t.direction} across this binge (ρ ${t.rho > 0 ? '+' : ''}${t.rho})`,
-            `${t.label} keeps ${t.direction} from the start of this binge to its end. `
+            `${arrow} ${t.label} ${t.direction} across this episode (ρ ${t.rho > 0 ? '+' : ''}${t.rho})`,
+            `${t.label} keeps ${t.direction} from the start of this episode to its end. `
             + 'We measured how consistently it moves in one direction across the '
             + `${t.n} videos (a rank correlation, Spearman’s ρ = ${t.rho}: +1 would be `
             + 'a perfectly steady rise, −1 a perfectly steady fall), and how often '
@@ -1664,16 +1729,16 @@ function sessTrendHtml(scan) {
     }
     if (!scan.scanned) {
         const why = scan.n_members < scan.min_n
-            ? `this binge has ${scan.n_members} videos and the check needs at least ${scan.min_n}`
+            ? `this episode has ${scan.n_members} videos and the check needs at least ${scan.min_n}`
             : 'none of the numeric variables has values for enough of its videos';
         return wrap('no trend scan', `Not tested — ${why}. `
             + 'With this few videos, pure chance can easily produce a clean-looking '
             + 'rise or fall, so any "trend" reported here would be unreliable. That is '
-            + 'a limit of the check, NOT evidence that nothing changes across the binge.');
+            + 'a limit of the check, NOT evidence that nothing changes across the episode.');
     }
     return wrap(`no trend (${scan.scanned} variables)`,
         `${scan.scanned} numeric variables were each checked for a steady rise or fall `
-        + 'across this binge; none passed. With a run this short, only a very strong, '
+        + 'across this episode; none passed. With a run this short, only a very strong, '
         + 'almost perfectly ordered change can pass the check — so a real but modest '
         + 'change could still be present without showing up here.');
 }
@@ -1689,7 +1754,7 @@ function sessRenderSeqList(data) {
 
     if (!data.episodes.length) {
         epHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
-            + 'No binges detected in this session.</div>';
+            + 'No focused session episodes detected in this session.</div>';
     }
     for (const ep of data.episodes) {
         const shape = sessBingeShape(ep);
@@ -1700,15 +1765,16 @@ function sessRenderSeqList(data) {
         entry.dataset.seq = `binge:${ep.episode_idx}`;
         entry.innerHTML = `
             <span class="text-sm font-medium" style="color: ${sessEpisodeColor(ep.episode_idx)};">
-                Binge ${ep.episode_idx + 1} · ${escapeHtml(ep.dominant_niche || 'mixed')}
+                Episode ${ep.episode_idx + 1} · ${escapeHtml(ep.dominant_niche || 'mixed')}
             </span>
             <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <span>${ep.n_distinct} videos</span>
                 <span>${sessFmtMinutes(ep.duration_min)}</span>
                 ${sessSkippedHtml(ep)}
                 ${creators ? `<span class="meta-tooltip${(ep.creators && ep.creators.n_creators === 1) ? ' sess-solo-creator' : ''}" data-tooltip="${escapeHtml(sessCreatorTooltip(ep.creators))}">${escapeHtml(creators)}</span>` : ''}
-                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance across ALL ${ep.n_distinct} of this binge's videos (no best-window search). Same 0–1 scale as the low-entropy sequences, but an average over the binge's whole membership — a single loosely-matching member raises it.">avg distance ${ep.focus != null ? ep.focus.toFixed(3) : '–'}</span>
+                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance across ALL ${ep.n_distinct} of this episode's videos (no best-window search). Same 0–1 scale as the low-entropy sequences, but an average over the episode's whole membership — a single loosely-matching member raises it.">avg distance ${ep.focus != null ? ep.focus.toFixed(3) : '–'}</span>
                 <span class="sess-badge text-xxs meta-tooltip" data-tooltip="${escapeHtml(shape.tooltip)}">${escapeHtml(shape.label)}</span>
+                ${sessOffFeedHtml(ep)}
             </span>
             ${sessTrendHtml(ep.trend_scan)}`;
         entry.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
@@ -1737,7 +1803,7 @@ function sessRenderSeqList(data) {
     } else if (!windows.length) {
         winHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
             + `${nHidden === 1 ? 'The one detected sequence is' : `All ${nHidden} detected sequences are`} `
-            + 'hidden — the same videos already appear in a binge above.</div>';
+            + 'hidden — the same videos already appear in an episode above.</div>';
     }
     for (const w of windows) {
         const entry = document.createElement('button');
@@ -1763,7 +1829,7 @@ function sessRenderSeqList(data) {
         note.className = 'text-xxs';
         note.style.color = 'var(--color-text-muted)';
         note.textContent = `${nHidden} more sequence${nHidden > 1 ? 's' : ''} hidden — `
-            + 'the same videos already appear in a binge above.';
+            + 'the same videos already appear in an episode above.';
         winHost.appendChild(note);
     }
 }
@@ -1898,7 +1964,7 @@ function sessRenderPlayer(autoplay) {
     if (!a || !a.steps || !a.steps.length) {
         pane.classList.remove('is-context', 'is-offtheme');
         pane.innerHTML = '<div class="text-sm" style="padding: 24px; color: var(--color-text-muted);">'
-            + 'Select a binge or low-entropy sequence to inspect its videos.</div>';
+            + 'Select a focused session episode or low-entropy sequence to inspect its videos.</div>';
         sessUpdateStripCursor(null);
         return;
     }
@@ -1907,8 +1973,8 @@ function sessRenderPlayer(autoplay) {
     const isContext = !!m.context;
     const isOffTheme = !!m.offTheme;
     const play = sessState.playsById[m.item_id] || {};
-    const seqLabel = a.kind === 'binge' ? `Binge ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
-    const kindNoun = a.kind === 'binge' ? 'binge' : 'sequence';
+    const seqLabel = a.kind === 'binge' ? `Episode ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
+    const kindNoun = a.kind === 'binge' ? 'episode' : 'sequence';
     const seqColor = a.kind === 'binge' ? sessEpisodeColor(a.idx) : 'var(--color-text-secondary)';
     sessUpdateStripCursor(m.ts);
 
@@ -1980,19 +2046,25 @@ function sessRenderPlayer(autoplay) {
     add('Session index',
         playNum != null ? `#${playNum} of ${sessState.detail.plays.length}` : null,
         'Position of this video within the whole session’s chronological play list.');
-    add('Niche', play.niche_name ? escapeHtml(play.niche_name) : null);
+    add('Micro-niche', play.niche_name ? escapeHtml(play.niche_name) : null);
     add('Category', play.category ? escapeHtml(play.category) : null);
     add('Creator', play.author ? escapeHtml(play.author) : null);
-    add('Watched', sessDwellText(m.dwell_s, play.duration_s),
-        play.duration_s != null
-            ? 'Watch time, with the share of the video’s full length watched in '
-              + 'parentheses (watch time ÷ video length, capped at 100%).'
-            : null);
+    add('Viewing time', sessDwellText(m.dwell_s, play.duration_s),
+        'Seconds from this play to the next recorded event, which approximates how long '
+        + 'the video was on screen'
+        + (play.duration_s != null
+            ? ', with the share of the video’s length in parentheses (viewing time ÷ video '
+              + 'length); above 100% the video looped.'
+            : '.'));
+    if (play.offfeed) {
+        add('Likely off-feed', escapeHtml(sessOffFeedSignals(play.offfeed).join('; ')),
+            SESS_OFFFEED_EXPLAINER);
+    }
     add('Played at', escapeHtml(sessFmtTs(m.ts)));
     if (a.kind === 'binge' && !isContext && !isOffTheme) {
         add('Δ distance',
-            m.rolling_cosdist != null ? m.rolling_cosdist.toFixed(3) : 'start of binge',
-            'Semantic distance from the running centre of the binge so far — how tightly this video continued the thread.');
+            m.rolling_cosdist != null ? m.rolling_cosdist.toFixed(3) : 'start of episode',
+            'Semantic distance from the running centre of the episode so far — how tightly this video continued the thread.');
     }
     if (isContext || isOffTheme) {
         // Distance from the sequence's member centroid, server-computed —
@@ -2073,7 +2145,8 @@ function sessRenderPlaylist(data) {
             <td class="text-xs" style="white-space: nowrap;">${sessDwellText(p.dwell_s, p.duration_s) || '–'}</td>
             <td class="text-xs">${p.niche_name ? escapeHtml(p.niche_name) : '<span style="color: var(--color-text-muted);">–</span>'}</td>
             <td class="text-xs" style="color: var(--color-text-tertiary);">${p.story ? escapeHtml(p.story.slice(0, 120)) : ''}</td>
-            <td class="text-xs" style="white-space: nowrap;">${p.episode_idx != null ? `<span style="color: ${sessEpisodeColor(p.episode_idx)};">binge ${p.episode_idx + 1}</span>` : ''}</td>
+            <td class="text-xs" style="white-space: nowrap;">${p.episode_idx != null ? `<span style="color: ${sessEpisodeColor(p.episode_idx)};">episode ${p.episode_idx + 1}</span>` : ''}</td>
+            <td class="text-xs" style="white-space: nowrap;">${p.offfeed ? `<span class="meta-tooltip tooltip-right-anchored" data-tooltip="${escapeHtml(sessOffFeedSignals(p.offfeed).join('; '))}">off-feed</span>` : ''}</td>
         </tr>`).join('');
     el.innerHTML = `
         <div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--color-border-subtle); border-radius: 4px;">
@@ -2081,8 +2154,8 @@ function sessRenderPlaylist(data) {
                 <thead>
                     <tr class="text-xs" style="color: var(--color-text-secondary); text-align: left; position: sticky; top: 0; background: var(--table-header-bg);">
                         <th style="padding: 4px 8px;">#</th><th style="padding: 4px 8px;">Time</th>
-                        <th style="padding: 4px 8px;">Dwell</th><th style="padding: 4px 8px;">Niche</th>
-                        <th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below" data-tooltip="The machine annotation's 'video story' summary of the video's content. Blank when the video has no active machine annotation (e.g. never scraped/annotated).">Story</span></th><th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="Which binge this play belongs to, matching the coloured bands in the strip above. Blank = not part of any detected binge — including plays that merely happened during one's time span but were semantically unrelated (or unembedded).">Binge</span></th>
+                        <th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below" data-tooltip="Seconds from the play to the next recorded event, with the share of the video’s length (above 100% it looped).">Viewing time</span></th><th style="padding: 4px 8px;">Micro-niche</th>
+                        <th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below" data-tooltip="The machine annotation's 'video story' summary of the video's content. Blank when the video has no active machine annotation (e.g. never scraped/annotated).">Story</span></th><th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="Which focused session episode this play belongs to, matching the coloured bands in the strip above. Blank = not part of any detected episode — including plays that merely happened during one's time span but were semantically unrelated (or unembedded).">Episode</span></th><th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="${escapeHtml(SESS_OFFFEED_EXPLAINER)}">Feed</span></th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
