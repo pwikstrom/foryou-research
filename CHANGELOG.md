@@ -10,6 +10,21 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-10-13
+
+### Added
+
+- **The sessions index records how completely each session is observed.**
+  New columns: `n_attempted` and `coverage_attempted` (videos the pipeline
+  has tried to scrape, whether or not the scrape succeeded) and
+  `max_missing_run` (the longest run of consecutive plays without an
+  annotated video). A sessions refresh rebuilds every collection to add them.
+- **Session campaigns can use a "tried and mostly annotated" rule.**
+  `scripts/session_campaign.py --rule attempted --coverage 0.82 --max-gap 2`
+  selects sessions in which every video can be tried and enough of them
+  annotated, with no long gap; `--after <earlier campaign>` counts an earlier
+  wave's sessions as already selected.
+
 ## [0.6.1] — 2026-10-13
 
 ### Fixed
@@ -1462,7 +1477,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.2
 [0.6.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.1
 [0.6.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.0
 [0.5.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.5.0

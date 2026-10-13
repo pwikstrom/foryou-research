@@ -499,8 +499,9 @@ def enrichment_id_sets(
             risk.
 
     Returns:
-        A dict with ``scraped``, ``downloaded``, ``annotated``, and
-        ``embedded`` item-id sets.
+        A dict with ``scraped``, ``downloaded``, ``annotated``, ``embedded``
+        and ``attempted`` (scraped or permanently failed to scrape) item-id
+        sets.
     """
     id_filter = [("item_id", "in", [str(i) for i in item_ids])] if item_ids is not None else None
     scraped: set[str] = set()
@@ -522,11 +523,31 @@ def enrichment_id_sets(
     if item_ids is not None:
         annotated &= {str(i) for i in item_ids}
     embedded = embeddings.embedded_item_ids(model=model) if include_embedded else set()
+    # Attempted = scraped, or permanently failed to scrape: every video the
+    # pipeline has tried, whatever the outcome.
+    attempted = set(scraped)
+    try:
+        from fyp.core.artifacts import ENRICHMENT_STATUS_FILE, ENRICHMENT_STATUS_LOCATION
+
+        if data_io.exists(
+            storage_location=ENRICHMENT_STATUS_LOCATION, filename=ENRICHMENT_STATUS_FILE
+        ):
+            st = data_io.load_parquet_selective(
+                storage_location=ENRICHMENT_STATUS_LOCATION,
+                filename=ENRICHMENT_STATUS_FILE,
+                columns=["item_id", "scrape_fail"],
+                filters=id_filter,
+            )
+            if st is not None and "scrape_fail" in st.columns:
+                attempted |= set(st["item_id"].astype("string")[st["scrape_fail"] == True])
+    except Exception:
+        pass
     return {
         "scraped": scraped,
         "downloaded": downloaded,
         "annotated": annotated,
         "embedded": embedded,
+        "attempted": attempted,
     }
 
 

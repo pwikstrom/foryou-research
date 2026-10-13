@@ -90,6 +90,10 @@ def cmd_plan(args) -> int:
     plays = plays[plays["collection_id"].astype(str).isin(tiktok)]
     yields = sc.enrichment_yields(status)
     table = sc.session_table(plays, states, yields["scrape"], yields["annotate"])
+    table = sc.mark_rule(table, args.rule, args.coverage, args.feasible, args.max_gap)
+    preselected: set[str] = set()
+    for earlier in args.after or []:
+        preselected |= {str(s["session_id"]) for s in _load_manifest(earlier).get("sessions") or []}
     selected, summary = sc.select_sessions(
         table,
         target=args.target,
@@ -97,9 +101,8 @@ def cmd_plan(args) -> int:
         budget=args.budget,
         per_participant_budget=args.per_participant_budget,
         min_plays=args.min_plays,
-        coverage=args.coverage,
-        feasible=args.feasible,
         salt=args.salt,
+        preselected=preselected,
     )
     to_scrape, to_annotate = sc.campaign_items(plays, states, selected["session_id"])
     print(f"Collections: {len(tiktok)} TikTok study collections ({len(exclude)} excluded)")
@@ -118,8 +121,11 @@ def cmd_plan(args) -> int:
             "budget": args.budget,
             "per_participant_budget": args.per_participant_budget,
             "min_plays": args.min_plays,
+            "rule": args.rule,
             "coverage": args.coverage,
             "feasible": args.feasible,
+            "max_gap": args.max_gap,
+            "after": list(args.after or []),
             "salt": args.salt,
             "excluded_collections": len(exclude),
         },
@@ -192,11 +198,16 @@ def cmd_report(args) -> int:
     plays, status, states = _load_inputs(cids)
     plays = plays[plays["session_id"].astype(str).isin(set(sessions["session_id"].astype(str)))]
     table = sc.session_table(plays, states)
-    cov = manifest["params"]["coverage"]
-    done = table["coverage"] >= cov
+    prm = manifest["params"]
+    cov = prm["coverage"]
+    table = sc.mark_rule(
+        table, prm.get("rule", "share"), cov, prm.get("feasible", cov), prm.get("max_gap")
+    )
+    done = table["is_covered"]
     print(
-        f"{int(done.sum())} of {len(table)} selected sessions now at >= {cov:.0%} coverage; "
-        f"median coverage {table['coverage'].median():.3f}"
+        f"{int(done.sum())} of {len(table)} selected sessions now meet the rule "
+        f"({prm.get('rule', 'share')}, {cov:.0%}, max gap {prm.get('max_gap')}); "
+        f"median annotated share {table['coverage'].median():.3f}"
     )
     print(
         f"Still to scrape: {int(table['n_to_scrape'].sum())}, "
@@ -217,8 +228,27 @@ def main(argv=None) -> int:
     p.add_argument("--budget", type=float, required=True, help="expected annotations")
     p.add_argument("--per-participant-budget", type=float, default=None)
     p.add_argument("--min-plays", type=int, default=60)
+    p.add_argument(
+        "--rule",
+        choices=["share", "attempted"],
+        default="share",
+        help="share: >= coverage scraped and annotated; attempted: every video tried "
+        "and >= coverage annotated",
+    )
     p.add_argument("--coverage", type=float, default=0.9)
     p.add_argument("--feasible", type=float, default=0.92)
+    p.add_argument(
+        "--max-gap",
+        type=int,
+        default=None,
+        help="also require no run of more than N consecutive plays without annotation",
+    )
+    p.add_argument(
+        "--after",
+        nargs="*",
+        default=None,
+        help="earlier campaign names whose sessions count as already selected",
+    )
     p.add_argument("--salt", required=True)
     p.add_argument("--exclude-file", default=None, help="collection ids to leave out, one per line")
     p.add_argument("--out", default=None, help="local folder for a copy (keep it gitignored)")

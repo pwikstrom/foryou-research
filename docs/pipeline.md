@@ -1159,6 +1159,16 @@ time, so they only fire between scraped videos and undercount. The signals
 mark plays and filter nothing: episodes are still detected on all plays. Both
 config keys are baked in at build, so changing them needs a sessions refresh.
 
+**How completely a session is observed.** Besides the scraped, annotated and
+embedded shares, the session index records `n_attempted` and
+`coverage_attempted` (distinct videos the pipeline has tried to scrape:
+scraped, or permanently failed to scrape) and `max_missing_run` (the longest
+run of consecutive plays whose video is not annotated). An analysis that
+needs whole sessions can then require that every video was tried, that most
+were annotated, and that no gap is long enough to hide a run of similar
+videos. `scripts/session_campaign.py --rule attempted --max-gap N` selects
+sessions to complete under that rule.
+
 ### Refresh dependencies
 
 Each step is a background job. The graph is declared once, in

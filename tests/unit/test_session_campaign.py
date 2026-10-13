@@ -132,3 +132,48 @@ def test_infeasible_and_short_sessions_are_not_candidates():
 def test_manifest_hash_is_stable():
     m = {"params": {"a": 1}, "sessions": [{"s": 1}], "to_scrape": ["x"], "to_annotate": []}
     assert sc.manifest_hash(m) == sc.manifest_hash(dict(reversed(list(m.items()))))
+
+
+DONE = (True, False, True, True, False)
+FAILED = (False, True, False, False, False)
+TODO = (False, False, False, False, False)
+
+
+def _one_session(states_in_order):
+    ids = [f"v{i}" for i in range(len(states_in_order))]
+    plays = _plays([("c1", "s1", "2025-01", ids)])
+    rows = {i: s for i, s in zip(ids, states_in_order) if s is not TODO}
+    table = sc.session_table(plays, sc.item_states(ids, _status(rows)))
+    return table.iloc[0], table
+
+
+def test_attempted_rule_needs_every_video_tried():
+    # 85% annotated, 15% failed: covered under the attempted rule at 0.82.
+    row, table = _one_session([DONE] * 85 + [FAILED] * 15)
+    assert row.attempted_share == 1.0 and row.coverage == 0.85
+    marked = sc.mark_rule(table, "attempted", coverage=0.82)
+    assert bool(marked.iloc[0].is_covered)
+    # The same session with one video never tried is not covered.
+    _, table = _one_session([DONE] * 85 + [FAILED] * 14 + [TODO])
+    assert not bool(sc.mark_rule(table, "attempted", coverage=0.82).iloc[0].is_covered)
+
+
+def test_gap_rule_counts_consecutive_missing_plays():
+    spread = ([DONE] * 6 + [FAILED]) * 13 + [DONE] * 9  # isolated failures
+    row, table = _one_session(spread)
+    assert row.max_missing_run == 1
+    assert bool(sc.mark_rule(table, "attempted", coverage=0.82, max_gap=2).iloc[0].is_covered)
+    bunched = [DONE] * 85 + [FAILED] * 3 + [DONE] * 12  # three failures in a row
+    row, table = _one_session(bunched)
+    assert row.max_missing_run == 3 and row.max_dead_run == 3
+    marked = sc.mark_rule(table, "attempted", coverage=0.82, max_gap=2)
+    assert not bool(marked.iloc[0].is_covered) and not bool(marked.iloc[0].is_feasible)
+
+
+def test_preselected_sessions_count_toward_the_target():
+    _, _, table = _scenario()
+    first, _ = sc.select_sessions(table, target=2, month_cap=9, budget=1000, salt="x")
+    second, summary = sc.select_sessions(
+        table, target=2, month_cap=9, budget=1000, salt="x", preselected=set(first["session_id"])
+    )
+    assert second.empty and summary["preselected_long"] == len(first)

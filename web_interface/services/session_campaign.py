@@ -152,10 +152,11 @@ def session_table(
         n_to_annotate=("to_annotate", "sum"),
         n_to_scrape=("to_scrape", "sum"),
     )
-    out = sess.join(counts).reset_index()
+    out = sess.join(counts).join(_runs(p, states)).reset_index()
     out["month"] = pd.to_datetime(out["start"]).dt.strftime("%Y-%m")
     n = out["n_distinct"].clip(lower=1)
     out["coverage"] = out["n_covered"] / n
+    out["attempted_share"] = (out["n_distinct"] - out["n_to_scrape"]) / n
     out["expected_coverage"] = (
         out["n_covered"]
         + annotate_yield * out["n_to_annotate"]
@@ -174,10 +175,86 @@ def session_table(
             "n_to_annotate",
             "n_to_scrape",
             "coverage",
+            "attempted_share",
+            "max_missing_run",
+            "max_dead_run",
             "expected_coverage",
             "cost",
         ]
     ]
+
+
+def _runs(p: pd.DataFrame, states: pd.DataFrame) -> pd.DataFrame:
+    """Per session, the longest run of consecutive plays whose video is not
+    covered (``max_missing_run``) and whose video can no longer be covered
+    (``max_dead_run``: failed scrape, no media or failed annotation)."""
+    q = p.sort_values(["session_id", "_ts"], kind="mergesort")
+    st = states.reindex(q["item_id"].to_numpy())
+    covered = st["covered"].fillna(False).to_numpy(dtype=bool)
+    dead = ~covered & ~st["to_annotate"].fillna(False).to_numpy(dtype=bool)
+    dead &= ~st["to_scrape"].fillna(True).to_numpy(dtype=bool)
+    sess = q["session_id"].to_numpy()
+    out_missing, out_dead = {}, {}
+    run_m = run_d = 0
+    for i in range(len(q)):
+        if i == 0 or sess[i] != sess[i - 1]:
+            run_m = run_d = 0
+        run_m = 0 if covered[i] else run_m + 1
+        run_d = run_d + 1 if dead[i] else 0
+        s = sess[i]
+        if run_m > out_missing.get(s, 0):
+            out_missing[s] = run_m
+        if run_d > out_dead.get(s, 0):
+            out_dead[s] = run_d
+    idx = pd.Index(pd.unique(sess), name="session_id")
+    return pd.DataFrame(
+        {
+            "max_missing_run": [out_missing.get(s, 0) for s in idx],
+            "max_dead_run": [out_dead.get(s, 0) for s in idx],
+        },
+        index=idx,
+    )
+
+
+def mark_rule(
+    table: pd.DataFrame,
+    rule: str = "share",
+    coverage: float = COVERAGE,
+    feasible: float = FEASIBLE,
+    max_gap: int | None = None,
+) -> pd.DataFrame:
+    """Mark which sessions are covered now and which could become covered.
+
+    Rules:
+        ``"share"``: covered when at least ``coverage`` of the distinct videos
+            are scraped and annotated; feasible when the expected share after
+            enrichment reaches ``feasible``.
+        ``"attempted"``: covered when every distinct video has been tried
+            (scraped or permanently failed) and at least ``coverage`` of them
+            are annotated; feasible when the expected annotated share after
+            enrichment reaches ``feasible``.
+        With ``max_gap``, a covered session also has no run of more than
+        ``max_gap`` consecutive plays without an annotated video, and a
+        feasible one has no such run of videos that can no longer be
+        annotated.
+
+    Returns:
+        ``table`` with boolean ``is_covered`` and ``is_feasible`` columns.
+    """
+    t = table.copy()
+    if rule == "attempted":
+        covered = (t["attempted_share"] >= 1.0) & (t["coverage"] >= coverage)
+    elif rule == "share":
+        covered = t["coverage"] >= coverage
+    else:
+        raise ValueError(f"unknown rule {rule!r}")
+    feas = t["expected_coverage"] >= feasible
+    if max_gap is not None:
+        covered &= t["max_missing_run"] <= max_gap
+        feas &= t["max_dead_run"] <= max_gap
+    t["is_covered"] = covered
+    t["is_feasible"] = feas & ~covered
+    return t
 
 
 def select_sessions(
@@ -190,11 +267,17 @@ def select_sessions(
     coverage: float = COVERAGE,
     feasible: float = FEASIBLE,
     salt: str = "",
+    preselected: set | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Pick sessions to complete (see the module docstring for the rule).
 
     Args:
-        table: :func:`session_table` output.
+        table: :func:`session_table` output, optionally with ``is_covered`` /
+            ``is_feasible`` from :func:`mark_rule` (otherwise the share rule
+            with ``coverage`` / ``feasible`` is applied).
+        preselected: Session ids already selected by an earlier campaign
+            wave. They count as covered for the per-participant target and the
+            monthly cap, and are not selected again.
         target: Covered long sessions wanted per participant.
         month_cap: Most covered-or-selected long sessions per participant-month.
         budget: Campaign budget in expected annotations.
@@ -211,15 +294,16 @@ def select_sessions(
         totals before and after.
     """
     long = table[table["n_plays"] >= min_plays].copy()
-    long["is_covered"] = long["coverage"] >= coverage
-    covered = long[long["is_covered"]]
-    have = covered.groupby("collection_id").size().to_dict()
+    if "is_covered" not in long.columns:
+        long = mark_rule(long, "share", coverage, feasible)
+    pre = long["session_id"].isin(set(preselected or ()))
+    already = long[long["is_covered"]]
+    counted = long[long["is_covered"] | pre]
+    have = counted.groupby("collection_id").size().to_dict()
     month_n: dict[tuple[str, str], int] = (
-        covered.groupby(["collection_id", "month"]).size().to_dict()
+        counted.groupby(["collection_id", "month"]).size().to_dict()
     )
-    cands = long[
-        ~long["is_covered"] & (long["expected_coverage"] >= feasible) & (long["cost"] > 0)
-    ].copy()
+    cands = long[long["is_feasible"] & ~pre & (long["cost"] > 0)].copy()
     tie = {k: i for i, k in enumerate(stable_rank(cands["session_id"].tolist(), salt))}
     cands["_tie"] = cands["session_id"].map(tie)
     queues = {
@@ -268,11 +352,14 @@ def select_sessions(
         if not progressed:
             break
 
-    selected = pd.DataFrame(picked, columns=[*table.columns, "_tie", "round"]).drop(columns="_tie")
+    selected = pd.DataFrame(picked, columns=[*long.columns, "_tie", "round"]).drop(
+        columns=["_tie", "is_covered", "is_feasible"]
+    )
     after = {c: have.get(c, 0) + n_sel.get(c, 0) for c in participants}
     summary = {
         "participants": len(participants),
-        "covered_long_before": int(sum(have.values())),
+        "covered_long_before": int(len(already)),
+        "preselected_long": int(pre.sum()),
         "selected_sessions": len(selected),
         "covered_long_after_if_all_succeed": int(sum(after.values())),
         "participants_at_target_before": int(

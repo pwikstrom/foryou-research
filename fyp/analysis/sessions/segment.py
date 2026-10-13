@@ -704,6 +704,14 @@ def session_record(
 
     n_scraped = sum(1 for i in distinct_list if i in id_sets["scraped"])
     n_annotated = sum(1 for i in distinct_list if i in id_sets["annotated"])
+    attempted = id_sets.get("attempted", id_sets["scraped"])
+    n_attempted = sum(1 for i in distinct_list if i in attempted)
+    # Longest run of consecutive plays whose video is not annotated: a gap
+    # that long can hide or break a run of similar videos.
+    max_missing_run = run = 0
+    for i in items_list:
+        run = 0 if i in id_sets["annotated"] else run + 1
+        max_missing_run = max(max_missing_run, run)
     embedded = id_sets["embedded"]
     emb_distinct = [i for i in distinct_list if i in embedded]
     n_embedded = len(emb_distinct)
@@ -773,6 +781,9 @@ def session_record(
         "coverage_scraped": round(n_scraped / n_distinct, 4) if n_distinct else 0.0,
         "coverage_annotated": round(n_annotated / n_distinct, 4) if n_distinct else 0.0,
         "coverage_embedded": round(n_embedded / n_distinct, 4) if n_distinct else 0.0,
+        "n_attempted": n_attempted,
+        "coverage_attempted": round(n_attempted / n_distinct, 4) if n_distinct else 0.0,
+        "max_missing_run": max_missing_run,
         "emb_play_coverage": round(emb_plays / n_plays, 4) if n_plays else 0.0,
         "min_window_cosdist": min_cosdist,
         "min_window_entropy_norm": ent_norm,
@@ -932,6 +943,11 @@ _SESSIONS_SCHEMA: dict[str, pa.DataType] = {
     "coverage_scraped": pa.float32(),
     "coverage_annotated": pa.float32(),
     "coverage_embedded": pa.float32(),
+    # Distinct videos the pipeline has tried to scrape (scraped or permanently
+    # failed), and the longest run of consecutive plays with no annotation.
+    "n_attempted": pa.int32(),
+    "coverage_attempted": pa.float32(),
+    "max_missing_run": pa.int32(),
     "emb_play_coverage": pa.float32(),
     "min_window_cosdist": pa.float32(),
     "min_window_entropy_norm": pa.float32(),
