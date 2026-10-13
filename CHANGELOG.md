@@ -10,6 +10,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **A session campaign can retry failures recorded without a reason.**
+  `scripts/session_campaign.py queue --retry-no-reason N` re-queues for
+  scraping a random N (or all, with -1) of the selected sessions' videos whose
+  failure was recorded before failure reasons were stored. At that time every
+  failure, retryable ones included, was recorded as final. The new attempt
+  records a reason either way. `report` can apply another coverage rule than
+  the manifest's (`--rule`, `--coverage`, `--max-gap`, `--no-gap-rule`).
+- `load_failed_scrapes_detail(consolidate=False)` reads the failed-scrapes
+  record without consolidating its files, for read-only callers such as a
+  dry run.
+
 ## [0.6.3] — 2026-10-13
 
 ### Added

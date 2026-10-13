@@ -62,7 +62,9 @@ def record_failed_scrapes(failed_items: list[dict], verbose: bool = False) -> No
     )
 
 
-def _load_failed_scrape_records(verbose=False, super_verbose=False) -> dict[str, str | None]:
+def _load_failed_scrape_records(
+    verbose=False, super_verbose=False, consolidate=True
+) -> dict[str, str | None]:
     """Load every recorded failed scrape as ``{item_id: category}``.
 
     Consolidates multiple on-disk records into one file and archives the
@@ -73,6 +75,8 @@ def _load_failed_scrape_records(verbose=False, super_verbose=False) -> dict[str,
     Args:
         verbose: Log progress.
         super_verbose: Log each file name as it is read.
+        consolidate: False reads the records without writing or moving any
+            file (for read-only callers such as a dry run).
 
     Returns:
         Mapping of item id to its recorded category, ``None`` when unknown.
@@ -96,7 +100,7 @@ def _load_failed_scrape_records(verbose=False, super_verbose=False) -> dict[str,
         if some_dict is not None:
             _merge_failed_scrape_records(records, some_dict)
 
-    if len(failed_scrapes_files) > 1:
+    if consolidate and len(failed_scrapes_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
             logger.info(
@@ -162,7 +166,9 @@ def load_failed_scrapes(verbose=False, super_verbose=False):
     return [item_id for item_id, category in records.items() if _is_final_failure(category)]
 
 
-def load_failed_scrapes_detail(verbose=False, super_verbose=False) -> dict[str, str | None]:
+def load_failed_scrapes_detail(
+    verbose=False, super_verbose=False, consolidate=True
+) -> dict[str, str | None]:
     """Load failed scrapes with the reason each one failed.
 
     Use this instead of :func:`load_failed_scrapes` to select one kind of
@@ -172,9 +178,12 @@ def load_failed_scrapes_detail(verbose=False, super_verbose=False) -> dict[str, 
     Args:
         verbose: Log progress.
         super_verbose: Log each file name as it is read.
+        consolidate: False reads without consolidating the record files.
 
     Returns:
         Mapping of item id to its recorded category. ``None`` marks a record
         written before categories were stored, whose reason is unrecoverable.
     """
-    return _load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose)
+    return _load_failed_scrape_records(
+        verbose=verbose, super_verbose=super_verbose, consolidate=consolidate
+    )

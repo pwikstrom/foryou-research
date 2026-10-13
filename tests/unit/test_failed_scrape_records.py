@@ -152,6 +152,27 @@ def test_consolidation_preserves_legacy_ids_and_categories():
     print("PASS: consolidation preserves legacy ids and categories")
 
 
+def test_read_without_consolidating_writes_nothing():
+    """consolidate=False reads every record but writes and moves no file."""
+    files = {
+        f"{LABEL}_1.json": ["111"],
+        f"{LABEL}_2.json": [{"item_id": "222", "category": "permanent:removed"}],
+    }
+    saved, ctx = _fake_store(files)
+    for c in ctx:
+        c.start()
+    try:
+        detail = failures.load_failed_scrapes_detail(consolidate=False)
+    finally:
+        for c in ctx:
+            c.stop()
+
+    assert detail == {"111": None, "222": "permanent:removed"}, detail
+    assert saved == {}, saved
+    assert set(files) == {f"{LABEL}_1.json", f"{LABEL}_2.json"}, files
+    print("PASS: read without consolidating writes nothing")
+
+
 def test_consolidated_output_reloads_identically():
     """The consolidated file is itself loadable — no one-way shape change."""
     files = {

@@ -12,9 +12,16 @@ Three subcommands:
   status and queue them: unscraped ones to their platform's scrape queue,
   scraped ones with media to ``to_annotate.json``. Idempotent; run it again
   after the scrapes have been consolidated, so that newly scraped videos move
-  on to annotation. Drain the annotation queue with the batch annotator
-  (``queue_annotator_batch``) to halve the cost.
-* ``report`` — realised coverage of the selected sessions now.
+  on to annotation (before consolidation, videos scraped since the last one
+  still look unscraped and would be queued for scraping again). Drain the
+  annotation queue with the batch annotator (``queue_annotator_batch``) to
+  halve the cost. ``--retry-no-reason N`` also re-queues for scraping a random
+  N of the selected sessions' videos recorded as failed before failure reasons
+  were stored (August 2026), when retryable failures were recorded as final
+  too; the new attempt records a reason either way.
+* ``report`` — realised coverage of the selected sessions now (``--rule``,
+  ``--coverage``, ``--max-gap`` or ``--no-gap-rule`` override the manifest's
+  rule).
 
 The manifest names collections, sessions and videos: keep its local copy in a
 gitignored folder (``tmp/``). Production data lives in GCS:
@@ -159,7 +166,28 @@ def _load_manifest(name: str) -> dict:
     return manifest
 
 
+def _no_reason_failures(manifest: dict) -> list[str]:
+    """Videos in the manifest's sessions recorded as failed with no reason.
+
+    Records written before failure reasons were stored (August 2026) carry
+    none, and the scraper then recorded every failure, retryable ones
+    included, as final. Read without consolidating the record files.
+    """
+    from fyp.analysis.sessions import inputs
+    from fyp.scrape.failures import load_failed_scrapes_detail
+
+    sessions = manifest.get("sessions") or []
+    selected = {str(s["session_id"]) for s in sessions}
+    cids = sorted({str(s["collection_id"]) for s in sessions})
+    plays = inputs.load_plays(cids)
+    ids = set(plays.loc[plays["session_id"].astype(str).isin(selected), "item_id"].astype(str))
+    detail = load_failed_scrapes_detail(consolidate=False)
+    return sorted(i for i in ids if i in detail and detail[i] is None)
+
+
 def cmd_queue(args) -> int:
+    import random
+
     import fyp.scrape.scrape_queues as scrape_queues
     from web_interface.services import collection_enrichment
 
@@ -173,11 +201,27 @@ def cmd_queue(args) -> int:
         f"Manifest {args.name}: {len(ids)} videos; now {sum(map(len, by_platform.values()))} "
         f"to scrape, {len(annotate)} to annotate"
     )
+    retry: list[str] = []
+    if args.retry_no_reason:
+        failed = _no_reason_failures(manifest)
+        k = len(failed) if args.retry_no_reason < 0 else min(args.retry_no_reason, len(failed))
+        retry = sorted(random.Random(args.seed).sample(failed, k))
+        print(
+            f"Failures with no recorded reason in the selected sessions: {len(failed)}; "
+            f"retrying {len(retry)} (seed {args.seed})"
+        )
+        if args.retry_out:
+            Path(args.retry_out).write_text("\n".join(retry) + "\n")
+            print(f"Retry sample written to {args.retry_out} (keep it gitignored)")
     if args.dry_run:
         return 0
     for platform, items in by_platform.items():
         scrape_queues.append_to_scrape_queue(platform, items)
         print(f"Queued {len(items)} for scraping on {platform}")
+    if retry:
+        # The manifest's sessions are TikTok sessions (plan keeps TikTok only).
+        scrape_queues.append_to_scrape_queue("tiktok", retry)
+        print(f"Queued {len(retry)} earlier failures for a new scrape attempt on tiktok")
     if annotate:
         collection_enrichment.queue_for_annotation(annotate)
         print(f"Queued {len(annotate)} for annotation (drain with queue_annotator_batch)")
@@ -199,14 +243,18 @@ def cmd_report(args) -> int:
     plays = plays[plays["session_id"].astype(str).isin(set(sessions["session_id"].astype(str)))]
     table = sc.session_table(plays, states)
     prm = manifest["params"]
-    cov = prm["coverage"]
-    table = sc.mark_rule(
-        table, prm.get("rule", "share"), cov, prm.get("feasible", cov), prm.get("max_gap")
-    )
+    rule = args.rule or prm.get("rule", "share")
+    cov = args.coverage if args.coverage is not None else prm["coverage"]
+    max_gap = prm.get("max_gap")
+    if args.no_gap_rule:
+        max_gap = None
+    elif args.max_gap is not None:
+        max_gap = args.max_gap
+    table = sc.mark_rule(table, rule, cov, prm.get("feasible", cov), max_gap)
     done = table["is_covered"]
     print(
         f"{int(done.sum())} of {len(table)} selected sessions now meet the rule "
-        f"({prm.get('rule', 'share')}, {cov:.0%}, max gap {prm.get('max_gap')}); "
+        f"({rule}, {cov:.0%}, max gap {max_gap}); "
         f"median annotated share {table['coverage'].median():.3f}"
     )
     print(
@@ -255,9 +303,22 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", action="store_true")
     q = sub.add_parser("queue")
     q.add_argument("--name", required=True)
+    q.add_argument(
+        "--retry-no-reason",
+        type=int,
+        default=0,
+        help="also queue N videos of the selected sessions that were recorded as failed "
+        "before failure reasons were stored, drawn at random (-1: all)",
+    )
+    q.add_argument("--seed", type=int, default=0, help="seed for the --retry-no-reason draw")
+    q.add_argument("--retry-out", default=None, help="write the retried ids here (gitignored)")
     q.add_argument("--dry-run", action="store_true")
     r = sub.add_parser("report")
     r.add_argument("--name", required=True)
+    r.add_argument("--rule", choices=["share", "attempted"], default=None)
+    r.add_argument("--coverage", type=float, default=None)
+    r.add_argument("--max-gap", type=int, default=None)
+    r.add_argument("--no-gap-rule", action="store_true", help="report without the gap condition")
     args = parser.parse_args(argv)
 
     is_gcs, where = _storage_mode()
