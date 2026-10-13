@@ -501,9 +501,10 @@ gcloud builds submit --config=cloudbuild-base.yaml \
   --substitutions=_BASE_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest \
   --project=<gcp-project> --region=australia-southeast1
 
-# 1. Build the app image (always required before deploying — fast, ~2 min)
+# 1. Build the app image (always required before deploying — fast, ~2 min).
+#    _GIT_SHA stamps the commit into the artifacts the image builds.
 gcloud builds submit --config=cloudbuild-app.yaml \
-  --substitutions=_BASE_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest,_APP_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
+  --substitutions=_BASE_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest,_APP_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest,_GIT_SHA=$(git rev-parse --short=12 HEAD) \
   --project=<gcp-project> --region=australia-southeast1
 
 # 2. Deploy web server

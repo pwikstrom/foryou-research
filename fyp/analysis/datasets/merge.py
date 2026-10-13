@@ -14,6 +14,7 @@ import fyp.annotation.annotation_versioning as annotation_versioning
 import fyp.core.data_io as data_io
 from fyp.analysis.datasets import common, enrichment_status, loading, refresh
 from fyp.analysis.studies import init_study_defs
+from fyp.analysis.viewing import completion
 from fyp.annotation.recode_variables import (
     derive_australian_relevance,
 )
@@ -215,8 +216,10 @@ def _add_merge_calculated_columns(merged: pd.DataFrame, verbose: bool = False) -
     # 4. completion rate
     calc_col += ["completion_rate"]
     if "play_duration" in merged.columns and "duration" in merged.columns:
-        merged[calc_col[-1]] = merged["play_duration"] / merged["duration"]
-        merged[calc_col[-1]] = merged[calc_col[-1]].clip(lower=0, upper=1).astype("double[pyarrow]")
+        # Capped at 1; looping is reported separately as `rewatched`.
+        merged[calc_col[-1]] = completion(
+            merged["play_duration"], merged["duration"], cap=1.0
+        ).astype("double[pyarrow]")
     else:
         merged[calc_col[-1]] = pd.Series(pd.NA, index=merged.index, dtype="double[pyarrow]")
 

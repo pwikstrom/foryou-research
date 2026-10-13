@@ -105,6 +105,7 @@ def test_plays_table_empty_is_schema_correct():
         "story",
         "desc",
         "hashtags",
+        "offfeed_signals",
     }
 
 

@@ -15,6 +15,7 @@ import pyarrow.compute as pa_compute
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, entropy_metrics
 from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.analysis.sessions import offfeed
 from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -165,6 +166,8 @@ def default_params() -> dict:
         "flick_seconds": max(float(cfg.get("binge_flick_seconds", FLICK_SECONDS)), 0.0),
         "window_n": int(cfg.get("window_n", WINDOW_N)),
         "max_windows": int(cfg.get("max_windows", MAX_WINDOWS)),
+        "offfeed_window_s": float(cfg.get("offfeed_window_s", offfeed.WINDOW_S)),
+        "offfeed_min_run": int(cfg.get("offfeed_min_run", offfeed.MIN_RUN)),
     }
 
 
@@ -213,19 +216,9 @@ def load_directional_store(model: str, reporter=None) -> tuple[dict, np.ndarray,
     return {iid: i for i, iid in enumerate(ids)}, mat, len(ids)
 
 
-def _directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
-    """Corpus-mean-centre and L2-normalise ``mat`` in place.
-
-    Row norms via einsum: np.linalg.norm materialises a full (n, d) x*x
-    temporary — a second matrix-sized allocation and this pipeline's former
-    peak; the einsum reduction allocates only the (n,) output.
-    """
-    mat -= corpus_mean.astype(np.float32)
-    norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
-    np.divide(
-        mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat
-    )
-    return mat
+# The in-place float32 centring the build uses lives in entropy_metrics so that
+# analysis code outside the Hub can import it without the storage stack.
+_directionalise = entropy_metrics.directionalise
 
 
 def vector_cache_enabled() -> bool:
@@ -308,8 +301,8 @@ def load_video_features(
     Returns:
         A DataFrame indexed by ``item_id`` with ``niche_name``, ``category``,
         ``story``, ``political_score``, ``sensitivity_score``, ``advertising``,
-        ``author`` and ``duration`` (plus any ``extra_map_cols`` /
-        scrape-text columns requested).
+        ``author``, ``duration`` and ``created`` (the posting time; plus any
+        ``extra_map_cols`` / scrape-text columns requested).
     """
     id_filter = [("item_id", "in", [str(i) for i in item_ids])] if item_ids is not None else None
     map_cols = [
@@ -358,6 +351,9 @@ def load_video_features(
         scrape_cols.append(author_col)
     if "duration" in available:
         scrape_cols.append("duration")
+    # Posting time, for the off-feed posting-order signal.
+    if "create_time" in available:
+        scrape_cols.append("create_time")
     if include_scrape_text:
         scrape_cols.extend(c for c in ("desc", "desc_hashtags") if c in available)
     scr = None
@@ -382,6 +378,13 @@ def load_video_features(
         scr["duration"] = pd.to_numeric(scr["duration"], errors="coerce")
     else:
         scr["duration"] = pd.Series([None] * len(scr), dtype="float64[pyarrow]")
+    if "create_time" in scr.columns:
+        scr["created"] = pd.to_datetime(
+            scr["create_time"], errors="coerce", utc=True
+        ).dt.tz_convert(None)
+        scr = scr.drop(columns=["create_time"])
+    else:
+        scr["created"] = pd.Series(pd.NaT, index=scr.index, dtype="datetime64[ns]")
     scr["item_id"] = scr["item_id"].astype("string")
     scr = scr.drop_duplicates("item_id")
     # A duplicated map row would duplicate the index and break every
@@ -533,6 +536,35 @@ def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
     return df
 
 
+def load_search_follow(collection_ids: list[str] | None = None) -> pd.DataFrame:
+    """Load the donor's search and follow rows for the off-feed signals.
+
+    Args:
+        collection_ids: Optional collections to restrict to (filter pushdown).
+
+    Returns:
+        A frame with ``collection_id``/``activity_type``/``_ts``/``extra_data``
+        (the search term or the followed handle) for the
+        :data:`offfeed.EVENT_TYPES` rows; empty when there are none.
+    """
+    cols = ["collection_id", "activity_type", "_ts", "extra_data"]
+    filters: list[tuple] = [("activity_type", "in", list(offfeed.EVENT_TYPES))]
+    if collection_ids is not None:
+        filters.append(("collection_id", "in", list(collection_ids)))
+    df = data_io.load_parquet_selective(
+        storage_location=embeddings.STORE_LOCATION,
+        filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+        columns=["collection_id", "activity_type", "local_timestamp", "extra_data"],
+        filters=filters,
+    )
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    df = df.copy()
+    df["collection_id"] = df["collection_id"].astype("string[pyarrow]")
+    df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
+    return df.dropna(subset=["_ts"])[cols]
+
+
 def discover_collections(collections: list[str] | None = None) -> list[tuple[str, int]]:
     """Collections with play rows, ordered by descending play count.
 
@@ -609,8 +641,23 @@ def merge_intervals(
     return [(s, e) for s, e in merged]
 
 
+def clip_to_study_windows() -> bool:
+    """``[sessions] clip_to_study_windows`` (default true).
+
+    False builds every study collection over its whole history instead of
+    only its studies' date windows (plus the pad).
+    """
+    from fyp.core.fyp_config import fyp_cf
+
+    cfg = fyp_cf.get("sessions", {})
+    value = cfg.get("clip_to_study_windows", True) if isinstance(cfg, dict) else True
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+
 def compute_coverage_spec(
-    study_defs: dict | None = None, pad_days: int = COVERAGE_PAD_DAYS
+    study_defs: dict | None = None,
+    pad_days: int = COVERAGE_PAD_DAYS,
+    clip: bool | None = None,
 ) -> dict[str, list[list[str]]]:
     """Per-collection date windows the sessions build must cover.
 
@@ -628,6 +675,9 @@ def compute_coverage_spec(
             the ``recoded`` location directly — no dependency on a
             pre-initialised ``fyp_cf['study_defs']``).
         pad_days: Padding applied to each side of every window.
+        clip: Restrict each collection to its studies' windows (None reads
+            :func:`clip_to_study_windows`). False gives every collection in
+            a study one wide window, i.e. its whole history.
 
     Returns:
         ``{collection_id: [["YYYY-MM-DD", "YYYY-MM-DD"], ...]}`` — sorted,
@@ -642,6 +692,8 @@ def compute_coverage_spec(
         else:
             study_defs = {}
 
+    if clip is None:
+        clip = clip_to_study_windows()
     pad = pd.Timedelta(days=pad_days)
     raw: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
     for cfg in study_defs.values():
@@ -652,6 +704,8 @@ def compute_coverage_spec(
         end = _study_bound(cfg, "END_DATE", _WIDE_END) + pd.Timedelta(days=1) + pad
         if end <= start:
             continue
+        if not clip:
+            start, end = pd.Timestamp(_WIDE_START), pd.Timestamp(_WIDE_END)
         for cid in cfg.get("SELECTED_COLLECTIONS") or []:
             raw.setdefault(str(cid), []).append((start, end))
 

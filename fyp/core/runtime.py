@@ -64,3 +64,31 @@ def local_now_iso() -> str:
     except Exception:
         tz = ZoneInfo("UTC")
     return datetime.now(tz=tz).isoformat(timespec="seconds")
+
+
+def code_version() -> str:
+    """The running code's version: ``<package version>+<git sha>``.
+
+    The sha comes from ``FYP_GIT_SHA`` (set in the container image at build
+    time; the image carries no ``.git``), else from ``git rev-parse`` in a
+    checkout, else it is omitted. Artifacts stamp this so an analysis can
+    check which release built them.
+    """
+    import subprocess
+
+    from fyp import __version__
+
+    sha = os.environ.get("FYP_GIT_SHA", "").strip()
+    if not sha or sha == "unknown":
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "--short=12", "HEAD"],
+                cwd=Path(__file__).resolve().parents[2],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            sha = ""
+    return f"{__version__}+{sha}" if sha else __version__

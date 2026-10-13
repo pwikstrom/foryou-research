@@ -44,6 +44,7 @@ import json
 import time
 import uuid
 
+from fyp.core.runtime import code_version
 from web_interface.tasks import worker_registry
 from web_interface.tasks.task_status import TaskStatusReporter
 
@@ -191,6 +192,7 @@ def _merge_meta(
         }
     meta = {
         "built_at": built_at,
+        "code_version": code_version(),
         "embedding_model": model,
         "embedding_dim": int(dim),
         "corpus_mean_count": int(n_vectors),
@@ -608,6 +610,7 @@ def run_sessions_refresh(
     else:
         meta = {
             "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            "code_version": code_version(),
             "embedding_model": model,
             "embedding_dim": int(index_dim),
             "corpus_mean_count": int(n_vectors),
@@ -744,15 +747,25 @@ def _setup_link(reporter, task_args, overrides, collections_str, restarts, stale
             storage_location=sessions_inputs.ARTIFACT_LOCATION,
             filename=sessions_inputs.META_FILE,
         )
+    # Every artifact's on-disk columns must match the current schema, or a
+    # merge would mix rows of two shapes (merge publish refuses that, so the
+    # plan must escalate to a full rebuild first — e.g. the deploy that added
+    # the off-feed columns to the sessions, episodes and plays artifacts).
     plays_schema_ok = True
     if artifacts_exist:
-        old_cols = data_io.get_parquet_columns(
-            storage_location=sessions_inputs.ARTIFACT_LOCATION,
-            filename=sessions_inputs.PLAYS_FILE,
-        )
-        plays_schema_ok = sorted(old_cols or []) == sorted(
-            sessions_publish.plays_table(None).schema.names
-        )
+        for kind, fname in (
+            ("sessions", sessions_inputs.SESSIONS_FILE),
+            ("episodes", sessions_inputs.EPISODES_FILE),
+            ("windows", sessions_inputs.WINDOWS_FILE),
+            ("plays", sessions_inputs.PLAYS_FILE),
+        ):
+            old_cols = data_io.get_parquet_columns(
+                storage_location=sessions_inputs.ARTIFACT_LOCATION, filename=fname
+            )
+            want = sessions_publish._target_schema(kind, trend_cols).names
+            if sorted(old_cols or []) != sorted(want):
+                plays_schema_ok = False
+                break
 
     scope = {str(c) for c in collections} if collections else None
 

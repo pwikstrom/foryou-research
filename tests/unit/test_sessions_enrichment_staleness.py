@@ -82,10 +82,18 @@ def _install_stubs(monkeypatch, meta: dict, store_fp: str, annotations_fp: str):
     monkeypatch.setattr(sessions_publish, "sweep_stale_run_files", lambda run_id: None)
     monkeypatch.setattr(data_io, "exists", lambda **kwargs: True)
     monkeypatch.setattr(data_io, "load_json", lambda **kwargs: meta)
+    kinds = {
+        sessions_inputs.SESSIONS_FILE: "sessions",
+        sessions_inputs.EPISODES_FILE: "episodes",
+        sessions_inputs.WINDOWS_FILE: "windows",
+        sessions_inputs.PLAYS_FILE: "plays",
+    }
     monkeypatch.setattr(
         data_io,
         "get_parquet_columns",
-        lambda **kwargs: list(sessions_publish.plays_table(None).schema.names),
+        lambda **kwargs: list(
+            sessions_publish._target_schema(kinds[kwargs["filename"]], ["log_plays"]).names
+        ),
     )
     monkeypatch.setattr(data_io, "update_json", _fake_update_json({}))
 

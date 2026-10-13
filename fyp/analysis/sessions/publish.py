@@ -16,8 +16,9 @@ import pyarrow.compute as pa_compute
 
 import fyp.core.data_io as data_io
 from fyp.analysis import embedding_store, embeddings
-from fyp.analysis.sessions import inputs, segment
+from fyp.analysis.sessions import inputs, offfeed, segment
 from fyp.core.logging_setup import get_logger
+from fyp.core.runtime import code_version
 
 logger = get_logger(__name__)
 
@@ -81,10 +82,15 @@ _EPISODES_SCHEMA: dict[str, pa.DataType] = {
     "advertising_share": pa.float32(),
     "mean_political": pa.float32(),
     "mean_sensitivity": pa.float32(),
+    # Members carrying any off-feed signal, their share of the members, and
+    # each member's signal bitmask (fyp.analysis.sessions.offfeed SIG_*).
+    "n_offfeed": pa.int16(),
+    "offfeed_share": pa.float32(),
     "member_item_ids": pa.large_list(pa.string()),
     "member_ts": pa.large_list(pa.string()),
     "member_dwell_s": pa.large_list(pa.float32()),
     "member_rolling_cosdist": pa.large_list(pa.float32()),
+    "member_offfeed": pa.large_list(pa.int8()),
 }
 
 _PLAYS_SCHEMA: dict[str, pa.DataType] = {
@@ -101,6 +107,8 @@ _PLAYS_SCHEMA: dict[str, pa.DataType] = {
     "story": pa.string(),
     "desc": pa.string(),
     "hashtags": pa.string(),
+    # Off-feed signal bitmask (fyp.analysis.sessions.offfeed SIG_*; 0 = none).
+    "offfeed_signals": pa.int8(),
 }
 
 # The plays artifact stores display text capped at the same length the detail
@@ -173,6 +181,50 @@ def attach_play_texts(
     return plays.merge(text_df, on="item_id", how="left")
 
 
+def attach_offfeed_signals(
+    plays: pd.DataFrame, feat: pd.DataFrame, events: pd.DataFrame, params: dict
+) -> pd.DataFrame:
+    """Add the per-play ``offfeed_signals`` bitmask to a plays frame.
+
+    Args:
+        plays: A :func:`load_plays`-shaped frame (already clipped to the
+            coverage windows).
+        feat: :func:`load_video_features` result (``author``, ``created``).
+        events: :func:`load_search_follow` result for the same collections.
+        params: Resolved parameters (``offfeed_window_s``,
+            ``offfeed_min_run``).
+
+    Returns:
+        ``plays`` with an int8 ``offfeed_signals`` column.
+    """
+    if plays is None or not len(plays):
+        return plays
+    sub = feat.reindex(plays["item_id"].astype(str).to_numpy()) if feat is not None else None
+
+    def _col(name):
+        if sub is None or name not in sub.columns:
+            return [None] * len(plays)
+        return sub[name].to_numpy()
+
+    frame = pd.DataFrame(
+        {
+            "collection_id": plays["collection_id"].to_numpy(),
+            "session_id": plays["session_id"].to_numpy(),
+            "_ts": plays["_ts"].to_numpy(),
+            "author": _col("author"),
+            "created": _col("created"),
+        }
+    )
+    plays = plays.copy()
+    plays["offfeed_signals"] = offfeed.flag_plays(
+        frame,
+        events,
+        window_s=float(params.get("offfeed_window_s", offfeed.WINDOW_S)),
+        min_run=int(params.get("offfeed_min_run", offfeed.MIN_RUN)),
+    )
+    return plays
+
+
 def plays_table(plays: pd.DataFrame) -> pa.Table:
     """One batch's play rows as an arrow Table in the plays-artifact schema.
 
@@ -183,8 +235,8 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
     Args:
         plays: A :func:`load_plays`-shaped frame (``_ts`` parsed, play rows
             only), optionally carrying the :func:`attach_play_texts` text
-            columns (absent ones publish as all-null). An empty frame yields
-            an empty, schema-correct table.
+            columns and ``offfeed_signals`` (absent ones publish as all-null).
+            An empty frame yields an empty, schema-correct table.
     """
     if plays is None or not len(plays):
         return pa.table({col: pa.array([], type=typ) for col, typ in _PLAYS_SCHEMA.items()})
@@ -205,6 +257,11 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
             if col in df.columns
             else pa.nulls(len(df), type=pa.string())
         )
+    data["offfeed_signals"] = (
+        pa.array(df["offfeed_signals"].to_numpy(dtype="int8"), type=pa.int8())
+        if "offfeed_signals" in df.columns
+        else pa.nulls(len(df), type=pa.int8())
+    )
     return pa.table(data)
 
 
@@ -309,6 +366,7 @@ def build_batch(
     )
     stories = inputs.load_story_texts(set(batch_ids))
     id_sets = inputs.enrichment_id_sets(model, item_ids=set(batch_ids), include_embedded=False)
+    plays = attach_offfeed_signals(plays, feat, inputs.load_search_follow(cids), p)
     # Bake the per-item display text into the plays frame here, so both the
     # chained worker and the in-process driver publish it with no extra reads.
     plays = attach_play_texts(plays, feat, stories)
@@ -962,6 +1020,7 @@ def build_artifacts(
     )
     meta = {
         "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "code_version": code_version(),
         "embedding_model": model,
         "embedding_dim": int(index.dim) if index is not None else backend.dim(),
         "corpus_mean_count": n_vectors,

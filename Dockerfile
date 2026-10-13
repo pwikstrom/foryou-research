@@ -12,6 +12,11 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
+# The commit the image is built from (the build context carries no .git).
+# Stamped into artifacts via fyp.core.runtime.code_version().
+ARG GIT_SHA=unknown
+ENV FYP_GIT_SHA=${GIT_SHA}
+
 # Copy application code only
 COPY . .
 

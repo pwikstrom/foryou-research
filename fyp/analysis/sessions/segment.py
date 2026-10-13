@@ -467,6 +467,7 @@ def episode_record(
     feat: pd.DataFrame,
     play_ts: np.ndarray,
     mem: int = inputs.MEM,
+    item_signals: dict[str, int] | None = None,
 ) -> dict:
     """Reduce one raw episode to a fully-attributed table row.
 
@@ -479,6 +480,9 @@ def episode_record(
         play_ts: Sorted int64 timestamps of ALL the collection's plays (used to
             count unembedded plays interleaved inside the episode's span).
         mem: Centroid memory for the rolling-distance series.
+        item_signals: item_id → off-feed signal bitmask for the session's
+            plays (ORed over a video's plays); None leaves the off-feed
+            fields empty.
 
     Returns:
         One episode row (JSON/parquet-friendly scalars + member lists).
@@ -503,6 +507,10 @@ def episode_record(
     adv, adv_share = _dominant(f["advertising"])
 
     dwell = [_num(v, 1) for v in ep["m_dur"]]
+    member_offfeed = (
+        [int(item_signals.get(str(i), 0)) for i in ep["ids"]] if item_signals is not None else None
+    )
+    n_offfeed = sum(1 for v in member_offfeed if v) if member_offfeed is not None else None
     return {
         "collection_id": cid,
         "session_id": str(sess),
@@ -532,10 +540,13 @@ def episode_record(
         "advertising_share": adv_share,
         "mean_political": _num(pd.to_numeric(f["political_score"], errors="coerce").mean(), 4),
         "mean_sensitivity": _num(pd.to_numeric(f["sensitivity_score"], errors="coerce").mean(), 4),
+        "n_offfeed": n_offfeed,
+        "offfeed_share": round(n_offfeed / k, 4) if n_offfeed is not None and k else None,
         "member_item_ids": [str(i) for i in ep["ids"]],
         "member_ts": [t.isoformat() for t in ep["m_ts"]],
         "member_dwell_s": dwell,
         "member_rolling_cosdist": _rolling_cosdists(list(ep["idx"]), U, mem),
+        "member_offfeed": member_offfeed,
     }
 
 
@@ -722,6 +733,11 @@ def session_record(
 
     ep_plays = int(sum(e["n_plays"] for e in episodes))
     med_dwell = _num(dur.median(), 1)
+    n_offfeed = (
+        int((pd.to_numeric(g["offfeed_signals"], errors="coerce").fillna(0) != 0).sum())
+        if "offfeed_signals" in g.columns
+        else None
+    )
 
     # Session-extreme values of the numeric trend variables (over distinct
     # items) + dwell (per-play), so the overview can filter on "session max of
@@ -764,6 +780,10 @@ def session_record(
         "episode_play_frac": round(ep_plays / n_plays, 4) if n_plays else 0.0,
         "dominant_niche": niche,
         "n_niches": int(emb_feat["niche_name"].nunique()) if len(emb_feat) else 0,
+        "n_offfeed": n_offfeed,
+        "offfeed_share": (
+            round(n_offfeed / n_plays, 4) if n_offfeed is not None and n_plays else None
+        ),
     }, windows
 
 
@@ -843,7 +863,14 @@ def build_session_group(
     session_rows: list[dict] = []
     episode_rows: list[dict] = []
     window_rows: list[dict] = []
+    has_signals = "offfeed_signals" in plays.columns
     for s, g in plays.groupby("_sess", sort=False):
+        item_signals: dict[str, int] | None = None
+        if has_signals:
+            item_signals = {}
+            for iid, v in zip(g["item_id"], g["offfeed_signals"]):
+                key = str(iid)
+                item_signals[key] = item_signals.get(key, 0) | (0 if pd.isna(v) else int(v))
         emb = g[g["_emb"]]
         seq = [
             (iid, id2idx[iid], ts, du)
@@ -862,7 +889,9 @@ def build_session_group(
                 flick_seconds=p["flick_seconds"],
             )
         ):
-            row = episode_record(ep, cid, s, U, feat, play_ts, mem=p["mem"])
+            row = episode_record(
+                ep, cid, s, U, feat, play_ts, mem=p["mem"], item_signals=item_signals
+            )
             row["episode_idx"] = ep_idx
             eps.append(row)
         episode_rows.extend(eps)
@@ -910,4 +939,7 @@ _SESSIONS_SCHEMA: dict[str, pa.DataType] = {
     "episode_play_frac": pa.float32(),
     "dominant_niche": pa.string(),
     "n_niches": pa.int16(),
+    # Plays carrying any off-feed signal, and their share of the session's plays.
+    "n_offfeed": pa.int32(),
+    "offfeed_share": pa.float32(),
 }

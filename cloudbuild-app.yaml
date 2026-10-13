@@ -3,8 +3,14 @@
 # config exists to point the app layer at the already-built base image; it
 # carries no project-specific detail — both image paths are supplied at
 # submit time via --substitutions (see DEVELOPING.md "Cloud Run Deployment").
+#
+# _GIT_SHA (optional) names the commit being built, so the artifacts the
+# image builds can record it (fyp.core.runtime.code_version). Pass
+# `_GIT_SHA=$(git rev-parse --short=12 HEAD)`; it defaults to "unknown".
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '--build-arg', 'BASE_IMAGE=${_BASE_IMAGE}', '-t', '${_APP_IMAGE}', '.']
+    args: ['build', '--build-arg', 'BASE_IMAGE=${_BASE_IMAGE}', '--build-arg', 'GIT_SHA=${_GIT_SHA}', '-t', '${_APP_IMAGE}', '.']
 images:
   - '${_APP_IMAGE}'
+substitutions:
+  _GIT_SHA: unknown

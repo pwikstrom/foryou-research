@@ -61,6 +61,28 @@ def to_directional(matrix: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
     return centred / norms
 
 
+def directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
+    """Corpus-mean-centre and L2-normalise a float32 ``mat`` in place.
+
+    The memory-lean counterpart of :func:`to_directional` that the Sessions
+    build uses: no float64 copy, and row norms via einsum, because
+    np.linalg.norm materialises a full (n, d) x*x temporary (a second
+    matrix-sized allocation); the einsum reduction allocates only the (n,)
+    output.
+
+    Args:
+        mat: An ``(n, d)`` float32 array, modified in place.
+        corpus_mean: The ``(d,)`` global mean.
+
+    Returns:
+        ``mat``, now unit-norm directional vectors.
+    """
+    mat -= corpus_mean.astype(np.float32)
+    norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
+    np.divide(mat, np.where(norms < EPS_NORM, EPS_NORM, norms), out=mat)
+    return mat
+
+
 def spectral_entropy(
     unit_vectors: np.ndarray, weights: np.ndarray | None = None
 ) -> tuple[float, float]:
