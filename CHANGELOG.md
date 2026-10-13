@@ -10,6 +10,12 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-13
+
+The Sessions tab marks plays the For You feed probably did not serve, and
+the app now says "focused session episode" and "micro-niche". A session
+campaign tool completes the coverage of whole long sessions.
+
 ### Added
 
 - **Off-feed plays are marked on the Sessions tab.** A watch history does not
@@ -1445,7 +1451,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.0
 [0.5.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.5.0
 [0.4.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.1
 [0.4.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.4.0
