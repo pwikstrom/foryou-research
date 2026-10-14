@@ -177,3 +177,45 @@ def test_preselected_sessions_count_toward_the_target():
         table, target=2, month_cap=9, budget=1000, salt="x", preselected=set(first["session_id"])
     )
     assert second.empty and summary["preselected_long"] == len(first)
+
+
+ANN_FAILED = (True, False, True, False, True)  # scraped with media, annotation failed
+ANN_FAILED_NO_MEDIA = (True, False, False, False, True)
+
+
+def _retry_plan(sessions, min_plays=60):
+    """sessions: session id -> list of states, one distinct video each."""
+    spec, rows = [], {}
+    for sid, states in sessions.items():
+        ids = [f"{sid}_{i}" for i in range(len(states))]
+        spec.append(("c1", sid, "2025-01", ids))
+        rows.update({i: s for i, s in zip(ids, states) if s is not TODO})
+    plays = _plays(spec)
+    status = _status(rows)
+    states = sc.item_states(plays["item_id"].unique(), status)
+    return sc.annotation_retry_plan(plays, status, states, coverage=0.82, min_plays=min_plays)
+
+
+def test_annotation_retry_reaches_only_sessions_a_retry_can_lift():
+    sessions, items = _retry_plan(
+        {
+            # 78 annotated + 5 retryable of 100: 83% after a retry.
+            "reach": [DONE] * 78 + [ANN_FAILED] * 5 + [FAILED] * 17,
+            # 70 annotated + 5 retryable: 75%, still short.
+            "short": [DONE] * 70 + [ANN_FAILED] * 5 + [FAILED] * 25,
+            # Already covered: nothing to do.
+            "covered": [DONE] * 85 + [ANN_FAILED] * 5 + [FAILED] * 10,
+            # Would reach, but one video was never tried.
+            "untried": [DONE] * 78 + [ANN_FAILED] * 5 + [FAILED] * 16 + [TODO],
+            # Failures without media cannot be retried.
+            "nomedia": [DONE] * 78 + [ANN_FAILED_NO_MEDIA] * 5 + [FAILED] * 17,
+        }
+    )
+    assert list(sessions["session_id"]) == ["reach"]
+    assert sessions.iloc[0].n_retry == 5
+    assert items == sorted(f"reach_{i}" for i in range(78, 83))
+
+
+def test_annotation_retry_skips_short_sessions():
+    sessions, items = _retry_plan({"s": [DONE] * 40 + [ANN_FAILED] * 5 + [FAILED] * 5})
+    assert sessions.empty and items == []

@@ -389,6 +389,61 @@ def campaign_items(
     return sorted(to_scrape), sorted(to_annotate)
 
 
+def annotation_retry_plan(
+    plays: pd.DataFrame,
+    status: pd.DataFrame | None,
+    states: pd.DataFrame,
+    *,
+    coverage: float,
+    min_plays: int = LONG_PLAYS,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Sessions that a retry of failed annotations could bring under the attempted rule.
+
+    A failed annotation is retryable when its video was scraped with media (a
+    retry cannot fix a missing file). A session is within reach when it has at
+    least ``min_plays`` plays, every one of its videos has been tried, fewer
+    than ``coverage`` of its distinct videos are annotated, and ``coverage``
+    would be reached if its retryable failures succeeded.
+
+    Args:
+        plays: Play rows as for :func:`session_table`.
+        status: Enrichment status (see :func:`item_states`).
+        states: :func:`item_states` for the plays' items.
+        coverage: The annotated share the attempted rule asks for.
+        min_plays: Minimum plays of a session.
+
+    Returns:
+        ``(sessions, item_ids)``: the sessions within reach (the
+        :func:`session_table` columns plus ``n_retry``) and the sorted ids of
+        their retryable failures.
+    """
+    ids = pd.Index(sorted(set(plays["item_id"].astype(str))))
+    retryable = pd.Series(
+        _flag(status, "annotated_fail", ids)
+        & ~_flag(status, "annotated_ok", ids)
+        & _flag(status, "scraped_ok", ids)
+        & _flag(status, "video_downloaded", ids),
+        index=ids,
+    )
+    table = mark_rule(session_table(plays, states), "attempted", coverage, coverage)
+    p = plays.dropna(subset=["session_id"])
+    pairs = pd.DataFrame(
+        {"session_id": p["session_id"].astype(str), "item_id": p["item_id"].astype(str)}
+    ).drop_duplicates()
+    pairs = pairs[retryable.reindex(pairs["item_id"]).fillna(False).to_numpy(dtype=bool)]
+    table["n_retry"] = table["session_id"].map(pairs.groupby("session_id").size()).fillna(0)
+    table["n_retry"] = table["n_retry"].astype(int)
+    reach = (
+        ~table["is_covered"]
+        & (table["attempted_share"] >= 1.0)
+        & (table["n_plays"] >= min_plays)
+        & ((table["n_covered"] + table["n_retry"]) / table["n_distinct"].clip(lower=1) >= coverage)
+    )
+    sessions = table[reach].drop(columns=["is_covered", "is_feasible"])
+    items = sorted(set(pairs.loc[pairs["session_id"].isin(set(sessions["session_id"])), "item_id"]))
+    return sessions.reset_index(drop=True), items
+
+
 def manifest_hash(manifest: dict) -> str:
     """SHA-256 of the manifest's selection (parameters, sessions, items)."""
     core = {

@@ -22,6 +22,13 @@ Three subcommands:
 * ``report`` — realised coverage of the selected sessions now (``--rule``,
   ``--coverage``, ``--max-gap`` or ``--no-gap-rule`` override the manifest's
   rule).
+* ``retry-annotations`` — queue for a new annotation attempt the failed
+  annotations of long sessions that every video has been tried in and that
+  would reach the annotated share (``--coverage``) if those annotations
+  succeeded. Works on the study collections like ``plan`` (``--exclude-file``,
+  or ``--collections-file`` to name them); ``--sample N`` queues a seeded
+  random N for a trial. The annotation queue skips failed annotations
+  otherwise.
 
 The manifest names collections, sessions and videos: keep its local copy in a
 gitignored folder (``tmp/``). Production data lives in GCS:
@@ -74,6 +81,22 @@ def _study_collections(exclude: set[str]) -> list[str]:
     return [c for c in cids if c not in exclude]
 
 
+def _read_ids(path: str | None) -> set[str]:
+    """Ids listed one per line in ``path`` (empty when no path is given)."""
+    if not path:
+        return set()
+    return {line.strip() for line in Path(path).read_text().splitlines() if line.strip()}
+
+
+def _tiktok_plays(plays):
+    """Plays of the collections whose plays are mostly TikTok, and those collections."""
+    platform = plays.groupby("collection_id")["source_platform"].agg(
+        lambda s: s.mode().iloc[0] if len(s.mode()) else ""
+    )
+    tiktok = set(platform[platform == "tiktok"].index.astype(str))
+    return plays[plays["collection_id"].astype(str).isin(tiktok)], tiktok
+
+
 def cmd_plan(args) -> int:
     import pandas as pd
 
@@ -81,20 +104,10 @@ def cmd_plan(args) -> int:
     from fyp.core.runtime import code_version, utc_now_iso
     from web_interface.services import session_campaign as sc
 
-    exclude = set()
-    if args.exclude_file:
-        exclude = {
-            line.strip()
-            for line in Path(args.exclude_file).read_text().splitlines()
-            if line.strip()
-        }
+    exclude = _read_ids(args.exclude_file)
     cids = _study_collections(exclude)
     plays, status, states = _load_inputs(cids)
-    platform = plays.groupby("collection_id")["source_platform"].agg(
-        lambda s: s.mode().iloc[0] if len(s.mode()) else ""
-    )
-    tiktok = set(platform[platform == "tiktok"].index.astype(str))
-    plays = plays[plays["collection_id"].astype(str).isin(tiktok)]
+    plays, tiktok = _tiktok_plays(plays)
     yields = sc.enrichment_yields(status)
     table = sc.session_table(plays, states, yields["scrape"], yields["annotate"])
     table = sc.mark_rule(table, args.rule, args.coverage, args.feasible, args.max_gap)
@@ -283,6 +296,40 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_retry_annotations(args) -> int:
+    import random
+
+    from web_interface.services import collection_enrichment
+    from web_interface.services import session_campaign as sc
+
+    cids = _study_collections(_read_ids(args.exclude_file))
+    only = _read_ids(args.collections_file)
+    if only:
+        cids = [c for c in cids if c in only]
+    plays, status, states = _load_inputs(cids)
+    plays, tiktok = _tiktok_plays(plays)
+    sessions, items = sc.annotation_retry_plan(
+        plays, status, states, coverage=args.coverage, min_plays=args.min_plays
+    )
+    print(
+        f"Collections: {len(tiktok)} TikTok study collections. {len(sessions)} sessions of "
+        f"{args.min_plays}+ plays from {sessions['collection_id'].nunique()} collections would "
+        f"reach {args.coverage:.0%} annotated if their {len(items)} failed annotations succeeded"
+    )
+    if args.sample:
+        items = sorted(random.Random(args.seed).sample(items, min(args.sample, len(items))))
+        print(f"Sample: {len(items)} of them (seed {args.seed})")
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text("\n".join(items) + "\n")
+        print(f"Ids written to {args.out} (keep it gitignored)")
+    if args.dry_run:
+        return 0
+    collection_enrichment.queue_for_annotation(items)
+    print(f"Queued {len(items)} for annotation (drain with queue_annotator_batch)")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -348,14 +395,33 @@ def main(argv=None) -> int:
     r.add_argument("--coverage", type=float, default=None)
     r.add_argument("--max-gap", type=int, default=None)
     r.add_argument("--no-gap-rule", action="store_true", help="report without the gap condition")
+    ra = sub.add_parser("retry-annotations")
+    ra.add_argument("--coverage", type=float, default=0.82, help="annotated share to reach")
+    ra.add_argument("--min-plays", type=int, default=60)
+    ra.add_argument(
+        "--exclude-file", default=None, help="collection ids to leave out, one per line"
+    )
+    ra.add_argument(
+        "--collections-file", default=None, help="only these collection ids, one per line"
+    )
+    ra.add_argument("--sample", type=int, default=0, help="queue a seeded random N (0: all)")
+    ra.add_argument("--seed", type=int, default=0)
+    ra.add_argument("--out", default=None, help="write the queued ids here (gitignored)")
+    ra.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     is_gcs, where = _storage_mode()
     print(f"Storage: {where}")
-    if args.cmd in ("plan", "queue") and not getattr(args, "dry_run", False) and not is_gcs:
+    writes = args.cmd in ("plan", "queue", "retry-annotations")
+    if writes and not getattr(args, "dry_run", False) and not is_gcs:
         print("REFUSING to write: storage is not GCS (set FYP_FORCE_GCS=1).")
         return 2
-    return {"plan": cmd_plan, "queue": cmd_queue, "report": cmd_report}[args.cmd](args)
+    return {
+        "plan": cmd_plan,
+        "queue": cmd_queue,
+        "report": cmd_report,
+        "retry-annotations": cmd_retry_annotations,
+    }[args.cmd](args)
 
 
 if __name__ == "__main__":

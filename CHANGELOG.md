@@ -25,6 +25,14 @@ public version. Entries below describe the Hub as it stands at that release.
 - `load_failed_scrapes_detail(consolidate=False)` reads the failed-scrapes
   record without consolidating its files, for read-only callers such as a
   dry run.
+- **Failed annotations can be retried where a retry would complete a
+  session.** `scripts/session_campaign.py retry-annotations` queues for a new
+  annotation attempt the failed annotations of long sessions in which every
+  video has been tried and which would reach the annotated share
+  (`--coverage`, default 82%) if those annotations succeeded. Videos without
+  media are left out. `--sample N` queues a seeded random N for a trial, and
+  `--collections-file` limits it to named collections. The annotation queue
+  skips failed annotations otherwise.
 
 ### Fixed
 
