@@ -250,6 +250,14 @@ class BaseScraper(ABC):
         distilled down to dead items trips the guard on every run and never
         drains (seen on YouTube). Never set it on a verdict that rests on
         the message alone.
+
+        Witness clause: a corroborated media verdict whose evidence is the
+        platform withholding the file (TikTok showing a post but offering no
+        file for it) also carries ``attrs['verdict_needs_witness'] = True``.
+        It stays out of the storm runs like any corroborated verdict, but it
+        prunes the id only when the same batch downloaded some other item's
+        media; otherwise the id takes the media-retry budget, because a
+        session refused every file would look the same.
         """
 
     @abstractmethod

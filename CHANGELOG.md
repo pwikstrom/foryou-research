@@ -26,6 +26,26 @@ public version. Entries below describe the Hub as it stands at that release.
   record without consolidating its files, for read-only callers such as a
   dry run.
 
+### Fixed
+
+- **A TikTok queue of dead posts now drains.** When yt-dlp fails on a post,
+  the scraper reads the post's own page. If the page says why it cannot show
+  the post (deleted, taken down, made private, under review), the failure is
+  recorded as `removed` or `private` and counts as final without tripping the
+  storm guards. yt-dlp words the most common of these states as "Your IP
+  address is blocked", which made a queue of them trip the permanent-storm
+  guard on every run.
+- **TikTok posts that are shown without a video file no longer stall the
+  queue.** TikTok shows some live posts on its website without offering their
+  video file. yt-dlp then finds only the soundtrack, and the scraper took the
+  post for a failed photo post, a retryable failure. Twenty-five in a row
+  stopped every run before it reached the rest of the queue. Such a post now
+  keeps its metadata, is marked as having no video (`no_stream`) and leaves the
+  queue, provided the same batch downloaded some other video. Otherwise it
+  takes the media-retry budget.
+- TikTok's age gate ("Log in for access") is recorded as `private`; it was an
+  unrecognised, retryable error.
+
 ## [0.6.3] — 2026-10-13
 
 ### Added

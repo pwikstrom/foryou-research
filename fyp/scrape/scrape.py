@@ -811,6 +811,25 @@ def _warm_yt_dlp_plugins() -> None:
     _yt_dlp_plugins_warmed = True
 
 
+def _batch_downloaded_media(results_by_index, interesting_videos, already_have_media) -> bool:
+    """Whether this batch downloaded media for at least one item.
+
+    The witness for verdicts that rest on the platform withholding an item's
+    file (``attrs['verdict_needs_witness']``): items whose media already
+    existed were scraped metadata-only and prove nothing about this session.
+    """
+    for idx, res in results_by_index.items():
+        if not isinstance(res, pd.DataFrame) or res.shape[1] <= 10:
+            continue
+        if res.attrs.get("media_error_type") is not None:
+            continue
+        if interesting_videos[idx] in already_have_media or "video_downloaded" not in res.columns:
+            continue
+        if res["video_downloaded"].astype("boolean").fillna(False).any():
+            return True
+    return False
+
+
 def download_video_threads(
     interesting_videos: list[str] = None,
     max_workers: int = 4,
@@ -1241,8 +1260,12 @@ def download_video_threads(
     transient_failed_ids: list[str] = []
     media_retry_ids: list[str] = []
     media_unplayable = 0
+    media_unwitnessed = 0
     storm_demoted = 0
     storm_media_kept = 0
+    media_witnessed = _batch_downloaded_media(
+        results_by_index, interesting_videos, already_have_media
+    )
     for idx in range(len(interesting_videos)):
         res = results_by_index.get(idx)
         if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
@@ -1252,7 +1275,21 @@ def download_video_threads(
             # media is retried next run. attrs don't survive pd.concat, so
             # this is the last place they're visible.
             media_error = res.attrs.get("media_error_type")
-            if media_error is not None and res.attrs.get("verdict_corroborated"):
+            media_corroborated = bool(res.attrs.get("verdict_corroborated"))
+            if (
+                media_error is not None
+                and media_corroborated
+                and res.attrs.get("verdict_needs_witness")
+                and not media_witnessed
+            ):
+                # The item's evidence is the platform withholding its file. A
+                # session refused every file would show the same, so with no
+                # other item's media downloaded in this batch the verdict is
+                # not trusted: the row is saved and the id takes the
+                # media-retry budget like any other media failure.
+                media_corroborated = False
+                media_unwitnessed += 1
+            if media_error is not None and media_corroborated:
                 # The platform named why this item will never play here (e.g.
                 # a region whitelist or a rights claim, record intact): the
                 # metadata row stands and the id is pruned like any success.
@@ -1386,7 +1423,13 @@ def download_video_threads(
     if media_unplayable:
         logger.info(
             f"  Unplayable here: {media_unplayable} items scraped metadata-only "
-            f"(the platform named why — e.g. region or rights block) — removed from queue"
+            f"(the platform named why, or offers no file for the post) — removed from queue"
+        )
+    if media_unwitnessed:
+        logger.warning(
+            f"  {media_unwitnessed} items whose post offers no file were kept for a media "
+            f"retry: no other item's media was downloaded in this batch, so the session "
+            f"itself may be refused files"
         )
 
     if media_retry_ids:

@@ -53,8 +53,10 @@ logger = get_logger(__name__)
 # images could not be extracted or downloaded), not by _classify_error. It is
 # retryable — the page-JSON fetch behind image extraction fails transiently —
 # and deliberately not a throttle signal.
+# "no_stream" is also save_tiktok's own: a media verdict for a post whose page
+# shows it as a video but offers no file (see _offers_no_video_file).
 _RETRYABLE = {"rate_limited", "network", "server_error", "unknown", "carousel"}
-_PERMANENT = {"removed", "private", "geo_blocked", "ip_blocked", "extraction"}
+_PERMANENT = {"removed", "private", "geo_blocked", "ip_blocked", "extraction", "no_stream"}
 
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
@@ -111,7 +113,13 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if "ip address is blocked" in msg_lower or "status code 10204" in msg_lower:
         return "ip_blocked", msg
 
-    if "not have permission" in msg_lower or "log into" in msg_lower:
+    # "Log in for access" is TikTok's age gate ("This post may not be
+    # comfortable for some audiences"); the scraper never logs in to TikTok.
+    if (
+        "not have permission" in msg_lower
+        or "log into" in msg_lower
+        or "log in for access" in msg_lower
+    ):
         return "private", msg
 
     if any(
@@ -342,13 +350,25 @@ _STRUCT_EXTRACTORS = {
 
 
 def _fetch_item_struct(video_url: str) -> dict | None:
-    """Fetch TikTok page and extract the full itemStruct dict.
+    """Fetch TikTok page and extract the full itemStruct dict (see :func:`_fetch_page`)."""
+    return _fetch_page(video_url)[0]
+
+
+def _fetch_page(video_url: str) -> tuple[dict | None, int | None, str]:
+    """Fetch a TikTok post's page: its itemStruct and the page's own status.
 
     Tries multiple known JSON embedding paths that TikTok has used
-    historically. Returns the itemStruct dict on success, None on failure.
+    historically for the itemStruct. The status comes from the rehydration
+    JSON's ``webapp.video-detail`` scope: code 0 means the page shows the
+    post; any other code says why it cannot (see :func:`_page_status_category`).
 
     Uses a plain HTTP request — no browser_cookie3 dependency so it works
     on Cloud Run.
+
+    Returns:
+        ``(item_struct, status_code, status_msg)``. ``item_struct`` is None
+        when no path yields one; ``status_code`` is None when the page carries
+        no rehydration JSON at all (a failed fetch or a bot-challenge stub).
     """
     from json import loads
 
@@ -384,13 +404,15 @@ def _fetch_item_struct(video_url: str) -> dict | None:
                     _PAGE_BYTE_CAP,
                 )
                 resp.close()
-                return None
+                return None, None, ""
         resp.close()
         soup = BeautifulSoup(b"".join(chunks), "html.parser")
     except Exception as e:
         logger.warning("Page fetch failed for %s: %s", video_url, e)
-        return None
+        return None, None, ""
 
+    status_code: int | None = None
+    status_msg = ""
     for script_id, extractor_name in _JSON_PATHS:
         script = soup.find("script", attrs={"id": script_id})
         if script is None or not script.string:
@@ -398,17 +420,95 @@ def _fetch_item_struct(video_url: str) -> dict | None:
 
         try:
             data = loads(script.string)
+            if extractor_name == "rehydration":
+                status_code, status_msg = _page_status(data)
             item_struct = _STRUCT_EXTRACTORS[extractor_name](data, video_id)
             if item_struct:
                 logger.info("Page JSON extracted via '%s' for %s", script_id, video_id)
-                return item_struct
+                return item_struct, status_code, status_msg
         except KeyError as e:
             logger.debug("Page JSON path '%s' missing key %s for %s", script_id, e, video_id)
         except Exception as e:
             logger.debug("Page JSON path '%s' failed for %s: %s", script_id, video_id, e)
 
-    logger.warning("All page JSON extraction paths failed for %s", video_url)
-    return None
+    if status_code:
+        logger.info("Page for %s reports status %s (%s)", video_id, status_code, status_msg)
+    else:
+        logger.warning("All page JSON extraction paths failed for %s", video_url)
+    return None, status_code, status_msg
+
+
+def _page_status(data: dict) -> tuple[int | None, str]:
+    """The rehydration JSON's ``webapp.video-detail`` status code and message."""
+    detail = (data.get("__DEFAULT_SCOPE__") or {}).get("webapp.video-detail") or {}
+    try:
+        code = int(detail["statusCode"])
+    except (KeyError, TypeError, ValueError):
+        return None, ""
+    return code, str(detail.get("statusMsg") or "")
+
+
+# The page's own status for a post it cannot show. yt-dlp words TikTok's most
+# common one, 10204, as "Your IP address is blocked from accessing this post",
+# but the page's message names the post's actual state: "item doesn't exist",
+# "status_deleted", "status_audit_not_pass" (taken down), "status_self_see"
+# (made private), "status_friend_see", "status_reviewing", ... The verdict
+# holds from any vantage point (tested from residential exits in five
+# countries), so it is a fact about the post, not about this session.
+_PRIVATE_STATUS_CODES = {10216, 10222}
+_PRIVATE_STATUS_MARKERS = ("self_see", "friend_see", "private")
+
+
+def _page_status_category(status_code: int | None, status_msg: str) -> str | None:
+    """Map a page status to a permanent failure category, or None when the page shows the post.
+
+    ``"private"`` for posts only their creator or friends may see, ``"removed"``
+    for every other state the page names (deleted, taken down, under review,
+    unsupported on the web).
+    """
+    if not status_code:
+        return None
+    msg = (status_msg or "").lower()
+    if status_code in _PRIVATE_STATUS_CODES or any(m in msg for m in _PRIVATE_STATUS_MARKERS):
+        return "private"
+    return "removed"
+
+
+def _offers_no_video_file(item_struct: dict | None) -> bool:
+    """The page shows the post as a video but gives no address to fetch its file from.
+
+    TikTok does this for some live, public posts (an ad, a post with a big
+    play count) whatever the session: yt-dlp then finds only the soundtrack.
+    A photo post, or a struct that does not describe a video, is not this case.
+    """
+    if not item_struct or item_struct.get("imagePost"):
+        return False
+    video = item_struct.get("video") or {}
+    if not video.get("duration"):
+        return False
+    return not any(
+        video.get(k) for k in ("playAddr", "downloadAddr", "PlayAddrStruct", "bitrateInfo")
+    )
+
+
+def _fail_with_page_status(video_url: str, category: str, detail: str) -> pd.DataFrame:
+    """Fail an item, corroborated when its own page names why it cannot be shown.
+
+    Only for verdicts that could be the post's state (a permanent category or
+    an unrecognised error); a throttle or network error says nothing about the
+    post. A page with no status (a bot-challenge stub) corroborates nothing,
+    so the storm guards still see a broken session.
+    """
+    if category in _PERMANENT or category == "unknown":
+        _, status_code, status_msg = _fetch_page(video_url)
+        page_category = _page_status_category(status_code, status_msg)
+        if page_category:
+            return _empty_fail(
+                page_category,
+                f"TikTok page status {status_code} ({status_msg}); yt-dlp: {detail}",
+                corroborated=True,
+            )
+    return _empty_fail(category, detail)
 
 
 def _get_image_urls_from_struct(item_struct: dict) -> list[str]:
@@ -563,6 +663,17 @@ def save_tiktok(
     be extracted or downloaded fails with the retryable ``"carousel"`` category
     instead of storing media. Metadata-only calls (``save_video=False``) still
     return the metadata row for such posts.
+
+    Posts the page cannot show: when yt-dlp's verdict could be the post's own
+    state, the post's page is read and, if it names that state (deleted, taken
+    down, private), the failure is ``"removed"`` or ``"private"`` and
+    corroborated (see :func:`_fail_with_page_status`).
+
+    Posts with no video file: when the page shows a video post but offers no
+    file for it, the metadata row is returned with ``video_downloaded=False``
+    and the corroborated media verdict ``"no_stream"``, which the orchestrator
+    trusts only in a batch that downloaded some other item's media
+    (``attrs['verdict_needs_witness']``).
     """
 
     video_id = video_url.rstrip("/").split("/")[-1]
@@ -604,7 +715,7 @@ def save_tiktok(
                 logger.info("Retrying %s in %ds...", video_id, backoff)
                 sleep(backoff)
                 continue
-            return _empty_fail(last_category, last_detail)
+            return _fail_with_page_status(video_url, last_category, last_detail)
         except Exception as e:
             last_category, last_detail = "unknown", str(e)
             logger.error("Scrape %s metadata unexpected error: %s", video_id, e)
@@ -619,9 +730,10 @@ def save_tiktok(
     # -------------------------------------------
     # Step 2: supplement metadata from page JSON
     # -------------------------------------------
-    item_struct = _fetch_item_struct(video_url)
+    item_struct, page_status, _ = _fetch_page(video_url)
     if item_struct:
         _supplement_from_struct(data_row, item_struct)
+    no_video_file = page_status == 0 and _offers_no_video_file(item_struct)
 
     # Detect image carousel
     is_slideshow = False
@@ -636,6 +748,8 @@ def save_tiktok(
         if image_urls:
             is_slideshow = True
             data_row.loc[0, "image_list"] = " | ".join(image_urls)
+        elif not has_video_format and no_video_file:
+            logger.info("TikTok shows %s but offers no video file for it", video_id)
         elif not has_video_format:
             logger.warning(
                 "Suspected image post (no video formats) but carousel "
@@ -673,6 +787,16 @@ def save_tiktok(
                 f"failed downloading {len(image_urls)} carousel images",
             )
         data_row.loc[0, "video_downloaded"] = True
+
+    elif not has_video_format and no_video_file:
+        # The post is there, but TikTok gives no file to fetch. Keep its
+        # metadata; whether the verdict is trusted is the orchestrator's call.
+        data_row.loc[0, "video_downloaded"] = False
+        data_row.attrs["media_error_type"] = "no_stream"
+        data_row.attrs["media_error_detail"] = "TikTok shows the post but offers no video file"
+        data_row.attrs["verdict_corroborated"] = True
+        data_row.attrs["verdict_needs_witness"] = True
+        return data_row
 
     elif not has_video_format:
         # Photo post detected but page-JSON extraction produced no image URLs.
