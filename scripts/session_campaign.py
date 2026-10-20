@@ -18,7 +18,10 @@ Three subcommands:
   halve the cost. ``--retry-no-reason N`` also re-queues for scraping a random
   N of the selected sessions' videos recorded as failed before failure reasons
   were stored (August 2026), when retryable failures were recorded as final
-  too; the new attempt records a reason either way.
+  too; the new attempt records a reason either way. ``--reannotate`` also
+  queues a random-mode manifest's videos annotated under another version, so
+  that they are annotated again with the active one; the archive keeps both
+  versions, and which one studies read follows the preferred version.
 * ``report`` — realised coverage of the selected sessions now (``--rule``,
   ``--coverage``, ``--max-gap`` or ``--no-gap-rule`` override the manifest's
   rule).
@@ -466,6 +469,16 @@ def cmd_queue(args) -> int:
             Path(args.retry_out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.retry_out).write_text("\n".join(retry) + "\n")
             print(f"Retry sample written to {args.retry_out} (keep it gitignored)")
+    reannotate: list[str] = []
+    if args.reannotate:
+        from web_interface.services import session_campaign as sc
+
+        listed = manifest.get("to_reannotate") or []
+        reannotate = sc.reannotation_eligible(listed, collection_enrichment.load_status(listed))
+        print(
+            f"Videos annotated under another version: {len(listed)}; "
+            f"{len(reannotate)} still have their media and are re-annotated"
+        )
     if args.dry_run:
         return 0
     if args.retry_only:
@@ -482,6 +495,9 @@ def cmd_queue(args) -> int:
     if annotate:
         collection_enrichment.queue_for_annotation(annotate)
         print(f"Queued {len(annotate)} for annotation (drain with queue_annotator_batch)")
+    if reannotate:
+        collection_enrichment.queue_for_annotation(reannotate)
+        print(f"Queued {len(reannotate)} for re-annotation with the active version")
     return 0
 
 
@@ -659,6 +675,12 @@ def main(argv=None) -> int:
         "--retry-only",
         action="store_true",
         help="queue only the --retry-no-reason videos, not the manifest's (safe before consolidation)",
+    )
+    q.add_argument(
+        "--reannotate",
+        action="store_true",
+        help="also queue for annotation the manifest's videos annotated under another version "
+        "(a random-mode manifest's to_reannotate list), if their media is still stored",
     )
     q.add_argument("--dry-run", action="store_true")
     r = sub.add_parser("report")

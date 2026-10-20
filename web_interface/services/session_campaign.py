@@ -389,6 +389,29 @@ def campaign_items(
     return sorted(to_scrape), sorted(to_annotate)
 
 
+def reannotation_eligible(item_ids, status: pd.DataFrame | None) -> list[str]:
+    """The ids among ``item_ids`` that can be annotated again.
+
+    Already annotated, scraped, and with the media still downloaded. A video
+    queued for annotation without media is refined as a failed annotation, so
+    one whose file has gone is left with the annotation it has.
+
+    Args:
+        item_ids: Candidate ids (already annotated under another version).
+        status: Enrichment status indexed by item_id, as for :func:`item_states`.
+
+    Returns:
+        Eligible ids, sorted and deduplicated.
+    """
+    ids = pd.Index(sorted({str(i) for i in item_ids if str(i)}))
+    ok = (
+        _flag(status, "scraped_ok", ids)
+        & _flag(status, "video_downloaded", ids)
+        & _flag(status, "annotated_ok", ids)
+    )
+    return [i for i, f in zip(ids, ok) if f]
+
+
 def annotation_retry_plan(
     plays: pd.DataFrame,
     status: pd.DataFrame | None,

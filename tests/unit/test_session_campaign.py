@@ -333,3 +333,17 @@ def test_manifest_hash_unchanged_for_manifests_without_the_new_lists():
     h = sc.manifest_hash(m)
     assert sc.manifest_hash({**m, "summary": {"n": 1}}) == h
     assert sc.manifest_hash({**m, "to_reannotate": ["y"]}) != h
+
+
+def test_reannotation_needs_an_annotation_and_the_media():
+    status = _status(
+        {
+            "keep": (True, False, True, True, False),
+            "no_media": (True, False, False, True, False),
+            "not_annotated": (True, False, True, False, False),
+            "failed": (True, False, True, False, True),
+        }
+    )
+    ids = ["keep", "no_media", "not_annotated", "failed", "unknown", "keep"]
+    assert sc.reannotation_eligible(ids, status) == ["keep"]
+    assert sc.reannotation_eligible(ids, None) == []

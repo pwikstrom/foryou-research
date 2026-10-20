@@ -12,6 +12,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **A session campaign can draw a stratified random sample of sessions.**
+  `scripts/session_campaign.py plan --mode random` draws, within each
+  participant, sessions of two length bands (long: at least 60 plays, of
+  which at least 50 on the For You feed; and 12 to 59 plays) across calendar
+  quarters, in an order set by `--salt`. A larger draw contains every smaller
+  one. `--sizes long:mid ...` prices several sizes in one dry run: the videos
+  to scrape, the failures to retry, the videos to annotate, the videos
+  annotated under another version than `--current-version`, and the expected
+  number of sessions that reach the coverage rule at given yields
+  (`--scrape-yield`, `--annotate-yield`). The manifest records each drawn
+  session's stratum and inclusion probability. `queue --reannotate` queues
+  the manifest's videos annotated under another version for a new annotation
+  with the active version, provided their media is still stored.
 - **A session campaign can retry failures recorded without a reason.**
   `scripts/session_campaign.py queue --retry-no-reason N` re-queues for
   scraping a random N (or all, with -1) of the selected sessions' videos whose
