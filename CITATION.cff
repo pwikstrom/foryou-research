@@ -46,8 +46,8 @@ identifiers:
   - type: doi
     value: "10.5281/zenodo.23335057"
     description: "Archived snapshot of version 0.6.3"
-version: 0.6.3
-date-released: "2026-10-13"
+version: 0.7.0
+date-released: "2026-10-20"
 keywords:
   - data donation
   - short-video
