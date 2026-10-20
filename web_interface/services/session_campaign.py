@@ -444,9 +444,171 @@ def annotation_retry_plan(
     return sessions.reset_index(drop=True), items
 
 
+# --------------------------------------------------------------------------- #
+# A designed sample: a stratified random draw of sessions
+# --------------------------------------------------------------------------- #
+#
+# The cheapest-first selection above favours sessions that are nearly complete,
+# so it favours short sessions and the months that happened to be annotated. A
+# designed sample instead draws sessions at random, whatever their current
+# coverage, within each participant by length band and calendar quarter, and
+# enriches every drawn session in full.
+
+BANDS = ("long", "mid")
+
+
+def session_bands(
+    table: pd.DataFrame,
+    for_you_plays: pd.Series | None = None,
+    long_plays: int = LONG_PLAYS,
+    long_for_you: int = 50,
+    mid: tuple[int, int] = (12, 59),
+) -> pd.Series:
+    """Each session's length band: ``"long"`` (at least ``long_plays`` plays and
+    ``long_for_you`` For You plays), ``"mid"`` (``mid[0]`` to ``mid[1]`` plays)
+    or None (neither).
+
+    Args:
+        table: :func:`session_table` output.
+        for_you_plays: For You plays per session_id (plays without an off-feed
+            signal); None counts every play as For You.
+    """
+    n = table["n_plays"].to_numpy()
+    fy = (
+        table["session_id"].map(for_you_plays).fillna(0).to_numpy()
+        if for_you_plays is not None
+        else n
+    )
+    band = np.where(
+        (n >= long_plays) & (fy >= long_for_you),
+        "long",
+        np.where((n >= mid[0]) & (n <= mid[1]), "mid", None),
+    )
+    return pd.Series(band, index=table.index, dtype=object)
+
+
+def quarter_of(start) -> pd.Series:
+    """Calendar quarter (``YYYYQn``) of each session start (numpy- or
+    Arrow-backed timestamps; the latter have no ``to_period``)."""
+    s = pd.to_datetime(pd.Series(start))
+    return (
+        s.dt.year.astype(int).astype(str)
+        + "Q"
+        + ((s.dt.month.astype(int) - 1) // 3 + 1).astype(str)
+    )
+
+
+def draw_order(table: pd.DataFrame, salt: str) -> pd.DataFrame:
+    """The order in which a stratified random draw takes each participant's
+    sessions, per band.
+
+    Within a participant and band, the sessions of each calendar quarter are
+    ordered by a salted hash, and so are the quarters; the draw then takes one
+    session from each quarter in turn (round robin), so that every participant
+    contributes sessions from across the history. A draw of ``k`` sessions is
+    the first ``k`` in this order, so a larger draw contains every smaller one.
+
+    Args:
+        table: Sessions with ``collection_id``, ``session_id``, ``band`` and
+            ``quarter``; rows without a band are ignored.
+        salt: The draw's salt (record it with the manifest).
+
+    Returns:
+        The banded rows of ``table`` with ``draw_rank`` (0-based position in
+        the participant-band order) and ``stratum_size`` (sessions of the
+        participant, band and quarter).
+    """
+    t = table[table["band"].notna()].copy()
+    t["stratum_size"] = t.groupby(["collection_id", "band", "quarter"])["session_id"].transform(
+        "size"
+    )
+    out = []
+    for (_cid, _band), g in t.groupby(["collection_id", "band"], sort=True):
+        rank = {s: i for i, s in enumerate(stable_rank(g["session_id"].tolist(), salt))}
+        by_q = {
+            q: sorted(gq["session_id"], key=rank.get) for q, gq in g.groupby("quarter", sort=False)
+        }
+        quarters = stable_rank(sorted(by_q), salt)
+        order = []
+        depth = 0
+        while len(order) < len(g):
+            for q in quarters:
+                if depth < len(by_q[q]):
+                    order.append(by_q[q][depth])
+            depth += 1
+        pos = {s: i for i, s in enumerate(order)}
+        out.append(g.assign(draw_rank=g["session_id"].map(pos)))
+    if not out:
+        return t.assign(draw_rank=pd.Series(dtype=int))
+    return pd.concat(out).sort_values(["collection_id", "band", "draw_rank"]).reset_index(drop=True)
+
+
+def draw_stratified(ordered: pd.DataFrame, per_participant: dict[str, int]) -> pd.DataFrame:
+    """The sessions a draw of ``per_participant[band]`` sessions per participant
+    takes (all of a band when the participant has fewer).
+
+    Args:
+        ordered: :func:`draw_order` output.
+        per_participant: Sessions wanted per participant in each band.
+
+    Returns:
+        The drawn rows, with ``drawn_in_stratum`` (sessions drawn from the
+        participant, band and quarter) and ``inclusion_probability``
+        (``drawn_in_stratum / stratum_size``) for weighting.
+    """
+    keep = ordered["draw_rank"] < ordered["band"].map(per_participant).fillna(0)
+    d = ordered[keep].copy()
+    d["drawn_in_stratum"] = d.groupby(["collection_id", "band", "quarter"])["session_id"].transform(
+        "size"
+    )
+    d["inclusion_probability"] = d["drawn_in_stratum"] / d["stratum_size"]
+    return d.reset_index(drop=True)
+
+
+def reach_probability(
+    table: pd.DataFrame,
+    scrape_yield: float,
+    annotate_yield: float,
+    coverage: float,
+    sims: int = 400,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Chance that each session meets the attempted rule after full enrichment.
+
+    Every untried video is assumed tried; a video to scrape is annotated with
+    probability ``scrape_yield * annotate_yield``, a scraped one waiting for
+    annotation with probability ``annotate_yield``, independently. Videos that
+    can no longer be annotated (removed, blocked or private, failed annotation
+    or no media) stay unannotated.
+
+    Returns:
+        ``table`` with ``n_dead`` (videos that can no longer be annotated),
+        ``best_share`` (the annotated share if every attempt succeeded),
+        ``impossible`` (best_share below ``coverage``) and ``p_reach``.
+    """
+    t = table.copy()
+    n = t["n_distinct"].clip(lower=1).to_numpy()
+    cov = t["n_covered"].to_numpy()
+    ann = t["n_to_annotate"].to_numpy()
+    scr = t["n_to_scrape"].to_numpy()
+    t["n_dead"] = t["n_distinct"] - t["n_covered"] - t["n_to_annotate"] - t["n_to_scrape"]
+    t["best_share"] = (cov + ann + scr) / n
+    t["impossible"] = t["best_share"] < coverage
+    rng = np.random.default_rng(seed)
+    hits = np.zeros(len(t))
+    for _ in range(sims):
+        got = (
+            cov
+            + rng.binomial(ann, annotate_yield)
+            + rng.binomial(scr, scrape_yield * annotate_yield)
+        )
+        hits += got / n >= coverage
+    t["p_reach"] = hits / sims
+    return t
+
+
 def manifest_hash(manifest: dict) -> str:
     """SHA-256 of the manifest's selection (parameters, sessions, items)."""
-    core = {
-        k: manifest[k] for k in ("params", "sessions", "to_scrape", "to_annotate") if k in manifest
-    }
+    keys = ("params", "sessions", "to_scrape", "to_annotate", "retry_no_reason", "to_reannotate")
+    core = {k: manifest[k] for k in keys if k in manifest}
     return hashlib.sha256(json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()

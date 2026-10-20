@@ -170,6 +170,231 @@ def cmd_plan(args) -> int:
     return 0
 
 
+def _for_you_plays(plays, collection_ids: list[str]):
+    """For You plays per session: plays without an off-feed signal, flagged as
+    the sessions build flags them (with the creators scraped so far)."""
+    from fyp.analysis.sessions import inputs, publish
+
+    events = inputs.load_search_follow(collection_ids)
+    creators = inputs.load_creators(set(plays["item_id"].astype(str)))
+    flagged = publish.attach_offfeed_signals(plays, creators, events, {})
+    return flagged.loc[flagged["offfeed_signals"] == 0].groupby("session_id").size()
+
+
+def _annotation_versions(item_ids):
+    """Each annotated video's annotation version (item_id -> version)."""
+    import pandas as pd
+
+    import fyp.core.data_io as data_io
+
+    df = data_io.load_parquet_selective(
+        storage_location="recoded",
+        filename="machine_annotations_recoded.parquet",
+        columns=["item_id", "annotation_version"],
+    )
+    if df is None or df.empty:
+        return pd.Series(dtype=object)
+    df["item_id"] = df["item_id"].astype(str)
+    df = df[df["item_id"].isin(set(map(str, item_ids)))].drop_duplicates("item_id", keep="last")
+    return df.set_index("item_id")["annotation_version"]
+
+
+def _parse_sizes(sizes: list[str]) -> list[dict[str, int]]:
+    """``["5:8", "10:15"]`` -> ``[{"long": 5, "mid": 8}, {"long": 10, "mid": 15}]``."""
+    out = []
+    for s in sizes:
+        long_n, mid_n = (int(x) for x in s.split(":"))
+        out.append({"long": long_n, "mid": mid_n})
+    return out
+
+
+def _at_least(probabilities, k: int) -> float:
+    """P(at least ``k`` successes) of independent trials (Poisson binomial)."""
+    dist = [1.0]
+    for p in probabilities:
+        nxt = [0.0] * (len(dist) + 1)
+        for j, q in enumerate(dist):
+            nxt[j] += q * (1 - p)
+            nxt[j + 1] += q * p
+        dist = nxt
+    return float(sum(dist[k:]))
+
+
+def _random_summary(drawn, reach, to_scrape, to_annotate, retry, reannotate, cost) -> dict:
+    """Aggregate counts of one random draw (no ids)."""
+    out = {
+        "sessions": len(drawn),
+        "participants": int(drawn["collection_id"].nunique()),
+        "by_band": {},
+        "videos_to_scrape": len(to_scrape),
+        "failures_without_a_reason_to_retry": len(retry),
+        "videos_to_annotate_now": len(to_annotate),
+        "expected_new_annotations": round(float(cost), 1),
+        "videos_to_reannotate": len(reannotate),
+    }
+    for band, g in drawn.groupby("band"):
+        r = reach.set_index("session_id").loc[g["session_id"]]
+        short = (g["n_plays"] <= 80).to_numpy()
+        out["by_band"][band] = {
+            "sessions": len(g),
+            "participants": int(g["collection_id"].nunique()),
+            "meeting_the_rule_now": int(r["is_covered"].sum()),
+            "expected_to_meet_the_rule": round(float(r["p_reach"].sum()), 1),
+            "cannot_meet_it_videos_gone": int(r["impossible"].sum()),
+            "by_quarter": g.groupby("quarter").size().sort_index().to_dict(),
+            "plays": int(g["n_plays"].sum()),
+            "plays_for_you": int(g["n_for_you"].sum()),
+            "expected_for_you_plays_in_sessions_meeting_the_rule": round(
+                float((r["p_reach"].to_numpy() * g["n_for_you"].to_numpy()).sum()), 1
+            ),
+            "sessions_up_to_80_plays": int(short.sum()),
+            "expected_to_meet_the_rule_up_to_80_plays": round(
+                float(r["p_reach"].to_numpy()[short].sum()), 1
+            ),
+        }
+    # Participants expected to hold at least 3 sessions that meet the rule: in the long band (RQ1's
+    # minimum) and among sessions of 12-80 plays of either band (RQ3's).
+    p = reach.set_index("session_id")["p_reach"]
+    d = drawn.assign(p=drawn["session_id"].map(p).to_numpy())
+    long_p = d[d["band"] == "long"].groupby("collection_id")["p"].apply(list)
+    rq3_p = d[(d["n_plays"] >= 12) & (d["n_plays"] <= 80)].groupby("collection_id")["p"].apply(list)
+    out["expected_participants_with_3_long_meeting_the_rule"] = round(
+        sum(_at_least(v, 3) for v in long_p), 1
+    )
+    out["expected_participants_with_3_sessions_of_12_to_80_meeting_the_rule"] = round(
+        sum(_at_least(v, 3) for v in rq3_p), 1
+    )
+    out["expected_sessions_meeting_the_rule_per_participant_median"] = float(
+        d.groupby("collection_id")["p"].sum().median()
+    )
+    return out
+
+
+def cmd_plan_random(args) -> int:
+    """``plan --mode random``: a stratified random draw within each participant."""
+    import pandas as pd
+
+    import fyp.core.data_io as data_io
+    from fyp.core.runtime import code_version, utc_now_iso
+    from fyp.scrape.failures import load_failed_scrapes_detail
+    from web_interface.services import session_campaign as sc
+
+    sizes = _parse_sizes(args.sizes)
+    if not args.dry_run and len(sizes) != 1:
+        raise SystemExit(
+            "A manifest needs exactly one --sizes value; give several only with --dry-run."
+        )
+    only = _read_ids(args.collections_file)
+    cids = sorted(only) if only else _study_collections(_read_ids(args.exclude_file))
+    plays, status, states = _load_inputs(cids)
+    plays, tiktok = _tiktok_plays(plays)
+    yields = sc.enrichment_yields(status)
+    yields["source"] = "measured over the collections' videos"
+    if args.scrape_yield is not None or args.annotate_yield is not None:
+        yields["scrape"] = args.scrape_yield if args.scrape_yield is not None else yields["scrape"]
+        yields["annotate"] = (
+            args.annotate_yield if args.annotate_yield is not None else yields["annotate"]
+        )
+        yields["source"] = "given (--scrape-yield / --annotate-yield)"
+    table = sc.session_table(plays, states, yields["scrape"], yields["annotate"])
+    table = sc.mark_rule(table, args.rule, args.coverage, args.coverage, args.max_gap)
+    for_you = _for_you_plays(plays, sorted(tiktok))
+    table["n_for_you"] = table["session_id"].map(for_you).fillna(0).astype(int)
+    table["band"] = sc.session_bands(
+        table, for_you, args.min_plays, args.min_for_you, (args.mid_min, args.min_plays - 1)
+    )
+    table["quarter"] = sc.quarter_of(table["start"]).to_numpy()
+    ordered = sc.draw_order(table, args.salt)
+    reach = sc.reach_probability(
+        table, yields["scrape"], yields["annotate"], args.coverage, seed=args.seed
+    )
+    no_reason = {
+        i for i, why in load_failed_scrapes_detail(consolidate=False).items() if why is None
+    }
+    versions = _annotation_versions(plays["item_id"].astype(str).unique())
+    print(
+        f"Collections: {len(tiktok)} TikTok collections; sessions: {len(table)}; "
+        f"long {int((table['band'] == 'long').sum())}, 12-{args.min_plays - 1} plays "
+        f"{int((table['band'] == 'mid').sum())}"
+    )
+    print(f"Yields: {yields}; salt {args.salt!r}")
+    report = {
+        "yields": yields,
+        "salt": args.salt,
+        "rule": args.rule,
+        "coverage": args.coverage,
+        "population": {
+            "sessions": len(table),
+            "by_band": table["band"].value_counts(dropna=False).to_dict(),
+            "participants_by_band": table.groupby("band")["collection_id"].nunique().to_dict(),
+            "by_band_and_quarter": {
+                b: g.groupby("quarter").size().sort_index().to_dict()
+                for b, g in table[table["band"].notna()].groupby("band")
+            },
+            "meeting_the_rule_now_by_band": table.groupby("band")["is_covered"].sum().to_dict(),
+        },
+        "sizes": {},
+    }
+    for size in sizes:
+        drawn = sc.draw_stratified(ordered, size)
+        to_scrape, to_annotate = sc.campaign_items(plays, states, drawn["session_id"])
+        sel = set(drawn["session_id"])
+        ids = set(plays.loc[plays["session_id"].astype(str).isin(sel), "item_id"].astype(str))
+        retry = sorted(ids & no_reason)
+        covered_ids = [i for i in ids if bool(states["covered"].get(i, False))]
+        reannotate = sorted(i for i in covered_ids if versions.get(i) != args.current_version)
+        cost = drawn["cost"].sum()
+        summary = _random_summary(drawn, reach, to_scrape, to_annotate, retry, reannotate, cost)
+        key = f"{size['long']}:{size['mid']}"
+        report["sizes"][key] = summary
+        print(f"Size {key}: {json.dumps(summary, default=str)}")
+    if args.summary_json:
+        Path(args.summary_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.summary_json).write_text(json.dumps(report, indent=1, default=str))
+        print(f"Summary written to {args.summary_json} (aggregates only)")
+    if args.dry_run:
+        return 0
+    size = sizes[0]
+    manifest = {
+        "name": args.name,
+        "created_at": utc_now_iso(),
+        "code_version": code_version(),
+        "params": {
+            "mode": "random",
+            "per_participant": size,
+            "min_plays": args.min_plays,
+            "min_for_you": args.min_for_you,
+            "mid_min": args.mid_min,
+            "rule": args.rule,
+            "coverage": args.coverage,
+            "max_gap": args.max_gap,
+            "salt": args.salt,
+            "current_version": args.current_version,
+            "collections": len(tiktok),
+        },
+        "yields": yields,
+        "summary": report["sizes"][f"{size['long']}:{size['mid']}"],
+        "sessions": drawn.assign(start=drawn["start"].astype(str))
+        .drop(columns=["is_covered", "is_feasible"], errors="ignore")
+        .to_dict("records"),
+        "to_scrape": to_scrape,
+        "to_annotate": to_annotate,
+        "retry_no_reason": retry,
+        "to_reannotate": reannotate,
+    }
+    manifest["hash"] = sc.manifest_hash(manifest)
+    data_io.save_json(
+        data=manifest, storage_location="cache", filename=_manifest_filename(args.name)
+    )
+    if args.out:
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / _manifest_filename(args.name)).write_text(json.dumps(manifest, default=str))
+        pd.DataFrame(manifest["sessions"]).to_csv(out / f"{args.name}_sessions.csv", index=False)
+    print(f"Manifest saved (hash {manifest['hash'][:16]}…)")
+    return 0
+
+
 def _load_manifest(name: str) -> dict:
     import fyp.core.data_io as data_io
 
@@ -337,9 +562,56 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan")
     p.add_argument("--name", required=True)
+    p.add_argument(
+        "--mode",
+        choices=["cheapest", "random"],
+        default="cheapest",
+        help="cheapest: complete the cheapest feasible long sessions (the default); "
+        "random: a stratified random draw within each participant by length band and quarter",
+    )
     p.add_argument("--target", type=int, default=20)
     p.add_argument("--month-cap", type=int, default=4)
-    p.add_argument("--budget", type=float, required=True, help="expected annotations")
+    p.add_argument(
+        "--budget", type=float, default=None, help="expected annotations (cheapest mode)"
+    )
+    p.add_argument(
+        "--sizes",
+        nargs="+",
+        default=["5:8"],
+        help="random mode: LONG:MID sessions per participant; several only with --dry-run",
+    )
+    p.add_argument(
+        "--min-for-you", type=int, default=50, help="random mode: For You plays of a long session"
+    )
+    p.add_argument(
+        "--mid-min", type=int, default=12, help="random mode: fewest plays of the shorter band"
+    )
+    p.add_argument(
+        "--scrape-yield",
+        type=float,
+        default=None,
+        help="random mode: expected share of scrapes that succeed with media (default: measured)",
+    )
+    p.add_argument(
+        "--annotate-yield",
+        type=float,
+        default=None,
+        help="random mode: expected share of annotations that succeed (default: measured)",
+    )
+    p.add_argument(
+        "--current-version",
+        default=None,
+        help="random mode: annotation version whose videos need no re-annotation",
+    )
+    p.add_argument(
+        "--seed", type=int, default=0, help="random mode: seed of the expected-coverage simulation"
+    )
+    p.add_argument(
+        "--collections-file", default=None, help="only these collection ids, one per line"
+    )
+    p.add_argument(
+        "--summary-json", default=None, help="random mode: write the aggregate summary here"
+    )
     p.add_argument("--per-participant-budget", type=float, default=None)
     p.add_argument("--min-plays", type=int, default=60)
     p.add_argument(
@@ -416,8 +688,10 @@ def main(argv=None) -> int:
     if writes and not getattr(args, "dry_run", False) and not is_gcs:
         print("REFUSING to write: storage is not GCS (set FYP_FORCE_GCS=1).")
         return 2
+    if args.cmd == "plan" and args.mode == "cheapest" and args.budget is None:
+        parser.error("plan --mode cheapest needs --budget")
     return {
-        "plan": cmd_plan,
+        "plan": cmd_plan_random if getattr(args, "mode", "") == "random" else cmd_plan,
         "queue": cmd_queue,
         "report": cmd_report,
         "retry-annotations": cmd_retry_annotations,
