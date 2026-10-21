@@ -10,6 +10,8 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-10-21
+
 ### Added
 
 - **Sessions can be built for every collection.** `[sessions]
@@ -1557,7 +1559,8 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
-[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.7.1
 [0.7.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.7.0
 [0.6.3]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.3
 [0.6.2]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.6.2
