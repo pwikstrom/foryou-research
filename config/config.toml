@@ -270,6 +270,12 @@ max_windows = 3
 # artifacts (and the admin all-sessions view), not what a study displays.
 clip_to_study_windows = false
 
+# Also build the collections that no study selects, each over its whole
+# history (false builds only collections in at least one study). A study
+# still shows only its own collections; this widens the artifacts and the
+# admin all-sessions view.
+build_all_collections = true
+
 # Worker processes the sessions_refresh worker segments with, per chain link.
 # "auto" = one fewer than the machine's cores (a forked pool; platforms
 # without fork, i.e. Windows, always run serially). 1 disables the pool.

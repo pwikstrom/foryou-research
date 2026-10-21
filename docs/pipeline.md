@@ -1099,7 +1099,11 @@ value, and the `niche*` columns and keys.
 - **Study-window scope.** Only collections in at least one study are built,
   within the padded union of their studies' date windows (a 3-day pad on each
   side). `[sessions] clip_to_study_windows = false` builds every study
-  collection over its whole history instead.
+  collection over its whole history instead, and
+  `[sessions] build_all_collections = true` (the committed setting) also
+  builds every collection that no study selects, over its whole history.
+  Only `play` rows are segmented, so a browser capture (`observe` events
+  only) gets no sessions.
 - **Incremental by default.** `stale_only` mode re-segments only the
   collections whose coverage windows or in-window play/annotated counts
   moved, and returns immediately when none did — a second line of defence

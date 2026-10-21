@@ -80,7 +80,7 @@ def _study_collections(exclude: set[str]) -> list[str]:
     """TikTok collections selected by at least one study, minus ``exclude``."""
     from fyp.analysis.sessions import inputs
 
-    cids = sorted(inputs.compute_coverage_spec(clip=False))
+    cids = sorted(inputs.compute_coverage_spec(clip=False, all_collections=False))
     return [c for c in cids if c not in exclude]
 
 

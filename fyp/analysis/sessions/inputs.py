@@ -723,10 +723,43 @@ def clip_to_study_windows() -> bool:
     return str(value).strip().lower() not in ("0", "false", "no", "off")
 
 
+def build_all_collections() -> bool:
+    """``[sessions] build_all_collections`` (default false).
+
+    True also builds the collections no study selects, each over its whole
+    history. A study still shows only its own collections; this widens the
+    artifacts and the admin all-sessions view.
+    """
+    from fyp.core.fyp_config import fyp_cf
+
+    cfg = fyp_cf.get("sessions", {})
+    value = cfg.get("build_all_collections", False) if isinstance(cfg, dict) else False
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def collections_with_plays() -> list[str]:
+    """Every collection with at least one ``play`` row in the activity file."""
+    fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
+    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=fn):
+        return []
+    seen: set[str] = set()
+    for rb in data_io.iter_parquet_batches(
+        storage_location=embeddings.STORE_LOCATION,
+        filename=fn,
+        columns=["collection_id"],
+        filters=[("activity_type", "==", "play")],
+        batch_size=1_048_576,
+    ):
+        seen.update(str(c) for c in rb.column("collection_id").unique().to_pylist())
+    return sorted(seen)
+
+
 def compute_coverage_spec(
     study_defs: dict | None = None,
     pad_days: int = COVERAGE_PAD_DAYS,
     clip: bool | None = None,
+    all_collections: bool | None = None,
+    every_collection: list[str] | None = None,
 ) -> dict[str, list[list[str]]]:
     """Per-collection date windows the sessions build must cover.
 
@@ -737,7 +770,8 @@ def compute_coverage_spec(
     padded by ``pad_days`` on each side so edge-straddling sessions stay
     intact. Overlapping windows from different studies merge into disjoint
     intervals. Collections selected by **no** study are absent from the spec
-    — they are not built at all.
+    — they are not built at all — unless ``all_collections`` is true: then
+    each of them gets one wide window (its whole history).
 
     Args:
         study_defs: Study definitions dict (None loads ``studies.json`` from
@@ -747,6 +781,10 @@ def compute_coverage_spec(
         clip: Restrict each collection to its studies' windows (None reads
             :func:`clip_to_study_windows`). False gives every collection in
             a study one wide window, i.e. its whole history.
+        all_collections: Also cover the collections no study selects (None
+            reads :func:`build_all_collections`).
+        every_collection: The collections to consider for
+            ``all_collections`` (None reads :func:`collections_with_plays`).
 
     Returns:
         ``{collection_id: [["YYYY-MM-DD", "YYYY-MM-DD"], ...]}`` — sorted,
@@ -778,6 +816,17 @@ def compute_coverage_spec(
             continue
         for cid in cfg.get("SELECTED_COLLECTIONS") or []:
             raw.setdefault(str(cid), []).append((start, end))
+
+    if all_collections is None:
+        all_collections = build_all_collections()
+    if all_collections:
+        wide = (
+            pd.Timestamp(_WIDE_START) - pad,
+            pd.Timestamp(_WIDE_END) + pd.Timedelta(days=1) + pad,
+        )
+        ids = collections_with_plays() if every_collection is None else every_collection
+        for cid in ids:
+            raw.setdefault(str(cid), [wide])
 
     return {
         cid: [

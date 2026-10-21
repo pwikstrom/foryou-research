@@ -46,6 +46,7 @@ def test_coverage_pads_and_uses_end_of_day():
             }
         },
         clip=True,
+        all_collections=False,
     )
     # start -3d; END means through end-of-day, so bound is +1d, then +3d pad.
     assert spec == {"a": [["2026-03-07", "2026-03-24"]]}
@@ -66,6 +67,7 @@ def test_coverage_merges_overlapping_study_windows():
             },
         },
         clip=True,
+        all_collections=False,
     )
     # 03-10 end -> bound 03-14 after pad; S2 start pads back to 03-09: overlap.
     assert spec == {"a": [["2026-02-26", "2026-03-24"]]}
@@ -91,13 +93,34 @@ def test_coverage_keeps_disjoint_windows_separate():
 
 
 def test_coverage_absent_bounds_fall_back_wide():
-    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}}, clip=True)
+    spec = sessions_inputs.compute_coverage_spec(
+        {"S": {"SELECTED_COLLECTIONS": ["a"]}}, clip=True, all_collections=False
+    )
     assert spec == {"a": WIDE}
 
 
 def test_coverage_excludes_collections_in_no_study():
-    spec = sessions_inputs.compute_coverage_spec({"S": {"SELECTED_COLLECTIONS": ["a"]}})
+    spec = sessions_inputs.compute_coverage_spec(
+        {"S": {"SELECTED_COLLECTIONS": ["a"]}}, all_collections=False, every_collection=["a", "b"]
+    )
     assert "b" not in spec
+
+
+def test_coverage_all_collections_adds_the_rest_over_their_whole_history():
+    spec = sessions_inputs.compute_coverage_spec(
+        {
+            "S": {
+                "SELECTED_COLLECTIONS": ["a"],
+                "START_DATE": "2026-03-10",
+                "END_DATE": "2026-03-20",
+            }
+        },
+        clip=True,
+        all_collections=True,
+        every_collection=["a", "b"],
+    )
+    # A study collection keeps its studies' windows; one in no study gets the wide window.
+    assert spec == {"a": [["2026-03-07", "2026-03-24"]], "b": WIDE}
 
 
 def test_coverage_unparseable_bound_falls_back_wide():

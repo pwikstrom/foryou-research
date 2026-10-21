@@ -10,6 +10,16 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Sessions can be built for every collection.** `[sessions]
+  build_all_collections = true`, the committed setting, also builds the
+  collections that no study selects, each over its whole history. Before,
+  only collections in at least one study were built. A study still shows only
+  its own collections; the setting widens the artifacts and the admin
+  all-sessions view. `scripts/session_campaign.py plan` keeps drawing from the
+  collections in a study unless given `--collections-file`.
+
 ## [0.7.0] — 2026-10-20
 
 ### Added
