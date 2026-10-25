@@ -304,6 +304,10 @@
                     created ${_esc(fypFmtDateTime(t.created_at))} by ${_esc(t.created_by || "")}
                 </span>
                 <span style="flex: 1;"></span>
+                ${t.task_type === "coding" ? `<a class="btn-discreet btn-compact meta-tooltip"
+                    style="text-decoration: none;"
+                    data-tooltip="One row per video: each contract's answer next to every submitted coder's, plus coder notes, as given."
+                    href="${BASE}/tasks/${encodeURIComponent(t.run_id)}/coding/export">Download CSV</a>` : ""}
                 <button class="btn-discreet btn-compact"
                     onclick="hevRecompute(this, '${_esc(t.run_id)}', '${_esc(t.task_type)}')">Recompute</button>
                 <button class="btn-danger btn-compact"

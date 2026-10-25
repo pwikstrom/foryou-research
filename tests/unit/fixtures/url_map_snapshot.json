@@ -695,6 +695,13 @@
   ]
  ],
  [
+  "/api/manage/human-eval/tasks/<run_id>/<task_type>/export",
+  "human_eval.export_human_eval_codings",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/human-eval/tasks/<run_id>/<task_type>/notify",
   "human_eval.resend_human_eval_invite",
   [

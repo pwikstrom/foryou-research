@@ -28,10 +28,13 @@ METRIC RULE (inherited from ab_eval): a variable's comparison kind comes from
 the scale snapshotted into the task at creation, never from answer length.
 """
 
+import csv
 import hashlib
+import io
 import re
 import secrets
 import threading
+from collections import Counter
 from functools import partial
 
 import numpy as np
@@ -141,7 +144,9 @@ def available_variables(run_id: str) -> list[dict]:
     The union of every compared column in the run report, each with the kind
     the machine comparison used, a display label, and (for enum/list columns)
     the accepted value list — from the live contract when it declares one,
-    otherwise the values observed in the run's distribution tables.
+    otherwise the values observed in the run's distribution tables. A
+    single-contract run has no comparisons, so its columns are read off the
+    arm's own output instead (see :func:`_arm_catalog`).
 
     Args:
         run_id: the finished run's id.
@@ -152,6 +157,7 @@ def available_variables(run_id: str) -> list[dict]:
     run = ab.load_run(run_id)
     report = run.get("report") or {}
     comparisons = report.get("comparisons") or {}
+    distributions = report.get("distributions") or {}
 
     kinds: dict[str, str] = {}
     for comp in comparisons.values():
@@ -172,7 +178,9 @@ def available_variables(run_id: str) -> list[dict]:
                 "description": row.get("description"),
             }
 
-    distributions = report.get("distributions") or {}
+    if not kinds:
+        kinds, distributions = _arm_catalog(run_id, run.get("manifest") or {}, contract)
+
     out = []
     for col, kind in kinds.items():
         meta = vs_meta.get(col) or {}
@@ -195,6 +203,44 @@ def available_variables(run_id: str) -> list[dict]:
             }
         )
     return sorted(out, key=lambda v: v["label"].lower())
+
+
+# Arm-frame bookkeeping columns, never a variable (mirrors compare_arms' skip).
+_ARM_META_COLUMNS = {"item_id", "annotated_ok", "annotated_fail"}
+
+
+def _arm_catalog(
+    run_id: str, manifest: dict, contract: dict | None
+) -> tuple[dict[str, str], dict[str, dict]]:
+    """Classify a run's columns from its arm frames, for a run with no comparisons.
+
+    A single-contract run has no arm pair to compare, so its report lists no
+    columns. Each arm column is classified exactly as ``compare_arms`` would
+    (declared scale first: the live var_schema plus the live contract), and the
+    enum distribution tables are rebuilt so observed values can stand in where
+    the contract declares none.
+
+    Returns:
+        ``({column: kind}, {column: distribution_table})``.
+    """
+    scales = ab._scale_map() if _cf().get("var_schema") is not None else {}
+    if contract:
+        scales.update(ab.contract_scale_map(contract))
+    frames: dict[str, pd.DataFrame] = {}
+    for arm in manifest.get("arms", []):
+        name = arm.get("name")
+        frame = _arm_frame(run_id, name) if name else None
+        if frame is not None:
+            frames[name] = frame
+    kinds: dict[str, str] = {}
+    for frame in frames.values():
+        for col in frame.columns:
+            if col not in _ARM_META_COLUMNS and col not in kinds:
+                kinds[col] = ab._classify(col, frame[col], frame[col], scales)
+    distributions = {
+        col: ab.distribution_tables(frames, col) for col, kind in kinds.items() if kind == "enum"
+    }
+    return kinds, distributions
 
 
 def create_task(
@@ -778,8 +824,8 @@ def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
     return frame
 
 
-def _arm_frame(run_id: str, arm: str, variables: list[str]) -> pd.DataFrame | None:
-    """Load one machine arm's refined frame restricted to the task variables."""
+def _arm_frame(run_id: str, arm: str, variables: list[str] | None = None) -> pd.DataFrame | None:
+    """Load one machine arm's refined frame, restricted to ``variables`` when given."""
     try:
         frame = data_io.load_parquet(
             storage_location=ab.LOCATION,
@@ -789,8 +835,9 @@ def _arm_frame(run_id: str, arm: str, variables: list[str]) -> pd.DataFrame | No
         return None
     if frame is None or "item_id" not in frame.columns:
         return None
-    columns = ["item_id"] + [v for v in variables if v in frame.columns]
-    frame = frame[columns].copy()
+    if variables is not None:
+        frame = frame[["item_id"] + [v for v in variables if v in frame.columns]]
+    frame = frame.copy()
     frame["item_id"] = frame["item_id"].astype(str)
     return frame
 
@@ -845,13 +892,171 @@ def _inject_kappa(comparison: dict, df_a: pd.DataFrame, df_b: pd.DataFrame) -> d
     return comparison
 
 
+# ---------------------------------------------------------------------------
+# Krippendorff's alpha.
+# ---------------------------------------------------------------------------
+
+# Level of measurement per comparison kind. Free text has none: two prose
+# answers are never equal, so a reliability coefficient says nothing there.
+_ALPHA_LEVELS = {"enum": "nominal", "numeric": "interval", "list": "set"}
+
+# Inside a list these mean "nothing present", so ["none"] is the empty set.
+# Every other answer — "other", "unknown", "unclear" included — counts as given.
+_LIST_NOTHING = {"", "none", "n/a", "-", "--", "<na>"}
+
+
+def _jaccard_distance(a: frozenset, b: frozenset) -> float:
+    """1 − |A∩B| / |A∪B|, with two empty sets at distance 0."""
+    union = a | b
+    return 1.0 - len(a & b) / len(union) if union else 0.0
+
+
+_ALPHA_DISTANCES = {
+    "nominal": lambda a, b: 0.0 if a == b else 1.0,
+    "interval": lambda a, b: (a - b) ** 2,
+    "set": _jaccard_distance,
+}
+
+
+def krippendorff_alpha(units: list[list], level: str) -> dict:
+    """Krippendorff's alpha over ``units`` — one list of observed values per video.
+
+    Missing answers are already left out of each unit; a unit with fewer than
+    two values cannot be paired and drops out, as the coefficient prescribes.
+    ``alpha = 1 − D_o / D_e``: the mean distance between answers to the same
+    video over the mean distance between any two answers.
+
+    Args:
+        units: per-video value lists (strings for ``nominal``, floats for
+            ``interval``, frozensets for ``set``).
+        level: ``nominal`` / ``interval`` / ``set`` (Jaccard distance).
+
+    Returns:
+        ``{alpha, n_units, n_values}`` over the pairable units; ``alpha`` is
+        ``None`` when fewer than two values pair up or every answer is the same
+        (the coefficient is undefined without variation).
+    """
+    delta = _ALPHA_DISTANCES[level]
+
+    def _pair_sum(counts: Counter) -> float:
+        # Σ over ordered pairs of distinct observations; δ(c, c) = 0 always.
+        values = list(counts)
+        return sum(counts[a] * counts[b] * delta(a, b) for a in values for b in values if a != b)
+
+    pairable = [unit for unit in units if len(unit) >= 2]
+    n = sum(len(unit) for unit in pairable)
+    out = {"alpha": None, "n_units": len(pairable), "n_values": n}
+    if n < 2:
+        return out
+    observed = sum(_pair_sum(Counter(unit)) / (len(unit) - 1) for unit in pairable) / n
+    expected = _pair_sum(Counter(v for unit in pairable for v in unit)) / (n * (n - 1))
+    if expected == 0:
+        return out
+    out["alpha"] = float(1.0 - observed / expected)
+    return out
+
+
+def _fold(value) -> str:
+    """Case-, space- and dash-insensitive text of one answer."""
+    return str(value).strip().translate(ab._DASH_FOLD).lower()
+
+
+def _alpha_value(value, kind: str):
+    """One answer as an alpha observation, or ``None`` when there is none.
+
+    Answers count as given: unlike the agreement metrics, "none", "unknown"
+    and "other" are categories of their own. Only case, surrounding spaces and
+    dash style are ignored. A list cell arrives as a list/array or as a
+    ``SPLITTER``-joined string (see ``ab_eval._to_set``); an empty list is the
+    answer "nothing", not a missing one.
+    """
+    if not isinstance(value, (list, tuple, np.ndarray)):
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+    if kind == "numeric":
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return None if np.isnan(number) else number
+    if kind == "list":
+        if isinstance(value, (list, tuple, np.ndarray)):
+            parts = [ab._normalize_cell(v) for v in value]
+        else:
+            norm = ab._normalize_cell(value)
+            splitter = _cf()["labels"]["SPLITTER"]
+            parts = norm.split(splitter) if (splitter and splitter in norm) else [norm]
+        return frozenset(f for f in (_fold(p) for p in parts) if f not in _LIST_NOTHING)
+    text = _fold(value)
+    return text or None
+
+
+def _alpha_column(frame: pd.DataFrame, variable: str, kind: str) -> dict:
+    """``{item_id: observation}`` for one source's answers to one variable.
+
+    A video the contract failed to annotate (``annotated_ok`` false) has no
+    answers rather than empty ones, as in ``compare_arms``.
+    """
+    if variable not in frame.columns:
+        return {}
+    if "annotated_ok" in frame.columns:
+        frame = frame[frame["annotated_ok"].fillna(False).astype(bool)]
+    out: dict = {}
+    for item_id, value in zip(frame["item_id"].astype(str), frame[variable], strict=False):
+        observation = _alpha_value(value, kind)
+        if observation is not None and item_id not in out:
+            out[item_id] = observation
+    return out
+
+
+def _alpha_results(
+    task: dict, coder_frames: dict[str, pd.DataFrame], arm_frames: dict[str, pd.DataFrame]
+) -> dict:
+    """Krippendorff's alpha per variable: the coders alone, and with each contract.
+
+    ``humans`` needs two submitted coders; ``with_arm[arm]`` pools every
+    submitted coder with that one contract as a further coder.
+    """
+    item_ids = [str(i) for i in task.get("item_ids", [])]
+
+    def _units(columns: list[dict]) -> list[list]:
+        return [[col[i] for col in columns if i in col] for i in item_ids]
+
+    out: dict = {}
+    for variable in task.get("variables", []):
+        kind = (task.get("field_specs", {}).get(variable) or {}).get("kind")
+        level = _ALPHA_LEVELS.get(kind)
+        if level is None:
+            continue
+        humans = [_alpha_column(f, variable, kind) for f in coder_frames.values()]
+        out[variable] = {
+            "kind": kind,
+            "level": level,
+            "n_coders": len(humans),
+            "humans": krippendorff_alpha(_units(humans), level) if len(humans) >= 2 else None,
+            "with_arm": {
+                arm: krippendorff_alpha(
+                    _units([*humans, _alpha_column(frame, variable, kind)]), level
+                )
+                for arm, frame in arm_frames.items()
+            }
+            if humans
+            else {},
+        }
+    return out
+
+
 def compute_results(run_id: str, task_type: str) -> dict:
     """(Re)compute a task's ICR metrics and persist them.
 
     Compares every *submitted* coder against every machine arm, and every
     submitted-coder pair against each other, using ``ab_eval.compare_arms``
     with the task's snapshotted scales — then injects Cohen's kappa per enum
-    column.
+    column, and adds Krippendorff's alpha per variable over every answer as
+    given (see :func:`_alpha_results`).
 
     Args:
         run_id: the task's run.
@@ -881,7 +1086,9 @@ def compute_results(run_id: str, task_type: str) -> dict:
     arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
     arm_frames: dict[str, pd.DataFrame] = {}
     for arm in arm_names:
-        frame = _arm_frame(run_id, arm, variables)
+        # annotated_ok rides along for alpha; compare_arms ignores it here,
+        # since coder frames do not carry it.
+        frame = _arm_frame(run_id, arm, [*variables, "annotated_ok"])
         if frame is not None:
             arm_frames[arm] = frame
 
@@ -927,6 +1134,7 @@ def compute_results(run_id: str, task_type: str) -> dict:
         "arms": sorted(arm_frames),
         "human_vs_machine": human_vs_machine,
         "human_vs_human": human_vs_human,
+        "alpha": _alpha_results(task, coder_frames, arm_frames),
         "summary": {"per_coder": per_coder},
     }
     data_io.save_json(
@@ -1070,6 +1278,104 @@ def coder_rows(run_id: str, task_type: str, username: str) -> list[dict]:
             row["note"] = note
         rows.append(row)
     return rows
+
+
+# Leading characters a spreadsheet reads as a formula.
+_FORMULA_LEAD = ("=", "+", "-", "\t", "\r")
+
+
+def _export_text(value) -> str:
+    """One answer as CSV text, as given: lists joined with "; ", blanks empty."""
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return "; ".join(_export_text(v) for v in value)
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (float, np.floating)):
+        number = float(value)
+        return str(int(number)) if number.is_integer() else repr(number)
+    return str(value)
+
+
+def _export_cell(value) -> str:
+    """``_export_text`` made safe to open in a spreadsheet.
+
+    Coders type notes and list entries, so text that would start a formula
+    gets a leading apostrophe. Numbers keep their sign and a bare "-" / "--"
+    answer (a contract's "nothing") stays as written: neither can run anything.
+    """
+    text = _export_text(value)
+    if text.startswith(_FORMULA_LEAD) and text.strip("-"):
+        try:
+            float(text)
+        except ValueError:
+            return "'" + text
+    return text
+
+
+def export_codings_csv(run_id: str, task_type: str = "coding") -> str:
+    """Every submitted coding next to each contract's answer, as CSV text.
+
+    One row per video in task order: ``item_id``, ``platform``, then for each
+    task variable one column per contract (``{variable}__{arm}``) followed by
+    one per submitted coder (``{variable}__human:{username}``), and last each
+    coder's note (``note__human:{username}``). Only submitted coders appear —
+    the same set the agreement statistics use. Values are exported as given:
+    no answer is a blank cell, and "none" / "unknown" / "other" stay as
+    written. Starts with a UTF-8 byte-order mark so spreadsheets read accents.
+
+    Raises:
+        ValueError: when the task does not exist or is not a coding task.
+    """
+    if task_type != "coding":
+        raise ValueError("only coding tasks can be exported")
+    task = load_task(run_id, task_type)
+    if task is None:
+        raise ValueError(f"run {run_id} has no {task_type} task")
+    variables = task.get("variables", [])
+
+    coders: dict[str, dict] = {}
+    for username in sorted(task.get("coders", {})):
+        state = load_coder_state(run_id, task_type, username)
+        if state.get("status") == "submitted":
+            coders[username] = state.get("responses") or {}
+
+    manifest = ab.load_run(run_id).get("manifest") or {}
+    arms: dict[str, dict] = {}
+    for arm in (a.get("name") for a in manifest.get("arms", []) if a.get("name")):
+        frame = _arm_frame(run_id, arm, variables)
+        if frame is not None:
+            arms[arm] = {
+                str(row["item_id"]): row
+                for row in frame.drop_duplicates("item_id").to_dict("records")
+            }
+
+    header = ["item_id", "platform"]
+    for variable in variables:
+        header += [f"{variable}__{arm}" for arm in arms]
+        header += [f"{variable}__human:{username}" for username in coders]
+    header += [f"note__human:{username}" for username in coders]
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(header)
+    platforms = {str(i["item_id"]): i.get("platform", "") for i in task.get("items", [])}
+    for item_id in (str(i) for i in task.get("item_ids", [])):
+        row = [item_id, platforms.get(item_id, "")]
+        for variable in variables:
+            row += [_export_cell(arms[arm].get(item_id, {}).get(variable)) for arm in arms]
+            row += [
+                _export_cell(((responses.get(item_id) or {}).get("values") or {}).get(variable))
+                for responses in coders.values()
+            ]
+        row += [
+            _export_cell(str((responses.get(item_id) or {}).get("note") or "").strip())
+            for responses in coders.values()
+        ]
+        writer.writerow(row)
+    return "\ufeff" + buffer.getvalue()
 
 
 def coder_status(run_id: str, task_type: str, task: dict | None = None) -> dict:

@@ -677,9 +677,12 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   contract+model+settings combination, which version analyses read, and
   re-activation of earlier versions. See [contracts.md](contracts.md).
 - **Reliability Control** — invite human coders to blind-code a finished
-  annotation test run; submitted codings are compared against every machine
-  arm and each other (agreement, Cohen's κ, Jaccard, correlations). The
-  coders work under My stuff → My Tasks.
+  annotation test run, including a run that tested a single contract;
+  submitted codings are compared against every machine arm and each other
+  (agreement, Cohen's κ, Jaccard, correlations, and Krippendorff's α over
+  every answer as given). **Download CSV** on a coding task gives one row per
+  video with each contract's answer next to every submitted coder's, plus
+  coder notes. The coders work under My stuff → My Tasks.
 
 **Data & Variables**
 

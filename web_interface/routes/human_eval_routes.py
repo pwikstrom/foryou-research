@@ -3,7 +3,8 @@
 Two route groups share the ``human_eval_bp`` blueprint:
 
 * ``/api/manage/human-eval/...`` — admin task setup (create/delete tasks,
-  invite coders, recompute results), gated on ``tab.admin.human_eval``.
+  invite coders, recompute results, export codings), gated on
+  ``tab.admin.human_eval``.
 * ``/api/human-eval/...`` — the coder-facing endpoints. These are only
   ``login_required``; access is *invitation-record-driven* (``is_invited``:
   the username is in the task's coder list, or the user is an admin), so
@@ -11,10 +12,12 @@ Two route groups share the ``human_eval_bp`` blueprint:
 
 BLINDNESS RULE: the coder endpoints never include machine annotation values —
 a coding task is coded fully blind. Machine values live only in the admin run
-report.
+report and the admin codings export.
 """
 
-from flask import Blueprint, jsonify, request
+import re
+
+from flask import Blueprint, Response, jsonify, request
 from flask_login import current_user, login_required
 
 import fyp.annotation.ab_eval as ab_eval
@@ -264,6 +267,22 @@ def recompute_human_eval_results(run_id, task_type):
         return jsonify({"results": results})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/export", methods=["GET"])
+@permission_required("tab.admin.human_eval")
+def export_human_eval_codings(run_id, task_type):
+    """Download every submitted coding next to each contract's answer (CSV)."""
+    try:
+        text = human_eval.export_codings_csv(run_id, task_type)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    filename = re.sub(r"[^A-Za-z0-9_.-]", "_", f"codings_{run_id}.csv")
+    return Response(
+        text,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

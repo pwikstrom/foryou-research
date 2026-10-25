@@ -63,6 +63,7 @@ python scripts/gen_route_inventory.py
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>` | DELETE | `human_eval.delete_human_eval_task` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_human_eval_task` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/coders` | POST | `human_eval.add_human_eval_coders` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/export` | GET | `human_eval.export_human_eval_codings` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/notify` | POST | `human_eval.resend_human_eval_invite` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute` | POST | `human_eval.recompute_human_eval_results` |
 | human_eval | `/api/manage/human-eval/users` | GET | `human_eval.list_human_eval_users` |
@@ -201,4 +202,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-190 routes total.
+191 routes total.

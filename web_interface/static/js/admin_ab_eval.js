@@ -1378,8 +1378,9 @@
         // N-way agreement view: overview metric tiles, then a collapsible
         // "Detailed metrics" sub-section holding the cross-pair per-field
         // tables (each field kind is itself collapsible). Submitted human
-        // coders join as contracts.
-        if (Object.keys(report.comparisons || {}).length) {
+        // coders join as contracts — on a single-contract run they are the
+        // only pairs, so gate on the unified pairs, not report.comparisons.
+        if (Object.keys(_unifiedComparisons().pairs).length) {
             html += `<div id="abe-nway-summary" style="margin-bottom: 12px;"></div>
                 <details style="margin-bottom: 14px;">
                     <summary style="cursor: pointer;">
@@ -1528,7 +1529,46 @@
         return html + `<div class="text-xs" style="color: var(--color-text-muted);">
             Submitted coders are included as contracts in the agreement tables, the
             pairwise matrices (with Cohen's κ on categorical fields) and the per-item
-            view above.</div>`;
+            view above.</div>` + _renderAlphaTable(results);
+    }
+
+    // Krippendorff's alpha per coded field: the coders pooled with each
+    // contract, and the coders alone (needs two submitted coders). Results
+    // computed before alpha existed carry no `alpha` block — say how to add it.
+    function _renderAlphaTable(results) {
+        const title = `<h4 class="text-sm font-semibold" style="margin: 14px 0 4px 0;
+                color: var(--color-text-heading);">Krippendorff's α</h4>`;
+        if (!results.alpha) {
+            return title + `<div class="text-xs" style="color: var(--color-text-muted);">
+                Press <em>Recompute</em> on this task under Admin &rarr; Reliability Control
+                to add it.</div>`;
+        }
+        const arms = results.arms || [];
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
+        const LEVEL = { nominal: "nominal", interval: "interval", set: "set (Jaccard)" };
+        const value = (a) => a && a.alpha != null
+            ? `${_fmt(a.alpha)} <span class="text-xxs" style="color: var(--color-text-muted);">${a.n_units} videos</span>`
+            : `<span class="meta-tooltip" data-tooltip="${a ? "Undefined: fewer than two answers per video, or every answer the same." : "Needs two submitted coders."}"
+                style="color: var(--color-text-muted);">—</span>`;
+        const rows = Object.entries(results.alpha).map(([field, a]) => `<tr>
+            <td style="${cell}" class="font-mono">${_esc(field)}</td>
+            <td style="${cell}">${_esc(LEVEL[a.level] || a.level)}</td>
+            ${arms.map(arm => `<td style="${cell}">${value((a.with_arm || {})[arm])}</td>`).join("")}
+            <td style="${cell}">${value(a.humans)}</td>
+        </tr>`).join("");
+        if (!rows) return "";
+        return title + `<div class="text-xxs" style="color: var(--color-text-muted); margin-bottom: 6px;">
+                Over every answer as given: "none", "unknown" and "other" count as answers of
+                their own, unlike the agreement and κ figures above, which treat them as no
+                value. Nominal for categorical fields, interval for numbers, Jaccard distance for
+                lists; free-text fields have none.</div>
+            <div style="overflow-x: auto;">
+            <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                <th style="${cell}">field</th><th style="${cell}">level</th>
+                ${arms.map(arm => `<th style="${cell}">coders + ${_esc(_armLabel(arm))}</th>`).join("")}
+                <th style="${cell}">coders only</th>
+            </tr></thead><tbody>${rows}</tbody></table></div>`;
     }
 
     // The "Preference votes" block: per-arm pooled win-rate bars, per-coder

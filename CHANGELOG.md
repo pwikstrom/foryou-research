@@ -10,6 +10,30 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Krippendorff's alpha for human coding.** Each coding task now reports
+  Krippendorff's alpha per variable, once for the coders pooled with each
+  contract and once for the coders alone (from two coders up). Alpha takes
+  every answer as given, so "none", "unknown" and "other" are answers of their
+  own; the agreement and kappa figures still treat them as no value. Categories
+  are nominal, numbers interval, and lists use Jaccard distance; free-text
+  variables have no alpha. Results computed earlier gain it on Recompute.
+- **Download the codings as a spreadsheet.** A coding task under Admin →
+  Reliability Control has a Download CSV button: one row per video, each
+  contract's answer next to every submitted coder's, and the coders' notes.
+
+### Fixed
+
+- **Reliability Control can set up human coding on a single-contract test
+  run.** The variable list was read off the run's contract-against-contract
+  comparisons, and a run with one contract has none, so the list stayed empty
+  ("No compared variables on this run") and no task could be created. A run
+  with one contract now lists the variables in that contract's own output,
+  scored the same way. Its report now also shows the agreement tables once a
+  coder submits; before, they appeared only on runs with two or more
+  contracts.
+
 ## [0.7.1] — 2026-10-21
 
 ### Added

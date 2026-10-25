@@ -17,6 +17,8 @@ Run:
 """
 
 import copy
+import csv
+import io
 import sys
 from pathlib import Path
 
@@ -24,6 +26,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -423,6 +426,30 @@ def test_submit_and_metrics():
         human is not None and "coding" in human and human["coding"]["results"] is not None,
     )
 
+    alpha = results["alpha"]["multilingual"]
+    _check("alpha level nominal for enums", alpha["level"] == "nominal", str(alpha))
+    _check(
+        "humans-only alpha: coders agree on all 4 shared items",
+        alpha["humans"]["alpha"] == 1.0 and alpha["humans"]["n_units"] == 4,
+        str(alpha["humans"]),
+    )
+    # Units: items 0-3 [a, b, live] agree; item 4 [Yes, Yes]; item 5 [Yes, No].
+    # 9 Yes + 7 No over 16 values: D_o = 2/16, D_e = 126/240 -> alpha = 16/21.
+    with_live = alpha["with_arm"]["live"]
+    _check(
+        "coders + live alpha hand-checked (16/21)",
+        abs(with_live["alpha"] - 16 / 21) < 1e-9 and with_live["n_values"] == 16,
+        str(with_live),
+    )
+    _check("one alpha per contract", set(alpha["with_arm"]) == {"live", "cand"})
+    _check(
+        "interval alpha for numbers",
+        results["alpha"]["faces_age_estimate"]["level"] == "interval"
+        and results["alpha"]["faces_age_estimate"]["with_arm"]["live"]["alpha"] == 1.0,
+        str(results["alpha"]["faces_age_estimate"]),
+    )
+    _check("set alpha for lists", results["alpha"]["objects"]["level"] == "set")
+
 
 def test_vote_task_crud():
     print("vote task CRUD")
@@ -628,3 +655,197 @@ def test_delete():
     _check("index emptied", human_eval.list_tasks() == [])
     leftovers = [k for k in _STORE if "/human/" in k[1]]
     _check("no human artifacts left", not leftovers, str(leftovers))
+
+
+SOLO_RUN_ID = "20260710T000000Z_solo01"
+
+
+def test_single_contract_run():
+    print("single-contract run")
+    # One arm means no pairwise comparisons: the report names no columns, so
+    # the catalog has to come from the arm's own frame.
+    manifest = {
+        "run_id": SOLO_RUN_ID,
+        "status": "complete",
+        "started_by": "tester",
+        "eval_set": "default",
+        "item_ids": ITEMS,
+        "n_items": len(ITEMS),
+        "arms": [{"name": "live", "source": "live", "etag": "x"}],
+    }
+    report = {
+        "run_id": SOLO_RUN_ID,
+        "arms": ["live"],
+        "comparisons": {},
+        "distributions": {},
+        "adjudication": [],
+        "costs": {},
+    }
+    data_io.save_json(
+        data=manifest,
+        storage_location=ab_eval.LOCATION,
+        filename=ab_eval._run_file(SOLO_RUN_ID, "manifest.json"),
+    )
+    data_io.save_json(
+        data=report,
+        storage_location=ab_eval.LOCATION,
+        filename=ab_eval._run_file(SOLO_RUN_ID, "report.json"),
+    )
+    live = pd.DataFrame(
+        {
+            "item_id": ITEMS,
+            "multilingual": ["Yes", "No", "Yes", "No", "Yes", "No"],
+            "objects": [["car", "dog"], ["cat"], [], ["car"], ["tree"], ["dog"]],
+            "faces_age_estimate": [20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
+            "annotated_ok": [True] * 6,
+        }
+    )
+    data_io.save_parquet(
+        df=live,
+        storage_location=ab_eval.LOCATION,
+        filename=ab_eval._run_file(SOLO_RUN_ID, "arm_live.parquet"),
+    )
+
+    catalog = {v["name"]: v for v in human_eval.available_variables(SOLO_RUN_ID)}
+    _check(
+        "arm columns listed, bookkeeping skipped",
+        set(catalog) == {"multilingual", "objects", "faces_age_estimate"},
+        str(set(catalog)),
+    )
+    _check(
+        "kinds classified like compare_arms",
+        (
+            catalog["multilingual"]["kind"],
+            catalog["objects"]["kind"],
+            catalog["faces_age_estimate"]["kind"],
+        )
+        == ("enum", "list", "numeric"),
+        str({n: v["kind"] for n, v in catalog.items()}),
+    )
+    _check(
+        "enum values resolved (contract or observed)",
+        set(catalog["multilingual"]["values"] or []) >= {"Yes", "No"},
+        str(catalog["multilingual"]["values"]),
+    )
+
+    human_eval.create_task(
+        SOLO_RUN_ID, "coding", ["multilingual", "faces_age_estimate"], ["coder_a@x.com"], "t"
+    )
+    a_enum = ["Yes", "No", "Yes", "No", "Yes", "Yes"]
+    for i, item in enumerate(ITEMS):
+        human_eval.save_response(
+            SOLO_RUN_ID,
+            "coding",
+            "coder_a@x.com",
+            item,
+            {"multilingual": a_enum[i], "faces_age_estimate": str(20 + 10 * i)},
+        )
+    human_eval.save_response(
+        SOLO_RUN_ID, "coding", "coder_a@x.com", ITEMS[1], values=None, note="=HYPERLINK(1)"
+    )
+    human_eval.submit(SOLO_RUN_ID, "coding", "coder_a@x.com")
+    hvm = human_eval.load_results(SOLO_RUN_ID, "coding")["human_vs_machine"]
+    _check("coder scored against the one arm", set(hvm) == {"coder_a@x.com|live"}, str(set(hvm)))
+    agreement = hvm["coder_a@x.com|live"]["columns"]["multilingual"]["agreement"]
+    _check("enum agreement hand-checked (5/6)", abs(agreement - 5 / 6) < 1e-9, str(agreement))
+
+    alpha = human_eval.load_results(SOLO_RUN_ID, "coding")["alpha"]["multilingual"]
+    _check("no humans-only alpha with one coder", alpha["humans"] is None, str(alpha))
+    # 7 Yes + 5 No over 12 values, one split item: D_o = 2/12, D_e = 70/132 -> 24/35.
+    _check(
+        "coder + contract alpha hand-checked (24/35)",
+        abs(alpha["with_arm"]["live"]["alpha"] - 24 / 35) < 1e-9,
+        str(alpha["with_arm"]),
+    )
+
+    text = human_eval.export_codings_csv(SOLO_RUN_ID, "coding")
+    _check("export starts with a byte-order mark", text.startswith("\ufeff"))
+    rows = list(csv.reader(io.StringIO(text.lstrip("\ufeff"))))
+    coder = "human:coder_a@x.com"
+    _check(
+        "export header: contract then coder per variable, notes last",
+        rows[0]
+        == [
+            "item_id",
+            "platform",
+            "multilingual__live",
+            f"multilingual__{coder}",
+            "faces_age_estimate__live",
+            f"faces_age_estimate__{coder}",
+            f"note__{coder}",
+        ],
+        str(rows[0]),
+    )
+    _check("one row per video", len(rows) == 1 + len(ITEMS), str(len(rows)))
+    _check(
+        "values as given, side by side",
+        rows[1] == [ITEMS[0], "tiktok", "Yes", "Yes", "20", "20", ""]
+        and rows[6][2:4] == ["No", "Yes"],
+        str(rows[1]) + str(rows[6]),
+    )
+    _check("formula in a note neutralized", rows[2][6] == "'=HYPERLINK(1)", str(rows[2]))
+    try:
+        human_eval.export_codings_csv(SOLO_RUN_ID, "vote")
+        _check("vote export rejected", False)
+    except ValueError:
+        _check("vote export rejected", True)
+    _check("solo task deleted", human_eval.delete_task(SOLO_RUN_ID, "coding"))
+
+
+def test_krippendorff_alpha_reference():
+    print("Krippendorff's alpha reference values")
+    # Krippendorff (2011), "Computing Krippendorff's Alpha-Reliability": four
+    # observers, twelve units, missing data. Published: nominal .743, interval .849.
+    na = None
+    observers = [
+        [1, 2, 3, 3, 2, 1, 4, 1, 2, na, na, na],
+        [1, 2, 3, 3, 2, 2, 4, 1, 2, 5, na, 3],
+        [na, 3, 3, 3, 2, 3, 4, 2, 2, 5, 1, na],
+        [1, 2, 3, 3, 2, 4, 4, 1, 2, 5, 1, na],
+    ]
+    units = [[v for v in unit if v is not None] for unit in zip(*observers, strict=True)]
+    nominal = human_eval.krippendorff_alpha([[str(v) for v in u] for u in units], "nominal")
+    interval = human_eval.krippendorff_alpha([[float(v) for v in u] for u in units], "interval")
+    _check("nominal .743", round(nominal["alpha"], 3) == 0.743, str(nominal))
+    _check("interval .849", round(interval["alpha"], 3) == 0.849, str(interval))
+    _check("single-value unit dropped", nominal["n_units"] == 11 and nominal["n_values"] == 40)
+    _check(
+        "undefined without variation",
+        human_eval.krippendorff_alpha([["a", "a"], ["a", "a"]], "nominal")["alpha"] is None,
+    )
+    same = frozenset({"car"})
+    _check(
+        "set level: identical sets agree",
+        human_eval.krippendorff_alpha([[same, same], [frozenset(), frozenset()]], "set")["alpha"]
+        == 1.0,
+    )
+
+
+def test_alpha_answers_as_given():
+    print("alpha observations: answers as given")
+    value = human_eval._alpha_value
+    _check("'None' is an answer", value("None", "enum") == "none")
+    _check("'Other' is an answer", value(" Other ", "enum") == "other")
+    _check("blank is missing", value("", "enum") is None and value(None, "enum") is None)
+    _check("NaN number is missing", value(np.nan, "numeric") is None)
+    _check("empty list is the answer 'nothing'", value([], "list") == frozenset())
+    _check("['none'] equals the empty list", value(["none"], "list") == frozenset())
+    _check("list keeps 'unknown'", value(["Unknown"], "list") == frozenset({"unknown"}))
+    failed = pd.DataFrame(
+        {"item_id": ["1", "2"], "objects": [["car"], []], "annotated_ok": [True, False]}
+    )
+    _check(
+        "a failed annotation is missing, not 'nothing'",
+        human_eval._alpha_column(failed, "objects", "list") == {"1": frozenset({"car"})},
+    )
+    _check(
+        "a spreadsheet keeps numbers and a bare dash as given",
+        human_eval._export_cell(-5.0) == "-5"
+        and human_eval._export_cell("-3.5") == "-3.5"
+        and human_eval._export_cell("-") == "-",
+    )
+    _check(
+        "a formula-like answer is neutralized",
+        human_eval._export_cell("+cmd") == "'+cmd"
+        and human_eval._export_cell(["=x", "y"]) == "'=x; y",
+    )
