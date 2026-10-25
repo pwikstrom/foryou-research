@@ -400,7 +400,11 @@ Deleting a tag removes it from all videos where it is applied.
 
 **My Tasks.** Appears only when you have been invited to annotation testing
 (Admin → Reliability Control). In a **coding** task you watch each video and
-fill in the variables blind — no machine answers shown; in a **preference
+fill in the variables blind — no machine answers shown. Questions about people
+ask how they *appear* in the video, never who they are, and every category
+question offers **Can't tell** (unless the codebook has its own, such as
+"Unclear") and **Skip (not coded)**; where the codebook defines one there is
+also a "doesn't apply" choice, such as "No person in the video". In a **preference
 vote** task you compare anonymous annotation options per video and pick the
 best (or a tie). Work saves automatically; submit when done.
 
@@ -679,10 +683,14 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
 - **Reliability Control** — invite human coders to blind-code a finished
   annotation test run, including a run that tested a single contract;
   submitted codings are compared against every machine arm and each other
-  (agreement, Cohen's κ, Jaccard, correlations, and Krippendorff's α over
-  every answer as given). **Download CSV** on a coding task gives one row per
-  video with each contract's answer next to every submitted coder's, plus
-  coder notes. The coders work under My stuff → My Tasks.
+  (agreement, Cohen's κ, Jaccard, correlations, and Krippendorff's α). Coders'
+  answers are first recoded into the database's own categories, exactly as
+  the contract's were, so "can't tell" and "doesn't apply" share the merged
+  label the database uses; α counts it as an answer, and a check figure
+  treats it as missing. **Download CSV** on a coding task gives one row per
+  video with each contract's stored answer next to every submitted coder's
+  answer as given, plus coder notes. The coders work under My stuff → My
+  Tasks.
 
 **Data & Variables**
 

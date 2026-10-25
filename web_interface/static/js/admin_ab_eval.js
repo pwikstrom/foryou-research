@@ -1533,8 +1533,11 @@
     }
 
     // Krippendorff's alpha per coded field: the coders pooled with each
-    // contract, and the coders alone (needs two submitted coders). Results
-    // computed before alpha existed carry no `alpha` block — say how to add it.
+    // contract, and the coders alone (needs two submitted coders). For a
+    // single-category field each cell also gives the check figure (the merged
+    // "can't tell / doesn't apply" label treated as missing), and the last
+    // column how often each side gave that label. Results computed before
+    // alpha existed carry no `alpha` block — say how to add it.
     function _renderAlphaTable(results) {
         const title = `<h4 class="text-sm font-semibold" style="margin: 14px 0 4px 0;
                 color: var(--color-text-heading);">Krippendorff's α</h4>`;
@@ -1544,30 +1547,53 @@
                 to add it.</div>`;
         }
         const arms = results.arms || [];
-        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border);";
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
+        const muted = 'class="text-xxs" style="color: var(--color-text-muted);"';
         const LEVEL = { nominal: "nominal", interval: "interval", set: "set (Jaccard)" };
-        const value = (a) => a && a.alpha != null
-            ? `${_fmt(a.alpha)} <span class="text-xxs" style="color: var(--color-text-muted);">${a.n_units} videos</span>`
-            : `<span class="meta-tooltip" data-tooltip="${a ? "Undefined: fewer than two answers per video, or every answer the same." : "Needs two submitted coders."}"
-                style="color: var(--color-text-muted);">—</span>`;
-        const rows = Object.entries(results.alpha).map(([field, a]) => `<tr>
+        const fmtAlpha = (a, why) => a && a.alpha != null
+            ? _fmt(a.alpha)
+            : `<span class="meta-tooltip" data-tooltip="${_esc(why)}" style="color: var(--color-text-muted);">—</span>`;
+        const value = (a, check) => {
+            const undefinedWhy = "Undefined: fewer than two answers per video, or every answer the same.";
+            if (!a) return fmtAlpha(null, "Needs two submitted coders.");
+            let html = `${fmtAlpha(a, undefinedWhy)} <span ${muted}>${a.n_units} videos</span>`;
+            if (check !== undefined) {
+                html += `<div ${muted}>check ${check ? fmtAlpha(check, undefinedWhy) : "—"}</div>`;
+            }
+            return html;
+        };
+        const share = (s) => {
+            if (!s) return "";
+            const parts = [`coders ${_pct(s.coders)}`]
+                .concat(arms.map(arm => `${_esc(_armLabel(arm))} ${_pct((s.arms || {})[arm])}`));
+            return parts.join(" · ");
+        };
+        const rows = Object.entries(results.alpha).map(([field, a]) => {
+            const hasCheck = a.with_arm_check !== undefined;
+            return `<tr>
             <td style="${cell}" class="font-mono">${_esc(field)}</td>
             <td style="${cell}">${_esc(LEVEL[a.level] || a.level)}</td>
-            ${arms.map(arm => `<td style="${cell}">${value((a.with_arm || {})[arm])}</td>`).join("")}
-            <td style="${cell}">${value(a.humans)}</td>
-        </tr>`).join("");
+            ${arms.map(arm => `<td style="${cell}">${value((a.with_arm || {})[arm],
+                hasCheck ? (a.with_arm_check || {})[arm] || null : undefined)}</td>`).join("")}
+            <td style="${cell}">${value(a.humans, hasCheck ? a.humans_check || null : undefined)}</td>
+            <td style="${cell}" class="text-xs">${share(a.no_answer_share)}</td>
+        </tr>`;
+        }).join("");
         if (!rows) return "";
         return title + `<div class="text-xxs" style="color: var(--color-text-muted); margin-bottom: 6px;">
-                Over every answer as given: "none", "unknown" and "other" count as answers of
-                their own, unlike the agreement and κ figures above, which treat them as no
-                value. Nominal for categorical fields, interval for numbers, Jaccard distance for
-                lists; free-text fields have none.</div>
+                Coders' answers are first recoded into the database's own categories, exactly as the
+                contract's answers were. "Can't tell" and "doesn't apply" then share the merged
+                label the database uses ("other category" or "unable to detect"), and α counts
+                that label as an answer; the <em>check</em> figure treats it as missing on both
+                sides. Skipped answers are always missing. Nominal for categorical fields,
+                interval for numbers, Jaccard distance for lists; free-text fields have none.</div>
             <div style="overflow-x: auto;">
             <table style="border-collapse: collapse; width: 100%;" class="text-xs">
             <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
                 <th style="${cell}">field</th><th style="${cell}">level</th>
                 ${arms.map(arm => `<th style="${cell}">coders + ${_esc(_armLabel(arm))}</th>`).join("")}
                 <th style="${cell}">coders only</th>
+                <th style="${cell}">"can't tell / doesn't apply" share</th>
             </tr></thead><tbody>${rows}</tbody></table></div>`;
     }
 

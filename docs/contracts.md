@@ -71,6 +71,7 @@ Each `[[fields]]` entry describes one LLM output field. Everything except
 | `scale` | Recode kind. **Inferred from the shape** (array → `list`, int → `numeric`, enum → `categorical`); required only for a free-text string, where `categorical` (short labels) vs `text` (long prose) picks the recode function. Metadata-only |
 | `role` | var_schema analysis role — `measure` (a Correlations variable) or `skip` (dropped from recoded output). Metadata-only |
 | `display_name` | Web-UI label for the recoded column. Metadata-only |
+| `description` | Web-UI description shown instead of `desc`, for when the on-screen wording must differ from the model instruction (the person fields use it to say their labels are perceived, not actual). Display-only: it never reaches the prompt or schema. Also accepted on inline-table sub-keys |
 
 Everything else is inferred and never written: the flatten rule (`scalar` /
 `list_join` / `object_unpack`), the full JSON-schema node, enum rendering, and
@@ -86,8 +87,9 @@ desc = "Are multiple languages spoken or sung in the video? ..."
 ```
 
 Everything a field declares feeds the annotation-version hash **except** the
-metadata-only keys (`scale`, `role`, `display_name`): changing `desc`, an
-enum, or the shape mints a new version; relabeling a column does not.
+metadata-only keys (`scale`, `role`, `display_name`, `description`): changing
+`desc`, an enum, or the shape mints a new version; relabeling or redescribing
+a column does not.
 
 ### Scrape / activity / derived fields
 

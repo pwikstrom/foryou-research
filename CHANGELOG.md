@@ -10,6 +10,28 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Person variables say they are perceived.** Main gender, main ethnicity
+  and the gender, age and ethnicity of observed faces now read "Perceived
+  gender (main person)", "Average apparent age of observed faces" and so on,
+  with descriptions saying the label is judged from the video, not the
+  person's identity. The wording lives in a display-only `description` key,
+  so the model's instructions and the annotation version are unchanged.
+- **Human coders can say "Can't tell".** The coding form offers Can't tell
+  and Skip on every category question, spells out the codebook's "-" (for
+  example "No person in the video"), shows closed lists as radio buttons, and
+  takes typed answers for categories without a codebook list (spoken
+  language, primary country, main activity). Those used to be a closed list of
+  the model's own answers on the run, which showed coders the model's output.
+  Numbers are entered on the codebook's scale, with a Can't tell box.
+- **Coders are compared in the database's categories.** Their answers go
+  through the same recode as the contract's before any metric, so "Fashion &
+  Beauty" now matches the stored "fashion and beauty" and a 0-100 score
+  matches its stored 0-1 value. Agreement, kappa and alpha all use this.
+  Alpha gains a check figure that treats the merged "can't tell / doesn't
+  apply" label as missing, and a column showing how often each side gave it.
+
 ### Added
 
 - **Krippendorff's alpha for human coding.** Each coding task now reports

@@ -31,12 +31,16 @@
 #              output). Metadata-only. Full vocabulary + admission test:
 #              activity_contract.toml header.
 #   display_name — web-UI label for the recoded column. Metadata-only.
+#   description  — web-UI description shown in place of `desc` when the
+#              on-screen wording must differ from the model instruction (e.g.
+#              to say a label is perceived, not actual). Display-only: it never
+#              reaches the prompt or schema, so it never mints a new
+#              annotation version. Also accepted on inline-table sub-keys.
 #
 # Inferred (never written): the flatten rule (scalar / list_join / object_unpack),
 # the full JSON-schema node, enum rendering, `required` (= every field), and
 # `scale` wherever the shape determines it. Web-UI column descriptions reuse
-# `desc` (the retired per-field `description` key is still parsed for legacy
-# files). Legacy contracts with [[section]] prompt grouping still render
+# `desc` unless a field sets its own `description`. Legacy contracts with [[section]] prompt grouping still render
 # byte-identically; new contracts are sectionless.
 #
 # Recode normalization is derived from this contract, not from var_schema columns
@@ -142,9 +146,9 @@ type = "object"
 array = true
 desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
-gender = { spec = "enum:gender", role = "skip", display_name = "Gender of observed faces" }
-age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", display_name = "Average age of observed faces" }
-ethnicity = { spec = "the apparent ethnicity", role = "skip", display_name = "Ethnicity of observed faces" }
+gender = { spec = "enum:gender", role = "skip", display_name = "Perceived gender of observed faces", description = "How each face in the video appears to present their gender, judged from the video alone. A perceived label, not the people's gender identity." }
+age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", display_name = "Average apparent age of observed faces", description = "How old the faces in the video appear to be, in years, judged from the video alone and averaged over the faces." }
+ethnicity = { spec = "the apparent ethnicity", role = "skip", display_name = "Perceived ethnicity of observed faces", description = "The ethnicity each face in the video appears to have, judged from the video alone. A perceived label, not the people's ethnic or cultural identity." }
 
 [[fields]]
 name = "audio_summary"
@@ -229,16 +233,18 @@ desc = "Is the video primarily AI-generated — AI-generated elements forming a 
 [[fields]]
 name = "main_gender"
 role = "measure"
-display_name = "Main gender"
+display_name = "Perceived gender (main person)"
 enum = "gender"
 desc = "The gender of the main person featured in the video."
+description = "How the main person in the video appears to present their gender, judged from the video alone. A perceived label, not the person's gender identity."
 
 [[fields]]
 name = "main_ethnicity"
 role = "measure"
-display_name = "Main ethnicity"
+display_name = "Perceived ethnicity (main person)"
 enum = "ethnicity"
 desc = "The ethnicity of the main person featured in the video."
+description = "The ethnicity the main person in the video appears to have, judged from the video alone. A perceived label, not the person's ethnic or cultural identity."
 
 [[fields]]
 name = "political_score"

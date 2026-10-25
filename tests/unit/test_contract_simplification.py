@@ -2,8 +2,9 @@
 
 The contract went sectionless (flat prompt bullet list), ``scale`` became
 inferred-with-override, and the per-field web-UI ``description`` key was
-retired (tooltips fall back to ``desc``). These tests pin the three safety
-properties of that migration:
+retired (tooltips fall back to ``desc``; the person fields later took it up
+again, display-only, to say their labels are perceived). These tests pin the
+three safety properties of that migration:
 
   * legacy sectioned contracts (stored ab_eval candidates, registered
     versions) keep rendering byte-identical prompts — their av_ hashes must
@@ -101,6 +102,18 @@ def test_effective_scale_prefers_explicit():
     assert ac.effective_subkey_scale({"spec": "enum:gender", "scale": "raw"}) == "raw"
 
 
+# Deliberate relabels since the frozen snapshot (2026-10: person fields say
+# their labels are perceived). display_name is outside the var_schema hash, so
+# these change no study cache; listing them keeps every other label pinned.
+DELIBERATE_RELABELS = {
+    "main_gender": "Perceived gender (main person)",
+    "main_ethnicity": "Perceived ethnicity (main person)",
+    "faces_gender": "Perceived gender of observed faces",
+    "faces_ethnicity": "Perceived ethnicity of observed faces",
+    "faces_age_estimate": "Average apparent age of observed faces",
+}
+
+
 def test_metadata_identical_to_pre_migration():
     """role/scale/display_name must match the pre-migration snapshot exactly.
 
@@ -109,7 +122,8 @@ def test_metadata_identical_to_pre_migration():
     the migration retired the separate web-UI description, falling back to the
     prompt desc. Roles compare modulo LEGACY_ROLE_ALIASES: the fixture is a
     frozen pre-rename snapshot ("feature"), and the 2026-08 vocabulary rename
-    ("measure") was a deliberate, hash-versioned change (v3).
+    ("measure") was a deliberate, hash-versioned change (v3). Display names
+    compare modulo DELIBERATE_RELABELS for the same reason.
     """
     from fyp.core.var_schema_vocab import normalize_role
 
@@ -117,8 +131,9 @@ def test_metadata_identical_to_pre_migration():
     new = ac.contract_column_metadata(_baked_contract())
     assert sorted(old) == sorted(new)
     for col, meta in old.items():
-        for key in ("scale", "display_name"):
-            assert new[col].get(key) == meta.get(key), f"{col}.{key} drifted"
+        assert new[col].get("scale") == meta.get("scale"), f"{col}.scale drifted"
+        expected_label = DELIBERATE_RELABELS.get(col, meta.get("display_name"))
+        assert new[col].get("display_name") == expected_label, f"{col}.display_name drifted"
         assert normalize_role(new[col].get("role")) == normalize_role(meta.get("role")), (
             f"{col}.role drifted"
         )

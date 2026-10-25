@@ -416,31 +416,12 @@
             modal.style.display = "flex";
             return;
         }
-        const inputStyle = 'padding: 5px 10px; border: 1px solid var(--color-border);'
-            + ' border-radius: 4px; background: var(--color-bg-input);'
-            + ' color: var(--color-text-primary);';
+        // The coder form's own renderer (human_coding.js, loaded on the same
+        // page), so the preview cannot drift from what coders see.
         body.innerHTML = vars.map(v => {
-            const values = v.values || [];
-            let widget;
-            if (v.kind === "enum" && values.length && values.length <= 5) {
-                widget = values.map(val => `<label class="text-sm" style="display: inline-flex;
-                        align-items: center; gap: 4px; margin-right: 12px;">
-                    <input type="radio" name="hev-pv-${_esc(v.name)}" disabled> ${_esc(val)}</label>`).join("");
-            } else if (v.kind === "enum" && values.length) {
-                widget = `<select disabled class="text-sm" style="${inputStyle} min-width: 220px;">
-                    <option>(select…)</option>
-                    ${values.map(val => `<option>${_esc(val)}</option>`).join("")}</select>`;
-            } else if (v.kind === "list" && values.length) {
-                widget = values.map(val => `<label class="text-sm" style="display: inline-flex;
-                        align-items: center; gap: 4px; margin-right: 12px;">
-                    <input type="checkbox" disabled> ${_esc(val)}</label>`).join("");
-            } else if (v.kind === "numeric") {
-                widget = `<input type="number" disabled placeholder="number" class="text-sm"
-                    style="${inputStyle} width: 140px;">`;
-            } else {
-                widget = `<textarea disabled rows="2" placeholder="free text${v.kind === "list" ? " — one per line" : ""}"
-                    class="text-sm" style="${inputStyle} width: 100%; resize: vertical;"></textarea>`;
-            }
+            const widget = window.hcFieldWidget
+                ? window.hcFieldWidget(v.name, v, null, "disabled", "hev-pv")
+                : '<span class="text-xs" style="color: var(--color-text-muted);">(form unavailable)</span>';
             return `<div style="margin-bottom: 14px;">
                 <div class="font-semibold" style="margin-bottom: 2px;">${_esc(v.label || v.name)}
                     <span class="text-xxs font-normal" style="color: var(--color-text-muted);">(${_esc(v.kind)})</span></div>

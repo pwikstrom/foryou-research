@@ -974,13 +974,18 @@ def _normalize_cell(value) -> str:
     return str(value)
 
 
-def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFrame:
+def refine_from_flat_dicts(
+    records: list[dict], quiet: bool = True, consolidate_columns: bool = True
+) -> pd.DataFrame:
     """Run the production recode downstream on already-flattened row dicts.
 
     Identical chain to a real annotation batch (``consolidate_rare_columns`` →
     transcript de-dup → ``rename_columns`` → ``recode_events_df`` →
     ``clean_up_machine_annotations`` → flags → pyarrow), entirely in memory —
     nothing is saved. Drifts *with* production by construction.
+    ``consolidate_columns=False`` skips the first step, which folds stray
+    sparse model-output keys into look-alike columns: human codings have no
+    stray keys, only partly answered ones that must not be merged away.
     """
     from fyp.annotation.recode_variables import recode_events_df, rename_columns
 
@@ -988,7 +993,8 @@ def refine_from_flat_dicts(records: list[dict], quiet: bool = True) -> pd.DataFr
     sink = io.StringIO()
     ctx = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()
     with ctx:
-        df = response_parsing.consolidate_rare_columns_from_gemini_output(df)
+        if consolidate_columns:
+            df = response_parsing.consolidate_rare_columns_from_gemini_output(df)
         if "transcript" in df.columns:
             df = response_parsing.remove_repetitions_from_transcripts(df)
         df = rename_columns(df)

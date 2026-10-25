@@ -65,6 +65,25 @@ _INDEX_LOCK = threading.Lock()
 
 _ENUM_SPEC_RE = re.compile(r"enum:([A-Za-z0-9_]+)")
 
+# A coder's explicit "can't tell", stored as written so the export shows it.
+CANT_TELL = "can't tell"
+
+# How the coder form words a codebook's "-" answer. "-" means different things
+# in different fields; a closed list not named here reads "Doesn't apply". An
+# open category (no codebook list) offers "-" only when named here, i.e. when
+# its codebook instruction defines it.
+_DASH_LABELS = {
+    "main_gender": "No person in the video",
+    "main_ethnicity": "No person in the video",
+    "faces_gender": "Can't tell",
+    "spoken_language": "No speech or singing",
+    "primary_country": "No clear country connection",
+}
+
+# Codebook answers that already mean "can't tell": a field offering one gets
+# no extra "Can't tell" option.
+_CANT_TELL_WORDS = {"unclear", "unknown", "unable to detect", CANT_TELL}
+
 
 _now_iso = partial(utc_now_iso, timespec="seconds")
 
@@ -142,22 +161,23 @@ def available_variables(run_id: str) -> list[dict]:
     """Return the variables of a finished run a human task can cover.
 
     The union of every compared column in the run report, each with the kind
-    the machine comparison used, a display label, and (for enum/list columns)
-    the accepted value list — from the live contract when it declares one,
-    otherwise the values observed in the run's distribution tables. A
-    single-contract run has no comparisons, so its columns are read off the
-    arm's own output instead (see :func:`_arm_catalog`).
+    the machine comparison used, a display label, the live contract's value
+    list for enum/list columns that declare one (a category without one is
+    open: coders type the answer), and what the coder form offers beyond the
+    codebook (see :func:`_coding_options`). A single-contract run has no
+    comparisons, so its columns are read off the arm's own output instead
+    (see :func:`_arm_catalog`).
 
     Args:
         run_id: the finished run's id.
 
     Returns:
-        ``[{name, kind, label, description, values}]`` sorted by label.
+        ``[{name, kind, label, description, values, open, cant_tell,
+        option_labels, dash_label, range}]`` sorted by label.
     """
     run = ab.load_run(run_id)
     report = run.get("report") or {}
     comparisons = report.get("comparisons") or {}
-    distributions = report.get("distributions") or {}
 
     kinds: dict[str, str] = {}
     for comp in comparisons.values():
@@ -169,6 +189,7 @@ def available_variables(run_id: str) -> list[dict]:
     contract = ac.load_contract()
     enum_map = _contract_enum_values(contract) if contract else {}
     col_meta = ac.contract_column_metadata(contract) if contract else {}
+    ranges = ac.contract_numeric_ranges(contract) if contract else {}
     vs = _cf().get("var_schema")
     vs_meta: dict[str, dict] = {}
     if vs is not None:
@@ -179,7 +200,7 @@ def available_variables(run_id: str) -> list[dict]:
             }
 
     if not kinds:
-        kinds, distributions = _arm_catalog(run_id, run.get("manifest") or {}, contract)
+        kinds = _arm_catalog(run_id, run.get("manifest") or {}, contract)
 
     out = []
     for col, kind in kinds.items():
@@ -188,11 +209,6 @@ def available_variables(run_id: str) -> list[dict]:
         label = meta.get("label") or cmeta.get("display_name") or col
         description = meta.get("description") or cmeta.get("description") or ""
         values = enum_map.get(col)
-        if values is None and kind == "enum":
-            observed: set[str] = set()
-            for arm_counts in (distributions.get(col, {}).get("arms") or {}).values():
-                observed |= {v for v in arm_counts if not ab._is_sentinel(v)}
-            values = sorted(observed) if observed else None
         out.append(
             {
                 "name": col,
@@ -200,28 +216,54 @@ def available_variables(run_id: str) -> list[dict]:
                 "label": str(label) if pd.notna(label) else col,
                 "description": str(description) if pd.notna(description) else "",
                 "values": values,
+                **_coding_options(col, kind, values, ranges.get(col)),
             }
         )
     return sorted(out, key=lambda v: v["label"].lower())
+
+
+# Field-spec keys describing what the coder form offers (snapshotted per task).
+_OPTION_KEYS = ("open", "cant_tell", "option_labels", "dash_label", "range")
+
+
+def _coding_options(name: str, kind: str, values: list | None, value_range) -> dict:
+    """What the coder form offers for one variable beyond its codebook answers.
+
+    * ``open`` — a category with no codebook list: a typed answer. No
+      suggestions are drawn from the contract's answers on the run, since that
+      would show coders the model's vocabulary and break the blind coding.
+    * ``cant_tell`` — offer an explicit "Can't tell" (categories whose codebook
+      has no such answer, and numbers). Lists have none: empty means none.
+    * ``option_labels`` — readable wording for a codebook's "-" answer.
+    * ``dash_label`` — an open category whose codebook defines "-".
+    * ``range`` — a number's codebook scale, which coders answer on.
+    """
+    is_open = kind == "enum" and values is None
+    has_own = any(_fold(v) in _CANT_TELL_WORDS for v in values or [])
+    return {
+        "open": is_open,
+        "cant_tell": kind == "numeric" or (kind == "enum" and not has_own),
+        "option_labels": (
+            {"-": _DASH_LABELS.get(name, "Doesn't apply")} if values and "-" in values else {}
+        ),
+        "dash_label": _DASH_LABELS.get(name) if is_open else None,
+        "range": list(value_range) if kind == "numeric" and value_range else None,
+    }
 
 
 # Arm-frame bookkeeping columns, never a variable (mirrors compare_arms' skip).
 _ARM_META_COLUMNS = {"item_id", "annotated_ok", "annotated_fail"}
 
 
-def _arm_catalog(
-    run_id: str, manifest: dict, contract: dict | None
-) -> tuple[dict[str, str], dict[str, dict]]:
+def _arm_catalog(run_id: str, manifest: dict, contract: dict | None) -> dict[str, str]:
     """Classify a run's columns from its arm frames, for a run with no comparisons.
 
     A single-contract run has no arm pair to compare, so its report lists no
     columns. Each arm column is classified exactly as ``compare_arms`` would
-    (declared scale first: the live var_schema plus the live contract), and the
-    enum distribution tables are rebuilt so observed values can stand in where
-    the contract declares none.
+    (declared scale first: the live var_schema plus the live contract).
 
     Returns:
-        ``({column: kind}, {column: distribution_table})``.
+        ``{column: kind}``.
     """
     scales = ab._scale_map() if _cf().get("var_schema") is not None else {}
     if contract:
@@ -237,10 +279,7 @@ def _arm_catalog(
         for col in frame.columns:
             if col not in _ARM_META_COLUMNS and col not in kinds:
                 kinds[col] = ab._classify(col, frame[col], frame[col], scales)
-    distributions = {
-        col: ab.distribution_tables(frames, col) for col, kind in kinds.items() if kind == "enum"
-    }
-    return kinds, distributions
+    return kinds
 
 
 def create_task(
@@ -330,6 +369,7 @@ def create_task(
                 "label": catalog[v]["label"],
                 "description": catalog[v]["description"],
                 "values": catalog[v]["values"],
+                **{k: catalog[v].get(k) for k in _OPTION_KEYS},
             }
             for v in variables
         },
@@ -653,6 +693,8 @@ def _validate_values(task: dict, values: dict) -> dict:
         elif kind == "numeric":
             if value == "":
                 cleaned[var] = None
+            elif value == CANT_TELL and spec.get("cant_tell"):
+                cleaned[var] = CANT_TELL
             else:
                 try:
                     cleaned[var] = float(value)
@@ -664,8 +706,9 @@ def _validate_values(task: dict, values: dict) -> dict:
             cleaned[var] = [str(v).strip() for v in value if str(v).strip()]
         elif kind == "enum":
             value = str(value).strip()
-            accepted = spec.get("values")
-            if value and accepted and value not in accepted:
+            accepted = None if spec.get("open") else spec.get("values")
+            cant_tell = value == CANT_TELL and spec.get("cant_tell")
+            if value and accepted and value not in accepted and not cant_tell:
                 raise ValueError(f"{var}: {value!r} is not an accepted value")
             cleaned[var] = value
         else:  # freetext
@@ -802,26 +845,57 @@ def _n_answered(state: dict) -> int:
     return sum(1 for response in (state.get("responses") or {}).values() if response.get("values"))
 
 
-def _coder_frame(task: dict, state: dict) -> pd.DataFrame:
-    """Build a compare-ready frame from one coder's responses.
+def _database_frame(task: dict, state: dict) -> pd.DataFrame:
+    """One coder's answers in the database's own categories, ready to compare.
 
-    One row per responded item; columns ``item_id`` + the task variables.
-    List values stay Python lists (``compare_arms``' Jaccard handles them),
-    numeric values are floats, blanks are empty strings.
+    The contract's answers reached the run's arm frames through the production
+    recode, so a coder's answers take the same route before any metric sees
+    them (``ab_eval.refine_from_flat_dicts``, minus its stray-key column
+    merging). "Fashion & Beauty" becomes "fashion and beauty", a 0-100 score is
+    rescaled to 0-1, an empty list reads "unable to detect", and "doesn't
+    apply" or "can't tell" land in the merged label the database uses for the
+    field ("other category" for a closed list, "unable to detect" for an open
+    category). A skipped answer, and "can't tell" on a number, stay missing.
+
+    One row per coded item. ``annotated_ok`` is set so ``compare_arms`` leaves
+    out items the contract failed to annotate.
     """
+    specs = task.get("field_specs", {})
     variables = task.get("variables", [])
-    rows = []
+    splitter = _cf()["labels"]["SPLITTER"]
+    records: list[dict] = []
+    skipped: list[tuple[str, str]] = []
     for item_id, response in (state.get("responses") or {}).items():
         values = response.get("values") or {}
         if not values:
             continue  # note-only response — not a coded item
         row: dict = {"item_id": str(item_id)}
         for var in variables:
-            row[var] = values.get(var)
-        rows.append(row)
-    frame = pd.DataFrame(rows, columns=["item_id", *variables])
-    frame["item_id"] = frame["item_id"].astype(str)
-    return frame
+            value = values.get(var)
+            kind = (specs.get(var) or {}).get("kind")
+            if value is None or value == "" or (kind == "numeric" and value == CANT_TELL):
+                skipped.append((str(item_id), var))
+                value = None
+            elif value == CANT_TELL:
+                value = "-"  # the recode merges it exactly like the codebook's "-"
+            elif isinstance(value, list):
+                value = splitter.join(str(v) for v in value)
+            row[var] = value
+        records.append(row)
+    if not records:
+        return pd.DataFrame(columns=["item_id", *variables, "annotated_ok"])
+
+    flat = pd.DataFrame(records).set_index("item_id")
+    frame = ab.refine_from_flat_dicts(records, consolidate_columns=False)
+    frame = frame.astype(object).set_index(frame["item_id"].astype(str))
+    for var in variables:
+        if var not in frame.columns:  # a column the live var_schema does not know
+            frame[var] = flat[var]
+    frame = frame[variables].copy()
+    for item_id, var in skipped:
+        frame.at[item_id, var] = None
+    frame["annotated_ok"] = True
+    return frame.rename_axis("item_id").reset_index()
 
 
 def _arm_frame(run_id: str, arm: str, variables: list[str] | None = None) -> pd.DataFrame | None:
@@ -1012,18 +1086,51 @@ def _alpha_column(frame: pd.DataFrame, variable: str, kind: str) -> dict:
     return out
 
 
+def _no_answer_labels() -> set[str]:
+    """The database's merged "no answer" labels for a single-category field.
+
+    What "doesn't apply", "can't tell" and a blank answer become after the
+    recode ("other category" / "unable to detect" / "not coded"), plus the
+    codebook's own can't-tell answers ("unclear", "unknown").
+    """
+    labels = _cf()["labels"]
+    merged = (labels["OTHER_THINGS"], labels["UNABLE_TO_DETECT"], labels["NOT_CODED"])
+    return {_fold(v) for v in merged} | {"unclear", "unknown"}
+
+
 def _alpha_results(
     task: dict, coder_frames: dict[str, pd.DataFrame], arm_frames: dict[str, pd.DataFrame]
 ) -> dict:
     """Krippendorff's alpha per variable: the coders alone, and with each contract.
 
     ``humans`` needs two submitted coders; ``with_arm[arm]`` pools every
-    submitted coder with that one contract as a further coder.
+    submitted coder with that one contract as a further coder. Both compare
+    answers in the database's categories (see :func:`_database_frame`), where
+    the merged "no answer" label counts as an answer. For single-category
+    fields the ``*_check`` figures treat that label as missing on both sides
+    instead, and ``no_answer_share`` says how often each side gave it.
     """
     item_ids = [str(i) for i in task.get("item_ids", [])]
+    no_answer = _no_answer_labels()
 
     def _units(columns: list[dict]) -> list[list]:
         return [[col[i] for col in columns if i in col] for i in item_ids]
+
+    def _answered(column: dict) -> dict:
+        return {i: v for i, v in column.items() if v not in no_answer}
+
+    def _share(columns: list[dict]) -> float | None:
+        values = [v for col in columns for v in col.values()]
+        return sum(v in no_answer for v in values) / len(values) if values else None
+
+    def _alphas(humans: list[dict], arms: dict[str, dict], level: str) -> tuple:
+        pooled = krippendorff_alpha(_units(humans), level) if len(humans) >= 2 else None
+        with_arm = (
+            {arm: krippendorff_alpha(_units([*humans, col]), level) for arm, col in arms.items()}
+            if humans
+            else {}
+        )
+        return pooled, with_arm
 
     out: dict = {}
     for variable in task.get("variables", []):
@@ -1031,21 +1138,29 @@ def _alpha_results(
         level = _ALPHA_LEVELS.get(kind)
         if level is None:
             continue
-        humans = [_alpha_column(f, variable, kind) for f in coder_frames.values()]
-        out[variable] = {
+        by_coder = {u: _alpha_column(f, variable, kind) for u, f in coder_frames.items()}
+        humans = list(by_coder.values())
+        arms = {arm: _alpha_column(f, variable, kind) for arm, f in arm_frames.items()}
+        pooled, with_arm = _alphas(humans, arms, level)
+        entry = {
             "kind": kind,
             "level": level,
             "n_coders": len(humans),
-            "humans": krippendorff_alpha(_units(humans), level) if len(humans) >= 2 else None,
-            "with_arm": {
-                arm: krippendorff_alpha(
-                    _units([*humans, _alpha_column(frame, variable, kind)]), level
-                )
-                for arm, frame in arm_frames.items()
-            }
-            if humans
-            else {},
+            "humans": pooled,
+            "with_arm": with_arm,
         }
+        if kind == "enum":
+            pooled_check, with_arm_check = _alphas(
+                [_answered(c) for c in humans], {a: _answered(c) for a, c in arms.items()}, level
+            )
+            entry["humans_check"] = pooled_check
+            entry["with_arm_check"] = with_arm_check
+            entry["no_answer_share"] = {
+                "coders": _share(humans),
+                "by_coder": {u: _share([c]) for u, c in by_coder.items()},
+                "arms": {a: _share([c]) for a, c in arms.items()},
+            }
+        out[variable] = entry
     return out
 
 
@@ -1080,7 +1195,7 @@ def compute_results(run_id: str, task_type: str) -> dict:
     for username in task.get("coders", {}):
         state = load_coder_state(run_id, task_type, username)
         if state.get("status") == "submitted" and state.get("responses"):
-            coder_frames[username] = _coder_frame(task, state)
+            coder_frames[username] = _database_frame(task, state)
 
     manifest = ab.load_run(run_id).get("manifest") or {}
     arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
@@ -1315,6 +1430,17 @@ def _export_cell(value) -> str:
     return text
 
 
+def _readable_answer(value, spec: dict | None):
+    """A coder's answer with a codebook "-" spelled out as the option they picked."""
+    spec = spec or {}
+    label = (spec.get("option_labels") or {}).get("-") or spec.get("dash_label")
+    if not label:
+        return value
+    if isinstance(value, list):
+        return [label if v == "-" else v for v in value]
+    return label if value == "-" else value
+
+
 def export_codings_csv(run_id: str, task_type: str = "coding") -> str:
     """Every submitted coding next to each contract's answer, as CSV text.
 
@@ -1322,9 +1448,11 @@ def export_codings_csv(run_id: str, task_type: str = "coding") -> str:
     task variable one column per contract (``{variable}__{arm}``) followed by
     one per submitted coder (``{variable}__human:{username}``), and last each
     coder's note (``note__human:{username}``). Only submitted coders appear —
-    the same set the agreement statistics use. Values are exported as given:
-    no answer is a blank cell, and "none" / "unknown" / "other" stay as
-    written. Starts with a UTF-8 byte-order mark so spreadsheets read accents.
+    the same set the agreement statistics use. Contract columns hold the
+    stored (recoded) answers; coder columns hold each answer as the coder gave
+    it, with a codebook "-" spelled out as the option they picked (e.g. "No
+    person in the video") and "can't tell" as written. A skipped answer is a
+    blank cell. Starts with a UTF-8 byte-order mark so spreadsheets read accents.
 
     Raises:
         ValueError: when the task does not exist or is not a coding task.
@@ -1335,6 +1463,7 @@ def export_codings_csv(run_id: str, task_type: str = "coding") -> str:
     if task is None:
         raise ValueError(f"run {run_id} has no {task_type} task")
     variables = task.get("variables", [])
+    specs = task.get("field_specs", {})
 
     coders: dict[str, dict] = {}
     for username in sorted(task.get("coders", {})):
@@ -1367,7 +1496,12 @@ def export_codings_csv(run_id: str, task_type: str = "coding") -> str:
         for variable in variables:
             row += [_export_cell(arms[arm].get(item_id, {}).get(variable)) for arm in arms]
             row += [
-                _export_cell(((responses.get(item_id) or {}).get("values") or {}).get(variable))
+                _export_cell(
+                    _readable_answer(
+                        ((responses.get(item_id) or {}).get("values") or {}).get(variable),
+                        specs.get(variable),
+                    )
+                )
                 for responses in coders.values()
             ]
         row += [

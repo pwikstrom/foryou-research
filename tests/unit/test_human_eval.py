@@ -849,3 +849,178 @@ def test_alpha_answers_as_given():
         human_eval._export_cell("+cmd") == "'+cmd"
         and human_eval._export_cell(["=x", "y"]) == "'=x; y",
     )
+
+
+def test_coding_options():
+    print("coder options per variable")
+    opts = human_eval._coding_options
+    yes_no = opts("aigc", "enum", ["Yes", "No", "Unclear"], None)
+    _check("codebook 'Unclear' means no extra can't-tell", yes_no["cant_tell"] is False)
+    gender = opts("main_gender", "enum", ["Female", "Male", "Nonbinary", "Multiple", "-"], None)
+    _check(
+        "gender: '-' reads 'No person in the video', can't tell offered",
+        gender["option_labels"] == {"-": "No person in the video"} and gender["cant_tell"],
+        str(gender),
+    )
+    language = opts("spoken_language", "enum", None, None)
+    _check(
+        "open category: typed, with its codebook '-' and can't tell",
+        language["open"]
+        and language["dash_label"] == "No speech or singing"
+        and language["cant_tell"]
+        and "suggestions" not in language,
+        str(language),
+    )
+    _check(
+        "open category without a codebook '-'",
+        opts("main_activity", "enum", None, None)["dash_label"] is None,
+    )
+    score = opts("political_score", "numeric", None, (0, 100))
+    _check(
+        "numbers: codebook scale + can't tell", score["range"] == [0, 100] and score["cant_tell"]
+    )
+    _check("lists: no can't tell", opts("objects", "list", None, None)["cant_tell"] is False)
+
+
+def test_cant_tell_validation():
+    print("can't tell validation")
+    task = {
+        "field_specs": {
+            "main_gender": {"kind": "enum", "values": ["Female", "Male", "-"], "cant_tell": True},
+            "aigc": {"kind": "enum", "values": ["Yes", "No", "Unclear"], "cant_tell": False},
+            "spoken_language": {"kind": "enum", "values": None, "open": True, "cant_tell": True},
+            "political_score": {"kind": "numeric", "cant_tell": True},
+        }
+    }
+    ok = human_eval._validate_values(
+        task,
+        {
+            "main_gender": human_eval.CANT_TELL,
+            "spoken_language": "French",
+            "political_score": human_eval.CANT_TELL,
+        },
+    )
+    _check(
+        "can't tell and typed answers accepted",
+        ok
+        == {
+            "main_gender": "can't tell",
+            "spoken_language": "French",
+            "political_score": "can't tell",
+        },
+        str(ok),
+    )
+    try:
+        human_eval._validate_values(task, {"aigc": human_eval.CANT_TELL})
+        _check("can't tell refused where the codebook has its own", False)
+    except ValueError:
+        _check("can't tell refused where the codebook has its own", True)
+
+
+def test_database_frame_matches_recode():
+    print("coder answers recoded like the contract's")
+    variables = ["main_gender", "spoken_language", "content_category", "political_score", "aigc"]
+    task = {
+        "variables": variables,
+        "field_specs": {
+            "main_gender": {"kind": "enum"},
+            "spoken_language": {"kind": "enum", "open": True},
+            "content_category": {"kind": "list"},
+            "political_score": {"kind": "numeric"},
+            "aigc": {"kind": "enum"},
+        },
+    }
+    coder = [
+        {"main_gender": "Female", "spoken_language": "French",
+         "content_category": ["Fashion & Beauty"], "political_score": 50.0, "aigc": "No"},
+        {"main_gender": "-", "spoken_language": "-", "content_category": ["Film & TV"],
+         "political_score": human_eval.CANT_TELL, "aigc": "Unclear"},
+        {"main_gender": human_eval.CANT_TELL, "spoken_language": human_eval.CANT_TELL,
+         "content_category": ["Comedy"], "political_score": 0.0, "aigc": ""},
+    ]  # fmt: skip
+    state = {"responses": {str(i): {"values": v} for i, v in enumerate(coder)}}
+    frame = human_eval._database_frame(task, state).set_index("item_id")
+    model = ab_eval.refine_from_flat_dicts(
+        [
+            {"item_id": "0", "main_gender": "Female", "spoken_language": "French",
+             "content_category": "Fashion & Beauty", "political_score": 50, "aigc": "No",
+             "type_of_story": "Descriptive"},
+        ]
+    ).astype(object).set_index("item_id")  # fmt: skip
+
+    def _plain(v):
+        return list(v) if isinstance(v, (list, np.ndarray)) else v
+
+    _check(
+        "same answer, same stored value (case, '&', 0-100 scale)",
+        all(_plain(frame.at["0", v]) == _plain(model.at["0", v]) for v in variables),
+        str({v: (_plain(frame.at["0", v]), _plain(model.at["0", v])) for v in variables}),
+    )
+    _check(
+        "'-' and can't tell merge like the database",
+        frame.at["1", "main_gender"] == "other category"
+        and frame.at["2", "main_gender"] == "other category"
+        and frame.at["1", "spoken_language"] == "unable to detect"
+        and frame.at["2", "spoken_language"] == "unable to detect",
+        str(frame[["main_gender", "spoken_language"]].to_dict()),
+    )
+    _check(
+        "skips and can't tell on numbers stay missing",
+        frame.at["2", "aigc"] is None and frame.at["1", "political_score"] is None,
+    )
+    _check("codebook 'Unclear' kept", frame.at["1", "aigc"] == "unclear")
+
+
+def test_alpha_check_and_no_answer_share():
+    print("check alpha and can't-tell shares")
+    task = {
+        "item_ids": ["0", "1", "2", "3"],
+        "variables": ["main_gender"],
+        "field_specs": {"main_gender": {"kind": "enum"}},
+    }
+
+    def _frame(values):
+        return pd.DataFrame({"item_id": ["0", "1", "2", "3"], "main_gender": values})
+
+    coders = {
+        "a": _frame(["female", "male", "other category", "male"]),
+        "b": _frame(["female", "male", "female", "male"]),
+    }
+    arms = {"live": _frame(["female", "male", "other category", "female"])}
+    entry = human_eval._alpha_results(task, coders, arms)["main_gender"]
+    _check(
+        "main alpha pairs all 8 coder answers",
+        entry["humans"]["n_values"] == 8,
+        str(entry["humans"]),
+    )
+    _check(
+        "check drops the merged label (item 2 left unpaired)",
+        entry["humans_check"]["n_units"] == 3 and entry["humans_check"]["n_values"] == 6,
+        str(entry["humans_check"]),
+    )
+    _check("check with the contract present", "live" in entry["with_arm_check"])
+    shares = entry["no_answer_share"]
+    _check(
+        "shares: coders pooled, per coder, per contract",
+        shares["coders"] == 1 / 8
+        and shares["by_coder"] == {"a": 0.25, "b": 0.0}
+        and shares["arms"] == {"live": 0.25},
+        str(shares),
+    )
+
+
+def test_readable_answer():
+    print("export spells out '-'")
+    spec = {"option_labels": {"-": "No person in the video"}}
+    _check("scalar", human_eval._readable_answer("-", spec) == "No person in the video")
+    _check(
+        "list",
+        human_eval._readable_answer(["-", "Male"], {"option_labels": {"-": "Can't tell"}})
+        == ["Can't tell", "Male"],
+    )
+    _check(
+        "open category",
+        human_eval._readable_answer("-", {"dash_label": "No speech or singing"})
+        == "No speech or singing",
+    )
+    _check("other answers untouched", human_eval._readable_answer("Female", spec) == "Female")

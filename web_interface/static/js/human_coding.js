@@ -14,6 +14,14 @@
 
     const BASE = "/api/human-eval";
 
+    // A coder's explicit "can't tell" (human_eval.CANT_TELL).
+    const CANT_TELL = "can't tell";
+    // Closed lists up to this size render as radio buttons, so every option,
+    // "Can't tell" included, is visible without opening a menu.
+    const RADIO_MAX = 12;
+    const INPUT_STYLE = "padding: 5px 10px; border: 1px solid var(--color-border);"
+        + " border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);";
+
     const st = {
         tasks: [],
         task: null,        // the open task's payload
@@ -337,26 +345,7 @@
         box.innerHTML = st.task.variables.map(name => {
             const spec = st.task.field_specs[name] || {};
             const value = values[name];
-            let widget;
-            if (spec.kind === "enum" && spec.values && spec.values.length) {
-                widget = spec.values.length <= 5
-                    ? _radioWidget(name, spec.values, value, disabled)
-                    : _selectWidget(name, spec.values, value, disabled);
-            } else if (spec.kind === "list") {
-                widget = _listWidget(name, spec.values, value, disabled);
-            } else if (spec.kind === "numeric") {
-                widget = `<input type="number" step="any" data-var="${_esc(name)}" ${disabled}
-                    value="${value == null ? "" : _esc(value)}" onchange="hcMarkDirty()"
-                    class="text-sm" style="padding: 5px 10px; border: 1px solid var(--color-border);
-                    border-radius: 4px; background: var(--color-bg-input);
-                    color: var(--color-text-primary); width: 120px;">`;
-            } else {
-                widget = `<textarea rows="3" data-var="${_esc(name)}" ${disabled}
-                    onchange="hcMarkDirty()" class="text-sm" style="width: 100%; padding: 6px 10px;
-                    border: 1px solid var(--color-border); border-radius: 4px;
-                    background: var(--color-bg-input); color: var(--color-text-primary);
-                    resize: vertical;">${value == null ? "" : _esc(value)}</textarea>`;
-            }
+            const widget = _fieldWidget(name, spec, value, disabled);
             const tooltip = spec.description
                 ? ` <span class="meta-tooltip" data-tooltip="${_esc(spec.description)}">&#9432;</span>` : "";
             return `<div style="margin-bottom: 14px;">
@@ -366,33 +355,133 @@
         }).join("");
     }
 
-    function _radioWidget(name, values, value, disabled) {
-        const options = values.map(v => `<label style="display: flex; align-items: center; gap: 5px;">
-            <input type="radio" name="hc-radio-${_esc(name)}" data-var="${_esc(name)}" ${disabled}
-                value="${_esc(v)}" ${String(value) === String(v) ? "checked" : ""}
-                onchange="hcMarkDirty()"> ${_esc(v)}
-        </label>`).join("");
-        const clear = `<label style="display: flex; align-items: center; gap: 5px;
-                color: var(--color-text-muted);">
-            <input type="radio" name="hc-radio-${_esc(name)}" data-var="${_esc(name)}" ${disabled}
-                value="" ${value == null || value === "" ? "checked" : ""}
-                onchange="hcMarkDirty()"> no value
+    // One variable's input, from its task field spec. Shared with the admin
+    // task preview (window.hcFieldWidget), which passes its own `prefix` so
+    // its radio groups never collide with an open coding form.
+    function _fieldWidget(name, spec, value, disabled, prefix = "hc") {
+        if (spec.kind === "enum" && spec.open) return _openWidget(name, spec, value, disabled, prefix);
+        if (spec.kind === "enum" && spec.values && spec.values.length) {
+            return spec.values.length <= RADIO_MAX
+                ? _radioWidget(name, spec, value, disabled, prefix)
+                : _selectWidget(name, spec, value, disabled);
+        }
+        if (spec.kind === "list") return _listWidget(name, spec, value, disabled);
+        if (spec.kind === "numeric") return _numberWidget(name, spec, value, disabled);
+        return `<textarea rows="3" data-var="${_esc(name)}" ${disabled}
+            onchange="hcMarkDirty()" class="text-sm" style="${INPUT_STYLE} width: 100%;
+            padding: 6px 10px; resize: vertical;">${value == null ? "" : _esc(value)}</textarea>`;
+    }
+
+    // A codebook answer as the coder sees it ("-" spelled out per field).
+    function _optionLabel(spec, v) {
+        return (spec.option_labels || {})[v] || v;
+    }
+
+    function _radio(group, v, label, checked, disabled, muted) {
+        return `<label style="display: flex; align-items: center; gap: 5px;${muted
+            ? " color: var(--color-text-muted);" : ""}">
+            <input type="radio" name="${_esc(group)}" value="${_esc(v)}" ${disabled}
+                ${checked ? "checked" : ""} onchange="hcMarkDirty()"> ${_esc(label)}
         </label>`;
-        return `<div style="display: flex; gap: 12px; flex-wrap: wrap;">${options}${clear}</div>`;
     }
 
-    function _selectWidget(name, values, value, disabled) {
-        const options = ['<option value="">— no value —</option>']
-            .concat(values.map(v =>
-                `<option value="${_esc(v)}" ${String(value) === String(v) ? "selected" : ""}>${_esc(v)}</option>`))
-            .join("");
+    // Closed list: the codebook's answers, "Can't tell" where the codebook has
+    // no such answer, and "Skip" (saved blank, never counted as an answer).
+    function _radioWidget(name, spec, value, disabled, prefix) {
+        const group = `${prefix}-radio-${name}`;
+        const current = value == null ? "" : String(value);
+        const options = spec.values.map(v =>
+            _radio(group, v, _optionLabel(spec, v), current === String(v), disabled));
+        if (spec.cant_tell) {
+            options.push(_radio(group, CANT_TELL, "Can't tell", current === CANT_TELL, disabled));
+        }
+        options.push(_radio(group, "", "Skip (not coded)", current === "", disabled, true));
+        return `<div style="display: flex; gap: 12px; flex-wrap: wrap;">${options.join("")}</div>`;
+    }
+
+    function _selectWidget(name, spec, value, disabled) {
+        const current = value == null ? "" : String(value);
+        const option = (v, label) =>
+            `<option value="${_esc(v)}" ${current === String(v) ? "selected" : ""}>${_esc(label)}</option>`;
+        const options = [option("", "— skip (not coded) —")]
+            .concat(spec.values.map(v => option(v, _optionLabel(spec, v))))
+            .concat(spec.cant_tell ? [option(CANT_TELL, "Can't tell")] : []);
         return `<select data-var="${_esc(name)}" ${disabled} onchange="hcMarkDirty()" class="text-sm"
-            style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
-            background: var(--color-bg-input); color: var(--color-text-primary);
-            min-width: 220px;">${options}</select>`;
+            style="${INPUT_STYLE} min-width: 220px;">${options.join("")}</select>`;
     }
 
-    function _listWidget(name, accepted, value, disabled) {
+    // Open category (no codebook list): a typed answer, or one of the
+    // field's fixed choices. Typing clears the choice and picking one clears
+    // the text, so exactly one of them is the answer.
+    function _openWidget(name, spec, value, disabled, prefix) {
+        const group = `${prefix}-open-${name}`;
+        const current = value == null ? "" : String(value);
+        const fixed = [];
+        if (spec.dash_label) fixed.push(["-", spec.dash_label]);
+        if (spec.cant_tell) fixed.push([CANT_TELL, "Can't tell"]);
+        const isFixed = fixed.some(([v]) => v === current);
+        const radios = fixed.map(([v, label]) => `<label style="display: flex; align-items: center; gap: 5px;">
+                <input type="radio" name="${_esc(group)}" value="${_esc(v)}" ${disabled}
+                    ${current === v ? "checked" : ""} onchange="hcOpenPicked(this)"> ${_esc(label)}
+            </label>`).join("");
+        return `<div data-open-var="${_esc(name)}" style="display: flex; gap: 12px; flex-wrap: wrap;
+                align-items: center;">
+            <input type="text" data-var="${_esc(name)}" ${disabled} oninput="hcOpenTyped(this)"
+                value="${isFixed ? "" : _esc(current)}" placeholder="an English name"
+                class="text-sm" style="${INPUT_STYLE} width: 200px;">
+            ${radios}
+            <span class="text-xs" style="color: var(--color-text-muted);">leave empty to skip</span>
+        </div>`;
+    }
+
+    function hcOpenTyped(input) {
+        const box = input.closest("[data-open-var]");
+        if (box && input.value) {
+            box.querySelectorAll('input[type="radio"]').forEach(r => { r.checked = false; });
+        }
+        hcMarkDirty();
+    }
+
+    function hcOpenPicked(radio) {
+        const box = radio.closest("[data-open-var]");
+        const text = box && box.querySelector('input[type="text"]');
+        if (text) text.value = "";
+        hcMarkDirty();
+    }
+
+    // A number on the codebook's own scale (e.g. 0-100), or "Can't tell".
+    function _numberWidget(name, spec, value, disabled) {
+        const cantTell = value === CANT_TELL;
+        const range = Array.isArray(spec.range) ? spec.range : null;
+        const bounds = range ? `min="${_esc(range[0])}" max="${_esc(range[1])}"` : "";
+        const muted = 'class="text-xs" style="color: var(--color-text-muted);"';
+        return `<div data-num-var="${_esc(name)}" style="display: flex; gap: 12px; flex-wrap: wrap;
+                align-items: center;">
+            <input type="number" step="any" ${bounds} data-var="${_esc(name)}"
+                ${disabled || (cantTell ? "disabled" : "")}
+                value="${cantTell || value == null ? "" : _esc(value)}" onchange="hcMarkDirty()"
+                placeholder="${range ? `${_esc(range[0])}–${_esc(range[1])}` : "number"}"
+                class="text-sm" style="${INPUT_STYLE} width: 120px;">
+            ${range ? `<span ${muted}>on a ${_esc(range[0])}–${_esc(range[1])} scale</span>` : ""}
+            ${spec.cant_tell ? `<label style="display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" data-cant-tell="${_esc(name)}" ${disabled}
+                    ${cantTell ? "checked" : ""} onchange="hcNumberCantTell(this)"> Can't tell</label>` : ""}
+            <span ${muted}>leave empty to skip</span>
+        </div>`;
+    }
+
+    function hcNumberCantTell(checkbox) {
+        const box = checkbox.closest("[data-num-var]");
+        const input = box && box.querySelector('input[type="number"]');
+        if (input) {
+            input.disabled = checkbox.checked;
+            if (checkbox.checked) input.value = "";
+        }
+        hcMarkDirty();
+    }
+
+    function _listWidget(name, spec, value, disabled) {
+        const accepted = spec.values;
         const selected = Array.isArray(value) ? value.map(String) : [];
         if (accepted && accepted.length) {
             // Closed list: one checkbox chip per accepted value.
@@ -401,40 +490,48 @@
                     border-radius: 12px; padding: 2px 10px;">
                 <input type="checkbox" data-var="${_esc(name)}" value="${_esc(v)}" ${disabled}
                     ${selected.includes(String(v)) ? "checked" : ""} onchange="hcMarkDirty()">
-                ${_esc(v)}
+                ${_esc(_optionLabel(spec, v))}
             </label>`).join(" ");
             return `<div data-list-var="${_esc(name)}" data-closed="1"
                 style="display: flex; gap: 6px; flex-wrap: wrap;">${chips}</div>`;
         }
         // Open list: free-text entry, one value per line.
         return `<textarea rows="3" data-var="${_esc(name)}" data-open-list="1" ${disabled}
-            onchange="hcMarkDirty()" placeholder="one value per line" class="text-sm"
-            style="width: 100%; padding: 6px 10px; border: 1px solid var(--color-border);
-            border-radius: 4px; background: var(--color-bg-input);
-            color: var(--color-text-primary); resize: vertical;">${_esc(selected.join("\n"))}</textarea>`;
+            onchange="hcMarkDirty()" placeholder="one value per line; leave empty for none" class="text-sm"
+            style="${INPUT_STYLE} width: 100%; padding: 6px 10px; resize: vertical;">${_esc(selected.join("\n"))}</textarea>`;
     }
 
     function collectValues() {
+        const box = document.getElementById("hc-form");
+        const find = (selector) => (box ? box.querySelector(selector) : null);
         const values = {};
         for (const name of st.task.variables) {
             const spec = st.task.field_specs[name] || {};
+            const key = CSS.escape(name);
             if (spec.kind === "list") {
-                const closed = document.querySelector(`[data-list-var="${CSS.escape(name)}"]`);
+                const closed = find(`[data-list-var="${key}"]`);
                 if (closed) {
                     values[name] = Array.from(
                         closed.querySelectorAll("input:checked")).map(c => c.value);
                 } else {
-                    const area = document.querySelector(
-                        `textarea[data-var="${CSS.escape(name)}"][data-open-list="1"]`);
+                    const area = find(`textarea[data-var="${key}"][data-open-list="1"]`);
                     values[name] = area
                         ? area.value.split("\n").map(s => s.trim()).filter(Boolean) : [];
                 }
-            } else if (spec.kind === "enum" && spec.values && spec.values.length <= 5) {
-                const checked = document.querySelector(
-                    `input[name="hc-radio-${CSS.escape(name)}"]:checked`);
+            } else if (spec.kind === "enum" && spec.open) {
+                const wrap = find(`[data-open-var="${key}"]`);
+                const typed = wrap ? wrap.querySelector('input[type="text"]').value.trim() : "";
+                const picked = wrap && wrap.querySelector('input[type="radio"]:checked');
+                values[name] = typed || (picked ? picked.value : "");
+            } else if (spec.kind === "enum" && spec.values && spec.values.length <= RADIO_MAX) {
+                const checked = find(`input[name="hc-radio-${key}"]:checked`);
                 values[name] = checked ? checked.value : "";
+            } else if (spec.kind === "numeric") {
+                const cantTell = find(`input[data-cant-tell="${key}"]`);
+                const input = find(`input[type="number"][data-var="${key}"]`);
+                values[name] = cantTell && cantTell.checked ? CANT_TELL : (input ? input.value : "");
             } else {
-                const el = document.querySelector(`[data-var="${CSS.escape(name)}"]`);
+                const el = find(`[data-var="${key}"]`);
                 values[name] = el ? el.value : "";
             }
         }
@@ -559,6 +656,10 @@
     window.hcMarkDirty = hcMarkDirty;
     window.hcPickOption = hcPickOption;
     window.hcNoteChanged = hcNoteChanged;
+    window.hcOpenTyped = hcOpenTyped;
+    window.hcOpenPicked = hcOpenPicked;
+    window.hcNumberCantTell = hcNumberCantTell;
+    window.hcFieldWidget = _fieldWidget;
 
     function _bootstrap() {
         refreshTasks();
