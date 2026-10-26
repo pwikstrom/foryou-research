@@ -203,7 +203,9 @@ def send_invitation_email(to_email, run_id, task_type, inviter, n_items, n_varia
         return False
     sender, password = creds
 
-    task_label = "preference-vote" if task_type == "vote" else "blind coding"
+    task_label = {"vote": "preference-vote", "rating": "quality-rating"}.get(
+        task_type, "blind coding"
+    )
     try:
         msg = MIMEMultipart()
         msg["From"] = sender

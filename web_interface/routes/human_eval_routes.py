@@ -3,8 +3,8 @@
 Two route groups share the ``human_eval_bp`` blueprint:
 
 * ``/api/manage/human-eval/...`` — admin task setup (create/delete tasks,
-  invite coders, recompute results, export codings), gated on
-  ``tab.admin.human_eval``.
+  invite coders, recompute results, export codings; for a rating task also
+  the draft's traps and Start), gated on ``tab.admin.human_eval``.
 * ``/api/human-eval/...`` — the coder-facing endpoints. These are only
   ``login_required``; access is *invitation-record-driven* (``is_invited``:
   the username is in the task's coder list, or the user is an admin), so
@@ -12,7 +12,8 @@ Two route groups share the ``human_eval_bp`` blueprint:
 
 BLINDNESS RULE: the coder endpoints never include machine annotation values —
 a coding task is coded fully blind. Machine values live only in the admin run
-report and the admin codings export.
+report and the admin codings export. A rating task necessarily shows its rater
+one answer per variable, but never where it came from (model, human, trap).
 """
 
 import re
@@ -22,6 +23,7 @@ from flask_login import current_user, login_required
 
 import fyp.annotation.ab_eval as ab_eval
 import fyp.annotation.human_eval as human_eval
+import fyp.annotation.human_rating as human_rating
 
 from ..auth.accounts import user_manager
 from ..auth.permissions import permission_required
@@ -121,20 +123,41 @@ def list_human_eval_tasks():
 def create_human_eval_task():
     """Create a human task on a finished run.
 
-    Body: ``{run_id, task_type, variables: [...], coders: [...]}``.
+    Body: ``{run_id, task_type, variables: [...], coders: [...]}``, plus
+    ``n_videos`` (coding: a random sample) and, for a rating task, ``arm``,
+    ``coders_included``, ``n_practice``, ``ratings_per_human``,
+    ``swapped_per_rater`` and ``exclusion_rule``. A rating task is created
+    as a draft: its raters are invited only when it is started.
     """
     payload = request.get_json(silent=True) or {}
     run_id = str(payload.get("run_id") or "")
     task_type = str(payload.get("task_type") or "coding")
+    n_videos = payload.get("n_videos") or None
     try:
-        task = human_eval.create_task(
-            run_id=run_id,
-            task_type=task_type,
-            variables=list(payload.get("variables") or []),
-            coders=[str(u) for u in (payload.get("coders") or [])],
-            created_by=current_actor(),
-            arms=list(payload.get("arms") or []) or None,
-        )
+        if task_type == "rating":
+            task = human_rating.create_task(
+                run_id=run_id,
+                variables=list(payload.get("variables") or []),
+                raters=[str(u) for u in (payload.get("coders") or [])],
+                created_by=current_actor(),
+                arm=payload.get("arm") or None,
+                coders_included=[str(u) for u in (payload.get("coders_included") or [])],
+                n_videos=int(n_videos) if n_videos else None,
+                n_practice=int(payload.get("n_practice", 3) or 0),
+                ratings_per_human=int(payload.get("ratings_per_human", 2) or 0),
+                swapped_per_rater=int(payload.get("swapped_per_rater", 3) or 0),
+                exclusion_rule=str(payload.get("exclusion_rule") or "none"),
+            )
+        else:
+            task = human_eval.create_task(
+                run_id=run_id,
+                task_type=task_type,
+                variables=list(payload.get("variables") or []),
+                coders=[str(u) for u in (payload.get("coders") or [])],
+                created_by=current_actor(),
+                arms=list(payload.get("arms") or []) or None,
+                n_videos=int(n_videos) if n_videos else None,
+            )
         activity_log.record(
             actor=current_actor(),
             category="admin",
@@ -146,8 +169,71 @@ def create_human_eval_task():
                 "coders": sorted(task["coders"]),
             },
         )
-        _notify_coders(task, list(task["coders"]), current_actor())
+        if task.get("status") != "draft":
+            _notify_coders(task, list(task["coders"]), current_actor())
         return jsonify({"task": task})
+    except (TypeError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/rating/traps", methods=["POST"])
+@permission_required("tab.admin.human_eval")
+def add_rating_trap(run_id):
+    """Write a trap into a rating draft. Body: ``{item_id, variable, value, note}``."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        trap = human_rating.add_trap(
+            run_id,
+            item_id=str(payload.get("item_id") or ""),
+            variable=str(payload.get("variable") or ""),
+            value=payload.get("value"),
+            note=str(payload.get("note") or ""),
+            created_by=current_actor(),
+        )
+        return jsonify({"trap": trap})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route(
+    "/api/manage/human-eval/tasks/<run_id>/rating/traps/<trap_id>", methods=["DELETE"]
+)
+@permission_required("tab.admin.human_eval")
+def delete_rating_trap(run_id, trap_id):
+    """Remove a trap from a rating draft."""
+    try:
+        return jsonify({"removed": human_rating.delete_trap(run_id, trap_id)})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/rating/model-answers", methods=["GET"])
+@permission_required("tab.admin.human_eval")
+def rating_model_answers(run_id):
+    """The contract's answers for one video (``?item_id=``), to copy into a trap."""
+    try:
+        answers = human_rating.model_answers_for(run_id, str(request.args.get("item_id") or ""))
+        return jsonify({"answers": answers})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/rating/start", methods=["POST"])
+@permission_required("tab.admin.human_eval")
+def start_rating_task(run_id):
+    """Freeze a rating draft's answers, assign them, and invite the raters."""
+    try:
+        summary = human_rating.start(run_id, started_by=current_actor())
+        task = human_eval.load_task(run_id, "rating")
+        activity_log.record(
+            actor=current_actor(),
+            category="admin",
+            action="human_eval.start_rating",
+            target=run_id,
+            details={"raters": sorted(task["coders"]), "by_source": summary["by_source"]},
+        )
+        _notify_coders(task, list(task["coders"]), current_actor())
+        return jsonify({"summary": summary})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -208,7 +294,8 @@ def add_human_eval_coders(run_id, task_type):
             details={"task_type": task_type, "coders": coders},
         )
         newly_added = [u for u in coders if u not in before]
-        _notify_coders(task, newly_added, current_actor())
+        if task.get("status") != "draft":  # a draft's raters are invited at Start
+            _notify_coders(task, newly_added, current_actor())
         return jsonify({"task": task})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -228,6 +315,8 @@ def resend_human_eval_invite(run_id, task_type):
         task = human_eval.load_task(run_id, task_type)
         if task is None:
             return jsonify({"error": "task not found"}), 404
+        if task.get("status") == "draft":
+            return jsonify({"error": "start the rating task before inviting"}), 400
         if username not in task.get("coders", {}):
             return jsonify({"error": f"{username} is not an invited coder"}), 400
         if not mail_utils.is_email(username):
@@ -272,12 +361,17 @@ def recompute_human_eval_results(run_id, task_type):
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/export", methods=["GET"])
 @permission_required("tab.admin.human_eval")
 def export_human_eval_codings(run_id, task_type):
-    """Download every submitted coding next to each contract's answer (CSV)."""
+    """Download a task's data as CSV: codings next to each contract's answer,
+    or for a rating task every rating with the answer judged and its source."""
     try:
-        text = human_eval.export_codings_csv(run_id, task_type)
+        if task_type == "rating":
+            text = human_rating.export_csv(run_id)
+        else:
+            text = human_eval.export_codings_csv(run_id, task_type)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    filename = re.sub(r"[^A-Za-z0-9_.-]", "_", f"codings_{run_id}.csv")
+    prefix = "ratings" if task_type == "rating" else "codings"
+    filename = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{prefix}_{run_id}.csv")
     return Response(
         text,
         mimetype="text/csv; charset=utf-8",
@@ -354,7 +448,13 @@ def get_coder_task(run_id, task_type):
         "field_specs": task["field_specs"],
         "status": state.get("status", "in_progress"),
     }
-    if task["task_type"] == "vote":
+    if task["task_type"] == "rating":
+        payload.update(human_rating.rater_payload(task, username, state))
+        payload["responses"] = {
+            item_id: {"values": response.get("values", {}), "note": response.get("note", "")}
+            for item_id, response in (state.get("responses") or {}).items()
+        }
+    elif task["task_type"] == "vote":
         payload["n_options"] = len(task.get("arms", []))
         payload["options"] = human_eval.vote_options_payload(task, username)
         payload["responses"] = {
@@ -410,6 +510,21 @@ def save_coder_response(run_id, task_type):
                 "n_answered": human_eval._n_answered(state),
             }
         )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route("/api/human-eval/tasks/<run_id>/rating/guesses", methods=["POST"])
+@login_required
+def save_rating_guesses(run_id):
+    """Save the closing "who wrote this?" guesses. Body: ``{guesses: {key: guess}}``."""
+    task, error = _load_invited_task(run_id, "rating")
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    try:
+        state = human_rating.save_guesses(run_id, current_actor(), payload.get("guesses") or {})
+        return jsonify({"saved": True, "n_guesses": len(state.get("guesses") or {})})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 

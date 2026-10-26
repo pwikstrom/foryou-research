@@ -13,7 +13,9 @@
     correlation and Krippendorff's &alpha;. Results appear on the run's report
     under <em>Annotation testing</em>; <em>Download CSV</em> on a coding task
     gives every coder's answers next to the contract's. Admins can always open
-    their own tasks from the <em>Coding</em> tab.
+    their own tasks from the <em>Coding</em> tab. For free-text and other open
+    answers, a <em>Quality rating</em> task has raters judge the contract's
+    answers against the video, mixed blind with coders' answers and traps.
 </p>
 
 <div id="hev-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
@@ -45,6 +47,12 @@
                     onchange="hevOnTypeChange()">
                 Preference vote
             </label>
+            <label class="meta-tooltip" data-tooltip="Raters watch each video and judge one answer per variable without knowing its source: the contract's, a coder's from this run's coding task, or a trap. Created as a draft: write traps, then Start."
+                style="display: flex; align-items: center; gap: 5px;">
+                <input type="radio" name="hev-task-type" value="rating"
+                    onchange="hevOnTypeChange()">
+                Quality rating
+            </label>
         </span>
     </div>
 
@@ -55,6 +63,41 @@
         <div id="hev-arm-list" class="text-sm" style="display: flex; gap: 14px; flex-wrap: wrap;
             border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px;">
         </div>
+    </div>
+
+    <div id="hev-rating-row" class="text-sm" style="display: none; margin-bottom: 12px; padding: 8px 10px;
+            border: 1px solid var(--color-border); border-radius: 6px;">
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 6px;">Contract to rate
+                <select id="hev-rating-arm" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></select></label>
+            <label class="meta-tooltip" data-tooltip="Videos shown first to every rater for calibration; never analysed."
+                style="display: flex; align-items: center; gap: 6px;">Practice videos
+                <input id="hev-n-practice" type="number" min="0" value="3" class="text-sm" style="width: 60px; padding: 4px 6px;"></label>
+            <label class="meta-tooltip" data-tooltip="How many raters judge each human-written answer. Each video always keeps at least one rating of the contract's answer."
+                style="display: flex; align-items: center; gap: 6px;">Raters per human answer
+                <input id="hev-ratings-per-human" type="number" min="1" value="2" class="text-sm" style="width: 60px; padding: 4px 6px;"></label>
+            <label class="meta-tooltip" data-tooltip="Each rater gets this many swapped answers (the contract's answer for another video) per variable, as an attention check."
+                style="display: flex; align-items: center; gap: 6px;">Swapped traps per rater
+                <input id="hev-swapped" type="number" min="0" value="3" class="text-sm" style="width: 60px; padding: 4px 6px;"></label>
+            <label class="meta-tooltip" data-tooltip="Fixed now, before any rating is seen. Excluded raters stay in the CSV, flagged."
+                style="display: flex; align-items: center; gap: 6px;">Exclusion rule
+                <select id="hev-exclusion" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                    <option value="none">Keep every rater</option>
+                    <option value="missed_swap">Drop raters who miss a swapped trap</option>
+                </select></label>
+        </div>
+        <div style="margin-top: 8px;">
+            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 4px;">
+                Human-written answers from this run's coding task (submitted coders)</div>
+            <div id="hev-rating-coders" class="text-sm" style="display: flex; gap: 14px; flex-wrap: wrap;">
+                <span style="color: var(--color-text-muted);">Select a run first.</span></div>
+        </div>
+    </div>
+
+    <div id="hev-videos-row" class="text-sm" style="margin-bottom: 12px;">
+        <label class="meta-tooltip" data-tooltip="Leave empty for every video in the run. A rating task always keeps the videos that have human-written answers."
+            style="display: inline-flex; align-items: center; gap: 6px;">Videos: a random sample of
+            <input id="hev-n-videos" type="number" min="1" placeholder="all" class="text-sm" style="width: 70px; padding: 4px 6px;"></label>
     </div>
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
@@ -77,7 +120,7 @@
             </div>
         </div>
         <div style="flex: 1; min-width: 240px;">
-            <div class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
+            <div id="hev-user-title" class="text-xs font-semibold" style="color: var(--color-text-muted); margin-bottom: 6px;">
                 Coders to invite
                 <span class="meta-tooltip" data-tooltip="Admins always have access to every task from the Coding tab, invited or not.">&#9432;</span>
             </div>
@@ -89,7 +132,7 @@
 
     <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
         <button onclick="hevPreviewTask()" class="btn-discreet btn-compact">Preview task</button>
-        <button onclick="hevCreateTask(this)" class="btn-primary btn-compact">Create task</button>
+        <button id="hev-create-btn" onclick="hevCreateTask(this)" class="btn-primary btn-compact">Create task</button>
         <span id="hev-create-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
 </section>

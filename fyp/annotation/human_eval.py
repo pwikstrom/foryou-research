@@ -31,6 +31,7 @@ the scale snapshotted into the task at creation, never from answer length.
 import csv
 import hashlib
 import io
+import random
 import re
 import secrets
 import threading
@@ -50,7 +51,7 @@ from fyp.core.runtime import utc_now_iso
 logger = get_logger(__name__)
 
 
-TASK_TYPES = ("coding", "vote")
+TASK_TYPES = ("coding", "vote", "rating")
 TASKS_INDEX_FILENAME = "human_tasks_index.json"
 
 # Per-item free-text coder notes are capped to keep the JSON files small.
@@ -318,6 +319,7 @@ def create_task(
     coders: list[str],
     created_by: str = "",
     arms: list[str] | None = None,
+    n_videos: int | None = None,
 ) -> dict:
     """Create a human task on a finished run.
 
@@ -336,6 +338,11 @@ def create_task(
         created_by: audit actor.
         arms: vote tasks only — the contracts humans vote between (a subset
             of the run's arms, at least two). ``None`` means all of them.
+        n_videos: coding tasks only — code a random sample of this many of
+            the run's videos instead of all of them (e.g. the human
+            benchmark for a rating task).
+
+    Rating tasks have their own setup: :func:`fyp.annotation.human_rating.create_task`.
 
     Returns:
         The stored task definition.
@@ -344,6 +351,8 @@ def create_task(
         ValueError: unknown type / run not complete / task exists / bad variables.
     """
     _check_task_type(task_type)
+    if task_type == "rating":
+        raise ValueError("rating tasks are created as drafts by human_rating.create_task")
 
     run = ab.load_run(run_id)
     manifest = run.get("manifest") or {}
@@ -377,6 +386,9 @@ def create_task(
     item_ids = [str(i) for i in manifest.get("item_ids", [])]
     if not item_ids:
         raise ValueError(f"run {run_id} has no items")
+    if task_type == "coding" and n_videos and 0 < int(n_videos) < len(item_ids):
+        keep = set(random.Random(secrets.randbits(64)).sample(item_ids, int(n_videos)))
+        item_ids = [i for i in item_ids if i in keep]
     items = [
         {"item_id": item["item_id"], "platform": item["platform"]}
         for item in ab.resolve_items(item_ids)
@@ -497,6 +509,7 @@ def _index_entry(task: dict) -> dict:
         "n_variables": len(task.get("variables", [])),
         "coders": sorted(task.get("coders", {})),
         "submitted": sorted(task.get("_submitted", [])),
+        "status": task.get("status", "started"),
     }
 
 
@@ -529,15 +542,20 @@ def _update_tasks_index(entry: dict, submitted: list[str] | None = None) -> None
 
 
 def tasks_for_user(username: str, is_admin: bool = False) -> list[dict]:
-    """Return the index entries a user may work on (all of them for admins)."""
-    tasks = list_tasks()
+    """Return the index entries a user may work on (all of them for admins).
+
+    Draft rating tasks are nobody's work yet, so they are never listed.
+    """
+    tasks = [t for t in list_tasks() if t.get("status") != "draft"]
     if is_admin:
         return tasks
     return [t for t in tasks if str(username) in (t.get("coders") or [])]
 
 
 def is_invited(task: dict, username: str, is_admin: bool = False) -> bool:
-    """True when a user may access a task (admins always may)."""
+    """True when a user may access a task (admins always may; nobody a draft)."""
+    if task.get("status") == "draft":
+        return False
     return bool(is_admin) or str(username) in (task.get("coders") or {})
 
 
@@ -560,6 +578,8 @@ def add_coders(run_id: str, task_type: str, usernames: list[str], invited_by: st
         task = load_task(run_id, task_type)
         if task is None:
             raise ValueError(f"run {run_id} has no {task_type} task")
+        if task_type == "rating" and task.get("status") == "started":
+            raise ValueError("raters are fixed once a rating task has started")
         now = _now_iso()
         for username in usernames:
             username = str(username)
@@ -795,6 +815,10 @@ def save_response(
         if set(values or {}) != {"choice"}:
             raise ValueError("a vote must be exactly {'choice': <option>}")
         cleaned = {"choice": resolve_vote_choice(task, item_id, username, values["choice"])}
+    elif task_type == "rating":
+        from fyp.annotation import human_rating
+
+        cleaned = human_rating.validate_rating(task, username, item_id, values)
     else:
         cleaned = _validate_values(task, values)
 
@@ -1031,22 +1055,35 @@ def krippendorff_alpha(units: list[list], level: str) -> dict:
 
     Args:
         units: per-video value lists (strings for ``nominal``, floats for
-            ``interval``, frozensets for ``set``).
-        level: ``nominal`` / ``interval`` / ``set`` (Jaccard distance).
+            ``interval``, frozensets for ``set``, ranks such as 0, 1, 2 for
+            ``ordinal``).
+        level: ``nominal`` / ``interval`` / ``set`` (Jaccard distance) /
+            ``ordinal`` (Krippendorff's rank metric, which depends on how
+            often each value occurs).
 
     Returns:
         ``{alpha, n_units, n_values}`` over the pairable units; ``alpha`` is
         ``None`` when fewer than two values pair up or every answer is the same
         (the coefficient is undefined without variation).
     """
-    delta = _ALPHA_DISTANCES[level]
+    pairable = [unit for unit in units if len(unit) >= 2]
+    if level == "ordinal":
+        totals = Counter(v for unit in pairable for v in unit)
+        ranks = sorted(totals)
+
+        def delta(a, b) -> float:
+            low, high = sorted((a, b))
+            between = sum(totals[g] for g in ranks if low <= g <= high)
+            return (between - (totals[low] + totals[high]) / 2) ** 2
+
+    else:
+        delta = _ALPHA_DISTANCES[level]
 
     def _pair_sum(counts: Counter) -> float:
         # Σ over ordered pairs of distinct observations; δ(c, c) = 0 always.
         values = list(counts)
         return sum(counts[a] * counts[b] * delta(a, b) for a in values for b in values if a != b)
 
-    pairable = [unit for unit in units if len(unit) >= 2]
     n = sum(len(unit) for unit in pairable)
     out = {"alpha": None, "n_units": len(pairable), "n_values": n}
     if n < 2:
@@ -1217,6 +1254,10 @@ def compute_results(run_id: str, task_type: str) -> dict:
         raise ValueError(f"run {run_id} has no {task_type} task")
     if task_type == "vote":
         return _compute_vote_results(run_id, task)
+    if task_type == "rating":
+        from fyp.annotation import human_rating
+
+        return human_rating.compute_results(run_id, task)
     variables = task.get("variables", [])
     scales = {v: spec.get("scale", "text") for v, spec in task.get("field_specs", {}).items()}
 
@@ -1609,6 +1650,7 @@ def load_human(run_id: str) -> dict | None:
         out[task_type] = {
             "created_at": task.get("created_at"),
             "created_by": task.get("created_by"),
+            "status": task.get("status", "started"),
             "n_items": len(task.get("item_ids", [])),
             "variables": task.get("variables", []),
             "coder_status": coder_status(run_id, task_type, task=task),

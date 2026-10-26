@@ -38,7 +38,7 @@ Run (see `create_app` in `fyp_data_hub.py`):
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
 | `api_sessions_routes.py` | Sessions tab (session index + focused session episodes + low-entropy sequences); its data and statistics are `services/sessions_data.py` and `services/sessions_stats.py` |
 | `management/` (package) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, data contracts, A/B evaluation, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
-| `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
+| `human_eval_routes.py` | human annotation input (coding, votes, quality ratings, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` (the runtime behind it is `tasks/runtime.py`) |
 
 The `services/` package holds study data + cache (note the double-checked

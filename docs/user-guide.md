@@ -407,7 +407,12 @@ question offers **Can't tell** (unless the codebook has its own, such as
 also a "doesn't apply" choice, such as "No person in the video". A **How to
 code** panel above the questions sums up these conventions, each question shows
 what the variable means, and hovering a content category shows its definition.
-In a **preference
+In a **quality rating** task you watch each video, then see one answer per
+variable and judge it against the video (for a story: accuracy, main point
+and overall quality). The answers may come from the model, from another
+person, or be deliberately wrong, so judge each on its own. A few practice
+videos come first and are not counted, and a closing question asks you to
+guess who wrote some of the answers. In a **preference
 vote** task you compare anonymous annotation options per video and pick the
 best (or a tie). Work saves automatically; submit when done.
 
@@ -692,8 +697,17 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   label the database uses; α counts it as an answer, and a check figure
   treats it as missing. **Download CSV** on a coding task gives one row per
   video with each contract's stored answer next to every submitted coder's
-  answer as given, plus coder notes. The coders work under My stuff → My
-  Tasks.
+  answer as given, plus coder notes; a coding task can cover a random sample
+  of the run's videos. **Quality rating** tasks are for free-text and other
+  open answers: raters judge one answer per variable per video without
+  knowing its source (the contract's, a coder's from the run's coding task,
+  or a trap). The task starts as a draft: you write traps (edited copies of
+  the contract's answer with one planted error) next to the video, choose
+  how many swapped traps (another video's answer) each rater gets, fix the
+  exclusion rule, and press **Start**, which freezes the answers, plans who
+  sees what and sends the invitations. Results appear in the run's report;
+  **Download CSV** gives every rating with the answer's true source. The
+  coders and raters work under My stuff → My Tasks.
 
 **Data & Variables**
 

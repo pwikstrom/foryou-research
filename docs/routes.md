@@ -56,6 +56,7 @@ python scripts/gen_route_inventory.py
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_coder_task` |
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>/responses` | POST | `human_eval.save_coder_response` |
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>/submit` | POST | `human_eval.submit_coder_task` |
+| human_eval | `/api/human-eval/tasks/<run_id>/rating/guesses` | POST | `human_eval.save_rating_guesses` |
 | human_eval | `/api/manage/human-eval/runs` | GET | `human_eval.list_human_eval_runs` |
 | human_eval | `/api/manage/human-eval/runs/<run_id>/variables` | GET | `human_eval.get_human_eval_variables` |
 | human_eval | `/api/manage/human-eval/tasks` | GET | `human_eval.list_human_eval_tasks` |
@@ -66,6 +67,10 @@ python scripts/gen_route_inventory.py
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/export` | GET | `human_eval.export_human_eval_codings` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/notify` | POST | `human_eval.resend_human_eval_invite` |
 | human_eval | `/api/manage/human-eval/tasks/<run_id>/<task_type>/recompute` | POST | `human_eval.recompute_human_eval_results` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/rating/model-answers` | GET | `human_eval.rating_model_answers` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/rating/start` | POST | `human_eval.start_rating_task` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/rating/traps` | POST | `human_eval.add_rating_trap` |
+| human_eval | `/api/manage/human-eval/tasks/<run_id>/rating/traps/<trap_id>` | DELETE | `human_eval.delete_rating_trap` |
 | human_eval | `/api/manage/human-eval/users` | GET | `human_eval.list_human_eval_users` |
 | internal_bp | `/internal/run-task/<name>` | POST | `internal_bp.internal_run_task` |
 | management_bp | `/api/manage/ab-candidates` | GET | `management_bp.list_ab_candidates` |
@@ -202,4 +207,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-191 routes total.
+196 routes total.

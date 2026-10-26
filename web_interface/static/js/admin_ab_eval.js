@@ -1435,10 +1435,11 @@
             const entries = Object.values(t.coder_status || {});
             const done = entries.filter(s => s.status === "submitted").length;
             const n = (t.variables || []).length;
-            const label = task === "coding" ? "coding" : "votes";
+            const label = { coding: "coding", vote: "votes", rating: "rating" }[task];
             return `${label} · ${n} ${unit}${n === 1 ? "" : "s"} · ${done}/${entries.length} submitted`;
         };
-        const lines = [line("coding", "variable"), line("vote", "field")].filter(Boolean);
+        const lines = [line("coding", "variable"), line("vote", "field"), line("rating", "variable")]
+            .filter(Boolean);
         const body = lines.length
             ? lines.map(l => `<div class="text-xs" style="color: var(--color-text-muted);
                     margin-top: 4px;">${_esc(l)}</div>`).join("")
@@ -1472,6 +1473,7 @@
         if (!human) { el.innerHTML = ""; return; }
         el.innerHTML = _renderCodingSection(human.coding)
             + _renderVoteSection(human.vote)
+            + _renderRatingSection(human.rating)
             + _renderNotesSection(human);
         el.querySelectorAll(".abe-note-item").forEach(a =>
             a.addEventListener("click", (ev) => { ev.preventDefault(); openItemView(a.dataset.i); }));
@@ -1481,7 +1483,7 @@
     // types — one place to read them all when adjudicating.
     function _renderNotesSection(human) {
         const notes = [];
-        for (const [type, label] of [["coding", "coding"], ["vote", "vote"]]) {
+        for (const [type, label] of [["coding", "coding"], ["vote", "vote"], ["rating", "rating"]]) {
             for (const note of ((human[type] || {}).notes) || []) {
                 notes.push({ ...note, type: label });
             }
@@ -1595,6 +1597,109 @@
                 <th style="${cell}">coders only</th>
                 <th style="${cell}">"can't tell / doesn't apply" share</th>
             </tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    // The "Quality ratings" block: per variable, each answer source's headline
+    // figures with 95% intervals (resampling videos), rater agreement on the
+    // main question, contract minus human; then per-rater trap catches and
+    // exclusions, and how well raters guessed who wrote what.
+    const RATING_HEADLINES = {
+        share_no_errors: ["no errors", "share"], share_major_error: ["major error", "share"],
+        share_main_point: ["main point", "share"], mean_overall: ["overall 1–5", "mean"],
+        share_fits: ["fits", "share"], share_does_not_fit: ["doesn't fit", "share"],
+        share_correct: ["correct", "share"], share_wrong: ["wrong", "share"],
+        share_about_right: ["about right", "share"], share_far_off: ["far off", "share"],
+        item_precision: ["entries there", "share"], share_nothing_missing: ["nothing missing", "share"],
+        share_important_missing: ["important missing", "share"],
+    };
+    const RATING_MAIN_QUESTION = {
+        text: "accuracy", phrase: "fit", category: "verdict", number: "closeness", list: "items",
+    };
+    const RATING_SOURCES = [
+        ["model", "contract"], ["human", "human-written"], ["swap", "swapped traps"], ["trap", "written traps"],
+    ];
+
+    function _renderRatingSection(rating) {
+        if (!rating) return "";
+        let html = `<h3 class="text-sm font-semibold" style="margin: 18px 0 6px 0;
+                color: var(--color-text-heading);">Quality ratings</h3>`;
+        const results = rating.results;
+        if (rating.status === "draft") {
+            return html + `<div class="text-xs" style="color: var(--color-text-muted);">
+                Draft: write traps and press Start under Admin &rarr; Reliability Control.</div>`;
+        }
+        if (!results || !Object.keys(results.raters || {}).length) {
+            return html + `<div class="text-xs" style="color: var(--color-text-muted);">
+                No submitted ratings yet.</div>`;
+        }
+        const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
+        const muted = 'class="text-xxs" style="color: var(--color-text-muted);"';
+        const fmt = (h, kind) => {
+            if (!h || h.value == null) return "—";
+            const f = kind === "mean" ? (x) => _fmt(x, 1) : _pct;
+            const ci = h.ci_low != null ? ` <span ${muted}>[${f(h.ci_low)}–${f(h.ci_high)}]</span>` : "";
+            return f(h.value) + ci;
+        };
+        const excluded = results.excluded_raters || [];
+        html += `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 6px;">
+            ${Object.keys(results.raters).length} submitted rater(s)${excluded.length
+                ? `; excluded by the rule (missed a swapped trap): ${excluded.map(_esc).join(", ")}` : ""}.
+            Shares leave out "can't tell"; intervals resample videos.</div>`;
+
+        for (const [name, v] of Object.entries(results.variables || {})) {
+            const headlines = Object.keys(((v.by_source || {}).model || {}).headline
+                || ((Object.values(v.by_source || {})[0] || {}).headline) || {});
+            const mainQ = RATING_MAIN_QUESTION[v.rate_kind];
+            const rows = RATING_SOURCES.filter(([g]) => (v.by_source || {})[g]).map(([g, label]) => {
+                const src = v.by_source[g];
+                const agree = ((v.agreement || {})[g] || {})[mainQ];
+                const agreeCell = agree && agree.n_units
+                    ? `α ${agree.alpha == null ? "—" : _fmt(agree.alpha)} · ${_pct(agree.pct_agreement)} <span ${muted}>(${agree.n_units})</span>`
+                    : "";
+                return `<tr><td style="${cell}">${label}</td>
+                    <td style="${cell}">${src.n_answers} <span ${muted}>/ ${src.n_ratings} ratings</span></td>
+                    ${headlines.map(h => `<td style="${cell}">${fmt(src.headline[h], RATING_HEADLINES[h][1])}</td>`).join("")}
+                    <td style="${cell}">${agreeCell}</td></tr>`;
+            }).join("");
+            const diff = Object.entries(v.model_vs_human || {}).map(([h, d]) => {
+                if (d.difference == null) return "";
+                const scale = RATING_HEADLINES[h][1] === "mean" ? (x) => _fmt(x, 1) : (x) => `${Math.round(x * 100)} pts`;
+                const ci = d.ci_low != null ? ` [${scale(d.ci_low)}, ${scale(d.ci_high)}]` : "";
+                return `${RATING_HEADLINES[h][0]}: ${d.difference >= 0 ? "+" : ""}${scale(d.difference)}${ci}`;
+            }).filter(Boolean);
+            const nDiff = (Object.values(v.model_vs_human || {})[0] || {}).n_videos;
+            html += `<h4 class="text-xs font-semibold" style="margin: 10px 0 4px 0;">${_esc(v.label || name)}
+                <span ${muted}>(${_esc(v.rate_kind)})</span></h4>
+                <div style="overflow-x: auto;"><table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                    <th style="${cell}">source</th><th style="${cell}">answers</th>
+                    ${headlines.map(h => `<th style="${cell}">${_esc(RATING_HEADLINES[h][0])}</th>`).join("")}
+                    <th style="${cell}">rater agreement (${_esc(mainQ)})</th>
+                </tr></thead><tbody>${rows}</tbody></table></div>
+                ${diff.length ? `<div ${muted} style="margin-top: 2px;">Contract minus human-written, per video
+                    (${nDiff} videos): ${diff.join(" · ")}</div>` : ""}`;
+        }
+
+        const raterRows = Object.entries(results.raters).map(([user, r]) => {
+            const g = ((results.guesses || {}).by_rater || {})[user] || {};
+            return `<tr><td style="${cell}">${_esc(user)}${r.excluded ? ' <span class="text-xxs" style="color: var(--color-warning);">excluded</span>' : ""}</td>
+                <td style="${cell}">${r.n_ratings}</td><td style="${cell}">${r.n_cant_rate}</td>
+                <td style="${cell}">${r.swaps_caught}/${r.swaps}</td>
+                <td style="${cell}">${r.traps_caught}/${r.traps}</td>
+                <td style="${cell}">${g.decided ? `${g.correct}/${g.decided}` : "—"}${g.not_sure ? ` <span ${muted}>(${g.not_sure} not sure)</span>` : ""}</td></tr>`;
+        }).join("");
+        const pooled = results.guesses || {};
+        html += `<h4 class="text-xs font-semibold" style="margin: 12px 0 4px 0;">Raters</h4>
+            <div style="overflow-x: auto;"><table style="border-collapse: collapse; width: 100%;" class="text-xs">
+            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                <th style="${cell}">rater</th><th style="${cell}">ratings</th><th style="${cell}">can't rate</th>
+                <th style="${cell}">swapped traps caught</th><th style="${cell}">written traps caught</th>
+                <th style="${cell}">source guesses right</th>
+            </tr></thead><tbody>${raterRows}</tbody></table></div>
+            ${pooled.share_correct != null ? `<div ${muted} style="margin-top: 2px;">Source guesses: ${_pct(pooled.share_correct)}
+                right where raters chose (chance is 50%: each sample is half human, half contract);
+                ${_pct(pooled.share_not_sure)} "not sure".</div>` : ""}`;
+        return html;
     }
 
     // The "Preference votes" block: per-arm pooled win-rate bars, per-coder

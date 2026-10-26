@@ -10,6 +10,26 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Quality-rating tasks for free-text and other open answers.** Agreement
+  can't assess a video story, so raters now judge the contract's answers
+  against the video: one answer per variable per video, with questions that
+  follow the variable's type (accuracy, main point and overall quality for
+  free text; fit for short phrases; there / not there for list entries;
+  right or wrong for categories and numbers). The source stays hidden: the
+  contract's answer, a human-written answer from the run's coding task, or a
+  trap (another video's answer, or an edited copy you write in the draft with
+  one planted error). Start freezes the answers and plans the assignment:
+  every rater sees each video once, never their own coding, and each video
+  keeps a rating of the contract's answer. Answers appear only after the
+  video has been watched; practice videos open the task; a closing question
+  asks raters to guess who wrote a balanced sample of answers. The report
+  gives each source's figures with 95% intervals (resampling videos), rater
+  agreement (ordinal alpha and percent agreement), contract minus human per
+  video, trap catches and the exclusion rule; the CSV has every rating.
+- **Coding tasks can cover a random sample of the run's videos.**
+
 ### Changed
 
 - **Person variables say they are perceived.** Main gender, main ethnicity

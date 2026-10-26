@@ -233,6 +233,13 @@
   ]
  ],
  [
+  "/api/human-eval/tasks/<run_id>/rating/guesses",
+  "human_eval.save_rating_guesses",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/logs/<name>",
   "process_bp.api_logs",
   [
@@ -713,6 +720,34 @@
   "human_eval.recompute_human_eval_results",
   [
    "POST"
+  ]
+ ],
+ [
+  "/api/manage/human-eval/tasks/<run_id>/rating/model-answers",
+  "human_eval.rating_model_answers",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/human-eval/tasks/<run_id>/rating/start",
+  "human_eval.start_rating_task",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/manage/human-eval/tasks/<run_id>/rating/traps",
+  "human_eval.add_rating_trap",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/manage/human-eval/tasks/<run_id>/rating/traps/<trap_id>",
+  "human_eval.delete_rating_trap",
+  [
+   "DELETE"
   ]
  ],
  [
