@@ -219,6 +219,8 @@
             `Video ${st.idx + 1} of ${st.task.items.length}`;
         const codingForm = document.getElementById("hc-form");
         const voteForm = document.getElementById("hc-vote-form");
+        const guide = document.getElementById("hc-coding-guide");
+        if (guide) guide.style.display = st.mode === "vote" ? "none" : "";
         codingForm.style.display = st.mode === "vote" ? "none" : "";
         voteForm.style.display = st.mode === "vote" ? "" : "none";
         if (st.mode === "vote") {
@@ -346,10 +348,12 @@
             const spec = st.task.field_specs[name] || {};
             const value = values[name];
             const widget = _fieldWidget(name, spec, value, disabled);
-            const tooltip = spec.description
-                ? ` <span class="meta-tooltip" data-tooltip="${_esc(spec.description)}">&#9432;</span>` : "";
-            return `<div style="margin-bottom: 14px;">
-                <div class="font-medium" style="margin-bottom: 4px;">${_esc(spec.label || name)}${tooltip}</div>
+            const description = spec.description
+                ? `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 6px;">
+                    ${_esc(spec.description)}</div>` : "";
+            return `<div style="margin-bottom: 16px;">
+                <div class="font-medium" style="margin-bottom: 2px;">${_esc(spec.label || name)}</div>
+                ${description}
                 ${widget}
             </div>`;
         }).join("");
@@ -377,8 +381,17 @@
         return (spec.option_labels || {})[v] || v;
     }
 
-    function _radio(group, v, label, checked, disabled, muted) {
-        return `<label style="display: flex; align-items: center; gap: 5px;${muted
+    // A label's class attribute plus, when the codebook defines this answer
+    // (e.g. a content category), that definition as a hover tooltip.
+    function _definitionAttrs(spec, v, baseClass = "") {
+        const definition = (spec.value_descriptions || {})[v];
+        const classes = [baseClass, definition ? "meta-tooltip" : ""].filter(Boolean).join(" ");
+        return (classes ? ` class="${classes}"` : "")
+            + (definition ? ` data-tooltip="${_esc(definition)}"` : "");
+    }
+
+    function _radio(group, v, label, checked, disabled, muted, attrs = "") {
+        return `<label${attrs} style="display: flex; align-items: center; gap: 5px;${muted
             ? " color: var(--color-text-muted);" : ""}">
             <input type="radio" name="${_esc(group)}" value="${_esc(v)}" ${disabled}
                 ${checked ? "checked" : ""} onchange="hcMarkDirty()"> ${_esc(label)}
@@ -390,8 +403,8 @@
     function _radioWidget(name, spec, value, disabled, prefix) {
         const group = `${prefix}-radio-${name}`;
         const current = value == null ? "" : String(value);
-        const options = spec.values.map(v =>
-            _radio(group, v, _optionLabel(spec, v), current === String(v), disabled));
+        const options = spec.values.map(v => _radio(group, v, _optionLabel(spec, v),
+            current === String(v), disabled, false, _definitionAttrs(spec, v)));
         if (spec.cant_tell) {
             options.push(_radio(group, CANT_TELL, "Can't tell", current === CANT_TELL, disabled));
         }
@@ -485,7 +498,7 @@
         const selected = Array.isArray(value) ? value.map(String) : [];
         if (accepted && accepted.length) {
             // Closed list: one checkbox chip per accepted value.
-            const chips = accepted.map(v => `<label class="text-sm" style="display: inline-flex;
+            const chips = accepted.map(v => `<label${_definitionAttrs(spec, v, "text-sm")} style="display: inline-flex;
                     align-items: center; gap: 5px; border: 1px solid var(--color-border);
                     border-radius: 12px; padding: 2px 10px;">
                 <input type="checkbox" data-var="${_esc(name)}" value="${_esc(v)}" ${disabled}

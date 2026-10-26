@@ -108,12 +108,14 @@ name = "transcript"
 scale = "text"
 display_name = "Transcript"
 desc = "A verbatim transcript of the words spoken or sung in the video."
+description = "What is said or sung in the video, word for word."
 
 [[fields]]
 name = "spoken_language"
 scale = "categorical"
 display_name = "Spoken language"
 desc = "The primary language spoken or sung in the video — if several are used, give the one used most. Provide an English name (e.g. 'English', 'Mandarin', 'Arabic'). Use '-' if there is no spoken or sung language (music-only or silent)."
+description = "The main language spoken or sung in the video; when several are used, the one used most."
 
 [[fields]]
 name = "multilingual"
@@ -127,18 +129,21 @@ name = "objects"
 display_name = "Objects in video"
 array = true
 desc = "Notable objects visible in the video."
+description = "The things that stand out in the video, such as a car, a dog or a microphone."
 
 [[fields]]
 name = "symbols_and_brands"
 display_name = "Symbols and brands"
 array = true
 desc = "Visible symbols, flags, or brands."
+description = "Logos, brand names, flags and other symbols visible in the video."
 
 [[fields]]
 name = "text_overlays"
 display_name = "Text overlays"
 array = true
 desc = "On-screen text, transcribed via OCR."
+description = "Text added on screen, such as captions, titles and stickers."
 
 [[fields]]
 name = "faces"
@@ -146,21 +151,21 @@ type = "object"
 array = true
 desc = "Each distinct face that appears in the video, with its gender, apparent age in years, and apparent ethnicity."
 [fields.keys]
-gender = { spec = "enum:gender", role = "skip", display_name = "Perceived gender of observed faces", description = "How each face in the video appears to present their gender, judged from the video alone. A perceived label, not the people's gender identity." }
-age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", display_name = "Average apparent age of observed faces", description = "How old the faces in the video appear to be, in years, judged from the video alone and averaged over the faces." }
-ethnicity = { spec = "the apparent ethnicity", role = "skip", display_name = "Perceived ethnicity of observed faces", description = "The ethnicity each face in the video appears to have, judged from the video alone. A perceived label, not the people's ethnic or cultural identity." }
+gender = { spec = "enum:gender", role = "skip", display_name = "Perceived gender of observed faces", description = "The gender each visible face appears to present, as a viewer would perceive it. A perceived label, not the people's gender identity." }
+age_estimate = { spec = "int: the apparent age of the face, in years (a single best estimate)", display_name = "Average apparent age of observed faces", description = "How old the visible faces appear to be, in years, averaged over the faces. An estimate from appearance, not the people's actual ages." }
+ethnicity = { spec = "the apparent ethnicity", role = "skip", display_name = "Perceived ethnicity of observed faces", description = "The broad ethnic group each visible face appears to belong to, as a viewer would perceive it. A perceived label, not a statement about ancestry or identity." }
 
 [[fields]]
 name = "audio_summary"
 type = "object"
 desc = "The video's audio profile: how much of the audio is speech (as a percentage of speech vs music/other), the style/mood of any background music, and any notable sounds or sound effects."
 [fields.keys]
-speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", display_name = "Speech % (vs music)" }
+speech_vs_music = { spec = "int(0,100): the percentage of the audio that is spoken word (0 = all music/other, 100 = all speech)", display_name = "Speech % (vs music)", description = "The share of the audio that is speech rather than music or other sound." }
 # A free-text sub-key of a single object: its scale cannot be inferred, and it
 # must be "text" (Gemini returns one prose sentence — the list cleaner would
 # mangle it).
-background_music = { spec = "the style or mood of any background music", scale = "text", display_name = "Background music" }
-notable_sounds = { spec = "list: notable sounds or sound effects", display_name = "Notable sounds" }
+background_music = { spec = "the style or mood of any background music", scale = "text", display_name = "Background music", description = "The style or mood of any background music, such as upbeat pop or slow piano." }
+notable_sounds = { spec = "list: notable sounds or sound effects", display_name = "Notable sounds", description = "Distinct sounds in the video other than speech and music, such as laughter or a doorbell." }
 
 [[fields]]
 name = "main_activity"
@@ -168,12 +173,14 @@ role = "measure"
 scale = "categorical"
 display_name = "Main activity"
 desc = "The main activity, as a verb + object, e.g. 'dancing in a studio'."
+description = "What the main person is doing, in a few words as a verb and object, e.g. 'dancing in a studio'."
 
 [[fields]]
 name = "video_story"
 scale = "text"
 display_name = "Video story"
 desc = "A concise narrative summary of the entire video."
+description = "A short summary of what happens: two or three sentences, about 40 words, saying who appears, what they do and how it ends. Not a scene-by-scene account."
 
 [[fields]]
 name = "type_of_story"
@@ -181,6 +188,7 @@ role = "measure"
 display_name = "Type of story"
 enum = "type_of_story"
 desc = "The narrative type of the video."
+description = "The kind of story the video tells. Issue-based: about a public issue or debate. Event-based: about a specific happening, such as a news event or a match. Human-interest: centred on a person's own experience, feelings or everyday life. Descriptive: shows or explains something without a storyline, such as a product, place or performance."
 
 [[fields]]
 name = "content_category"
@@ -195,6 +203,7 @@ name = "primary_country"
 scale = "categorical"
 display_name = "Primary country"
 desc = "The country the video is primarily connected to — through the creator's origin (accent, language, location tags, or profile), the content's subject matter (events, places, landmarks, or social issues), or its intended audience (region-specific hashtags or localised references). Give the single most-connected country as an English name (e.g. 'Australia', 'United States', 'India'). Use '-' when there is no clear country connection (generic or globally-oriented content)."
+description = "The country the video is mainly connected to, through its creator, its subject or its intended audience."
 
 [[fields]]
 name = "tiktok_native"
@@ -236,7 +245,7 @@ role = "measure"
 display_name = "Perceived gender (main person)"
 enum = "gender"
 desc = "The gender of the main person featured in the video."
-description = "How the main person in the video appears to present their gender, judged from the video alone. A perceived label, not the person's gender identity."
+description = "The gender the main person in the video appears to present, as a viewer would perceive it from how they look and sound and how the video refers to them. It is a perceived label, used to study what kinds of people the feed shows; it says nothing about the person's own gender identity, which a video cannot reveal. The main person is the one the video centres on. 'Multiple' means the video centres on several people of different perceived genders."
 
 [[fields]]
 name = "main_ethnicity"
@@ -244,7 +253,7 @@ role = "measure"
 display_name = "Perceived ethnicity (main person)"
 enum = "ethnicity"
 desc = "The ethnicity of the main person featured in the video."
-description = "The ethnicity the main person in the video appears to have, judged from the video alone. A perceived label, not the person's ethnic or cultural identity."
+description = "The broad ethnic group the main person in the video appears to belong to, as a viewer would perceive it. It is a perceived label, used to study which groups are visible in the feed; it is not a statement about the person's ancestry, nationality or how they identify, and it is often uncertain. The categories are broad and do not cover every group. 'Multiple' means the video centres on several people of different perceived ethnicities."
 
 [[fields]]
 name = "political_score"
@@ -254,6 +263,7 @@ type = "int"
 min = 0
 max = 100
 desc = "How political the video is, from 0 (not at all) to 100 (entirely political)."
+description = "How political the video is, from not at all to entirely about politics, such as elections, government, policy, activism or social movements."
 
 [[fields]]
 name = "sensitivity_score"
@@ -263,9 +273,11 @@ type = "int"
 min = 0
 max = 100
 desc = "How sensitive the video's subject matter is, from 0 (not at all) to 100 (extremely sensitive)."
+description = "How sensitive the subject matter is, from everyday and harmless to very sensitive, such as violence, abuse, self-harm, illness, death, or sexual or hateful content."
 
 [[fields]]
 name = "call_to_action"
 scale = "text"
 display_name = "Call to action"
 desc = "The action the video encourages the viewer to take, or '-' if none."
+description = "What the video asks viewers to do, in a few words, e.g. 'follow for part 2'; none when it asks for nothing."

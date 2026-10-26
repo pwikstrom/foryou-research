@@ -416,9 +416,18 @@
             modal.style.display = "flex";
             return;
         }
-        // The coder form's own renderer (human_coding.js, loaded on the same
-        // page), so the preview cannot drift from what coders see.
-        body.innerHTML = vars.map(v => {
+        // The coder form's own renderer and How to code panel (human_coding.js
+        // and the My stuff template, on the same page), so the preview cannot
+        // drift from what coders see.
+        const guide = document.getElementById("hc-coding-guide");
+        let guideHtml = "";
+        if (guide) {
+            const copy = guide.cloneNode(true);
+            copy.removeAttribute("id");
+            copy.style.display = "";  // hidden in the coder view after a vote task
+            guideHtml = copy.outerHTML;
+        }
+        body.innerHTML = guideHtml + vars.map(v => {
             const widget = window.hcFieldWidget
                 ? window.hcFieldWidget(v.name, v, null, "disabled", "hev-pv")
                 : '<span class="text-xs" style="color: var(--color-text-muted);">(form unavailable)</span>';

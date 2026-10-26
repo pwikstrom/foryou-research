@@ -1024,3 +1024,19 @@ def test_readable_answer():
         == "No speech or singing",
     )
     _check("other answers untouched", human_eval._readable_answer("Female", spec) == "Female")
+
+
+def test_category_definitions_reach_the_coder():
+    print("codebook category definitions")
+    from fyp.annotation import annotation_contract as ac
+
+    described = human_eval._contract_enum_descriptions(ac.load_contract())
+    categories = described.get("content_category") or {}
+    _check(
+        "every content category carries its definition",
+        len(categories) == len(ac.enum_values(ac.load_contract(), "content_category"))
+        and all(categories.values()),
+        str(len(categories)),
+    )
+    _check("bare enums carry none", "main_gender" not in described)
+    _check("snapshotted with the task", "value_descriptions" in human_eval._OPTION_KEYS)

@@ -140,6 +140,24 @@ def test_metadata_identical_to_pre_migration():
         assert new[col].get("description")  # falls back to desc, never empty
 
 
+def test_display_descriptions_never_reach_the_model():
+    """A field's or sub-key's display-only ``description`` must not touch the
+    prompt or the schema — the annotation version would drift otherwise."""
+    import copy
+
+    contract = _baked_contract()
+    stripped = copy.deepcopy(contract)
+    n_stripped = 0
+    for field in stripped["fields"]:
+        n_stripped += field.pop("description", None) is not None
+        for spec in (field.get("keys") or {}).values():
+            if isinstance(spec, dict):
+                n_stripped += spec.pop("description", None) is not None
+    assert n_stripped, "the baked contract should carry display-only descriptions"
+    assert sch.build_prompt(stripped) == sch.build_prompt(contract)
+    assert sch.get_annotation_json_schema(stripped) == sch.get_annotation_json_schema(contract)
+
+
 def test_validation_free_text_needs_scale():
     contract = _baked_contract()
     contract["fields"].append({"name": "new_free_text", "desc": "test"})

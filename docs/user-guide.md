@@ -404,7 +404,10 @@ fill in the variables blind — no machine answers shown. Questions about people
 ask how they *appear* in the video, never who they are, and every category
 question offers **Can't tell** (unless the codebook has its own, such as
 "Unclear") and **Skip (not coded)**; where the codebook defines one there is
-also a "doesn't apply" choice, such as "No person in the video". In a **preference
+also a "doesn't apply" choice, such as "No person in the video". A **How to
+code** panel above the questions sums up these conventions, each question shows
+what the variable means, and hovering a content category shows its definition.
+In a **preference
 vote** task you compare anonymous annotation options per video and pick the
 best (or a tie). Work saves automatically; submit when done.
 

@@ -131,14 +131,14 @@ def _check_task_type(task_type: str) -> None:
         raise ValueError(f"unknown task type: {task_type!r}")
 
 
-def _contract_enum_values(contract: dict) -> dict[str, list[str]]:
-    """Return ``{output_column: [values]}`` for every enum-backed contract field.
+def _contract_enum_columns(contract: dict) -> dict[str, str]:
+    """Return ``{output_column: enum_name}`` for every enum-backed contract field.
 
     Covers scalar fields (``enum = "name"``) and object sub-keys whose ``spec``
     references an enum (``spec = "enum:name"``), keyed on the final post-recode
     column name.
     """
-    out: dict[str, list[str]] = {}
+    out: dict[str, str] = {}
     enums = contract.get("enums", {}) or {}
     for field in contract.get("fields", []):
         name = field.get("name")
@@ -149,11 +149,31 @@ def _contract_enum_values(contract: dict) -> dict[str, list[str]]:
                 spec_str = spec.get("spec", "") if isinstance(spec, dict) else ""
                 match = _ENUM_SPEC_RE.search(str(spec_str))
                 if match and match.group(1) in enums:
-                    out[ac.contract_output_column(name, key)] = ac.enum_values(
-                        contract, match.group(1)
-                    )
+                    out[ac.contract_output_column(name, key)] = match.group(1)
         elif field.get("enum") and field["enum"] in enums:
-            out[ac.contract_output_column(name)] = ac.enum_values(contract, field["enum"])
+            out[ac.contract_output_column(name)] = field["enum"]
+    return out
+
+
+def _contract_enum_values(contract: dict) -> dict[str, list[str]]:
+    """Return ``{output_column: [values]}`` for every enum-backed contract field."""
+    return {
+        col: ac.enum_values(contract, enum)
+        for col, enum in _contract_enum_columns(contract).items()
+    }
+
+
+def _contract_enum_descriptions(contract: dict) -> dict[str, dict[str, str]]:
+    """Return ``{output_column: {value: definition}}`` for described enums.
+
+    The per-value definitions the model is shown (e.g. each content category),
+    so coders can read the same definitions.
+    """
+    out = {}
+    for col, enum in _contract_enum_columns(contract).items():
+        described = ac.enum_descriptions(contract, enum)
+        if described:
+            out[col] = dict(described)
     return out
 
 
@@ -172,8 +192,8 @@ def available_variables(run_id: str) -> list[dict]:
         run_id: the finished run's id.
 
     Returns:
-        ``[{name, kind, label, description, values, open, cant_tell,
-        option_labels, dash_label, range}]`` sorted by label.
+        ``[{name, kind, label, description, values, value_descriptions, open,
+        cant_tell, option_labels, dash_label, range}]`` sorted by label.
     """
     run = ab.load_run(run_id)
     report = run.get("report") or {}
@@ -188,6 +208,7 @@ def available_variables(run_id: str) -> list[dict]:
     # simply misses these and falls back to observed values / its raw name.
     contract = ac.load_contract()
     enum_map = _contract_enum_values(contract) if contract else {}
+    enum_descriptions = _contract_enum_descriptions(contract) if contract else {}
     col_meta = ac.contract_column_metadata(contract) if contract else {}
     ranges = ac.contract_numeric_ranges(contract) if contract else {}
     vs = _cf().get("var_schema")
@@ -216,6 +237,7 @@ def available_variables(run_id: str) -> list[dict]:
                 "label": str(label) if pd.notna(label) else col,
                 "description": str(description) if pd.notna(description) else "",
                 "values": values,
+                "value_descriptions": enum_descriptions.get(col) or {},
                 **_coding_options(col, kind, values, ranges.get(col)),
             }
         )
@@ -223,7 +245,14 @@ def available_variables(run_id: str) -> list[dict]:
 
 
 # Field-spec keys describing what the coder form offers (snapshotted per task).
-_OPTION_KEYS = ("open", "cant_tell", "option_labels", "dash_label", "range")
+_OPTION_KEYS = (
+    "open",
+    "cant_tell",
+    "option_labels",
+    "dash_label",
+    "range",
+    "value_descriptions",
+)
 
 
 def _coding_options(name: str, kind: str, values: list | None, value_range) -> dict:

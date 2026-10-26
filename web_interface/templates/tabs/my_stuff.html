@@ -121,6 +121,25 @@
                         <div id="hc-video-note" class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;"></div>
                     </div>
                     <div style="flex: 1 1 380px; min-width: 320px;">
+                        <!-- Coding tasks only (hidden for votes by human_coding.js);
+                             static, so a collapse sticks across videos. The admin
+                             task preview copies it. -->
+                        <details id="hc-coding-guide" open class="text-xs" style="margin: 0 0 12px 0;
+                                padding: 8px 12px; border: 1px solid var(--color-border);
+                                border-radius: 6px; background: var(--color-bg-elevated);">
+                            <summary class="font-semibold" style="cursor: pointer;">How to code</summary>
+                            <p style="margin: 6px 0;">Answer from what the video shows, as a viewer would
+                                perceive it. Questions about people ask how they appear, never who they are.
+                                Choose &ldquo;Can't tell&rdquo; whenever the video doesn't give you enough to
+                                decide; it is a valid answer and better than a guess. Use &ldquo;Skip (not
+                                coded)&rdquo; only for a question you did not answer, and add a note when no
+                                option fits.</p>
+                            <p style="margin: 6px 0 0 0;">For lists, put one item per line and leave the box
+                                empty when there is nothing. For short text answers, write &ldquo;none&rdquo;
+                                when there is nothing to describe. Write languages and countries as full
+                                English names (&ldquo;United States&rdquo;, not &ldquo;USA&rdquo;). Numbers are
+                                rough estimates on the scale shown.</p>
+                        </details>
                         <div id="hc-form" class="text-sm"></div>
                         <div id="hc-vote-form" class="text-sm" style="display: none;"></div>
                         <div style="margin-top: 14px;">
