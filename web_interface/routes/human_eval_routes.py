@@ -251,6 +251,11 @@ def get_human_eval_task(run_id, task_type):
                 "task": task,
                 "coder_status": human_eval.coder_status(run_id, task_type, task=task),
                 "results": human_eval.load_results(run_id, task_type),
+                # A coding task's answers scored against other runs of the
+                # same videos, keyed by run id (empty until that is done).
+                "other_runs": (
+                    human_eval.load_cross_run_results(run_id) if task_type == "coding" else {}
+                ),
             }
         )
     except ValueError as e:
@@ -356,6 +361,31 @@ def recompute_human_eval_results(run_id, task_type):
         return jsonify({"results": results})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@human_eval_bp.route(
+    "/api/manage/human-eval/tasks/<run_id>/coding/score-against/<other_run_id>", methods=["POST"]
+)
+@permission_required("tab.admin.human_eval")
+def score_human_eval_against_run(run_id, other_run_id):
+    """Score a coding task's submitted answers against another finished run.
+
+    The other run must have annotated every video the coders answered (the
+    same videos under another annotation version). Returns Krippendorff's
+    alpha per variable for the coders alone and with each contract of the
+    other run added, and stores it with the task's results.
+    """
+    try:
+        result = human_eval.score_against_run(run_id, other_run_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="human_eval.score_against_run",
+        details={"run_id": run_id, "other_run_id": other_run_id},
+    )
+    return jsonify({"result": result})
 
 
 @human_eval_bp.route("/api/manage/human-eval/tasks/<run_id>/<task_type>/export", methods=["GET"])

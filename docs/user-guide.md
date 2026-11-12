@@ -711,7 +711,11 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   exclusion rule, and press **Start**, which freezes the answers, plans who
   sees what and sends the invitations. Results appear in the run's report;
   **Download CSV** gives every rating with the answer's true source. The
-  coders and raters work under My stuff → My Tasks.
+  coders and raters work under My stuff → My Tasks. Submitted codings can
+  also be scored against a later run of the same videos, so that people code
+  once and every new annotation version is checked against them; this has no
+  button yet (see "Versions on test runs and human validation" in
+  [contracts.md](contracts.md)).
 
 **Data & Variables**
 

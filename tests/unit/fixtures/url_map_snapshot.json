@@ -723,6 +723,13 @@
   ]
  ],
  [
+  "/api/manage/human-eval/tasks/<run_id>/coding/score-against/<other_run_id>",
+  "human_eval.score_human_eval_against_run",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/human-eval/tasks/<run_id>/rating/model-answers",
   "human_eval.rating_model_answers",
   [

@@ -126,6 +126,11 @@ def _results_filename(task_type: str) -> str:
     return f"results_{task_type}.json"
 
 
+# A coding task's answers scored against OTHER runs of the same videos (see
+# :func:`score_against_run`): one file per task, keyed by the other run's id.
+_CROSS_RESULTS_FILENAME = "results_coding_other_runs.json"
+
+
 def _check_task_type(task_type: str) -> None:
     """Raise ``ValueError`` on an unknown task type."""
     if task_type not in TASK_TYPES:
@@ -465,6 +470,8 @@ def delete_task(run_id: str, task_type: str) -> bool:
     ab.ensure_locations()
     task = load_task(run_id, task_type)
     filenames = [_task_filename(task_type), _results_filename(task_type)]
+    if task_type == "coding":
+        filenames.append(_CROSS_RESULTS_FILENAME)
     filenames += [
         _coder_filename(task_type, username) for username in (task or {}).get("coders", {})
     ]
@@ -1337,6 +1344,129 @@ def _submitted_coder_frames(run_id: str, task: dict) -> dict[str, pd.DataFrame]:
         if state.get("status") == "submitted" and state.get("responses"):
             frames[username] = _database_frame(task, state)
     return frames
+
+
+def score_against_run(task_run_id: str, other_run_id: str) -> dict:
+    """Score a coding task's stored answers against another run of the same videos.
+
+    Human coding is done once, on one run. When the contract, the model or a
+    setting changes, a new test run annotates the same videos under the new
+    annotation version, and this function says how well the new version agrees
+    with the people who already coded them: Krippendorff's alpha per variable
+    for the coders alone, and with each contract of the other run added as one
+    more coder. It is the calculation the task's own results use
+    (:func:`_alpha_results`): coder answers pass through the production recode
+    (:func:`_database_frame`) and are compared with the other run's answers in
+    the database's categories, on the task's snapshotted variable kinds.
+
+    Nothing is collected and nothing reaches the coders: the function reads
+    the submitted codings and the other run's stored answers, and writes its
+    result next to the task's results, which only admin endpoints serve.
+
+    Args:
+        task_run_id: the run whose coding task holds the human answers.
+        other_run_id: a finished run whose videos include every coded video.
+
+    Returns:
+        ``{computed_at, task_run_id, run_id, run_name, coders, variables,
+        n_items, arms, arm_versions, task_arm_versions, alpha,
+        missing_variables}``. ``alpha`` has the shape of the task results'
+        ``alpha`` block; a contract that does not produce a variable has
+        ``None`` there and is listed under ``missing_variables``.
+
+    Raises:
+        ValueError: no coding task, no submitted codings, the other run is
+            missing or unfinished, or it lacks some of the coded videos.
+    """
+    task = load_task(task_run_id, "coding")
+    if task is None:
+        raise ValueError(f"run {task_run_id} has no coding task")
+    if str(other_run_id) == str(task_run_id):
+        raise ValueError("pick a different run: the task's own run is scored in its results")
+    other_manifest = ab.load_run(other_run_id).get("manifest") or {}
+    if not other_manifest:
+        raise ValueError(f"run {other_run_id} not found")
+    if other_manifest.get("status") != "complete":
+        raise ValueError(f"run {other_run_id} is not complete")
+    coded = [str(i) for i in task.get("item_ids", [])]
+    available = {str(i) for i in other_manifest.get("item_ids", [])}
+    absent = [i for i in coded if i not in available]
+    if absent:
+        raise ValueError(
+            f"run {other_run_id} lacks {len(absent)} of the {len(coded)} coded videos "
+            "— it must have annotated every video the coders answered"
+        )
+
+    coder_frames = _submitted_coder_frames(task_run_id, task)
+    if not coder_frames:
+        raise ValueError(f"run {task_run_id}: no coder has submitted yet")
+
+    variables = task.get("variables", [])
+    arm_names = [a.get("name") for a in other_manifest.get("arms", []) if a.get("name")]
+    arm_frames: dict[str, pd.DataFrame] = {}
+    missing: dict[str, list[str]] = {}
+    for arm in arm_names:
+        frame = _arm_frame(other_run_id, arm, [*variables, "annotated_ok"])
+        if frame is None:
+            continue
+        arm_frames[arm] = frame
+        lacking = [v for v in variables if v not in frame.columns]
+        if lacking:
+            missing[arm] = lacking
+
+    alpha = _alpha_results(task, coder_frames, arm_frames)
+    # A contract that never answers a variable is not a coder of it: without
+    # this its "with the contract" figure would silently repeat the coders'.
+    for arm, lacking in missing.items():
+        for variable in lacking:
+            entry = alpha.get(variable)
+            if entry is None:
+                continue
+            entry["with_arm"][arm] = None
+            if "with_arm_check" in entry:
+                entry["with_arm_check"][arm] = None
+                entry["no_answer_share"]["arms"][arm] = None
+
+    task_manifest = ab.load_run(task_run_id).get("manifest") or {}
+    result = {
+        "computed_at": _now_iso(),
+        "task_run_id": task_run_id,
+        "run_id": other_run_id,
+        "run_name": other_manifest.get("name") or "",
+        "coders": sorted(coder_frames),
+        "variables": variables,
+        "n_items": len(coded),
+        "arms": sorted(arm_frames),
+        # Which annotation version each contract ran under, on both runs, so
+        # the figures are tied to versions and not only to runs.
+        "arm_versions": {a: ab.arm_versions(other_manifest).get(a) for a in sorted(arm_frames)},
+        "task_arm_versions": ab.arm_versions(task_manifest),
+        "alpha": alpha,
+        "missing_variables": missing,
+    }
+    with _INDEX_LOCK:
+        stored = load_cross_run_results(task_run_id)
+        stored[str(other_run_id)] = result
+        data_io.save_json(
+            data=stored,
+            storage_location=ab.LOCATION,
+            filename=_human_file(task_run_id, _CROSS_RESULTS_FILENAME),
+        )
+    return result
+
+
+def load_cross_run_results(task_run_id: str) -> dict:
+    """Stored :func:`score_against_run` results of a coding task, by other run id."""
+    ab.ensure_locations()
+    filename = _human_file(task_run_id, _CROSS_RESULTS_FILENAME)
+    try:
+        if data_io.exists(storage_location=ab.LOCATION, filename=filename):
+            stored = data_io.load_json(storage_location=ab.LOCATION, filename=filename)
+            if isinstance(stored, dict):
+                return stored
+    except Exception:
+        pass
+    return {}
 
 
 def _compute_vote_results(run_id: str, task: dict) -> dict:

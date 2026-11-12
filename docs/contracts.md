@@ -263,6 +263,17 @@ coding results, vote tasks and rating tasks name the version of each
 contract they concern. A coding task's own definition holds nothing about
 the run's contracts, and coders are sent none of it.
 
+Human codings are made once and can score later versions. Annotate the same
+test set again under a new version, then score the stored codings against
+that run: `human_eval.score_against_run(task_run_id, other_run_id)`, or
+`POST /api/manage/human-eval/tasks/<run_id>/coding/score-against/<other_run_id>`.
+It returns Krippendorff's alpha per variable for the coders alone and with
+each contract of the other run added as one more coder, calculated exactly
+as in the task's own results, and names the annotation version of every
+contract on both runs. The other run must be finished and must contain
+every coded video. A contract that does not produce one of the coded
+variables gets no figure for it.
+
 A test set holds at most `[machine] test_set_max_items` videos (default 50;
 see [configuration.md](configuration.md)).
 

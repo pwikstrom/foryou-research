@@ -37,6 +37,17 @@ public version. Entries below describe the Hub as it stands at that release.
   an annotation version, not only to a run; coding results and rating tasks
   name the version too, and the run report shows it on each contract's card.
   Runs made earlier load as before and show no version.
+- **Stored human codings can be scored against another run of the same
+  videos.** Coders code a run's videos once. When the contract, the model or
+  a setting changes, annotate the same test set again in a new run and score
+  the stored codings against it: Krippendorff's alpha per variable for the
+  coders alone and with each contract of the new run added, calculated as in
+  the task's own results (the coders' answers pass through the same recode
+  first). The other run must be finished and must hold every coded video.
+  `POST /api/manage/human-eval/tasks/<run_id>/coding/score-against/<other_run_id>`
+  (admins; `human_eval.score_against_run`); the result is stored with the
+  task and names the annotation versions on both sides. There is no button
+  for it yet. Coders are shown nothing from either run.
 - **The test-set limit is a setting.** A test set held at most 50 videos.
   The limit is now `[machine] test_set_max_items` in `config/config.toml`
   (default 50), so a human-coded reference set of a few hundred videos is
