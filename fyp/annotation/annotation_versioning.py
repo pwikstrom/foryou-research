@@ -312,6 +312,75 @@ def active_version_descriptor(fresh: bool = False) -> dict:
     return descriptor
 
 
+def contract_version_descriptor(
+    contract: dict, selection: str | None = None, gen_overrides: dict | None = None
+) -> tuple[dict, str, str]:
+    """Build the version descriptor ``contract`` would be stamped with.
+
+    Mirrors :func:`active_version_descriptor`'s branching — including the
+    byte-identical legacy path for plain ``gemini`` — for a contract that is
+    not (or not yet) the live one, so the predicted ``av_`` matches what
+    annotating under ``selection`` would actually stamp. Used for a candidate
+    contract's version preview and to record the version of each contract in a
+    test run.
+
+    Args:
+        contract: The parsed contract dict.
+        selection: Backend selection (an implementation id or a variant name)
+            to build against; default the active one. An unimportable
+            selection falls back to gemini.
+        gen_overrides: Per-run overrides of the selection's generation settings
+            (a test run's ``model`` / ``temperature`` ...). They enter the
+            identity exactly as a config variant carrying the same keys would;
+            ``None`` values are ignored.
+
+    Returns:
+        ``(descriptor, selection, model)``.
+    """
+    from fyp.annotation import annotation_schema as sch
+    from fyp.annotation.backends import active_backend_name, get_backend
+
+    selection = selection or active_backend_name()
+    overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
+    backend = None
+    if selection != "gemini":
+        try:
+            backend = get_backend(selection)
+        except Exception:
+            # Unimportable backend (e.g. local-only deps missing) — the same
+            # fallback active_version_descriptor uses.
+            backend, selection = None, "gemini"
+    if backend is not None and overrides:
+        # The backend as it would report itself with these settings pinned.
+        backend = type(backend)(
+            overrides={**backend.overrides, **overrides}, selection=backend.selection
+        )
+
+    prompt_text = sch.build_prompt(contract)
+    schema_json = sch.get_annotation_json_schema(contract)
+    if backend is None:
+        machine = {**_cf()["machine"]["gemini"], **overrides}
+        model = machine.get("model")
+        descriptor = build_version_descriptor(
+            model=model,
+            prompt_text=prompt_text,
+            schema_json=schema_json,
+            gen_params={key: machine.get(key) for key in _VERSION_GEN_PARAM_KEYS},
+        )
+    else:
+        model = backend.effective_model_id()
+        descriptor = build_version_descriptor(
+            model=model,
+            prompt_text=prompt_text + backend.prompt_suffix(schema_json),
+            schema_json=schema_json,
+            gen_params=backend.version_gen_params(),
+            extra_params=backend.version_extra_params(),
+            backend=backend.name,
+            variant=selection if selection != backend.name else None,
+        )
+    return descriptor, selection, model
+
+
 def active_annotation_version(fresh: bool = False) -> str:
     """Return just the active ``annotation_version`` id, never raising.
 

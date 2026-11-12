@@ -29,6 +29,21 @@ public version. Entries below describe the Hub as it stands at that release.
   agreement (ordinal alpha and percent agreement), contract minus human per
   video, trap catches and the exclusion rule; the CSV has every rating.
 - **Coding tasks can cover a random sample of the run's videos.**
+- **A test run records the annotation version of every contract it tested.**
+  Each contract in a run's record now carries the `av_` identifier it
+  annotated under: the one a production annotation would be stamped with for
+  that contract, AI model and settings. The contract's text is kept in the
+  run's folder as well. Human coding and rating on a run are thereby tied to
+  an annotation version, not only to a run; coding results and rating tasks
+  name the version too, and the run report shows it on each contract's card.
+  Runs made earlier load as before and show no version.
+- **The test-set limit is a setting.** A test set held at most 50 videos.
+  The limit is now `[machine] test_set_max_items` in `config/config.toml`
+  (default 50), so a human-coded reference set of a few hundred videos is
+  possible. A long test run no longer has to fit in one background task: it
+  saves each contract's answers every eight videos and, after 15 minutes,
+  continues in a new task from where it stopped, with the contracts it
+  started with. A small run still finishes in one task.
 
 ### Changed
 
@@ -86,6 +101,15 @@ public version. Entries below describe the Hub as it stands at that release.
   cached dataset is refreshed after it. Some videos will change which
   annotation they show, and results that include them can move.** The videos
   affected are reported as changed, so downstream refreshes cover them.
+- **Test runs get the 30-minute task deadline.** They used the queue's
+  default of ten minutes, which a run of 50 videos under several contracts
+  can exceed; the queue delivers a task again when it has not answered by
+  its deadline. Each task of a run now stops well inside the 30 minutes (see
+  the test-set limit above).
+- **The version preview for a candidate contract under hosted Qwen used the
+  active contract's answer format.** Hosted Qwen writes the answer format
+  into its instructions, so a candidate that changes the format gets its own
+  instruction text. The predicted `av_` now reflects that.
 - **Reliability Control can set up human coding on a single-contract test
   run.** The variable list was read off the run's contract-against-contract
   comparisons, and a run with one contract has none, so the list stayed empty

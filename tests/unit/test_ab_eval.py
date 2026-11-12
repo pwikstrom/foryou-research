@@ -172,7 +172,7 @@ def test_eval_set_cap_and_dedupe():
         dedupe_ok = stored["item_ids"] == ["1", "2", "3"]
         cap_ok = False
         try:
-            ab_eval.save_eval_set([str(i) for i in range(ab_eval.MAX_EVAL_ITEMS + 1)])
+            ab_eval.save_eval_set([str(i) for i in range(ab_eval.max_eval_items() + 1)])
         except ValueError:
             cap_ok = True
         _check("test_eval_set_cap_and_dedupe", dedupe_ok and cap_ok)
@@ -777,7 +777,7 @@ def test_execute_run_cap():
         ab_eval.execute_run(
             "capcheck",
             [{"name": "x", "source": "live", "text": ac._read_baked_text()}],
-            [str(i) for i in range(ab_eval.MAX_EVAL_ITEMS + 1)],
+            [str(i) for i in range(ab_eval.max_eval_items() + 1)],
         )
     except ValueError as e:
         ok = "cap" in str(e)
@@ -885,7 +885,7 @@ def test_api_smoke():
                 and b7.get("n_arms") == 2
                 and b7.get("n_calls") == 4
                 and b7.get("eval_set") == set_snap["name"]
-                and b7.get("max_items") == ab_eval.MAX_EVAL_ITEMS
+                and b7.get("max_items") == ab_eval.max_eval_items()
                 and r8.status_code == 200
                 and s1.status_code == 200
                 and "active" in (s1.get_json() or {})

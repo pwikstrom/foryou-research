@@ -339,7 +339,7 @@ def activate_ab_eval_set(name):
         {
             **stored,
             "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
-            "max_items": ab_eval.MAX_EVAL_ITEMS,
+            "max_items": ab_eval.max_eval_items(),
         }
     )
 
@@ -376,7 +376,7 @@ def get_ab_eval_set():
         {
             **stored,
             "resolved": ab_eval.resolve_items(stored.get("item_ids", [])),
-            "max_items": ab_eval.MAX_EVAL_ITEMS,
+            "max_items": ab_eval.max_eval_items(),
         }
     )
 
@@ -458,7 +458,7 @@ def estimate_ab_eval():
             "n_arms": n_arms,
             "n_calls": n_items * n_arms,
             "eval_set": stored.get("name"),
-            "max_items": ab_eval.MAX_EVAL_ITEMS,
+            "max_items": ab_eval.max_eval_items(),
         }
     )
 

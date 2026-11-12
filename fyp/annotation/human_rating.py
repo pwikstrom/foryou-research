@@ -382,6 +382,8 @@ def create_task(
             "created_at": now,
             "created_by": created_by,
             "arm": arm,
+            # The annotation version of the contract whose answers are rated.
+            "arm_version": ab.arm_versions(manifest).get(arm),
             "coders_included": coders_included,
             "practice_item_ids": ordered_practice,
             "rated_item_ids": ordered_rated,

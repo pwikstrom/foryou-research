@@ -86,11 +86,17 @@ class AnnotationBackend(ABC):
             The availability result.
         """
 
-    def prompt_suffix(self) -> str:
+    def prompt_suffix(self, schema_json: dict | None = None) -> str:
         """Backend-owned addendum appended to the generated contract prompt.
 
         A non-empty suffix changes the prompt hash and therefore (correctly)
         forks a new annotation version.
+
+        Args:
+            schema_json: The response schema the prompt is for, when it is not
+                the active contract's (a candidate contract's predicted
+                version). Only a backend whose suffix depends on the schema
+                reads it; None means the active contract's schema.
 
         Returns:
             The suffix text, or an empty string.

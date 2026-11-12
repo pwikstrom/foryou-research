@@ -724,6 +724,18 @@ from both arms of a pair are excluded. Enabling the local and hosted
 backends: [installation.md](installation.md#enabling-local-qwen-annotation);
 authoring a new one: [extending.md](extending.md).
 
+A run's `manifest.json` records, per arm, the annotation version it ran
+under (`annotation_version`, with its descriptor) and the run folder keeps
+each arm's contract text (`contract_<arm>.toml`); see
+[contracts.md](contracts.md#the-runtime-annotation-contract). The test set
+is limited to `[machine] test_set_max_items` videos (default 50). The worker
+(`run_ab_eval.py`) self-chains: `execute_run` saves each arm's raw answers
+every `CHUNK_ITEMS` (8) videos, and after `LINK_BUDGET_SECONDS` (900) the
+worker returns a chain to itself. The next link rebuilds the arms from the
+run folder (`ab_eval.stored_arms`), annotates only the videos without a
+saved answer, and the last link writes the report. The task has the 1800 s
+dispatch deadline.
+
 ### The Gemini batch-API lane
 
 The Gemini *batch-API* lane (`run_queue_annotator_batch.py`) stages its

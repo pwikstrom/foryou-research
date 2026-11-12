@@ -58,8 +58,14 @@ EVAL_SET_FILENAME = "ab_eval_set.json"  # legacy single-set file (migrated in)
 EVAL_SETS_FILENAME = "ab_eval_sets.json"  # named sets + active pointer
 RUNS_INDEX_FILENAME = "runs_index.json"
 
-MAX_EVAL_ITEMS = 50  # hard cost cap (endpoints + worker)
+# The most videos one test set (and so one test run) may hold. A cost guard:
+# every video is annotated once per contract in the run. The limit is a
+# setting, ``[machine] test_set_max_items``; this is its default.
+DEFAULT_MAX_EVAL_ITEMS = 50
 MAX_WORKERS = 4
+# Videos annotated between two checkpoints of a run: after each chunk the raw
+# answers are saved, and the run can be cancelled or handed to its next task.
+CHUNK_ITEMS = 8
 ADJUDICATION_CAP = 3000
 
 CANDIDATE_NAME_RE = re.compile(r"^[a-z0-9_\-]{1,40}$")
@@ -107,6 +113,20 @@ _MIN_CORR_N = 3
 
 class RunCancelled(Exception):
     """Raised inside :func:`execute_run` when the reporter requests cancel."""
+
+
+def max_eval_items() -> int:
+    """The most videos a test set may hold (``[machine] test_set_max_items``).
+
+    Read at call time so the endpoints, the worker and the sampler all apply
+    the same limit. A missing or unusable value falls back to
+    ``DEFAULT_MAX_EVAL_ITEMS``.
+    """
+    try:
+        value = int((_cf().get("machine") or {}).get("test_set_max_items"))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_EVAL_ITEMS
+    return value if value >= 1 else DEFAULT_MAX_EVAL_ITEMS
 
 
 def ensure_locations() -> None:
@@ -352,11 +372,11 @@ def save_eval_set(
             exist yet is created.
 
     Raises:
-        ValueError: on an illegal name, or more than ``MAX_EVAL_ITEMS`` ids.
+        ValueError: on an illegal name, or more than :func:`max_eval_items` ids.
     """
     ids = list(dict.fromkeys(str(i).strip() for i in item_ids if str(i).strip()))
-    if len(ids) > MAX_EVAL_ITEMS:
-        raise ValueError(f"eval set is capped at {MAX_EVAL_ITEMS} items (got {len(ids)})")
+    if len(ids) > max_eval_items():
+        raise ValueError(f"eval set is capped at {max_eval_items()} items (got {len(ids)})")
     store = _load_sets_store()
     key = name or store["active"]
     if not validate_eval_set_name(key):
@@ -489,7 +509,8 @@ def resolve_items(item_ids: list[str]) -> list[dict]:
     """Resolve each id to ``{item_id, platform, downloaded}`` for the UI.
 
     Vectorised: filters the status frame down to the requested ids before any
-    per-row work (the frame has millions of rows; the eval set has ≤50). Ids
+    per-row work (the frame has millions of rows; the eval set a few hundred
+    at most). Ids
     absent from ``enrichment_status.parquet`` get ``platform=None`` /
     ``downloaded=None`` (unknown — likely a typo, or an item not yet ingested).
     """
@@ -517,7 +538,7 @@ def sample_items(n: int, platforms: list[str] | None = None, seed: int | None = 
     Returns the ids without persisting anything — the UI merges/edits and then
     saves the set explicitly.
     """
-    n = max(1, min(int(n), MAX_EVAL_ITEMS))
+    n = max(1, min(int(n), max_eval_items()))
     status = _enrichment_status_frame()
     if status is None or status.empty:
         return []
@@ -935,7 +956,16 @@ def run_arm(
     response_schema = sch.build_response_schema(contract)
     runner = runner or SyncThreadedRunner()
     raw_rows = runner.run(prompt_text, response_schema, item_ids, platform_map, progress_cb)
+    return flatten_raw_rows(raw_rows, contract), raw_rows
 
+
+def flatten_raw_rows(raw_rows: list[dict], contract: dict) -> list[dict]:
+    """Flatten an arm's raw rows into one record per video, against its contract.
+
+    A row whose answer did not parse yields a record with only its ``item_id``.
+    Works on rows read back from a run's ``raw_<arm>.json`` just as on fresh
+    ones, which is what lets a run be finished by a later task.
+    """
     flat_rows: list[dict] = []
     for raw in raw_rows:
         flat = {"item_id": str(raw.get("item_id"))}
@@ -943,7 +973,7 @@ def run_arm(
         if isinstance(parsed, dict):
             flat.update(sch.flatten_structured(parsed, contract))
         flat_rows.append(flat)
-    return flat_rows, raw_rows
+    return flat_rows
 
 
 # ---------------------------------------------------------------------------
@@ -1507,6 +1537,7 @@ def delete_run(run_id: str) -> bool:
     arm_names = [a.get("name") for a in (manifest or {}).get("arms", []) if a.get("name")]
     filenames = ["manifest.json", "report.json"]
     filenames += [f"raw_{a}.json" for a in arm_names] + [f"arm_{a}.parquet" for a in arm_names]
+    filenames += [_arm_contract_file(a) for a in arm_names]
     removed = False
     for name in filenames:
         fn = _run_file(run_id, name)
@@ -1588,6 +1619,125 @@ def _arm_cost(raw_rows: list[dict], price: dict | None = None) -> dict:
     }
 
 
+def _arm_contract_file(arm_name: str) -> str:
+    """The run-folder filename holding one arm's contract text."""
+    return f"contract_{arm_name}.toml"
+
+
+def arm_version(contract: dict, backend: str | None, gen_overrides: dict | None) -> dict | None:
+    """The annotation version one arm of a test run annotates under.
+
+    The descriptor a production annotation would be stamped with if this
+    contract were the live one, run on this arm's backend with this arm's
+    overrides (see ``annotation_versioning.contract_version_descriptor``). It
+    is recorded on the run so that human codings and ratings of the run are
+    tied to a version, not only to a run.
+
+    Returns:
+        The descriptor (``annotation_version``, model, prompt and schema
+        hashes, generation settings), or ``None`` when it cannot be built; a
+        run is never blocked by its own bookkeeping.
+    """
+    from fyp.annotation import annotation_versioning
+
+    try:
+        descriptor, _, _ = annotation_versioning.contract_version_descriptor(
+            contract, backend or "gemini", gen_overrides
+        )
+        return descriptor
+    except Exception:
+        return None
+
+
+def load_arm_contract_text(run_id: str, arm: str) -> str | None:
+    """Return the contract text one arm of a run was annotated with.
+
+    ``None`` for a run made before test runs stored their contracts, or for an
+    unknown arm.
+    """
+    ensure_locations()
+    filename = _run_file(run_id, _arm_contract_file(arm))
+    try:
+        if data_io.exists(storage_location=LOCATION, filename=filename):
+            return data_io.load_text(storage_location=LOCATION, filename=filename)
+    except Exception:
+        pass
+    return None
+
+
+def arm_versions(manifest: dict | None) -> dict[str, str | None]:
+    """``{arm name: annotation version}`` for a run's manifest.
+
+    ``None`` for an arm of a run made before test runs recorded the version.
+    """
+    return {
+        arm["name"]: arm.get("annotation_version")
+        for arm in (manifest or {}).get("arms", [])
+        if arm.get("name")
+    }
+
+
+def stored_arms(run_id: str) -> tuple[dict, list[dict]]:
+    """Rebuild a started run's arms from its own folder, to continue it.
+
+    A run that continues in a later task must annotate the rest of its videos
+    with exactly the contracts it started with, whatever has been edited
+    since, so the arms come from the manifest and the stored contract texts
+    and not from the candidates or the live contract.
+
+    Returns:
+        ``(manifest, arms)`` with ``arms`` in the shape :func:`execute_run` takes.
+
+    Raises:
+        ValueError: when the run or one of its contract texts is missing.
+    """
+    manifest = load_run(run_id).get("manifest")
+    if not manifest:
+        raise ValueError(f"run {run_id} not found")
+    arms = []
+    for arm in manifest.get("arms", []):
+        text = load_arm_contract_text(run_id, arm["name"])
+        if text is None:
+            raise ValueError(f"run {run_id}: no stored contract for '{arm['name']}'")
+        arms.append(
+            {
+                "name": arm["name"],
+                "source": arm.get("source", "candidate"),
+                "candidate": arm.get("candidate") or "",
+                "text": text,
+                "backend": arm.get("backend") or "gemini",
+                "gen_params": arm.get("gen_overrides") or {},
+            }
+        )
+    return manifest, arms
+
+
+def _load_raw_rows(run_id: str, arm_name: str) -> list[dict]:
+    """An arm's raw rows saved so far (empty when it has not started)."""
+    filename = _run_file(run_id, f"raw_{arm_name}.json")
+    try:
+        if data_io.exists(storage_location=LOCATION, filename=filename):
+            rows = data_io.load_json(storage_location=LOCATION, filename=filename)
+            if isinstance(rows, list):
+                return rows
+    except Exception:
+        pass
+    return []
+
+
+def arm_progress(run_id: str, manifest: dict | None = None) -> dict[str, int]:
+    """``{arm name: videos annotated so far}`` for a run in progress."""
+    manifest = manifest or load_run(run_id).get("manifest") or {}
+    return {
+        arm["name"]: len(_load_raw_rows(run_id, arm["name"]))
+        for arm in manifest.get("arms", [])
+        if arm.get("name")
+    }
+
+
+_INDEX_KEYS = ("run_id", "name", "started_at", "started_by", "status", "n_items", "eval_set")
+
+
 def execute_run(
     run_id: str,
     arms: list[dict],
@@ -1598,25 +1748,39 @@ def execute_run(
     cancel_cb=None,
     eval_set: str = "",
     name: str = "",
+    resume: bool = False,
+    pause_cb=None,
 ) -> dict:
     """Execute a full A/B run and persist its artifacts.
+
+    Each arm's videos are annotated in chunks of ``CHUNK_ITEMS``; after every
+    chunk the arm's raw answers are saved. That checkpoint is what lets a long
+    run be spread over several background tasks: when ``pause_cb`` says so the
+    function returns with the run still ``running``, and a later call with
+    ``resume=True`` annotates only what is missing and then writes the report.
 
     Args:
         run_id: the run's id (see :func:`new_run_id`).
         arms: ``[{name, source: "candidate"|"live", text}]`` — each arm's
             contract TOML text, snapshotted by the caller at start.
-        item_ids: the eval-set ids (hard-capped at ``MAX_EVAL_ITEMS``).
+        item_ids: the eval-set ids (at most :func:`max_eval_items`).
         started_by: audit actor.
         runner: optional runner override (tests inject a stub here).
-        progress_cb: ``(arm_name, done, total)`` per completed item.
+        progress_cb: ``(arm_name, done, total)`` per completed item, counting
+            the arm's videos over the whole run.
         cancel_cb: zero-arg callable; True aborts with ``RunCancelled``.
         eval_set: name of the evaluation set the ids came from (recorded on the
             manifest so a run stays interpretable after the set is edited).
         name: optional human-readable run label (shown in run pickers and the
             report header).
+        resume: continue a run an earlier call paused (see :func:`stored_arms`
+            for its arms): the manifest is kept and saved answers are reused.
+        pause_cb: zero-arg callable asked after each chunk; True stops here
+            while work remains, leaving the run ``running`` for a resume.
 
     Returns:
-        The run summary written to the index.
+        The run summary written to the index. ``paused`` is True when the run
+        stopped at a checkpoint and needs a resume.
 
     Raises:
         ValueError: bad arms / oversized eval set / invalid arm contract.
@@ -1629,8 +1793,8 @@ def execute_run(
         raise ValueError("at least one arm is required")
     if not item_ids:
         raise ValueError("the eval set is empty")
-    if len(item_ids) > MAX_EVAL_ITEMS:
-        raise ValueError(f"eval set exceeds the {MAX_EVAL_ITEMS}-item cap ({len(item_ids)})")
+    if len(item_ids) > max_eval_items():
+        raise ValueError(f"eval set exceeds the {max_eval_items()}-item cap ({len(item_ids)})")
     names = [a.get("name") for a in arms]
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
@@ -1662,77 +1826,105 @@ def execute_run(
                 "text": arm["text"],
                 "backend": backend_name,
                 "gen_overrides": gen_overrides,
+                # The version this arm annotates under: the identity a
+                # production annotation would carry with this contract,
+                # backend and overrides.
+                "version": arm_version(contract, backend_name, gen_overrides),
             }
         )
 
     item_ids = [str(i) for i in item_ids]
     platform_map = platform_map_for(item_ids)
 
-    manifest = {
-        "run_id": run_id,
-        "name": str(name or "").strip()[:60],
-        "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "started_by": started_by,
-        "status": "running",
-        "eval_set": eval_set,
-        "item_ids": item_ids,
-        "n_items": len(item_ids),
-        "arms": [
-            {
-                "name": a["name"],
-                "source": a["source"],
-                "candidate": a["candidate"],
-                "etag": a["etag"],
-                "backend": a["backend"],
-                "gen_overrides": a["gen_overrides"],
-            }
-            for a in parsed_arms
-        ],
-    }
+    manifest = load_run(run_id).get("manifest") if resume else None
+    if resume and not manifest:
+        raise ValueError(f"run {run_id} cannot be continued: it has no manifest")
+    if manifest is None:
+        manifest = {
+            "run_id": run_id,
+            "name": str(name or "").strip()[:60],
+            "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "started_by": started_by,
+            "status": "running",
+            "eval_set": eval_set,
+            "item_ids": item_ids,
+            "n_items": len(item_ids),
+            "arms": [
+                {
+                    "name": a["name"],
+                    "source": a["source"],
+                    "candidate": a["candidate"],
+                    "etag": a["etag"],
+                    "backend": a["backend"],
+                    "gen_overrides": a["gen_overrides"],
+                    "annotation_version": (a["version"] or {}).get("annotation_version"),
+                    "version_descriptor": a["version"],
+                    "contract_file": _arm_contract_file(a["name"]),
+                }
+                for a in parsed_arms
+            ],
+        }
+        # The contract text behind each arm, verbatim: with the version above
+        # it says exactly which instrument produced the run's answers.
+        for a in parsed_arms:
+            data_io.save_text(
+                a["text"],
+                storage_location=LOCATION,
+                filename=_run_file(run_id, _arm_contract_file(a["name"])),
+            )
+    manifest["status"] = "running"
     data_io.save_json(
         data=manifest, storage_location=LOCATION, filename=_run_file(run_id, "manifest.json")
     )
     _update_runs_index(
-        {
-            **{
-                k: manifest[k]
-                for k in (
-                    "run_id",
-                    "name",
-                    "started_at",
-                    "started_by",
-                    "status",
-                    "n_items",
-                    "eval_set",
-                )
-            },
-            "arms": [a["name"] for a in parsed_arms],
-        }
+        {**{k: manifest[k] for k in _INDEX_KEYS}, "arms": [a["name"] for a in parsed_arms]}
     )
+
+    def _pause_wanted() -> bool:
+        return bool(pause_cb and pause_cb())
 
     frames: dict[str, pd.DataFrame] = {}
     costs: dict[str, dict] = {}
+    paused = False
+    worked = False  # a call always annotates at least one chunk before it may pause
     try:
         for arm in parsed_arms:
-
-            def _cb(done, total, _name=arm["name"]):
-                if progress_cb:
-                    progress_cb(_name, done, total)
-
-            arm_runner = runner or _runner_for_arm(arm, cancel_cb)
-            flat_rows, raw_rows = run_arm(
-                arm["name"],
-                arm["contract"],
-                item_ids,
-                platform_map,
-                runner=arm_runner,
-                progress_cb=_cb,
+            wanted = set(item_ids)
+            raw_rows = (
+                [r for r in _load_raw_rows(run_id, arm["name"]) if str(r.get("item_id")) in wanted]
+                if resume
+                else []
             )
-            data_io.save_json(
-                data=raw_rows,
-                storage_location=LOCATION,
-                filename=_run_file(run_id, f"raw_{arm['name']}.json"),
-            )
+            done_ids = {str(r.get("item_id")) for r in raw_rows}
+            remaining = [i for i in item_ids if i not in done_ids]
+            arm_runner = (runner or _runner_for_arm(arm, cancel_cb)) if remaining else None
+            prompt_text = sch.build_prompt(arm["contract"])
+            response_schema = sch.build_response_schema(arm["contract"])
+
+            for start in range(0, len(remaining), CHUNK_ITEMS):
+                if worked and _pause_wanted():
+                    paused = True
+                    break
+                chunk = remaining[start : start + CHUNK_ITEMS]
+                base = len(raw_rows)
+
+                def _cb(done, total, _name=arm["name"], _base=base):
+                    if progress_cb:
+                        progress_cb(_name, _base + done, len(item_ids))
+
+                raw_rows.extend(
+                    arm_runner.run(prompt_text, response_schema, chunk, platform_map, _cb)
+                )
+                data_io.save_json(
+                    data=raw_rows,
+                    storage_location=LOCATION,
+                    filename=_run_file(run_id, f"raw_{arm['name']}.json"),
+                )
+                worked = True
+            if paused:
+                break
+
+            flat_rows = flatten_raw_rows(raw_rows, arm["contract"])
             refined = refine_from_flat_dicts(flat_rows)
             # The recode keeps only live-var_schema columns — bring the arm's
             # own (e.g. candidate-only) fields back so they show in results.
@@ -1745,51 +1937,52 @@ def execute_run(
             frames[arm["name"]] = refined
             costs[arm["name"]] = _arm_cost(raw_rows, _arm_price(arm))
 
-        # Pairwise comparisons + N-arm distributions/adjudication. The live
-        # var_schema knows nothing about an arm's brand-new fields, so union in
-        # every arm's contract-declared scales before classifying.
-        scales = _scale_map()
-        for arm in parsed_arms:
-            scales.update(contract_scale_map(arm["contract"]))
+        if not paused:
+            # Pairwise comparisons + N-arm distributions/adjudication. The live
+            # var_schema knows nothing about an arm's brand-new fields, so union in
+            # every arm's contract-declared scales before classifying.
+            scales = _scale_map()
+            for arm in parsed_arms:
+                scales.update(contract_scale_map(arm["contract"]))
 
-        arm_names = [a["name"] for a in parsed_arms]
-        comparisons: dict[str, dict] = {}
-        compared_cols: set[str] = set()
-        for i in range(len(arm_names)):
-            for j in range(i + 1, len(arm_names)):
-                key = f"{arm_names[i]}|{arm_names[j]}"
-                comparisons[key] = compare_arms(
-                    frames[arm_names[i]],
-                    frames[arm_names[j]],
-                    scales=scales,
+            arm_names = [a["name"] for a in parsed_arms]
+            comparisons: dict[str, dict] = {}
+            compared_cols: set[str] = set()
+            for i in range(len(arm_names)):
+                for j in range(i + 1, len(arm_names)):
+                    key = f"{arm_names[i]}|{arm_names[j]}"
+                    comparisons[key] = compare_arms(
+                        frames[arm_names[i]],
+                        frames[arm_names[j]],
+                        scales=scales,
+                    )
+                    compared_cols |= set(comparisons[key]["columns"].keys())
+
+            dist_cols = sorted(
+                c
+                for c in compared_cols
+                if any(
+                    comp["columns"].get(c, {}).get("kind") in ("enum", "list")
+                    for comp in comparisons.values()
                 )
-                compared_cols |= set(comparisons[key]["columns"].keys())
-
-        dist_cols = sorted(
-            c
-            for c in compared_cols
-            if any(
-                comp["columns"].get(c, {}).get("kind") in ("enum", "list")
-                for comp in comparisons.values()
             )
-        )
-        distributions = {c: distribution_tables(frames, c) for c in dist_cols}
-        adjudication = build_adjudication(frames, sorted(compared_cols))
+            distributions = {c: distribution_tables(frames, c) for c in dist_cols}
+            adjudication = build_adjudication(frames, sorted(compared_cols))
 
-        report = {
-            "run_id": run_id,
-            "arms": arm_names,
-            "comparisons": comparisons,
-            "distributions": distributions,
-            "adjudication": adjudication,
-            "costs": costs,
-        }
-        data_io.save_json(
-            data=report, storage_location=LOCATION, filename=_run_file(run_id, "report.json")
-        )
+            report = {
+                "run_id": run_id,
+                "arms": arm_names,
+                "comparisons": comparisons,
+                "distributions": distributions,
+                "adjudication": adjudication,
+                "costs": costs,
+            }
+            data_io.save_json(
+                data=report, storage_location=LOCATION, filename=_run_file(run_id, "report.json")
+            )
 
-        manifest["status"] = "complete"
-        manifest["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+            manifest["status"] = "complete"
+            manifest["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     except RunCancelled:
         manifest["status"] = "cancelled"
         manifest["finished_at"] = datetime.now(UTC).isoformat(timespec="seconds")
@@ -1805,18 +1998,7 @@ def execute_run(
         )
         _update_runs_index(
             {
-                **{
-                    k: manifest[k]
-                    for k in (
-                        "run_id",
-                        "name",
-                        "started_at",
-                        "started_by",
-                        "status",
-                        "n_items",
-                        "eval_set",
-                    )
-                },
+                **{k: manifest[k] for k in _INDEX_KEYS},
                 "arms": [a["name"] for a in parsed_arms],
                 "error": manifest.get("error"),
             }
@@ -1825,6 +2007,7 @@ def execute_run(
     return {
         "run_id": run_id,
         "status": manifest["status"],
+        "paused": paused,
         "n_items": len(item_ids),
         "eval_set": eval_set,
         "arms": [a["name"] for a in parsed_arms],

@@ -1342,6 +1342,9 @@
             const ovParts = [`backend ${meta.backend || "gemini"}`];
             if (ov.model) ovParts.push(`model ${ov.model}`);
             if (ov.temperature !== undefined) ovParts.push(`temp ${ov.temperature}`);
+            // The annotation version this contract ran under (absent on runs
+            // made before test runs recorded it).
+            if (meta.annotation_version) ovParts.push(`version ${meta.annotation_version}`);
             html += `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                     padding: 10px 14px; min-width: 190px;">
                 <div class="font-semibold font-mono">${_esc(_armLabel(arm))}</div>
@@ -1816,7 +1819,7 @@
         return cols;
     }
 
-    // Prefetch each submitted coder's rows once (≤ a few coders × ≤50 items)
+    // Prefetch each submitted coder's rows once (a few coders × the test set's videos)
     // and derive their per-column value counts — the human analogue of the
     // report's stored distributions. Also warms the per-item modal cache.
     async function _prefetchHumanRows() {

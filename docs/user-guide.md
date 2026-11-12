@@ -684,7 +684,11 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   [configuration.md](configuration.md).
 - **Contracts** — author, test (A/B evaluation runs) and activate annotation
   contracts: the recipe for what the AI is asked about each video and the
-  form its answers must take. See [contracts.md](contracts.md).
+  form its answers must take. A test set holds up to 50 videos unless the
+  `test_set_max_items` setting raises the limit; a long run continues by
+  itself across several background tasks. Each contract's card in the run
+  report shows the annotation version it ran under. See
+  [contracts.md](contracts.md).
 - **Versions** — the annotation version history: every activated
   contract+model+settings combination, which version analyses read, and
   re-activation of earlier versions. See [contracts.md](contracts.md).

@@ -172,16 +172,19 @@ class QwenApiBackend(AnnotationBackend):
             }
         return {"name": "api ping", "ok": True, "detail": f"{model_id} available", "fix": ""}
 
-    def prompt_suffix(self) -> str:
-        """The schema-adherence addendum for the active contract's schema.
+    def prompt_suffix(self, schema_json: dict | None = None) -> str:
+        """The schema-adherence addendum for a response schema.
 
         Part of the version identity: it changes with the response schema,
         which is output-affecting for json_object mode (the schema rides in
-        the prompt, not in the request's response_format).
+        the prompt, not in the request's response_format). ``schema_json`` is
+        the schema to write it for; None means the active contract's.
         """
         from fyp.annotation.annotation_schema import get_annotation_json_schema
 
-        return _schema_suffix(get_annotation_json_schema())
+        return _schema_suffix(
+            schema_json if schema_json is not None else get_annotation_json_schema()
+        )
 
     def effective_model_id(self) -> str:
         """The configured hosted model id."""

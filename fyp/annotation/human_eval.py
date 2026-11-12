@@ -424,6 +424,8 @@ def create_task(
         # permutation derives from. The task file is admin-only, so carrying
         # the arm names here does not break coder-side blindness.
         task["arms"] = arm_names
+        # The annotation version behind each contract voted on.
+        task["arm_versions"] = {a: ab.arm_versions(manifest).get(a) for a in arm_names}
         task["order_seed"] = secrets.token_hex(16)
     with _INDEX_LOCK:
         data_io.save_json(
@@ -1261,11 +1263,7 @@ def compute_results(run_id: str, task_type: str) -> dict:
     variables = task.get("variables", [])
     scales = {v: spec.get("scale", "text") for v, spec in task.get("field_specs", {}).items()}
 
-    coder_frames: dict[str, pd.DataFrame] = {}
-    for username in task.get("coders", {}):
-        state = load_coder_state(run_id, task_type, username)
-        if state.get("status") == "submitted" and state.get("responses"):
-            coder_frames[username] = _database_frame(task, state)
+    coder_frames = _submitted_coder_frames(run_id, task)
 
     manifest = ab.load_run(run_id).get("manifest") or {}
     arm_names = [a.get("name") for a in manifest.get("arms", []) if a.get("name")]
@@ -1317,6 +1315,7 @@ def compute_results(run_id: str, task_type: str) -> dict:
         "variables": variables,
         "coders": coders,
         "arms": sorted(arm_frames),
+        "arm_versions": {a: v for a, v in ab.arm_versions(manifest).items() if a in arm_frames},
         "human_vs_machine": human_vs_machine,
         "human_vs_human": human_vs_human,
         "alpha": _alpha_results(task, coder_frames, arm_frames),
@@ -1328,6 +1327,16 @@ def compute_results(run_id: str, task_type: str) -> dict:
         filename=_human_file(run_id, _results_filename(task_type)),
     )
     return results
+
+
+def _submitted_coder_frames(run_id: str, task: dict) -> dict[str, pd.DataFrame]:
+    """Each submitted coder's answers in the database's categories."""
+    frames: dict[str, pd.DataFrame] = {}
+    for username in task.get("coders", {}):
+        state = load_coder_state(run_id, task["task_type"], username)
+        if state.get("status") == "submitted" and state.get("responses"):
+            frames[username] = _database_frame(task, state)
+    return frames
 
 
 def _compute_vote_results(run_id: str, task: dict) -> dict:

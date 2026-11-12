@@ -85,6 +85,8 @@ def _w(name: str, **kwargs) -> WorkerSpec:
 # not (~13 min; the shadow check has run 772-816s, answering after a 600s queue
 # deadline had already given up and re-delivered). Big annotator batches would
 # need more than 3600s, which Cloud Tasks rejects; the ceiling is its deadline.
+# A test run (ab_eval) makes videos x contracts model calls: it self-chains on
+# a time budget well under the ceiling (run_ab_eval.LINK_BUDGET_SECONDS).
 # tests/unit/test_dispatch_deadlines.py pins these against the workers.
 #
 # Retry safety: tasks the QUEUE may retry after a failed attempt are pure
@@ -175,7 +177,7 @@ WORKERS: dict[str, WorkerSpec] = {
             pipeline_step=True,
         ),
         _w("retokenise_hashtags", retry_safe=True),
-        _w("ab_eval"),
+        _w("ab_eval", deadline=_MAX),
         _w("ops_report"),
         _w("enrichment_supervisor", retry_safe=True),
         # Dispatchable (an admin benchmark) but not a UI worker.

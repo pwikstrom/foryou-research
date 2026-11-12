@@ -247,6 +247,24 @@ is rebuilt once at the next consolidation, and the videos whose annotation
 changed are reported as changed so that studies and everything after them
 refresh.
 
+**Versions on test runs and human validation.** A test run (Admin →
+Contracts) annotates a fixed set of videos without touching the research
+data, so its answers carry no stamp of their own. The run's record supplies
+it: each contract in `manifest.json` has an `annotation_version`, the `av_`
+identifier a production annotation would be stamped with for that contract,
+AI model and settings, with the descriptor behind it
+(`version_descriptor`: model, instruction hash, answer-format hash,
+generation settings), and the contract's text is stored next to the manifest
+as `contract_<name>.toml`
+(`annotation_versioning.contract_version_descriptor()`, the function the
+candidate version preview also uses). Human coding and quality rating in
+Reliability Control belong to a run, and through this record to a version:
+coding results, vote tasks and rating tasks name the version of each
+contract they concern. A coding task's own definition holds nothing about
+the run's contracts, and coders are sent none of it.
+
+A test set holds at most `[machine] test_set_max_items` videos (default 50;
+see [configuration.md](configuration.md)).
 
 ## The read-only contracts and the Data Contracts page
 

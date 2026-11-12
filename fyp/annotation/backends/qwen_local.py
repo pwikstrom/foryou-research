@@ -94,7 +94,7 @@ class QwenLocalBackend(AnnotationBackend):
 
         return qwen_support.availability(self._effective_cf()["model_id"])
 
-    def prompt_suffix(self) -> str:
+    def prompt_suffix(self, schema_json: dict | None = None) -> str:
         """The frames+audio addendum (part of the version identity)."""
         return PROMPT_ADDENDUM
 

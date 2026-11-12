@@ -26,6 +26,11 @@ max_duration_for_annotation = 300
 # counts in recent Annotation-testing (ab_eval) run reports.
 est_input_tokens_per_annotation = 15000
 est_output_tokens_per_annotation = 1500
+# The most videos one test set may hold (Admin → Contracts → Test set). Every
+# video in the set is annotated once per contract in a test run, so this is a
+# cost guard. Raise it for a human-coded reference set (150 to 300 videos); a
+# long run is spread over several background tasks automatically.
+test_set_max_items = 50
 
 
 # ── Gemini (default backend; Vertex AI or API-key mode) ─────────────────────
