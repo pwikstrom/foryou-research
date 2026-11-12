@@ -14,6 +14,7 @@ import json
 import pandas as pd
 
 import fyp.core.data_io as data_io
+from fyp import __version__ as _hub_version
 from fyp.analysis.datasets import common
 from fyp.analysis.studies import init_study_defs
 from fyp.annotation.recode_variables import (
@@ -270,6 +271,9 @@ def build_sidecar(study_name: str, recoded_df: pd.DataFrame) -> dict:
         "study_name": study_name,
         "study_config_hash": compute_study_config_hash(study_name),
         "var_schema_hash": compute_var_schema_hash(),
+        # The Hub version whose cleaning code built these columns; the methods
+        # note states it next to the schema hash.
+        "hub_version": _hub_version,
         "sampling_active": sampling_active,
         "collections_fp": fps.get("collections_fp"),
         "scrapes_fp": fps.get("scrapes_fp"),

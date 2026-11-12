@@ -55,6 +55,13 @@ public version. Entries below describe the Hub as it stands at that release.
   saves each contract's answers every eight videos and, after 15 minutes,
   continues in a new task from where it stopped, with the contracts it
   started with. A small run still finishes in one task.
+- **The methods note says which cleaning produced a study's columns.** Under
+  the annotation versions, each study's Methods panel and its JSON record now
+  give the fingerprint of the variable definitions and cleaning rules that
+  turned the model's answers into the study's columns
+  (`compute_var_schema_hash()`), and the Hub version that built them. An
+  annotation version identifies the model call behind a row; this identifies
+  the step after it.
 
 ### Changed
 

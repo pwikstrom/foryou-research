@@ -77,6 +77,66 @@ def stub_io(monkeypatch):
     monkeypatch.setattr(methods_note.data_io, "exists", lambda **kw: False)
 
 
+def test_note_states_which_cleaning_produced_the_columns(stub_io, monkeypatch):
+    """The annotation block names the variable-schema hash and the Hub version
+    recorded when the study's cached dataset was built."""
+    import fyp.analysis.datasets.refresh as refresh
+
+    monkeypatch.setattr(
+        refresh,
+        "load_sidecar",
+        lambda study_name, **kw: {"var_schema_hash": "v3:builtwith", "hub_version": "0.6.9"},
+    )
+    note = methods_note.build_methods_note(
+        study_name="teststudy", study_config=_study_config(), df_study=_synthetic_study_df()
+    )
+    cleaning = note["annotation"]["cleaning"]
+    assert cleaning["schema_hash"] == "v3:builtwith"
+    assert cleaning["hub_version"] == "0.6.9"
+    assert cleaning["hub_version_label"] == "Hub version that built the study's columns"
+    assert "cleaning rules" in cleaning["schema_hash_label"]
+    assert cleaning["label"] == (
+        "The model's answers were turned into this study's columns under variable "
+        "definitions and cleaning rules v3:builtwith, by Hub version 0.6.9."
+    )
+    assert note["schema_version"] == 3
+
+
+def test_cleaning_falls_back_to_the_current_schema_and_version(stub_io, monkeypatch):
+    """No sidecar (or one from before the Hub version was recorded): the note
+    reports the current schema hash and says which version wrote the note."""
+    import fyp
+    import fyp.analysis.datasets.refresh as refresh
+    from fyp.annotation.recode_variables import compute_var_schema_hash
+
+    cleaning = methods_note.build_methods_note(
+        study_name="teststudy", study_config=_study_config(), df_study=None
+    )["annotation"]["cleaning"]
+    assert cleaning["schema_hash"] == compute_var_schema_hash()
+    assert cleaning["hub_version"] == fyp.__version__
+    assert cleaning["hub_version_label"] == "Hub version that wrote this note"
+    assert f"this note was written by Hub version {fyp.__version__}" in cleaning["label"]
+
+    monkeypatch.setattr(
+        refresh, "load_sidecar", lambda study_name, **kw: {"var_schema_hash": "v3:older"}
+    )
+    cleaning = methods_note._cleaning_block("teststudy")
+    assert cleaning["schema_hash"] == "v3:older"
+    assert cleaning["hub_version_label"] == "Hub version that wrote this note"
+
+
+def test_study_cache_sidecar_records_the_hub_version(monkeypatch):
+    import fyp
+    import fyp.analysis.datasets.refresh as refresh
+
+    monkeypatch.setattr(refresh, "compute_input_fingerprints", dict)
+    monkeypatch.setattr(refresh, "compute_failed_scrapes_fingerprint", dict)
+    monkeypatch.setattr(refresh, "compute_study_config_hash", lambda name: "cfg")
+    sidecar = refresh.build_sidecar("teststudy", _synthetic_study_df())
+    assert sidecar["hub_version"] == fyp.__version__
+    assert sidecar["var_schema_hash"] == refresh.compute_var_schema_hash()
+
+
 def test_version_distribution_buckets():
     df = _synthetic_study_df()
     dist = methods_note._version_distribution(df, "annotation_version")

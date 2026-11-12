@@ -370,6 +370,9 @@ annotated). Click a row to see how a study was defined — its collections,
 date window and sampling rules, read-only. Each row's **Methods** button
 opens the study's **Methods** panel: an auto-generated plain-language
 provenance note describing how the dataset was built (with a JSON download).
+It names the annotation versions in the study's rows and, below them, the
+variable definitions and cleaning rules (a short fingerprint) and the Hub
+version that turned the model's answers into the study's columns.
 This panel lives here, on the study row — not on the Explore tab.
 
 **My Collections.** Your own donated data (the sidebar item reads **"Share

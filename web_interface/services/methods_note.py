@@ -20,6 +20,12 @@ version (what studies read), never conflating it with the **active** one
 
 The schema is export-ready: machine fields carry plain-language ``*_label``
 siblings so the M1 export can render a README by templating, not translating.
+
+An annotation version says which model call produced a row. It does not say
+which cleaning turned the model's answers into the study's columns; that is
+the variable schema (definitions plus recode rules), whose hash decides when a
+study's cached dataset is rebuilt. The note states that hash and the Hub
+version that built the columns (``annotation.cleaning``).
 """
 
 from datetime import UTC, datetime
@@ -33,7 +39,7 @@ from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 NOTE_LOCATION = "cache"
 
 # Plain-language labels for the SAMPLE_FRAME study setting.
@@ -95,8 +101,61 @@ def _date_window(study_config: dict, df_study: pd.DataFrame | None) -> dict:
     return window
 
 
-def _annotation_block(study_config: dict, df_study: pd.DataFrame | None) -> dict:
-    """Annotation provenance: pin, preferred version + descriptor, row mix.
+def _cleaning_block(study_name: str) -> dict:
+    """Which cleaning produced the study's columns: schema hash + Hub version.
+
+    Both come from the study cache's sidecar, written when the cached dataset
+    was last built or patched, so they describe the columns the study actually
+    holds. A cache built before the sidecar recorded the Hub version reports
+    the version writing this note and says so; with no sidecar at all the hash
+    is the current schema's. Never raises.
+    """
+    block: dict = {
+        "schema_hash": None,
+        "schema_hash_label": (
+            "Fingerprint of the variable definitions and cleaning rules that turned "
+            "the model's answers into this study's columns"
+        ),
+        "hub_version": _fyp_version,
+        "hub_version_label": "Hub version that wrote this note",
+        "label": None,
+    }
+    current_hash = None
+    try:
+        from fyp.annotation.recode_variables import compute_var_schema_hash
+
+        current_hash = compute_var_schema_hash()
+    except Exception as exc:
+        logger.warning(f"[MethodsNote] Could not compute the variable-schema hash: {exc}")
+    sidecar: dict = {}
+    try:
+        from fyp.analysis.datasets.refresh import load_sidecar
+
+        sidecar = load_sidecar(study_name) or {}
+    except Exception as exc:
+        logger.warning(f"[MethodsNote] Could not read the study cache sidecar: {exc}")
+
+    block["schema_hash"] = sidecar.get("var_schema_hash") or current_hash
+    if sidecar.get("hub_version"):
+        block["hub_version"] = sidecar["hub_version"]
+        block["hub_version_label"] = "Hub version that built the study's columns"
+    if block["schema_hash"]:
+        by = (
+            f"by Hub version {block['hub_version']}"
+            if sidecar.get("hub_version")
+            else f"(this note was written by Hub version {block['hub_version']})"
+        )
+        block["label"] = (
+            "The model's answers were turned into this study's columns under variable "
+            f"definitions and cleaning rules {block['schema_hash']}, {by}."
+        )
+    return block
+
+
+def _annotation_block(
+    study_config: dict, df_study: pd.DataFrame | None, study_name: str = ""
+) -> dict:
+    """Annotation provenance: pin, preferred version + descriptor, row mix, cleaning.
 
     Reports the *preferred* version (what studies read). A study-level pin
     overrides preference for this study and is reported separately.
@@ -109,6 +168,7 @@ def _annotation_block(study_config: dict, df_study: pd.DataFrame | None) -> dict
         "version_in_use_note": None,
         "version_in_use_descriptor": None,
         "versions_in_rows": _version_distribution(df_study, "annotation_version"),
+        "cleaning": _cleaning_block(study_name),
     }
     try:
         registry = annotation_versioning.load_registry()
@@ -275,7 +335,7 @@ def build_methods_note(
         },
         "selection": selection,
         "counts": counts,
-        "annotation": _annotation_block(study_config, df_study),
+        "annotation": _annotation_block(study_config, df_study, study_name),
         "contracts": {
             "scrape_versions_in_rows": _version_distribution(df_study, "scrape_contract_version"),
             "activity_versions_in_rows": _version_distribution(

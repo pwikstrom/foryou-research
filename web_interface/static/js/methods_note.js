@@ -127,6 +127,11 @@ function renderStudyMethodsNote(study, note) {
         const items = vKeys.map(k => `${escapeHtml(k)}: ${fmtN(vRows[k])} rows`).join(' · ');
         parts.push(`<p class="text-xs" style="color: var(--color-text-muted);">Label versions present: ${items}</p>`);
     }
+    // Which cleaning produced the columns (absent on notes written before it was recorded)
+    const cleaning = ann.cleaning || {};
+    if (cleaning.label) {
+        parts.push(`<p class="text-xs" style="color: var(--color-text-muted);">${escapeHtml(cleaning.label)}</p>`);
+    }
 
     // Semantic map
     if (note.semantic_map && note.semantic_map.embedding_model) {
