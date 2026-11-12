@@ -444,9 +444,10 @@ def _preferred_view_from_history(history_df: pd.DataFrame) -> pd.DataFrame:
 
     The promoted-version view when one is promoted, else each item's most
     recent annotation — the same derivation the full rebuild and
-    :func:`rebuild_preferred_annotations_from_archive` apply. "Most recent" is
-    by ``inference_ts`` (``annotation_versioning.newest_row_mask``); row order
-    only breaks ties. Per-key decomposable ONLY when the frame holds a key's
+    :func:`rebuild_preferred_annotations_from_archive` apply. A successful
+    annotation (``annotated_ok``) always goes before a failed one, and "most
+    recent" is by ``inference_ts`` (``annotation_versioning.newest_row_mask``);
+    row order only breaks ties. Per-key decomposable ONLY when the frame holds a key's
     complete history, which is why the incremental fold sources touched keys
     from the all_versions archive, never from the recoded view.
     """
@@ -460,11 +461,13 @@ _ARCHIVE_KEY_COLS = ["source_platform", "item_id", "annotation_version"]
 
 
 def _archive_rows(history_df: pd.DataFrame) -> pd.DataFrame:
-    """One row per (platform, item, version): that version's most recent annotation.
+    """One row per (platform, item, version): that version's annotation to show.
 
-    The same time-based choice the views make, so a view derived from the
-    archive (the fold, a promotion) equals one derived from every refined row
-    (the full rebuild). The frame keeps its row order, which still breaks ties.
+    A successful annotation before a failed one, then the most recent: the
+    same choice the views make, so a view derived from the archive (the fold,
+    a promotion) equals one derived from every refined row (the full
+    rebuild). A version's failed re-run does not replace its successful
+    annotation. The frame keeps its row order, which still breaks ties.
     """
     return annotation_versioning.keep_newest(history_df, _ARCHIVE_KEY_COLS).reset_index(drop=True)
 
@@ -547,7 +550,8 @@ def _fold_annotation_batch(
     every refined parquet (measured ~70 s for ~500 files) and re-deriving the
     view over the whole corpus. Which row survives per (platform, item,
     version), and which annotation an item falls back to, is decided by
-    annotation time (``inference_ts``). Row order only breaks ties, and for
+    ``annotated_ok`` and then annotation time (``inference_ts``). Row order
+    only breaks ties, and for
     those the fold is order-preserving: batch rows are appended AFTER the
     existing archive rows and the archive is never sorted.
 
@@ -718,10 +722,10 @@ def consolidate_and_save_refined_annotations(
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
 
-    # A dataset consolidated before the view picked rows by annotation time is
-    # rebuilt once, even with no new files: some items read an older annotation
-    # than their newest one, and the fold would only ever correct the items a
-    # new batch happens to touch.
+    # A dataset consolidated under an earlier rule for picking each item's row
+    # (by file order; or by annotation time alone, which let a failed
+    # re-annotation hide a successful one) is rebuilt once, even with no new
+    # files: the fold would only ever correct the items a new batch touches.
     view_rule_outdated = (
         bool(latest_filename_list)
         and bool(files_to_concatenate)
@@ -790,10 +794,12 @@ def consolidate_and_save_refined_annotations(
                 "now records the current version, so the next batch can fold."
             )
         elif view_rule_outdated:
+            recorded_rule = dataset_meta.get("machine_annotations", {}).get("view_rule")
             logger.info(
                 "[CONSOLIDATE] annotation full rebuild: the previous consolidation picked "
-                "each item's row by file order; the view now reads the most recent "
-                "annotation by inference_ts, so every item's view is re-derived once."
+                f"each item's row by an earlier rule ({recorded_rule or 'file order'}); the "
+                f"view now follows '{annotation_versioning.VIEW_RULE}', so every item's view "
+                "is re-derived once."
             )
         else:
             folded = _fold_annotation_batch(
@@ -901,7 +907,7 @@ def consolidate_and_save_refined_annotations(
                 moved = set(consolidated_annotations["item_id"])
             new_item_ids |= moved
             logger.info(
-                f"[CONSOLIDATE] {len(moved):,} item(s) now read a more recent annotation "
+                f"[CONSOLIDATE] {len(moved):,} item(s) now read a different annotation "
                 "than the previous view showed."
             )
 

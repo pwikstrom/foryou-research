@@ -105,16 +105,18 @@ def _save_refined(
     version: str,
     story: str = "Human-Interest",
     inference_ts: int | None = None,
+    ok: bool = True,
 ) -> None:
     df = pd.DataFrame(
         {
             "item_id": [str(i) for i in item_ids],
             "annotation_version": version,
-            "type_of_story": [story] * len(item_ids),
-            "annotated_ok": [True] * len(item_ids),
-            "annotated_fail": [False] * len(item_ids),
+            "type_of_story": [story if ok else None] * len(item_ids),
+            "annotated_ok": [ok] * len(item_ids),
+            "annotated_fail": [not ok] * len(item_ids),
         }
     )
+    df["type_of_story"] = df["type_of_story"].astype("string[pyarrow]")
     if inference_ts is not None:
         df["inference_ts"] = pd.array([inference_ts] * len(item_ids), dtype="int64[pyarrow]")
     data_io.save_parquet(df=df, storage_location="machine_annotations_refined", filename=filename)
@@ -453,6 +455,126 @@ def test_annotation_view_reads_newest_annotation_not_latest_file() -> None:
         )
 
 
+def test_failed_annotation_never_hides_a_successful_one() -> None:
+    """A failed re-annotation is the newest row; the view keeps the good one.
+
+    Run through the fold cycle by cycle, then compared with a full rebuild.
+    """
+
+    def _shown(view) -> dict:
+        return {
+            str(i): (v, bool(ok))
+            for i, v, ok in zip(view["item_id"], view["annotation_version"], view["annotated_ok"])
+        }
+
+    with _isolated():
+        # Cycle 1: good v1 annotations.
+        _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1", inference_ts=1000)
+        annotation_refinement.consolidate_and_save_refined_annotations(incremental=True)
+
+        # Cycle 2 (fold): v2 re-annotates i1 and FAILS; i3 is new and good;
+        # i4 is new and failed (its only annotation so far).
+        _save_refined(
+            "machine_annotations_b.parquet", ["i1", "i4"], "v2", inference_ts=2000, ok=False
+        )
+        _save_refined("machine_annotations_c.parquet", ["i3"], "v2", inference_ts=2000)
+        ok, view, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok and ids == {"i1", "i3", "i4"}
+        assert _shown(view) == {
+            "i1": ("v1", True),  # the older good annotation, not the newer failed one
+            "i2": ("v1", True),
+            "i3": ("v2", True),
+            "i4": ("v2", False),  # nothing but a failed annotation: it is shown
+        }
+
+        # Cycle 3 (fold): v2 succeeds on i1; then a v2 re-run of i1 fails again
+        # (same version, newer); i4 fails once more under v1, later.
+        _save_refined("machine_annotations_d.parquet", ["i1"], "v2", inference_ts=3000)
+        _save_refined("machine_annotations_e.parquet", ["i1"], "v2", inference_ts=4000, ok=False)
+        _save_refined("machine_annotations_f.parquet", ["i4"], "v1", inference_ts=5000, ok=False)
+        ok, view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok
+        assert _shown(view)["i1"] == ("v2", True)
+        assert _shown(view)["i4"] == ("v1", False)  # newest of its failed rows
+        archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
+        i1_v2 = archive[(archive["item_id"] == "i1") & (archive["annotation_version"] == "v2")]
+        assert len(i1_v2) == 1 and bool(i1_v2["annotated_ok"].iloc[0])  # ts 3000, not 4000
+        assert int(i1_v2["inference_ts"].iloc[0]) == 3000
+
+        # Promote v2: i2 falls back to good v1; i4 has only failed rows, so the
+        # preferred version's failed row is the one shown.
+        for version in ("v1", "v2"):
+            av.register_version(
+                descriptor={"annotation_version": version, "label": version},
+                prompt_text=version,
+                schema_json=None,
+            )
+        av.promote_version("v2")
+        annotation_refinement.rebuild_preferred_annotations_from_archive()
+        promoted = data_io.load_parquet(storage_location="recoded", filename=_ANNO_RECODED)
+        assert _shown(promoted) == {
+            "i1": ("v2", True),
+            "i2": ("v1", True),
+            "i3": ("v2", True),
+            "i4": ("v2", False),
+        }
+
+        folded_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
+        ok, full_view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            force_consolidation=True
+        )
+        full_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
+        _assert_frames_equal(
+            promoted, full_view, ["source_platform", "item_id"], "failed-row view fold-vs-full"
+        )
+        _assert_frames_equal(
+            folded_archive,
+            full_archive,
+            ["source_platform", "item_id", "annotation_version"],
+            "failed-row archive fold-vs-full",
+        )
+
+
+def test_dataset_built_under_the_time_only_rule_rebuilds_once() -> None:
+    """The ledger names the earlier rule (newest row, failed or not): rebuild once.
+
+    The stored view shows i1's failed re-annotation, as that rule left it.
+    """
+    with _isolated():
+        _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v1", inference_ts=1000)
+        _save_refined("machine_annotations_b.parquet", ["i1"], "v2", inference_ts=2000, ok=False)
+        ok, view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok
+        stale = view.copy()
+        i1 = stale["item_id"].astype(str) == "i1"
+        stale.loc[i1, "annotation_version"] = "v2"
+        stale.loc[i1, "inference_ts"] = 2000
+        stale.loc[i1, "annotated_ok"] = False
+        data_io.save_parquet(df=stale, storage_location="recoded", filename=_ANNO_RECODED)
+        ledger = data_io.load_json(storage_location="recoded", filename=_LEDGER)
+        ledger[ma.MACHINE_ANNOTATIONS_LABEL]["view_rule"] = "newest_inference_ts"
+        data_io.save_json(data=ledger, storage_location="recoded", filename=_LEDGER)
+
+        ok, rebuilt, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True, return_saved_data=False
+        )
+        assert ok and ids == {"i1"}, f"changed ids: {ids}"
+        shown = dict(zip(rebuilt["item_id"].astype(str), rebuilt["annotation_version"]))
+        assert shown == {"i1": "v1", "i2": "v1"}
+        ledger = data_io.load_json(storage_location="recoded", filename=_LEDGER)
+        assert ledger[ma.MACHINE_ANNOTATIONS_LABEL]["view_rule"] == av.VIEW_RULE
+        ok, _, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True, return_saved_data=False
+        )
+        assert not ok and ids == set()
+
+
 def test_annotation_view_rule_change_rebuilds_once() -> None:
     """A dataset consolidated under the old row-order rule is rebuilt once.
 
@@ -599,6 +721,8 @@ _TESTS = [
     test_annotation_fold_equals_full_rebuild_with_promotion,
     test_annotation_fold_view_matches_full_when_no_promotion,
     test_annotation_view_reads_newest_annotation_not_latest_file,
+    test_failed_annotation_never_hides_a_successful_one,
+    test_dataset_built_under_the_time_only_rule_rebuilds_once,
     test_annotation_view_rule_change_rebuilds_once,
     test_status_patch_equals_full_rebuild,
 ]

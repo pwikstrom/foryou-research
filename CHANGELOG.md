@@ -119,6 +119,19 @@ public version. Entries below describe the Hub as it stands at that release.
   cached dataset is refreshed after it. Some videos will change which
   annotation they show, and results that include them can move.** The videos
   affected are reported as changed, so downstream refreshes cover them.
+- **A failed annotation no longer hides a successful one.** When a video is
+  annotated again and the new attempt fails, the failed row has no answers,
+  but it used to be the row studies read whenever it came last. A video now
+  shows a successful annotation whenever it has one (`annotated_ok`), and the
+  most recent among those; a failed row is shown only for a video with no
+  successful annotation at all. This holds inside the preferred version too:
+  a failed row of the preferred version does not count as the video's
+  preferred annotation, so the video shows its most recent successful
+  annotation from another version. If every annotation of a video failed, the
+  preferred version's failed row is shown, otherwise the most recent failed
+  one. A version's failed re-run also no longer replaces that version's
+  successful annotation in the archive. Part of the same one-time rebuild as
+  the entry above.
 - **Test runs get the 30-minute task deadline.** They used the queue's
   default of ten minutes, which a run of 50 videos under several contracts
   can exceed; the queue delivers a task again when it has not answered by

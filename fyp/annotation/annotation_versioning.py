@@ -58,12 +58,15 @@ REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
 LEGACY_VERSION = "v0_legacy"
 
-# When an item has several candidate rows, every view keeps the one annotated
+# When an item has several candidate rows, every view keeps a successful
+# annotation over a failed one (``annotated_ok``), and among those the one made
 # most recently: the largest ``inference_ts`` (epoch seconds). The rule's name
 # is recorded in the consolidation ledger, so a dataset consolidated under an
-# earlier rule (the last row in file order) is rebuilt once.
+# earlier rule (the last row in file order; then the newest row whether or not
+# it had failed) is rebuilt once.
 INFERENCE_TS_COL = "inference_ts"
-VIEW_RULE = "newest_inference_ts"
+ANNOTATED_OK_COL = "annotated_ok"
+VIEW_RULE = "successful_then_newest_inference_ts"
 
 # The file-based prompt that predates the declarative-contract / generated-prompt
 # system. Go-forward annotations use the generated contract prompt, so this file
@@ -668,34 +671,63 @@ def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
     return [item_col]
 
 
-def newest_row_mask(
-    df: pd.DataFrame, key_cols: list[str], ts_col: str = INFERENCE_TS_COL
-) -> np.ndarray:
-    """Mark, per key, the row that was annotated most recently.
+def _failed_rows(df: pd.DataFrame, ok_col: str = ANNOTATED_OK_COL) -> np.ndarray | None:
+    """Boolean array marking rows whose annotation failed, or None without the column.
 
-    The newest row is the one with the largest ``ts_col`` (epoch seconds). A
-    row without a timestamp counts as older than any row with one, and rows
-    that tie (same timestamp, or none at all) resolve to the one that comes
-    last in the frame, which is also what happens when the frame has no
-    timestamp column. The frame is not reordered.
+    Only an explicit false counts as failed: a row whose ``ok_col`` is missing
+    is not known to have failed and ranks with the successful ones.
+    """
+    if ok_col not in df.columns:
+        return None
+    return (df[ok_col] == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712
+
+
+def newest_row_mask(
+    df: pd.DataFrame,
+    key_cols: list[str],
+    ts_col: str = INFERENCE_TS_COL,
+    prefer: np.ndarray | None = None,
+) -> np.ndarray:
+    """Mark, per key, the one row a view shows.
+
+    Rows are ranked, most important first:
+
+    1. a successful annotation before a failed one (``annotated_ok``). A failed
+       annotation has no answers, so it never hides a successful annotation
+       of the same key, however recent it is; it is kept only when the key has
+       no successful row at all. A frame without the column skips this step.
+    2. a row marked in ``prefer`` (the preferred version's rows) before others;
+    3. the most recent annotation: the largest ``ts_col`` (epoch seconds). A
+       row without a timestamp counts as older than any row with one;
+    4. rows that still tie resolve to the one that comes last in the frame.
+
+    The frame is not reordered.
 
     Args:
         df: The annotation rows.
         key_cols: The columns identifying what there should be one row of.
         ts_col: The annotation-time column.
+        prefer: Optional boolean array over ``df``'s rows.
 
     Returns:
         A boolean array over ``df``'s rows, True for the row kept per key.
     """
     if df.empty:
         return np.zeros(0, dtype=bool)
-    if ts_col not in df.columns:
-        return ~df.duplicated(subset=key_cols, keep="last").to_numpy()
-    stamps = pd.to_numeric(df[ts_col], errors="coerce").to_numpy(dtype="float64", na_value=np.nan)
-    stamps = np.where(np.isnan(stamps), -np.inf, stamps)
-    # Oldest first; a stable sort keeps tied rows in frame order, so "last of
-    # the sorted rows" is the newest and, among equals, the last in the frame.
-    order = np.argsort(stamps, kind="stable")
+    order = np.arange(len(df))
+    # Stable sorts from the least to the most important criterion: each keeps
+    # the order the previous ones produced among its own ties, so the last row
+    # per key in the final order is the best one.
+    if ts_col in df.columns:
+        stamps = pd.to_numeric(df[ts_col], errors="coerce").to_numpy(
+            dtype="float64", na_value=np.nan
+        )
+        order = order[np.argsort(np.where(np.isnan(stamps), -np.inf, stamps), kind="stable")]
+    if prefer is not None:
+        order = order[np.argsort(np.asarray(prefer, dtype=bool)[order], kind="stable")]
+    failed = _failed_rows(df)
+    if failed is not None:
+        order = order[np.argsort(~failed[order], kind="stable")]
     duplicate = df[key_cols].iloc[order].duplicated(keep="last").to_numpy()
     mask = np.empty(len(df), dtype=bool)
     mask[order] = ~duplicate
@@ -705,16 +737,17 @@ def newest_row_mask(
 def keep_newest(
     df: pd.DataFrame, key_cols: list[str], ts_col: str = INFERENCE_TS_COL
 ) -> pd.DataFrame:
-    """Return one row per key: the most recently annotated (see :func:`newest_row_mask`)."""
+    """Return one row per key: successful first, then most recent (see :func:`newest_row_mask`)."""
     return df[newest_row_mask(df, key_cols, ts_col)]
 
 
 def select_latest_view(df: pd.DataFrame, item_col: str = "item_id") -> pd.DataFrame:
     """Build the view studies read when no version is preferred.
 
-    One row per item: its most recent annotation, whichever version made it.
-    Items are keyed composite ``(source_platform, item_col)`` when the platform
-    column is present (see :func:`_item_key_cols`).
+    One row per item: its most recent successful annotation, whichever version
+    made it. An item whose every annotation failed shows the most recent of
+    those. Items are keyed composite ``(source_platform, item_col)`` when the
+    platform column is present (see :func:`_item_key_cols`).
     """
     return keep_newest(df, _item_key_cols(df, item_col)).reset_index(drop=True)
 
@@ -727,13 +760,21 @@ def select_preferred_view(
 ) -> pd.DataFrame:
     """Build the preferred annotation view from a multi-version frame.
 
-    Rows of ``preferred_version`` take precedence per item; items not covered by
-    the preferred version fall back to their most recent annotation from any
-    other version, so coverage never drops when a version is promoted. "Most
-    recent" is by annotation time, not by row position (see
-    :func:`newest_row_mask`), within the preferred version and in the fallback
-    alike. Items are keyed composite ``(source_platform, item_col)`` when the
-    platform column is present (see :func:`_item_key_cols`).
+    Per item, in this order (see :func:`newest_row_mask`):
+
+    1. its successful annotation under ``preferred_version``;
+    2. otherwise its most recent successful annotation under another version,
+       so coverage never drops when a version is promoted;
+    3. only when every annotation of the item failed: the failed row of the
+       preferred version if there is one, else the most recent failed row.
+
+    A FAILED row of the preferred version therefore does not count as the
+    item's preferred annotation: it carries no answers, and showing it would
+    hide a successful annotation of the same video under another version.
+    "Successful" is ``annotated_ok``; a frame without that column is read as
+    all successful. "Most recent" is by annotation time, not by row position.
+    Items are keyed composite ``(source_platform, item_col)`` when the platform
+    column is present (see :func:`_item_key_cols`).
 
     Args:
         df: A frame containing ``item_col`` and ``version_col``.
@@ -742,22 +783,14 @@ def select_preferred_view(
         version_col: The version column.
 
     Returns:
-        One row per item: the preferred version where available, else the most
-        recent annotation from another version.
+        One row per item, the preferred version's rows first.
     """
     key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
         return keep_newest(df, key_cols).reset_index(drop=True)
-    preferred_rows = keep_newest(df[df[version_col] == preferred_version], key_cols)
-    if len(key_cols) == 1:
-        covered_mask = df[item_col].isin(set(preferred_rows[item_col]))
-    else:
-        covered = set(map(tuple, preferred_rows[key_cols].itertuples(index=False)))
-        covered_mask = pd.Series(
-            list(map(tuple, df[key_cols].itertuples(index=False))), index=df.index
-        ).isin(covered)
-    fallback = keep_newest(df[~covered_mask], key_cols)
-    combined = pd.concat([preferred_rows, fallback], ignore_index=True)
+    is_preferred = (df[version_col] == preferred_version).fillna(False).to_numpy(dtype=bool)
+    mask = newest_row_mask(df, key_cols, prefer=is_preferred)
+    combined = pd.concat([df[mask & is_preferred], df[mask & ~is_preferred]], ignore_index=True)
     return combined.reset_index(drop=True)
 
 
@@ -769,10 +802,11 @@ def select_version_view(
 ) -> pd.DataFrame:
     """Build a strict single-version view (for a version-pinned study).
 
-    Only rows of ``version`` are kept (the most recent per item, composite-keyed
-    when ``source_platform`` is present). Used when a study is pinned to a
-    specific annotation version for reproducibility; coverage is intentionally
-    limited to items annotated under that version.
+    Only rows of ``version`` are kept (per item a successful annotation before
+    a failed one, then the most recent; composite-keyed when
+    ``source_platform`` is present). Used when a study is pinned to a specific
+    annotation version for reproducibility; coverage is intentionally limited
+    to items annotated under that version.
     """
     key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:

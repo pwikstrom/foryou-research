@@ -278,6 +278,127 @@ def test_newest_row_is_kept_within_a_version() -> None:
     assert av.select_preferred_view(df, "vA").iloc[0]["val"] == "rerun"
 
 
+# ---------------------------------------------------------------------------
+# A failed annotation never hides a successful one (annotated_ok)
+# ---------------------------------------------------------------------------
+
+
+def _row(item, version, ts, ok, val) -> dict:
+    return {
+        "item_id": item,
+        "annotation_version": version,
+        "inference_ts": ts,
+        "annotated_ok": ok,
+        "val": val,
+    }
+
+
+def _failed_rerun_df() -> pd.DataFrame:
+    """i1: a good legacy annotation, then a FAILED re-annotation under vNew —
+    the failed row is the newest, which is what made the time rule alone show it.
+    i2: every annotation failed. i3: one good annotation."""
+    return pd.DataFrame(
+        [
+            _row("i1", "v0_legacy", None, True, "i1-good-legacy"),
+            _row("i1", "vNew", 900, False, "i1-failed-new"),
+            _row("i2", "vOld", 100, False, "i2-failed-old"),
+            _row("i2", "vNew", 800, False, "i2-failed-new"),
+            _row("i3", "vNew", 700, True, "i3-good"),
+        ]
+    )
+
+
+def test_old_successful_annotation_beats_a_newer_failed_one() -> None:
+    expected = {"i1": "i1-good-legacy", "i2": "i2-failed-new", "i3": "i3-good"}
+    latest = av.select_latest_view(_failed_rerun_df())
+    assert dict(zip(latest["item_id"], latest["val"])) == expected
+    # The same in the fallback of a preferred view (no item has a vPref row).
+    fallback = av.select_preferred_view(_failed_rerun_df(), "vPref")
+    assert dict(zip(fallback["item_id"], fallback["val"])) == expected
+
+
+def test_only_failed_rows_show_the_newest_failed_row() -> None:
+    df = _failed_rerun_df()
+    only_failed = df[df["item_id"] == "i2"]
+    assert av.select_latest_view(only_failed)["val"].tolist() == ["i2-failed-new"]
+    assert av.select_preferred_view(only_failed, "vPref")["val"].tolist() == ["i2-failed-new"]
+    # Row order does not matter for either case.
+    reversed_latest = av.select_latest_view(df.iloc[::-1])
+    assert dict(zip(reversed_latest["item_id"], reversed_latest["val"]))["i2"] == "i2-failed-new"
+    assert dict(zip(reversed_latest["item_id"], reversed_latest["val"]))["i1"] == "i1-good-legacy"
+
+
+def test_frame_without_annotated_ok_keeps_the_time_rule() -> None:
+    """No annotated_ok column: nothing is known to have failed, newest row wins."""
+    df = _failed_rerun_df().drop(columns=["annotated_ok"])
+    latest = av.select_latest_view(df)
+    assert dict(zip(latest["item_id"], latest["val"])) == {
+        "i1": "i1-failed-new",
+        "i2": "i2-failed-new",
+        "i3": "i3-good",
+    }
+    fallback = av.select_preferred_view(df, "vPref")
+    assert dict(zip(fallback["item_id"], fallback["val"]))["i1"] == "i1-failed-new"
+
+
+def test_failed_preferred_row_does_not_hide_a_successful_other_version() -> None:
+    df = pd.DataFrame(
+        [
+            # i1: the preferred version failed; an older version succeeded.
+            _row("i1", "vOld", 100, True, "i1-good-old"),
+            _row("i1", "vPref", 900, False, "i1-failed-pref"),
+            # i2: the preferred version succeeded; a newer other version also did.
+            _row("i2", "vPref", 100, True, "i2-good-pref"),
+            _row("i2", "vNew", 900, True, "i2-good-new"),
+            # i3: everything failed; the preferred version's failed row is shown.
+            _row("i3", "vPref", 100, False, "i3-failed-pref"),
+            _row("i3", "vNew", 900, False, "i3-failed-new"),
+            # i4: preferred version failed once and succeeded once (older).
+            _row("i4", "vPref", 100, True, "i4-good-pref"),
+            _row("i4", "vPref", 900, False, "i4-failed-pref-rerun"),
+        ]
+    )
+    out = av.select_preferred_view(df, "vPref")
+    assert dict(zip(out["item_id"], out["val"])) == {
+        "i1": "i1-good-old",
+        "i2": "i2-good-pref",
+        "i3": "i3-failed-pref",
+        "i4": "i4-good-pref",
+    }
+    # Preferred-version rows still come first in the result.
+    assert out["annotation_version"].tolist()[:3] == ["vPref"] * 3
+
+    # A pinned study and the per-version archive keep a version's successful
+    # annotation over its failed re-run.
+    assert av.select_version_view(df, "vPref").set_index("item_id")["val"].to_dict() == {
+        "i1": "i1-failed-pref",
+        "i2": "i2-good-pref",
+        "i3": "i3-failed-pref",
+        "i4": "i4-good-pref",
+    }
+    per_version = av.keep_newest(df, ["item_id", "annotation_version"])
+    assert "i4-failed-pref-rerun" not in per_version["val"].tolist()
+    assert len(per_version) == 7
+
+
+def test_missing_annotated_ok_value_is_not_treated_as_failed() -> None:
+    df = pd.DataFrame(
+        {
+            "item_id": pd.array(["i1", "i1", "i2", "i2"], dtype="string[pyarrow]"),
+            "annotation_version": ["vA", "vB", "vA", "vB"],
+            "inference_ts": pd.array([100, 900, 100, 900], dtype="int64[pyarrow]"),
+            "annotated_ok": pd.array([True, None, True, False], dtype="bool[pyarrow]"),
+            "val": ["i1-ok", "i1-unknown-newer", "i2-ok", "i2-failed-newer"],
+        }
+    )
+    out = av.select_latest_view(df)
+    assert dict(zip(out["item_id"], out["val"])) == {"i1": "i1-unknown-newer", "i2": "i2-ok"}
+
+
+def test_view_rule_name_says_successful_first() -> None:
+    assert av.VIEW_RULE == "successful_then_newest_inference_ts"
+
+
 def test_newest_row_mask_handles_stored_dtypes_and_keeps_frame_order() -> None:
     # The archive stores inference_ts as a nullable pyarrow integer.
     df = pd.DataFrame(

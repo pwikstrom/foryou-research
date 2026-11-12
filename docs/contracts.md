@@ -229,23 +229,36 @@ under the new `av_` version → inspect/compare → promote → analysis follows
 version), and the dataset studies read holds one row per video, chosen in
 this order:
 
-1. the video's annotation under the **preferred** version, if it has one;
-2. otherwise its most recent annotation under any other version, so
-   promoting a version never removes a video from a study;
-3. with no preferred version at all, its most recent annotation.
+1. the video's successful annotation under the **preferred** version, if it
+   has one;
+2. otherwise its most recent successful annotation under any other version,
+   so promoting a version never removes a video from a study;
+3. with no preferred version at all, its most recent successful annotation;
+4. only when every annotation of the video failed: the failed row of the
+   preferred version if there is one, otherwise the most recent failed row.
+
+A successful annotation is one with `annotated_ok` true. A failed annotation
+has no answers, so it never stands in for a successful one, however recent
+it is. That includes a failed row of the preferred version: it does not
+count as the video's preferred annotation, and the video shows its most
+recent successful annotation from another version. (A row whose
+`annotated_ok` is missing is not known to have failed and is treated as
+successful; data without the column at all is read by time alone.)
 
 "Most recent" means the largest `inference_ts` (the time of the model call,
 in epoch seconds), not the position of the row in a file. An annotation
 without a timestamp (the legacy ones) counts as older than any annotation
-with one, and row order only settles ties. The same choice is made within a
-version when a video was annotated twice under it, and for a study pinned to
-one version (`annotation_versioning.newest_row_mask()`, used by
-`select_preferred_view()`, `select_latest_view()` and `select_version_view()`).
-The consolidation ledger records the rule's name (`view_rule`); a dataset
-consolidated under the earlier rule, which took the last row in file order,
-is rebuilt once at the next consolidation, and the videos whose annotation
-changed are reported as changed so that studies and everything after them
-refresh.
+with one, and row order only settles ties. The same choice, successful first
+and then most recent, is made within a version when a video was annotated
+twice under it, and for a study pinned to one version
+(`annotation_versioning.newest_row_mask()`, used by `select_preferred_view()`,
+`select_latest_view()` and `select_version_view()`). The consolidation ledger
+records the rule's name (`view_rule`, now
+`successful_then_newest_inference_ts`); a dataset consolidated under an
+earlier rule (the last row in file order, or the most recent row whether or
+not it had failed) is rebuilt once at the next consolidation, and the videos
+whose annotation changed are reported as changed so that studies and
+everything after them refresh.
 
 **Versions on test runs and human validation.** A test run (Admin →
 Contracts) annotates a fixed set of videos without touching the research
