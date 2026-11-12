@@ -224,6 +224,30 @@ run manifests, displayed as "active contract" (see
 The intended lifecycle is therefore: upload contract → new annotations accrue
 under the new `av_` version → inspect/compare → promote → analysis follows.
 
+**Which annotation a study reads for a video.** Every annotation is kept
+(`machine_annotations_all_versions.parquet` holds one row per video and
+version), and the dataset studies read holds one row per video, chosen in
+this order:
+
+1. the video's annotation under the **preferred** version, if it has one;
+2. otherwise its most recent annotation under any other version, so
+   promoting a version never removes a video from a study;
+3. with no preferred version at all, its most recent annotation.
+
+"Most recent" means the largest `inference_ts` (the time of the model call,
+in epoch seconds), not the position of the row in a file. An annotation
+without a timestamp (the legacy ones) counts as older than any annotation
+with one, and row order only settles ties. The same choice is made within a
+version when a video was annotated twice under it, and for a study pinned to
+one version (`annotation_versioning.newest_row_mask()`, used by
+`select_preferred_view()`, `select_latest_view()` and `select_version_view()`).
+The consolidation ledger records the rule's name (`view_rule`); a dataset
+consolidated under the earlier rule, which took the last row in file order,
+is rebuilt once at the next consolidation, and the videos whose annotation
+changed are reported as changed so that studies and everything after them
+refresh.
+
+
 ## The read-only contracts and the Data Contracts page
 
 Admin → Data Contracts (`web_interface/routes/management/data_contracts.py`,

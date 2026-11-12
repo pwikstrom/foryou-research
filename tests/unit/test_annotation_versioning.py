@@ -198,6 +198,105 @@ def test_select_view_without_version_column_falls_back_to_latest() -> None:
     assert out.iloc[0]["val"] == "y"
 
 
+# ---------------------------------------------------------------------------
+# "latest" means the most recent annotation (inference_ts), not the last row
+# ---------------------------------------------------------------------------
+
+
+def _timed_df() -> pd.DataFrame:
+    """i1's newest annotation (vNew, ts 300) sits BEFORE its older rows in the
+    frame — the order the October 2026 freeze found, where the legacy row came
+    last and was the one studies read."""
+    return pd.DataFrame(
+        [
+            {"item_id": "i1", "annotation_version": "vNew", "inference_ts": 300, "val": "new"},
+            {"item_id": "i1", "annotation_version": "vMid", "inference_ts": 200, "val": "mid"},
+            {
+                "item_id": "i1",
+                "annotation_version": "v0_legacy",
+                "inference_ts": None,
+                "val": "old",
+            },
+            {"item_id": "i2", "annotation_version": "vPref", "inference_ts": 100, "val": "pref"},
+            {"item_id": "i2", "annotation_version": "vNew", "inference_ts": 300, "val": "new2"},
+        ]
+    )
+
+
+def test_fallback_reads_the_newest_annotation_not_the_last_row() -> None:
+    out = av.select_preferred_view(_timed_df(), "vPref")
+    got = dict(zip(out["item_id"], out["val"]))
+    # i1 has no vPref row: it falls back to its newest annotation, although the
+    # legacy row is last in the frame. i2 keeps the preferred version even
+    # though a newer annotation exists.
+    assert got == {"i1": "new", "i2": "pref"}
+
+
+def test_no_preferred_version_reads_the_newest_annotation() -> None:
+    out = av.select_latest_view(_timed_df())
+    assert dict(zip(out["item_id"], out["val"])) == {"i1": "new", "i2": "new2"}
+
+
+def test_rows_without_a_timestamp_sort_oldest() -> None:
+    df = pd.DataFrame(
+        [
+            {"item_id": "i1", "annotation_version": "vA", "inference_ts": 5, "val": "timed"},
+            {
+                "item_id": "i1",
+                "annotation_version": "v0_legacy",
+                "inference_ts": None,
+                "val": "bare",
+            },
+        ]
+    )
+    assert av.select_latest_view(df).iloc[0]["val"] == "timed"
+    assert av.select_preferred_view(df, "vOther").iloc[0]["val"] == "timed"
+
+
+def test_timestamp_ties_keep_the_last_row() -> None:
+    same_ts = pd.DataFrame(
+        [
+            {"item_id": "i1", "annotation_version": "vA", "inference_ts": 7, "val": "first"},
+            {"item_id": "i1", "annotation_version": "vB", "inference_ts": 7, "val": "last"},
+        ]
+    )
+    no_ts = same_ts.assign(inference_ts=None)
+    for df in (same_ts, no_ts):
+        assert av.select_latest_view(df).iloc[0]["val"] == "last"
+        assert av.select_preferred_view(df, "vOther").iloc[0]["val"] == "last"
+
+
+def test_newest_row_is_kept_within_a_version() -> None:
+    df = pd.DataFrame(
+        [
+            {"item_id": "i1", "annotation_version": "vA", "inference_ts": 900, "val": "rerun"},
+            {"item_id": "i1", "annotation_version": "vA", "inference_ts": 100, "val": "first-run"},
+            {"item_id": "i1", "annotation_version": "vB", "inference_ts": 950, "val": "other"},
+        ]
+    )
+    assert av.select_version_view(df, "vA").iloc[0]["val"] == "rerun"
+    assert av.select_preferred_view(df, "vA").iloc[0]["val"] == "rerun"
+
+
+def test_newest_row_mask_handles_stored_dtypes_and_keeps_frame_order() -> None:
+    # The archive stores inference_ts as a nullable pyarrow integer.
+    df = pd.DataFrame(
+        {
+            "source_platform": pd.array(["tiktok"] * 4, dtype="string[pyarrow]"),
+            "item_id": pd.array(["b", "a", "b", "a"], dtype="string[pyarrow]"),
+            "inference_ts": pd.array([20, None, 10, 5], dtype="int64[pyarrow]"),
+            "val": ["b-new", "a-bare", "b-old", "a-timed"],
+        }
+    )
+    mask = av.newest_row_mask(df, ["source_platform", "item_id"])
+    assert mask.tolist() == [True, False, False, True]
+    assert av.keep_newest(df, ["source_platform", "item_id"])["val"].tolist() == [
+        "b-new",
+        "a-timed",
+    ]
+    assert av.newest_row_mask(df.iloc[0:0], ["item_id"]).tolist() == []
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failures = 0

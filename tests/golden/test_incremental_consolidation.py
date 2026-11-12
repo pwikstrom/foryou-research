@@ -99,7 +99,13 @@ def _save_seed_file(filename: str, rows: list[dict]) -> None:
     data_io.save_parquet(df=df, storage_location="recoded", filename=filename)
 
 
-def _save_refined(filename: str, item_ids, version: str, story: str = "Human-Interest") -> None:
+def _save_refined(
+    filename: str,
+    item_ids,
+    version: str,
+    story: str = "Human-Interest",
+    inference_ts: int | None = None,
+) -> None:
     df = pd.DataFrame(
         {
             "item_id": [str(i) for i in item_ids],
@@ -109,6 +115,8 @@ def _save_refined(filename: str, item_ids, version: str, story: str = "Human-Int
             "annotated_fail": [False] * len(item_ids),
         }
     )
+    if inference_ts is not None:
+        df["inference_ts"] = pd.array([inference_ts] * len(item_ids), dtype="int64[pyarrow]")
     data_io.save_parquet(df=df, storage_location="machine_annotations_refined", filename=filename)
 
 
@@ -384,6 +392,114 @@ def test_annotation_fold_view_matches_full_when_no_promotion() -> None:
         )
 
 
+def test_annotation_view_reads_newest_annotation_not_latest_file() -> None:
+    """File order and annotation time disagree: the view follows the time.
+
+    ``a`` sorts first but holds the newer annotations; ``b`` and ``c`` sort
+    later and hold older ones (``c`` with no timestamp at all, like a legacy
+    file). Read by file order, i1 and i2 would show the older annotation.
+    """
+    with _isolated():
+        _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v2", inference_ts=2000)
+        _save_refined("machine_annotations_b.parquet", ["i1", "i3"], "v1", inference_ts=1000)
+        ok, view1, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok
+        by_item = dict(zip(view1["item_id"].astype(str), view1["annotation_version"]))
+        assert by_item == {"i1": "v2", "i2": "v2", "i3": "v1"}
+
+        # The fold: a late-arriving legacy file (no timestamp) for i2, and an
+        # older re-run of i1 under v2 itself.
+        _save_refined("machine_annotations_c.parquet", ["i2"], av.LEGACY_VERSION)
+        _save_refined(
+            "machine_annotations_d.parquet", ["i1"], "v2", story="Issue-Based", inference_ts=1500
+        )
+        ok, folded_view, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok and ids == {"i1", "i2"}
+        by_item = dict(zip(folded_view["item_id"].astype(str), folded_view["annotation_version"]))
+        assert by_item == {"i1": "v2", "i2": "v2", "i3": "v1"}
+        story = dict(zip(folded_view["item_id"].astype(str), folded_view["type_of_story"]))
+        assert story["i1"] != "Issue-Based"  # the ts-2000 row, not the later file's
+
+        # Promoting v1 keeps the time-based fallback for items v1 lacks.
+        for version in ("v1", "v2"):
+            av.register_version(
+                descriptor={"annotation_version": version, "label": version},
+                prompt_text=version,
+                schema_json=None,
+            )
+        av.promote_version("v1")
+        n = annotation_refinement.rebuild_preferred_annotations_from_archive()
+        promoted = data_io.load_parquet(storage_location="recoded", filename=_ANNO_RECODED)
+        by_item = dict(zip(promoted["item_id"].astype(str), promoted["annotation_version"]))
+        assert n == 3 and by_item == {"i1": "v1", "i2": "v2", "i3": "v1"}
+
+        folded_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
+        ok, full_view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            force_consolidation=True
+        )
+        full_archive = data_io.load_parquet(storage_location="recoded", filename=_ARCHIVE_FN)
+        _assert_frames_equal(
+            promoted, full_view, ["source_platform", "item_id"], "time-ordered view fold-vs-full"
+        )
+        _assert_frames_equal(
+            folded_archive,
+            full_archive,
+            ["source_platform", "item_id", "annotation_version"],
+            "time-ordered archive fold-vs-full",
+        )
+
+
+def test_annotation_view_rule_change_rebuilds_once() -> None:
+    """A dataset consolidated under the old row-order rule is rebuilt once.
+
+    The stored view and ledger are put in the state the earlier code left:
+    i1 reading its legacy row (last in file order) and no ``view_rule`` in the
+    ledger. With no new files at all, the next consolidation re-derives the
+    view, reports i1 as changed, and records the rule; the one after is quiet.
+    """
+    with _isolated():
+        _save_refined("machine_annotations_a.parquet", ["i1", "i2"], "v2", inference_ts=2000)
+        _save_refined("machine_annotations_b.parquet", ["i1"], av.LEGACY_VERSION)
+        ok, view, _ = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True
+        )
+        assert ok
+
+        stale = view.copy()
+        stale.loc[stale["item_id"].astype(str) == "i1", "annotation_version"] = av.LEGACY_VERSION
+        stale.loc[stale["item_id"].astype(str) == "i1", "inference_ts"] = pd.NA
+        data_io.save_parquet(df=stale, storage_location="recoded", filename=_ANNO_RECODED)
+        ledger = data_io.load_json(storage_location="recoded", filename=_LEDGER)
+        assert ledger[ma.MACHINE_ANNOTATIONS_LABEL]["view_rule"] == av.VIEW_RULE
+        del ledger[ma.MACHINE_ANNOTATIONS_LABEL]["view_rule"]
+        data_io.save_json(data=ledger, storage_location="recoded", filename=_LEDGER)
+
+        calls = []
+        orig_fold = annotation_refinement._fold_annotation_batch
+        annotation_refinement._fold_annotation_batch = lambda **k: calls.append(1) or orig_fold(**k)
+        try:
+            ok, rebuilt, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+                incremental=True, return_saved_data=False
+            )
+        finally:
+            annotation_refinement._fold_annotation_batch = orig_fold
+        assert ok and not calls, "an outdated view rule must take the full path"
+        assert ids == {"i1"}, f"changed ids: {ids}"
+        by_item = dict(zip(rebuilt["item_id"].astype(str), rebuilt["annotation_version"]))
+        assert by_item == {"i1": "v2", "i2": "v2"}
+        ledger = data_io.load_json(storage_location="recoded", filename=_LEDGER)
+        assert ledger[ma.MACHINE_ANNOTATIONS_LABEL]["view_rule"] == av.VIEW_RULE
+
+        ok, frame, ids = annotation_refinement.consolidate_and_save_refined_annotations(
+            incremental=True, return_saved_data=False
+        )
+        assert not ok and frame is None and ids == set()
+
+
 # ---------------------------------------------------------------------------
 # Status patch
 # ---------------------------------------------------------------------------
@@ -482,6 +598,8 @@ _TESTS = [
     test_dry_run_persists_nothing,
     test_annotation_fold_equals_full_rebuild_with_promotion,
     test_annotation_fold_view_matches_full_when_no_promotion,
+    test_annotation_view_reads_newest_annotation_not_latest_file,
+    test_annotation_view_rule_change_rebuilds_once,
     test_status_patch_equals_full_rebuild,
 ]
 

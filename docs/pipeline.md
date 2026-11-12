@@ -774,7 +774,9 @@ reuses the full rebuild's normalize/dedupe/seed/preferred-view transforms
 verbatim, and declines to the unchanged full path whenever equality cannot
 be proven: a forced run, a scrape-contract bump, a value-column-set change,
 an annotation-version promotion since the last run (recorded in the
-ledger), or a missing archive/marker. Donated seed rows carry an
+ledger), a change of the rule that picks each video's annotation (the
+ledger's `view_rule`; the annotation lane then runs the full path once even
+with no new files), or a missing archive/marker. Donated seed rows carry an
 `is_enrichment_seed` provenance column so the fold can evict and re-derive
 them against the current seed files. A weekly shadow verification
 (`consolidate_enrichment` with `verify_consolidation`, self-scheduled from

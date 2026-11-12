@@ -73,6 +73,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A video without the preferred version now shows its most recent
+  annotation.** When a video had several annotations and none under the
+  preferred version (or no version was preferred at all), studies read the
+  one that came last in file order, which was not always the newest: a video
+  could show a legacy annotation although a newer one existed. The choice is
+  now made by annotation time (`inference_ts`); an annotation without a
+  timestamp counts as the oldest, and file order only settles ties. The same
+  rule applies within a version, to a study pinned to one version, and after
+  promoting a version. **After upgrading, the next consolidation rebuilds the
+  annotation dataset once, even with no new annotations, and every study's
+  cached dataset is refreshed after it. Some videos will change which
+  annotation they show, and results that include them can move.** The videos
+  affected are reported as changed, so downstream refreshes cover them.
 - **Reliability Control can set up human coding on a single-contract test
   run.** The variable list was read off the run's contract-against-contract
   comparisons, and a run with one contract has none, so the list stayed empty

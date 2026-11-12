@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 
+import numpy as np
 import pandas as pd
 
 from fyp.core.logging_setup import get_logger
@@ -56,6 +57,13 @@ def _data_io():
 REGISTRY_FILENAME = "annotation_versions.json"
 REGISTRY_LOCATION = "recoded"
 LEGACY_VERSION = "v0_legacy"
+
+# When an item has several candidate rows, every view keeps the one annotated
+# most recently: the largest ``inference_ts`` (epoch seconds). The rule's name
+# is recorded in the consolidation ledger, so a dataset consolidated under an
+# earlier rule (the last row in file order) is rebuilt once.
+INFERENCE_TS_COL = "inference_ts"
+VIEW_RULE = "newest_inference_ts"
 
 # The file-based prompt that predates the declarative-contract / generated-prompt
 # system. Go-forward annotations use the generated contract prompt, so this file
@@ -591,6 +599,57 @@ def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
     return [item_col]
 
 
+def newest_row_mask(
+    df: pd.DataFrame, key_cols: list[str], ts_col: str = INFERENCE_TS_COL
+) -> np.ndarray:
+    """Mark, per key, the row that was annotated most recently.
+
+    The newest row is the one with the largest ``ts_col`` (epoch seconds). A
+    row without a timestamp counts as older than any row with one, and rows
+    that tie (same timestamp, or none at all) resolve to the one that comes
+    last in the frame, which is also what happens when the frame has no
+    timestamp column. The frame is not reordered.
+
+    Args:
+        df: The annotation rows.
+        key_cols: The columns identifying what there should be one row of.
+        ts_col: The annotation-time column.
+
+    Returns:
+        A boolean array over ``df``'s rows, True for the row kept per key.
+    """
+    if df.empty:
+        return np.zeros(0, dtype=bool)
+    if ts_col not in df.columns:
+        return ~df.duplicated(subset=key_cols, keep="last").to_numpy()
+    stamps = pd.to_numeric(df[ts_col], errors="coerce").to_numpy(dtype="float64", na_value=np.nan)
+    stamps = np.where(np.isnan(stamps), -np.inf, stamps)
+    # Oldest first; a stable sort keeps tied rows in frame order, so "last of
+    # the sorted rows" is the newest and, among equals, the last in the frame.
+    order = np.argsort(stamps, kind="stable")
+    duplicate = df[key_cols].iloc[order].duplicated(keep="last").to_numpy()
+    mask = np.empty(len(df), dtype=bool)
+    mask[order] = ~duplicate
+    return mask
+
+
+def keep_newest(
+    df: pd.DataFrame, key_cols: list[str], ts_col: str = INFERENCE_TS_COL
+) -> pd.DataFrame:
+    """Return one row per key: the most recently annotated (see :func:`newest_row_mask`)."""
+    return df[newest_row_mask(df, key_cols, ts_col)]
+
+
+def select_latest_view(df: pd.DataFrame, item_col: str = "item_id") -> pd.DataFrame:
+    """Build the view studies read when no version is preferred.
+
+    One row per item: its most recent annotation, whichever version made it.
+    Items are keyed composite ``(source_platform, item_col)`` when the platform
+    column is present (see :func:`_item_key_cols`).
+    """
+    return keep_newest(df, _item_key_cols(df, item_col)).reset_index(drop=True)
+
+
 def select_preferred_view(
     df: pd.DataFrame,
     preferred_version: str,
@@ -600,10 +659,12 @@ def select_preferred_view(
     """Build the preferred annotation view from a multi-version frame.
 
     Rows of ``preferred_version`` take precedence per item; items not covered by
-    the preferred version fall back to their latest row from any other version, so
-    coverage never drops when a version is promoted. Within a version the last
-    row per item is kept. Items are keyed composite ``(source_platform,
-    item_col)`` when the platform column is present (see :func:`_item_key_cols`).
+    the preferred version fall back to their most recent annotation from any
+    other version, so coverage never drops when a version is promoted. "Most
+    recent" is by annotation time, not by row position (see
+    :func:`newest_row_mask`), within the preferred version and in the fallback
+    alike. Items are keyed composite ``(source_platform, item_col)`` when the
+    platform column is present (see :func:`_item_key_cols`).
 
     Args:
         df: A frame containing ``item_col`` and ``version_col``.
@@ -612,15 +673,13 @@ def select_preferred_view(
         version_col: The version column.
 
     Returns:
-        One row per item: the preferred version where available, else the latest
-        other version.
+        One row per item: the preferred version where available, else the most
+        recent annotation from another version.
     """
     key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
-        return df.drop_duplicates(subset=key_cols, keep="last").reset_index(drop=True)
-    preferred_rows = df[df[version_col] == preferred_version].drop_duplicates(
-        subset=key_cols, keep="last"
-    )
+        return keep_newest(df, key_cols).reset_index(drop=True)
+    preferred_rows = keep_newest(df[df[version_col] == preferred_version], key_cols)
     if len(key_cols) == 1:
         covered_mask = df[item_col].isin(set(preferred_rows[item_col]))
     else:
@@ -628,7 +687,7 @@ def select_preferred_view(
         covered_mask = pd.Series(
             list(map(tuple, df[key_cols].itertuples(index=False))), index=df.index
         ).isin(covered)
-    fallback = df[~covered_mask].drop_duplicates(subset=key_cols, keep="last")
+    fallback = keep_newest(df[~covered_mask], key_cols)
     combined = pd.concat([preferred_rows, fallback], ignore_index=True)
     return combined.reset_index(drop=True)
 
@@ -641,16 +700,15 @@ def select_version_view(
 ) -> pd.DataFrame:
     """Build a strict single-version view (for a version-pinned study).
 
-    Only rows of ``version`` are kept (latest per item, composite-keyed when
-    ``source_platform`` is present). Used when a study is pinned to a specific
-    annotation version for reproducibility; coverage is intentionally limited
-    to items annotated under that version.
+    Only rows of ``version`` are kept (the most recent per item, composite-keyed
+    when ``source_platform`` is present). Used when a study is pinned to a
+    specific annotation version for reproducibility; coverage is intentionally
+    limited to items annotated under that version.
     """
     key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
-        return df.drop_duplicates(subset=key_cols, keep="last").reset_index(drop=True)
-    rows = df[df[version_col] == version].drop_duplicates(subset=key_cols, keep="last")
-    return rows.reset_index(drop=True)
+        return keep_newest(df, key_cols).reset_index(drop=True)
+    return keep_newest(df[df[version_col] == version], key_cols).reset_index(drop=True)
 
 
 def ensure_active_version_registered() -> str:
