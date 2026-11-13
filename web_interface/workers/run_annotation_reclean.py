@@ -21,11 +21,12 @@ import time
 from web_interface.tasks import worker_registry
 from web_interface.tasks.task_status import TaskStatusReporter
 
-# How long one link keeps starting new files. The largest raw files (60 to
-# 80 MB) took over six minutes each on a laptop core, and the file in flight
-# when the budget runs out still finishes, so this leaves a wide margin under
-# the 1800 s dispatch deadline.
-LINK_BUDGET_SECONDS = 600
+# How long one link keeps starting new files. The file in flight when the
+# budget runs out still finishes, and the largest legacy raw files (60 to
+# 80 MB, about 10,000 answers) took 7 to 13 minutes each on a busy laptop
+# core. A short budget keeps budget plus one such file well under the 1800 s
+# dispatch deadline even on a slower machine.
+LINK_BUDGET_SECONDS = 300
 
 
 def run_annotation_reclean(reporter: TaskStatusReporter, task_args: dict | None = None):

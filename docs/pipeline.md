@@ -836,7 +836,8 @@ that hold legacy-version annotations unless told otherwise.
   and a running real run blocks consolidation like an annotator does.
 - Speed: the old raw files go through the lenient JSON reader, about 20
   answers a second on one core, so 280,000 answers are roughly four hours of
-  work, spread over 10-minute task links. One file is in memory at a time.
+  work, spread over 5-minute task links (the largest files alone take 7 to
+  13 minutes). One file is in memory at a time.
 
 **Scrape → annotate handoff for participant first batches.** A
 participant's prioritised first batch is queued to the *scrape* queue only,
