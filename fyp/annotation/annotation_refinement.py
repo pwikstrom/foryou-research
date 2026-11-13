@@ -216,8 +216,17 @@ def clean_up_machine_annotations(some_events, verbose=False):
 
 
 def refine_one_raw_annotation_batch(
-    raw_outputs_from_machine=None, raw_json_filename=None, verbose=False, notebook_mode=False
+    raw_outputs_from_machine=None,
+    raw_json_filename=None,
+    verbose=False,
+    notebook_mode=False,
+    save=True,
 ):
+    """Turn one raw annotation file into refined rows, and save them.
+
+    ``save=False`` returns the refined rows without writing the refined
+    parquet: the re-clean's dry run compares them with what is stored.
+    """
 
     if notebook_mode:
         verbose = True
@@ -251,6 +260,14 @@ def refine_one_raw_annotation_batch(
         )
         logger.warning("Consider deleting this raw file from the raw_annotations folder.")
         return None
+
+    # Raw files written before April 2026 hold the video id as a number. The
+    # recode below keeps only text in a text column and turned such ids into
+    # empty strings, which also lost each row's version and timestamp (both
+    # are attached by id further down). Ids are text from here on.
+    outputs_from_machine_df["item_id"] = outputs_from_machine_df["item_id"].map(
+        lambda value: value if pd.isna(value) else str(value)
+    )
 
     # ---------------------------------------------------------------
     # 2. Consolidate rare columns
@@ -346,6 +363,9 @@ def refine_one_raw_annotation_batch(
 
     if verbose:
         logger.info("Ready to save processed results")
+
+    if not save:
+        return outputs_from_machine_df
 
     parquet_filename = raw_json_filename.replace(".json", ".parquet")
 

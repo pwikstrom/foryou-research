@@ -132,6 +132,15 @@ public version. Entries below describe the Hub as it stands at that release.
   one. A version's failed re-run also no longer replaces that version's
   successful annotation in the archive. Part of the same one-time rebuild as
   the entry above.
+- **Refining an old raw annotation file no longer loses its video ids.** Raw
+  files written before April 2026 hold the video id as a number, and the
+  cleaning step turned such ids into empty text, which also dropped each
+  row's annotation time. Nothing in the stored data is affected, because
+  those files were refined when the cleaning still kept the ids; but refining
+  one of them again would have collapsed it to a single row. Ids are now kept
+  as text. The fixed-response test had the same blind spot: 100 of its 150
+  stored answers use numeric ids, so it compared 51 rows. It now compares all
+  150 and checks that it does.
 - **Test runs get the 30-minute task deadline.** They used the queue's
   default of ten minutes, which a run of 50 videos under several contracts
   can exceed; the queue delivers a task again when it has not answered by

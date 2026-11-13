@@ -66,6 +66,28 @@ def test_refinement_matches_golden() -> None:
     )
 
 
+def test_every_fixture_answer_is_compared() -> None:
+    """Each raw answer gives one refined row with its own id, version and time.
+
+    Two thirds of the fixture's answers carry the video id as a number, as raw
+    files written before April 2026 do. The recode once turned those ids into
+    empty strings; the comparison, which is keyed by id, then covered 51 of
+    the 150 rows without saying so.
+    """
+    _require_artifacts()
+    golden = pd.read_parquet(GOLDEN_PARQUET)
+    raw = load_fixture()
+    assert any(isinstance(entry["item_id"], int) for entry in raw.values())
+    with pinned_var_schema():
+        got = run_current_refinement(raw, quiet=True)
+
+    wanted = {str(entry["item_id"]) for entry in raw.values()}
+    assert set(got["item_id"].astype(str)) == wanted and len(got) == len(raw)
+    assert set(golden["item_id"].astype(str)) == wanted and len(golden) == len(raw)
+    with_time = sum(entry.get("inference_ts") is not None for entry in raw.values())
+    assert int(got["inference_ts"].notna().sum()) == with_time
+
+
 def test_refinement_is_deterministic() -> None:
     """Two refinement runs on the same input must agree.
 
@@ -86,6 +108,7 @@ def _main() -> int:
     tests = [
         test_golden_artifacts_exist,
         test_refinement_matches_golden,
+        test_every_fixture_answer_is_compared,
         test_refinement_is_deterministic,
     ]
     failures = 0
