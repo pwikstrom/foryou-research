@@ -177,6 +177,9 @@ WORKERS: dict[str, WorkerSpec] = {
             pipeline_step=True,
         ),
         _w("retokenise_hashtags", retry_safe=True),
+        # Not retry-safe: a real run replaces stored refined files, and a
+        # retried first link would start the run over. It self-chains.
+        _w("annotation_reclean", deadline=_MAX),
         _w("ab_eval", deadline=_MAX),
         _w("ops_report"),
         _w("enrichment_supervisor", retry_safe=True),

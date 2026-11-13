@@ -1424,6 +1424,105 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
     )
 
 
+@management_bp.route("/api/manage/annotation/reclean", methods=["GET"])
+@permission_required("tab.data_management.refresh")
+def annotation_reclean_status():
+    """The re-clean's last report, its progress, and whether a consolidation is owed."""
+    from fyp.annotation import annotation_reclean
+
+    state = annotation_reclean.load_state() or {}
+    pending = annotation_reclean.load_pending()
+    return jsonify(
+        {
+            "running": is_worker_running("annotation_reclean"),
+            "progress": {
+                key: state.get(key)
+                for key in (
+                    "status",
+                    "dry_run",
+                    "only_legacy",
+                    "variables",
+                    "started_at",
+                    "next_index",
+                )
+            }
+            | {"n_files": len(state.get("files") or [])},
+            "report": annotation_reclean.load_report(),
+            "consolidation_owed": pending is not None,
+            "videos_waiting_for_consolidation": len((pending or {}).get("changed_item_ids") or []),
+        }
+    )
+
+
+@management_bp.route("/api/manage/annotation/reclean", methods=["POST"])
+@permission_required("tab.data_management.refresh")
+def start_annotation_reclean():
+    """Start a re-clean of the stored annotation answers.
+
+    Body: ``{dry_run?: bool = true, variables?: [str], only_legacy?: bool =
+    true, confirm?: str}``. The default is a dry run, which compares every
+    variable and reports without writing. A real run replaces only the named
+    ``variables``; it needs ``dry_run: false``, a non-empty ``variables`` list
+    AND ``confirm: "replace stored annotations"``, and is refused while a
+    scraper, an annotator or a consolidation is running, or while an earlier
+    re-clean still waits for a consolidation.
+    """
+    from fyp.annotation import annotation_reclean
+    from fyp.core.fyp_config import fyp_cf
+
+    def _refuse(message: str, code: int):
+        return jsonify({"status": "error", "error": message}), code
+
+    body = request.get_json(silent=True) or {}
+    dry_run = body.get("dry_run") is not False
+    variables = body.get("variables") or []
+    if not isinstance(variables, list) or not all(isinstance(v, str) for v in variables):
+        return _refuse("'variables' must be a list of variable names", 400)
+    if is_worker_running("annotation_reclean"):
+        return _refuse("A re-clean is already running.", 409)
+    if not dry_run:
+        if body.get("confirm") != "replace stored annotations":
+            return _refuse('A real run needs confirm: "replace stored annotations".', 400)
+        known = set(fyp_cf["var_schema"]["variable_name"].astype(str))
+        unknown = [v for v in variables if v not in known]
+        if not variables or unknown:
+            return _refuse(
+                "A real run must name the variables to replace"
+                + (f"; unknown: {', '.join(unknown)}" if unknown else "."),
+                400,
+            )
+        blocking = [n for n in workers_blocking_consolidate() if n != "annotation_reclean"]
+        if is_worker_running("consolidate_enrichment"):
+            blocking.append("consolidate_enrichment")
+        if blocking:
+            return _refuse(f"Cannot run while {', '.join(blocking)} running.", 409)
+        if annotation_reclean.load_pending() is not None:
+            return _refuse(
+                "An earlier re-clean still waits for a consolidation; consolidate first.", 409
+            )
+    task_args = {
+        "dry_run": dry_run,
+        "only_legacy": body.get("only_legacy") is not False,
+        "variables": variables,
+        "started_by": current_actor(),
+    }
+    success, msg = start_process(
+        "annotation_reclean",
+        worker_registry.worker_module("annotation_reclean"),
+        task_args=task_args,
+        started_by=current_actor(),
+    )
+    if not success:
+        return _refuse(msg, 409)
+    activity_log.record(
+        actor=current_actor(),
+        category="admin",
+        action="annotation.reclean",
+        details={k: task_args[k] for k in ("dry_run", "only_legacy", "variables")},
+    )
+    return jsonify({"status": "started", "dry_run": dry_run, "message": msg})
+
+
 @management_bp.route("/api/manage/enrichment/consolidate", methods=["POST"])
 @permission_required("tab.data_management.refresh")
 def api_consolidate_enrichment():

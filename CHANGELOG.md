@@ -55,6 +55,31 @@ public version. Entries below describe the Hub as it stands at that release.
   saves each contract's answers every eight videos and, after 15 minutes,
   continues in a new task from where it stopped, with the contracts it
   started with. A small run still finishes in one task.
+- **Stored annotations can be re-cleaned, one variable at a time.** The
+  model's raw answers are kept, but the step that turns an answer into
+  columns runs once, when a batch is refined, so an error in that step stays
+  in the stored rows. Until 15 April 2026 the label clean-up sent the
+  content category the model wrote as "Technology, Design & Reviews" to
+  "other category", and for annotations made on 11 to 15 April nearly every
+  content category (fixed in `efe86de3`; those rows were never cleaned
+  again). The new re-clean refines raw files again with today's code and
+  compares the result with the stored rows.
+  A **dry run** (the default) reports, for every variable, how many stored
+  values would differ, with a table of old against new first content
+  category, and writes nothing but its report. A **real run** replaces only
+  the variables it is given, keeps a copy of every file it changes, and
+  leaves every other column as stored, the annotation version and annotation
+  time included: it is a re-clean, not a re-annotation. Rows today's code
+  cannot read keep their stored values. Afterwards the next consolidation
+  rebuilds the annotation dataset once and reports the changed videos, so
+  studies refresh as after any annotation change.
+  `GET` / `POST /api/manage/annotation/reclean` (a real run needs
+  `dry_run: false`, the `variables` and a confirmation phrase), or
+  `python -m web_interface.workers.run_annotation_reclean` locally. No
+  button. A long run continues by itself across background tasks. Whole rows
+  are deliberately not replaced: today's cleaning differs from the cleaning
+  of a year ago in many small ways, and the dry run is there to show them.
+  Stored rows whose raw file no longer exists cannot be re-cleaned.
 - **The methods note says which cleaning produced a study's columns.** Under
   the annotation versions, each study's Methods panel and its JSON record now
   give the fingerprint of the variable definitions and cleaning rules that

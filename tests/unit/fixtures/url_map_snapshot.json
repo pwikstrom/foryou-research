@@ -471,6 +471,20 @@
   ]
  ],
  [
+  "/api/manage/annotation/reclean",
+  "management_bp.annotation_reclean_status",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/annotation/reclean",
+  "management_bp.start_annotation_reclean",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/collection/save_annotation",
   "management_bp.save_collection_annotation",
   [

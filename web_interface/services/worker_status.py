@@ -71,6 +71,16 @@ def workers_blocking_consolidate() -> list[str]:
     for name in [*SCRAPER_PROCESS_NAMES, "queue_annotator", "queue_annotator_batch"]:
         if is_worker_running(name):
             blocking.append(name)
+    # A real re-clean replaces refined annotation files while it runs; its dry
+    # run only reads them and blocks nothing.
+    if is_worker_running("annotation_reclean"):
+        try:
+            from fyp.annotation import annotation_reclean
+
+            if not (annotation_reclean.load_state() or {}).get("dry_run", True):
+                blocking.append("annotation_reclean")
+        except Exception:
+            blocking.append("annotation_reclean")
     return blocking
 
 

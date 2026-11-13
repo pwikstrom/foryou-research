@@ -752,10 +752,23 @@ def consolidate_and_save_refined_annotations(
         and not _view_rule_is_current(dataset_meta)
     )
 
+    # A finished re-clean replaced stored refined files in place (same names,
+    # so the file list says nothing): the dataset is rebuilt from the refined
+    # files once, and the videos whose values changed join the changed set.
+    recleaned_item_ids: set[str] = set()
+    if not dry_run and files_to_concatenate:
+        from fyp.annotation import annotation_reclean
+
+        pending_reclean = annotation_reclean.load_pending()
+        if pending_reclean is not None:
+            recleaned_item_ids = {str(i) for i in pending_reclean.get("changed_item_ids") or []}
+    reclean_pending = bool(recleaned_item_ids)
+
     # if all files found in the refine folder are already registered in the dataset meta, then no need to consolidate
     if (
         not force_consolidation
         and not (view_rule_outdated and not dry_run)
+        and not reclean_pending
         and set(files_to_concatenate) <= set(latest_filename_list)
     ):
         if top_verbose:
@@ -812,6 +825,11 @@ def consolidate_and_save_refined_annotations(
                 f"{current_preferred!r} but the previous consolidation was built under "
                 f"{latest_preferred!r} — every item's view must be re-derived. The ledger "
                 "now records the current version, so the next batch can fold."
+            )
+        elif reclean_pending:
+            logger.info(
+                "[CONSOLIDATE] annotation full rebuild: a re-clean replaced stored refined "
+                f"files; {len(recleaned_item_ids):,} video(s) changed values."
             )
         elif view_rule_outdated:
             recorded_rule = dataset_meta.get("machine_annotations", {}).get("view_rule")
@@ -915,6 +933,8 @@ def consolidate_and_save_refined_annotations(
             logger.info(
                 f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s)."
             )
+        # Videos a re-clean changed are in no new file either.
+        new_item_ids |= recleaned_item_ids
         if view_rule_outdated and not dry_run:
             # The rule change moves items that are in no new file; downstream
             # refreshes are scoped by this set, so they have to be in it.
@@ -976,6 +996,11 @@ def consolidate_and_save_refined_annotations(
             storage_location="recoded",
             filename="consolidated_enrichment_files.json",
         )
+        if reclean_pending:
+            # Only now: a crash before the ledger is saved replays the rebuild.
+            from fyp.annotation import annotation_reclean
+
+            annotation_reclean.clear_pending()
 
     return True, consolidated_annotations, new_item_ids
 

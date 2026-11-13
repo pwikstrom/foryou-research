@@ -799,6 +799,45 @@ auto-promotes the full rebuild. Golden equality tests:
 `tests/golden/run_safety_net.py` (and so by `scripts/verify.sh` and CI) —
 plain `pytest` collects only `tests/unit/`.
 
+**Re-cleaning stored annotations.** Refinement (flatten, recode, label
+clean-up) runs once per raw batch, so a cleaning error stays in the stored
+rows of every batch refined while it existed.
+`fyp/annotation/annotation_reclean.py` refines raw files again with today's
+code and compares the result, by video id, with the stored refined rows.
+The worker `run_annotation_reclean.py` runs it as a self-chaining background
+task (`GET` / `POST /api/manage/annotation/reclean`; locally
+`python -m web_interface.workers.run_annotation_reclean`), over the files
+that hold legacy-version annotations unless told otherwise.
+
+- The **dry run** is the default. Its report
+  (`recoded/annotation_reclean_report.json`) gives, per variable, the number
+  of stored values today's cleaning produces differently, the variables that
+  exist on one side only, the rows today's cleaning cannot read, the files
+  left alone and why, the stored files that have no raw file any more, and a
+  cross-tab of `content_category` (old first label by new first label). It
+  writes that report and its progress file, nothing else.
+- A **real run** must name the variables to replace (`variables`, or
+  `--apply --variables content_category`). In each stored refined file it
+  replaces those columns' values and nothing else; the original file is first
+  copied to `machine_annotations/machine_annotations_refined_before_reclean/`.
+  `annotation_version`, `inference_ts`, `source_platform` and the
+  success flags are never replaced. A row today's cleaning fails on keeps its
+  stored values. A file whose stored rows and raw answers do not cover the
+  same videos is left alone. Whole rows are not replaced because today's
+  cleaning differs from older cleaning in many unrelated ways (list
+  spacing, missing-value form, variables that no longer exist, old answers
+  it reads worse); read the dry run before choosing variables.
+- When a real run finishes (or is cancelled part-way) it writes
+  `recoded/annotation_reclean_pending.json` with the changed video ids. The
+  next consolidation sees the marker, takes the full path instead of the
+  fold (the refined files changed under unchanged names), adds those ids to
+  the changed-item set and removes the marker once its ledger is saved. A
+  real run is refused while a scraper, an annotator or a consolidation runs,
+  and a running real run blocks consolidation like an annotator does.
+- Speed: the old raw files go through the lenient JSON reader, about 20
+  answers a second on one core, so 280,000 answers are roughly four hours of
+  work, spread over 10-minute task links. One file is in memory at a time.
+
 **Scrape → annotate handoff for participant first batches.** A
 participant's prioritised first batch is queued to the *scrape* queue only,
 at ingest; the items reach the annotate queue at **consolidation** — the

@@ -287,6 +287,14 @@ contract on both runs. The other run must be finished and must contain
 every coded video. A contract that does not produce one of the coded
 variables gets no figure for it.
 
+**What a version does not identify.** `annotation_version` names the model
+call. The cleaning that turned the answer into columns is not part of it and
+is applied once, at refinement, so rows of one version can have been cleaned
+by different code (the legacy version spans a cleaning fix of 15 April 2026).
+Stored answers can be cleaned again for chosen variables without changing a
+row's version or annotation time; see "Re-cleaning stored annotations" in
+[pipeline.md](pipeline.md).
+
 A test set holds at most `[machine] test_set_max_items` videos (default 50;
 see [configuration.md](configuration.md)).
 

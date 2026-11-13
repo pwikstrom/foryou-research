@@ -1086,6 +1086,17 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
             out += ["--name", str(task_args["name"])]
         if task_args.get("started_by"):
             out += ["--started-by", str(task_args["started_by"])]
+    if name == "annotation_reclean":
+        # The CLI default is the dry run; only an explicit False applies.
+        if task_args.get("dry_run") is False:
+            out += ["--apply"]
+        if task_args.get("only_legacy") is False:
+            out += ["--all-files"]
+        if task_args.get("variables"):
+            names = task_args["variables"]
+            out += ["--variables", ",".join(names) if isinstance(names, list) else str(names)]
+        if task_args.get("started_by"):
+            out += ["--started-by", str(task_args["started_by"])]
     if task_args.get("launched_by"):
         out += ["--launched-by", str(task_args["launched_by"])]
     # study_name is a positional in some scripts (recode/pca) — append last
