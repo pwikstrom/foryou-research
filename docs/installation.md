@@ -305,11 +305,17 @@ exactly what to fix (see step 1).
   video, frame resolution, audio on/off). The defaults are pilot-validated —
   doubling the frame budget measurably did not improve agreement, so change
   them only with an A/B run to back it up (changes fork a new version).
-* **mlx-vlm version pin.** The integration patches two known mlx-vlm 0.6.x
-  bugs at load ([#1619](https://github.com/Blaizzy/mlx-vlm/issues/1619),
-  [#1620](https://github.com/Blaizzy/mlx-vlm/issues/1620)); on newer mlx-vlm
-  releases the patches step aside automatically. Don't upgrade the pin in
-  `pyproject.toml` without re-validating annotation output.
+* **Longer videos: `max_audio_seconds`.** The published model files make the
+  model listen to only the first 30 seconds of a video. `max_audio_seconds`
+  in `[machine.qwen_local]` raises that limit (the shipped value is 120, the
+  longest tested). It is part of the annotation-version identity, so changing
+  it starts a new version.
+* **mlx-vlm version pin.** The backend needs mlx-vlm 0.8.1 or newer. Older
+  0.6.x installs crashed the GPU on long audio or larger frame budgets; if
+  you installed the extra before November 2026, run
+  `pip install -e ".[local_qwen]"` again to upgrade. Don't move the pin in
+  `pyproject.toml` without re-validating annotation output, because mlx-vlm
+  releases have changed audio and frame handling before.
 
 ### Troubleshooting
 
@@ -406,12 +412,10 @@ section's tips applies unchanged: MiniCPM rows get their own `av_` annotation
 version, A/B testing supports a `minicpm_local` arm, annotation is
 sequential, and tuning lives in `[machine.minicpm_local]`.
 
-One MiniCPM-specific note: the published MLX conversions of this model fail
-to load on stock mlx-vlm 0.6.x ("Missing … parameters" — a checkpoint-naming
-mismatch in mlx-vlm's weight sanitizer). The app patches this automatically
-at model load (`minicpm_sanitize_fix`); on newer mlx-vlm releases the patch
-steps aside. If you see that error anyway, you are likely running the model
-outside the app.
+One MiniCPM-specific note: on mlx-vlm 0.6.x the published MLX conversions of
+this model failed to load ("Missing … parameters") and the app patched that
+at model load (`minicpm_sanitize_fix`). The pinned mlx-vlm 0.8.1 loads the
+model without the patch, which steps aside on its own.
 
 ## Embedding backends
 

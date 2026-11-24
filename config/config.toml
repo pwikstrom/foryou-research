@@ -104,10 +104,13 @@ pricing = {input = 0.10, output = 0.80}
 
 
 # ── Local Qwen3-Omni 30B (Apple Silicon + MLX only) ─────────────────────────
-# Values are pilot-tuned (2026-07): 8 frames @448px + the audio track matched
-# 16 frames @560px in quality at half the cost (~30 s/video, 23 GB peak on an
-# M2 Max). Frame/audio sampling parameters are output-affecting and therefore
-# part of the annotation version identity. No pricing — runs locally for free.
+# 8 frames @448px + the audio track matched 16 frames @560px in the 2026-07
+# pilot at half the cost. Speed for the 4-bit model: ~8 s/video on an M5 Max,
+# ~30 s on an M2 Max; 23 GB peak (8-bit: ~9 s, 40 GB). Frame/audio sampling
+# parameters are output-affecting and therefore part of the annotation version
+# identity. No pricing — runs locally for free.
+# max_audio_seconds: how much of the audio track the model hears. The model
+# files default to 30; 120 is the longest value tested (2026-11, 20/20 clean).
 # Install: pip install -e ".[local_qwen]" — see
 # docs/installation.md#enabling-local-qwen-annotation.
 [machine.qwen_local]
@@ -118,6 +121,7 @@ fps = 1.0
 max_tokens = 4096
 repetition_penalty = 1.08
 with_audio = true
+max_audio_seconds = 120
 
 
 # ── Local MiniCPM-o 9B (Apple Silicon + MLX only) ───────────────────────────

@@ -1,14 +1,21 @@
 """Local Qwen3-Omni annotation backend (Apple Silicon / MLX).
 
-Productizes a validated local pilot (20/20 valid vs Gemini, ~30 s/video, 23 GB peak on an M2 Max):
+Productizes a validated local pilot (20/20 valid vs Gemini; ~8 s/video and
+23 GB peak for the 4-bit model on an M5 Max, ~30 s on an M2 Max):
 
-* mlx-vlm's native video path is broken for this model family, so each video
-  is represented as N evenly-spaced ffmpeg frames (mid-segment) passed as an
-  ordered multi-image input, plus the full audio track as a separate mono
-  16 kHz clip — Qwen3-Omni hears it (near-verbatim transcripts in the pilot).
+* Each video is represented as N evenly-spaced ffmpeg frames (mid-segment)
+  passed as an ordered multi-image input, plus the audio track as a separate
+  mono 16 kHz clip — Qwen3-Omni hears it (near-verbatim transcripts in the
+  pilot).
+* The published MLX conversions cap audio at 30 seconds (their
+  ``processor_config.json`` sets the feature extractor to a 30 s window; the
+  official Qwen config allows 300 s). ``max_audio_seconds`` lifts that cap at
+  load, so the model hears more than the first half-minute of a longer video.
 * Output is JSON-schema constrained via llguidance, so the ``response`` string
   flows through the production ``structured`` flatten path verbatim.
-* Two mlx-vlm 0.6.x bugs are patched at load (see ``qwen_rope_fix``).
+* Requires mlx-vlm 0.8.1 or newer. The 0.6.x line needed two local patches and
+  still hit GPU faults on inputs above ~5,200 prompt tokens (long audio or
+  more frames); 0.8.1 runs the same inputs cleanly without patches.
 
 The model is loaded once per process and kept resident; ``max_workers`` is 1
 (sequential loop). Config lives in ``[machine.qwen_local]``; the prompt
@@ -58,8 +65,36 @@ def _qwen_cf() -> dict:
         "max_tokens": 4096,
         "repetition_penalty": 1.08,
         "with_audio": True,
+        # 30 = what the published MLX conversions do on their own.
+        "max_audio_seconds": 30,
     }
     return {**defaults, **stored}
+
+
+def _apply_audio_cap(processor, seconds) -> bool:
+    """Set how many seconds of audio the processor keeps per clip.
+
+    The model's Whisper-style feature extractor truncates audio to
+    ``chunk_length`` seconds; the MLX conversions ship 30 where the official
+    config has 300. Audio beyond the cap is silently dropped, so a transcript
+    stops there.
+
+    Args:
+        processor: The loaded mlx-vlm processor.
+        seconds: The cap to apply.
+
+    Returns:
+        True when the cap was set; False when this processor has no such
+        feature extractor (nothing to do).
+    """
+    extractor = getattr(processor, "feature_extractor", None)
+    if extractor is None or not hasattr(extractor, "chunk_length"):
+        return False
+    seconds = int(seconds)
+    extractor.chunk_length = seconds
+    extractor.n_samples = seconds * extractor.sampling_rate
+    extractor.nb_max_frames = extractor.n_samples // extractor.hop_length
+    return True
 
 
 class QwenLocalBackend(AnnotationBackend):
@@ -122,6 +157,7 @@ class QwenLocalBackend(AnnotationBackend):
             "fps": qwen_cf["fps"],
             "with_audio": qwen_cf["with_audio"],
             "repetition_penalty": qwen_cf["repetition_penalty"],
+            "max_audio_seconds": int(qwen_cf["max_audio_seconds"]),
         }
 
     def _ensure_model(self):
@@ -140,11 +176,9 @@ class QwenLocalBackend(AnnotationBackend):
                     f"worker to switch local-model variants"
                 )
             if cls._model is None:
-                from fyp.annotation.backends.qwen_rope_fix import apply_patches
-
-                apply_patches()
                 logger.info(f"Loading local Qwen model {model_id} (one-time per process) ...")
                 cls._model, cls._processor = mlx_vlm.load(model_id)
+                _apply_audio_cap(cls._processor, self._effective_cf()["max_audio_seconds"])
                 cls._loaded_model_id = model_id
                 logger.info("Local Qwen model loaded")
         return cls._model, cls._processor
@@ -327,31 +361,33 @@ def _probe_duration(path: str) -> float | None:
 def _sample_frames(
     video_file: str, duration: float, out_dir: str, fps: float, max_frames: int, scale: int
 ) -> list[str]:
-    """Extract evenly-spaced mid-segment frames with ffmpeg, in order."""
+    """Extract evenly-spaced mid-segment frames with ffmpeg, in order.
+
+    A sample point can fall after the video's last frame (a clip stored at one
+    frame per second has nothing to show at 9.5 s of 10). Such a point is
+    skipped rather than failing the whole item; if no point yields a frame the
+    first frame of the video is used, and only a video with no readable frame
+    at all raises.
+    """
     n = max(2, min(int(max_frames), math.ceil(duration * fps)))
+
+    def cut(seek: float | None, path: str) -> bool:
+        cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+        if seek is not None:
+            cmd += ["-ss", f"{seek:.2f}"]
+        cmd += ["-i", video_file, "-vframes", "1", "-vf", f"scale='min({scale},iw)':-2", path]
+        done = subprocess.run(cmd, check=False, timeout=60, capture_output=True)
+        return done.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0
+
     paths = []
     for i in range(n):
-        t = (i + 0.5) * duration / n
         path = os.path.join(out_dir, f"f{i:02}.jpg")
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "error",
-                "-ss",
-                f"{t:.2f}",
-                "-i",
-                video_file,
-                "-vframes",
-                "1",
-                "-vf",
-                f"scale='min({scale},iw)':-2",
-                path,
-            ],
-            check=True,
-            timeout=60,
-        )
+        if cut((i + 0.5) * duration / n, path):
+            paths.append(path)
+    if not paths:
+        path = os.path.join(out_dir, "f00.jpg")
+        if not cut(None, path):
+            raise RuntimeError(f"ffmpeg could not read any frame from {video_file}")
         paths.append(path)
     return paths
 

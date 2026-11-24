@@ -90,6 +90,14 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Local Qwen annotation hears more than the first 30 seconds.** The
+  published model files limit the audio to 30 seconds, so transcripts of
+  longer videos stopped there. A new `max_audio_seconds` setting in
+  `[machine.qwen_local]` raises the limit (shipped value 120). It is part of
+  the annotation-version identity, so local Qwen annotations made from now on
+  get a new version. The local backends now need mlx-vlm 0.8.1 or newer:
+  older installs crashed the GPU on longer audio. Run
+  `pip install -e ".[local_qwen]"` again to upgrade an existing install.
 - **Person variables say they are perceived.** Main gender, main ethnicity
   and the gender, age and ethnicity of observed faces now read "Perceived
   gender (main person)", "Average apparent age of observed faces" and so on,
@@ -130,6 +138,12 @@ public version. Entries below describe the Hub as it stands at that release.
   contract's answer next to every submitted coder's, and the coders' notes.
 
 ### Fixed
+
+- **Local annotation no longer fails on videos stored at a very low frame rate.**
+  The local Qwen and MiniCPM backends cut still frames at evenly spaced points,
+  and a point after the last stored frame (9.5 s into a 10-second clip saved at
+  one frame per second) made the whole video fail. Such a point is now skipped,
+  and the first frame is used if no point yields one.
 
 - **A video without the preferred version now shows its most recent
   annotation.** When a video had several annotations and none under the

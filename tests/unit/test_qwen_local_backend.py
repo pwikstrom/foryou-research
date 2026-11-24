@@ -122,17 +122,24 @@ def test_backend_class_contract():
     assert gen["use_structured_output"] is True and gen["temperature"] == 0.0
 
 
-def test_rope_fix_skips_on_newer_mlx_vlm(monkeypatch):
-    import sys
+def test_audio_cap_is_applied_and_versioned():
     import types
 
-    import fyp.annotation.backends.qwen_rope_fix as fix
+    from fyp.annotation.backends import qwen_local as ql
 
-    fake = types.ModuleType("mlx_vlm")
-    fake.__version__ = "0.7.0"
-    monkeypatch.setitem(sys.modules, "mlx_vlm", fake)
-    monkeypatch.setattr(fix, "_APPLIED", False)
-    assert fix.apply_patches() is False  # assumed fixed upstream — no-op
+    extractor = types.SimpleNamespace(
+        chunk_length=30, n_samples=480000, nb_max_frames=3000, sampling_rate=16000, hop_length=160
+    )
+    assert ql._apply_audio_cap(types.SimpleNamespace(feature_extractor=extractor), 120) is True
+    assert (extractor.chunk_length, extractor.n_samples, extractor.nb_max_frames) == (
+        120,
+        1920000,
+        12000,
+    )
+    # A processor without a Whisper-style extractor is left alone.
+    assert ql._apply_audio_cap(types.SimpleNamespace(), 120) is False
+    # The cap changes what the model hears, so it is part of the version identity.
+    assert "max_audio_seconds" in QwenLocalBackend().version_extra_params()
 
 
 def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
@@ -177,3 +184,41 @@ def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
     # No bucket handle (GCS offline) -> clean miss, not an exception.
     monkeypatch.setitem(get_config()["data_io"], "bucket", None)
     assert qwen_local._fetch_media("123", "tiktok") == (None, None)
+
+
+def test_sample_frames_skips_points_past_the_last_frame(tmp_path):
+    """A one-frame-per-second clip has no frame at its late sample points."""
+    import os
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    video = str(tmp_path / "slow.mp4")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=64x64:rate=1",
+            "-t",
+            "4",
+            "-pix_fmt",
+            "yuv420p",
+            video,
+        ],
+        check=True,
+    )
+    frames = ql._sample_frames(video, 4.0, str(tmp_path), fps=1.0, max_frames=8, scale=448)
+    assert 1 <= len(frames) <= 4
+    assert all(os.path.getsize(f) > 0 for f in frames)
+
+    broken = str(tmp_path / "broken.mp4")
+    with open(broken, "w") as fh:
+        fh.write("not a video")
+    with pytest.raises(RuntimeError):
+        ql._sample_frames(broken, 4.0, str(tmp_path), fps=1.0, max_frames=8, scale=448)

@@ -657,13 +657,14 @@ flatten/refine/versioning are backend-agnostic. The four implementations:
   `[machine.qwen_api]`, `cloud_run_capable=True`; throughput is bound by the
   account rate limit (~5 videos/min), so `max_workers` stays small.
 - `qwen_local` — Qwen3-Omni-30B via mlx-vlm, Apple Silicon only,
-  frames+audio, llguidance-constrained JSON; mlx-vlm 0.6.x bugs patched in
-  `qwen_rope_fix.py` (upstream Blaizzy/mlx-vlm#1619/#1620); `mlx-vlm` ships
-  as the `local_qwen` pyproject extra, never in requirements.txt.
+  frames+audio, llguidance-constrained JSON; needs mlx-vlm 0.8.1+ (no local
+  patches); `max_audio_seconds` lifts the model files' 30 s audio cap;
+  `mlx-vlm` ships as the `local_qwen` pyproject extra, never in
+  requirements.txt.
 - `minicpm_local` — MiniCPM-o 4.5 9B, the same mlx-vlm frames+audio recipe
   reused from `qwen_local`'s helpers, ~8 GB peak so it fits 16 GB Macs; the
-  published MLX quants need the checkpoint-naming patch in
-  `minicpm_sanitize_fix.py`; extra `local_minicpm`, checks in
+  checkpoint-naming patch in `minicpm_sanitize_fix.py` only applies to
+  mlx-vlm 0.6.x and steps aside on the pinned 0.8.1+; extra `local_minicpm`, checks in
   `minicpm_support.py`.
 
 Selection and configuration:

@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 _APPLIED = False
 # mlx-vlm versions this workaround is validated against (same policy as
-# qwen_rope_fix): anything newer is assumed fixed upstream.
+# the retired Qwen patch): anything newer is assumed fixed upstream.
 _PATCHED_VERSION_PREFIXES = ("0.6.",)
 
 _CANONICAL_TO_RAW = (

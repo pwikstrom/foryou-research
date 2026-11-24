@@ -55,17 +55,17 @@ dev = [
 ]
 # Local Qwen annotation backend (Apple Silicon + MLX only). Deliberately NOT
 # in requirements.txt — that file is the production Docker lock and mlx does
-# not exist on linux/amd64. The 0.6.x pin matches the workarounds in
-# fyp/annotation/backends/qwen_rope_fix.py (upstream Blaizzy/mlx-vlm #1619,
-# #1620); re-validate before moving the pin.
+# not exist on linux/amd64. 0.8.1 is the first version validated without local
+# patches (2026-11): the 0.6.x line hit GPU faults on long audio or more
+# frames. Releases between 0.7.2 and 0.7.12 changed audio and frame handling,
+# so re-run an A/B evaluation before moving the pin again.
 local_qwen = [
-    "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
+    "mlx-vlm>=0.8.1,<0.9; sys_platform == 'darwin'",
 ]
 # Local MiniCPM annotation backend (Apple Silicon + MLX only). Same runtime
-# and pin rationale as local_qwen; the 0.6.x pin also matches the checkpoint-
-# naming workaround in fyp/annotation/backends/minicpm_sanitize_fix.py.
+# and pin as local_qwen (one environment holds one mlx-vlm).
 local_minicpm = [
-    "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
+    "mlx-vlm>=0.8.1,<0.9; sys_platform == 'darwin'",
 ]
 # Local text-embedding backend (Qwen3-Embedding via sentence-transformers).
 # Separate from local_qwen so annotation-only installs don't pull torch.
