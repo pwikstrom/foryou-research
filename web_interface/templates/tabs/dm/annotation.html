@@ -27,6 +27,11 @@
             style="padding: 4px 8px;">Empty Queue</button>
     </div>
 
+    <!-- Set by renderAnnotationBacklog(): a second machine annotating the
+         backlog with its own annotator (progress as it last reported). -->
+    <div id="annotation-backlog-note" class="text-xs"
+        style="display: none; color: var(--color-text-secondary); margin-bottom: 12px;"></div>
+
     <div style="display: flex; flex-direction: column; gap: 8px;">
         <!-- The everyday path: pick the study, queue what it still needs. The
              re-annotation selection modes live under Advanced below. -->

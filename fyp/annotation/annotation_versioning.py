@@ -67,6 +67,10 @@ LEGACY_VERSION = "v0_legacy"
 INFERENCE_TS_COL = "inference_ts"
 ANNOTATED_OK_COL = "annotated_ok"
 VIEW_RULE = "successful_then_newest_inference_ts"
+# Annotators that give way: a successful annotation by one of these backends is
+# shown only where no other annotator has a successful annotation of the video.
+# Config: ``[machine] yielding_backends``.
+DEFAULT_YIELDING_BACKENDS = ("qwen_local",)
 
 # The file-based prompt that predates the declarative-contract / generated-prompt
 # system. Go-forward annotations use the generated contract prompt, so this file
@@ -516,19 +520,42 @@ def register_version(
     if created_at is None:
         created_at = _dt.datetime.now().isoformat(timespec="seconds")
 
+    def _add(registry: dict) -> dict:
+        return _register_into(
+            registry,
+            descriptor,
+            prompt_text,
+            schema_json,
+            created_at,
+            field_metadata,
+            contract_text=contract_text,
+        )
+
     registry = load_registry()
-    updated = _register_into(
-        registry,
-        descriptor,
-        prompt_text,
-        schema_json,
-        created_at,
-        field_metadata,
-        contract_text=contract_text,
+    updated = _add(registry)
+    if updated == registry:
+        return updated
+    # Two machines can meet a new version at the same moment (the hosted Hub
+    # and a machine annotating the backlog). The write re-reads the registry
+    # and retries if someone else wrote in between, so neither registration
+    # is lost.
+    outcome: dict = {}
+
+    def _mutate(current):
+        base = current if isinstance(current, dict) and "versions" in current else registry
+        if "preferred" not in base and "active" in base:
+            base = {**base, "preferred": base["active"]}
+            base.pop("active")
+        outcome["registry"] = _add(base)
+        return outcome["registry"] if outcome["registry"] != base else None
+
+    _data_io().update_json(
+        storage_location=REGISTRY_LOCATION,
+        filename=REGISTRY_FILENAME,
+        mutate=_mutate,
+        default=None,
     )
-    if updated != registry:
-        save_registry(updated)
-    return updated
+    return outcome.get("registry", updated)
 
 
 def get_preferred_version() -> str | None:
@@ -682,11 +709,64 @@ def _failed_rows(df: pd.DataFrame, ok_col: str = ANNOTATED_OK_COL) -> np.ndarray
     return (df[ok_col] == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712
 
 
+def yielding_backends() -> tuple[str, ...]:
+    """Backend ids whose annotations give way to every other annotator's."""
+    try:
+        value = _cf()["machine"].get("yielding_backends")
+    except Exception:
+        value = None
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v) for v in value)
+    return DEFAULT_YIELDING_BACKENDS
+
+
+def yielding_versions(registry: dict | None = None) -> frozenset[str]:
+    """Registered versions made by a yielding backend (see :func:`yielding_backends`).
+
+    Never raises: an unreadable registry yields the empty set, which leaves
+    the views as they were before yielding existed.
+    """
+    try:
+        registry = registry if registry is not None else load_registry()
+        backends = set(yielding_backends())
+        return frozenset(
+            str(version)
+            for version, entry in (registry.get("versions") or {}).items()
+            if isinstance(entry, dict) and entry.get("backend") in backends
+        )
+    except Exception:
+        return frozenset()
+
+
+def view_rule(registry: dict | None = None) -> str:
+    """The name of the rule the views are built by, as recorded by a consolidation.
+
+    :data:`VIEW_RULE` while no yielding version is registered. Once one is, the
+    name lists them, so the first consolidation after a yielding annotator's
+    version appears (or after this rule reaches a deployment whose last
+    consolidation ran without it) re-derives every item's view once.
+    """
+    versions = sorted(yielding_versions(registry))
+    return VIEW_RULE if not versions else f"{VIEW_RULE}|yielding:{','.join(versions)}"
+
+
+def _yielding_rows(df: pd.DataFrame, version_col: str = "annotation_version") -> np.ndarray | None:
+    """Boolean array marking rows of a yielding version, or None when there are none."""
+    if version_col not in df.columns:
+        return None
+    versions = yielding_versions()
+    if not versions:
+        return None
+    rows = df[version_col].isin(versions).fillna(False).to_numpy(dtype=bool)
+    return rows if rows.any() else None
+
+
 def newest_row_mask(
     df: pd.DataFrame,
     key_cols: list[str],
     ts_col: str = INFERENCE_TS_COL,
     prefer: np.ndarray | None = None,
+    yielding: np.ndarray | None = None,
 ) -> np.ndarray:
     """Mark, per key, the one row a view shows.
 
@@ -696,10 +776,13 @@ def newest_row_mask(
        annotation has no answers, so it never hides a successful annotation
        of the same key, however recent it is; it is kept only when the key has
        no successful row at all. A frame without the column skips this step.
-    2. a row marked in ``prefer`` (the preferred version's rows) before others;
-    3. the most recent annotation: the largest ``ts_col`` (epoch seconds). A
+    2. a row not marked in ``yielding`` before one that is: an annotator that
+       gives way (the local model working through the backlog) never hides
+       another annotator's successful annotation of the same key;
+    3. a row marked in ``prefer`` (the preferred version's rows) before others;
+    4. the most recent annotation: the largest ``ts_col`` (epoch seconds). A
        row without a timestamp counts as older than any row with one;
-    4. rows that still tie resolve to the one that comes last in the frame.
+    5. rows that still tie resolve to the one that comes last in the frame.
 
     The frame is not reordered.
 
@@ -708,6 +791,7 @@ def newest_row_mask(
         key_cols: The columns identifying what there should be one row of.
         ts_col: The annotation-time column.
         prefer: Optional boolean array over ``df``'s rows.
+        yielding: Optional boolean array over ``df``'s rows.
 
     Returns:
         A boolean array over ``df``'s rows, True for the row kept per key.
@@ -725,6 +809,8 @@ def newest_row_mask(
         order = order[np.argsort(np.where(np.isnan(stamps), -np.inf, stamps), kind="stable")]
     if prefer is not None:
         order = order[np.argsort(np.asarray(prefer, dtype=bool)[order], kind="stable")]
+    if yielding is not None:
+        order = order[np.argsort(~np.asarray(yielding, dtype=bool)[order], kind="stable")]
     failed = _failed_rows(df)
     if failed is not None:
         order = order[np.argsort(~failed[order], kind="stable")]
@@ -749,7 +835,8 @@ def select_latest_view(df: pd.DataFrame, item_col: str = "item_id") -> pd.DataFr
     those. Items are keyed composite ``(source_platform, item_col)`` when the
     platform column is present (see :func:`_item_key_cols`).
     """
-    return keep_newest(df, _item_key_cols(df, item_col)).reset_index(drop=True)
+    mask = newest_row_mask(df, _item_key_cols(df, item_col), yielding=_yielding_rows(df))
+    return df[mask].reset_index(drop=True)
 
 
 def select_preferred_view(
@@ -789,7 +876,9 @@ def select_preferred_view(
     if version_col not in df.columns:
         return keep_newest(df, key_cols).reset_index(drop=True)
     is_preferred = (df[version_col] == preferred_version).fillna(False).to_numpy(dtype=bool)
-    mask = newest_row_mask(df, key_cols, prefer=is_preferred)
+    mask = newest_row_mask(
+        df, key_cols, prefer=is_preferred, yielding=_yielding_rows(df, version_col)
+    )
     combined = pd.concat([df[mask & is_preferred], df[mask & ~is_preferred]], ignore_index=True)
     return combined.reset_index(drop=True)
 

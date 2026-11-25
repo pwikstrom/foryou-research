@@ -441,6 +441,37 @@ function renderAnnotationConfigNotice(stats) {
     notice.style.display = 'block';
 }
 
+// A second machine working through the annotation backlog with its own
+// annotator (web_interface/services/annotation_backlog.py). Shows its last
+// report; hidden when no such machine has ever reported.
+function renderAnnotationBacklog(b) {
+    const el = document.getElementById('annotation-backlog-note');
+    if (!el) return;
+    if (!b) {
+        el.style.display = 'none';
+        return;
+    }
+    const n = (v) => (typeof v === 'number' ? v.toLocaleString() : '-');
+    const done = (b.ok || 0) + (b.fail || 0);
+    const parts = [
+        `${b.running ? 'Backlog annotation is running' : 'Backlog annotation is not running'} on ${b.host || 'another machine'} (${b.backend || '?'})`,
+        `${n(b.remaining)} videos left`,
+        `${n(done)} done since it started (${n(b.fail)} failed)`,
+    ];
+    if (b.seconds_per_video) {
+        parts.push(`${b.seconds_per_video} s per video`);
+        if (b.running && typeof b.remaining === 'number') {
+            const days = (b.remaining * b.seconds_per_video) / 86400;
+            parts.push(`about ${days < 1 ? '1 day or less' : Math.round(days) + ' days'} to go`);
+        }
+    }
+    if (b.heartbeat_at) parts.push(`last heard ${new Date(b.heartbeat_at).toLocaleString()}`);
+    if (!b.running && b.note) parts.push(b.note);
+    el.textContent = parts.join(' · ');
+    el.style.color = b.running ? 'var(--color-text-secondary)' : 'var(--color-warning-text)';
+    el.style.display = 'block';
+}
+
 function dismissScraperAlert(platform) {
     fetch('/api/manage/enrichment/scraper_alert/dismiss', {
         method: 'POST',
@@ -502,6 +533,7 @@ function fetchEnrichmentStats() {
             }
             renderScraperAlerts(data.scraper_alerts);
             renderAnnotationConfigNotice(data);
+            renderAnnotationBacklog(data.annotation_backlog);
             const annotateTargets = document.getElementById('enrich_annotate_targets');
             if (annotateTargets && data.annotate_queue_len !== undefined) {
                 annotateTargets.textContent = data.annotate_queue_len.toLocaleString();

@@ -31,6 +31,12 @@ est_output_tokens_per_annotation = 1500
 # cost guard. Raise it for a human-coded reference set (150 to 300 videos); a
 # long run is spread over several background tasks automatically.
 test_set_max_items = 50
+# Annotators that give way. Where a video has a successful annotation from one
+# of these backends and one from any other annotator, studies read the other
+# one, whichever is newer. This lets a local model work through the backlog
+# (web_interface/workers/backlog_annotator.py) while the hosted Hub keeps
+# annotating with its own backend.
+yielding_backends = ["qwen_local"]
 
 
 # ── Gemini (default backend; Vertex AI or API-key mode) ─────────────────────

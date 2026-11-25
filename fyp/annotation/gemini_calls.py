@@ -402,6 +402,21 @@ def call_machine(
     return output
 
 
+MACHINE_TAG_ENV = "FYP_ANNOTATION_MACHINE"
+
+
+def machine_file_suffix() -> str:
+    """``_<tag>`` for raw result files when ``FYP_ANNOTATION_MACHINE`` is set, else ``""``.
+
+    The tag is reduced to lowercase letters, digits and hyphens (at most 24).
+    """
+    import os
+    import re as _re
+
+    tag = _re.sub(r"[^a-z0-9-]", "", (os.environ.get(MACHINE_TAG_ENV) or "").strip().lower())[:24]
+    return f"_{tag}" if tag else ""
+
+
 def call_machine_threads(
     interesting_videos=None,
     max_workers=50,
@@ -606,7 +621,10 @@ def call_machine_threads(
     if len(results_by_index) > 0 and not dry_run:
         fine_ts = "".join([k for k in str(_dt.datetime.now()) if k in "0123456789"])
 
-        filename = f"{_machine_annotations_label()}_{fine_ts}.json"
+        # A machine that annotates alongside the hosted Hub tags its files, so
+        # two machines writing in the same microsecond cannot share a name and
+        # a file's origin is readable from the listing.
+        filename = f"{_machine_annotations_label()}_{fine_ts}{machine_file_suffix()}.json"
 
         data_io.save_json(
             data=results_by_index,

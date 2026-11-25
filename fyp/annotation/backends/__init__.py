@@ -35,15 +35,23 @@ _BACKEND_MODULES = {
     "minicpm_local": "fyp.annotation.backends.minicpm_local",
 }
 
+# A machine can run its own annotator whatever the shared admin setting says:
+# the Mac that annotates the backlog with a local model sets this, while the
+# hosted Hub keeps using the admin-selected backend. Only this process (and
+# the workers it starts, which inherit the environment) is affected.
+MACHINE_BACKEND_ENV = "FYP_ANNOTATION_BACKEND"
+
 _instances: dict = {}
 
 __all__ = [
     "AnnotationBackend",
     "BackendAvailability",
     "BACKEND_IDS",
+    "MACHINE_BACKEND_ENV",
     "active_backend_name",
     "get_backend",
     "implemented_backend_ids",
+    "machine_backend_override",
 ]
 
 
@@ -93,10 +101,41 @@ def implemented_backend_ids() -> tuple:
     return tuple(out)
 
 
-def active_backend_name() -> str:
-    """The admin-selected backend selection id (default ``"gemini"``).
+def machine_backend_override() -> str | None:
+    """This machine's own annotator, when ``FYP_ANNOTATION_BACKEND`` names one.
 
-    Reads the admin settings store lazily; any error (missing file, fresh
+    Returns:
+        A backend id or declared variant name, or ``None`` when the variable
+        is unset. A value that names nothing known is ignored with a warning,
+        so a typo falls back to the shared setting rather than to Gemini
+        silently under another name.
+    """
+    import os
+
+    from fyp.annotation.backends import variants
+    from fyp.core.logging_setup import get_logger
+
+    name = (os.environ.get(MACHINE_BACKEND_ENV) or "").strip()
+    if not name:
+        return None
+    if name in BACKEND_IDS:
+        return name
+    try:
+        if name in variants.declared_variants():
+            return name
+    except Exception:
+        pass
+    get_logger(__name__).warning(
+        f"{MACHINE_BACKEND_ENV}={name!r} is not a known backend or declared variant — ignored"
+    )
+    return None
+
+
+def active_backend_name() -> str:
+    """The backend selection id this process annotates with (default ``"gemini"``).
+
+    This machine's own choice (:func:`machine_backend_override`) goes first;
+    otherwise the admin-selected backend. Reads the admin settings store lazily; any error (missing file, fresh
     install) falls back to Gemini so annotation never breaks on settings
     plumbing. A stored selection that no longer resolves (e.g. a variant
     removed from config) also falls back, with a logged warning.
@@ -108,6 +147,9 @@ def active_backend_name() -> str:
     from fyp.annotation.backends.settings import get_annotation_backend
     from fyp.core.logging_setup import get_logger
 
+    override = machine_backend_override()
+    if override is not None:
+        return override
     name = get_annotation_backend()
     if name in BACKEND_IDS:
         return name

@@ -311,7 +311,10 @@ class QwenLocalBackend(AnnotationBackend):
             The raw-row dict (failures in-band, DNF finish_reasons).
         """
         if self._copies() > 1:
-            row = qwen_copies.get_pool(self._copies(), self.overrides).run(
+            # The copies get this process's whole effective configuration, not
+            # only the variant overrides: a copy that read its own settings
+            # could run a different recipe than the one this process registered.
+            row = qwen_copies.get_pool(self._copies(), self._effective_cf()).run(
                 {
                     "item_id": item_id,
                     "platform": platform,
@@ -321,6 +324,11 @@ class QwenLocalBackend(AnnotationBackend):
                 }
             )
             if row is not None:
+                # One identity per run: the version this process registered.
+                from fyp.annotation import annotation_versioning
+
+                if "annotation_version" in row:
+                    row["annotation_version"] = annotation_versioning.active_annotation_version()
                 return row
             # The copy crashed or hung and has been restarted; fall through to
             # build the standard failure row without running the model here.

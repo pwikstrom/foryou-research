@@ -12,6 +12,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **A second machine can annotate the backlog with its own annotator.** A Mac
+  running a local model works through the unannotated remainder from a
+  separate list (`web_interface/workers/backlog_annotator.py`) while the
+  hosted Hub keeps annotating with the admin-selected backend. The worker
+  takes a chunk at a time under a claim with a heartbeat, so a stopped worker
+  loses nothing and several workers can share one backlog. The backlog gives
+  way: it passes over videos queued for the hosted annotator, and where both
+  have annotated a video, studies read the hosted annotation
+  (`[machine] yielding_backends`). A machine chooses its annotator with
+  `FYP_ANNOTATION_BACKEND`, and its result files carry its name. Progress
+  shows on Data Management → Annotation and in the daily operations report.
+  Registering a new annotation version is now safe when two machines meet it
+  at the same moment. Runbook in DEVELOPING.md.
 - **Quality-rating tasks for free-text and other open answers.** Agreement
   can't assess a video story, so raters now judge the contract's answers
   against the video: one answer per variable per video, with questions that

@@ -495,7 +495,7 @@ def _archive_rows(history_df: pd.DataFrame) -> pd.DataFrame:
 def _view_rule_is_current(dataset_meta: dict) -> bool:
     """Whether the previous consolidation picked rows by the current rule."""
     recorded = dataset_meta.get("machine_annotations", {}).get("view_rule")
-    return recorded == annotation_versioning.VIEW_RULE
+    return recorded == annotation_versioning.view_rule()
 
 
 def _items_whose_view_row_moved(previous_fn: str, new_view: pd.DataFrame) -> set[str] | None:
@@ -673,7 +673,7 @@ def _fold_annotation_batch(
     dataset_meta["machine_annotations"]["preferred_version"] = (
         annotation_versioning.get_preferred_version()
     )
-    dataset_meta["machine_annotations"]["view_rule"] = annotation_versioning.VIEW_RULE
+    dataset_meta["machine_annotations"]["view_rule"] = annotation_versioning.view_rule()
     _ = data_io.save_json(
         data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json"
     )
@@ -836,7 +836,7 @@ def consolidate_and_save_refined_annotations(
             logger.info(
                 "[CONSOLIDATE] annotation full rebuild: the previous consolidation picked "
                 f"each item's row by an earlier rule ({recorded_rule or 'file order'}); the "
-                f"view now follows '{annotation_versioning.VIEW_RULE}', so every item's view "
+                f"view now follows '{annotation_versioning.view_rule()}', so every item's view "
                 "is re-derived once."
             )
         else:
@@ -990,7 +990,7 @@ def consolidate_and_save_refined_annotations(
             annotation_versioning.get_preferred_version()
         )
         # The rule this view picked each item's row by (see the quiet gate).
-        dataset_meta["machine_annotations"]["view_rule"] = annotation_versioning.VIEW_RULE
+        dataset_meta["machine_annotations"]["view_rule"] = annotation_versioning.view_rule()
         _ = data_io.save_json(
             data=dataset_meta,
             storage_location="recoded",

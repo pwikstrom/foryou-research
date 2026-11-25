@@ -45,6 +45,31 @@ _drain_lease_cache = {"ts": 0.0, "value": {}}
 _DRAIN_LEASE_CACHE_TTL_S = 30
 
 
+_BACKLOG_STATUS_CACHE: dict = {"at": 0.0, "value": None}
+_BACKLOG_STATUS_TTL_S = 30
+
+
+def _annotation_backlog_status() -> dict | None:
+    """The backlog annotator's last report for the annotation page; never raises.
+
+    The worker reports once a minute, so the storage read behind this is kept
+    to one per :data:`_BACKLOG_STATUS_TTL_S` however often the page polls.
+    """
+    import time
+
+    now = time.monotonic()
+    if now - _BACKLOG_STATUS_CACHE["at"] < _BACKLOG_STATUS_TTL_S:
+        return _BACKLOG_STATUS_CACHE["value"]
+    try:
+        from web_interface.services import annotation_backlog
+
+        value = annotation_backlog.worker_status()
+    except Exception:
+        value = None
+    _BACKLOG_STATUS_CACHE.update(at=now, value=value)
+    return value
+
+
 def _active_drain_leases() -> dict:
     """Fresh local-drain leases per platform (empty on any read failure).
 
@@ -456,6 +481,9 @@ def get_enrichment_stats():
             ),
             "annotate_queue_len": annotate_queue_len,
             "annotate_claimed_len": annotate_claimed_len,
+            # A second machine working through the annotation backlog with its
+            # own annotator (its last report; None when there has never been one).
+            "annotation_backlog": _annotation_backlog_status(),
             # {platform: [{collection_id, display_id}]} of RUNNING plans, and
             # {platform: n} of the queue that is those plans' own slices.
             "armed_plans_by_platform": armed_plans_by_platform,

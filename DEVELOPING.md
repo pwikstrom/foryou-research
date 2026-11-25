@@ -376,6 +376,7 @@ foryou-research/
 │   │   └── drain_lease.py       #   Cross-instance heartbeat lease for local scrape-queue drains
 │   ├── workers/                 # One module per background worker; run locally as python -m web_interface.workers.run_<name>
 │   │   ├── run_queue_annotator.py   # Annotation worker (self-chaining Cloud Task)
+│   │   ├── backlog_annotator.py     # A second machine's annotator on the annotation backlog (started by hand; not a registered worker)
 │   │   ├── run_queue_scraper.py     # Per-platform scraping worker (queue_scraper_<platform>)
 │   │   ├── run_timelines_refresh.py # Timelines refresh worker
 │   │   ├── run_meta_refresh_groups.py  # Group + Video Analysis metadata refresh
@@ -589,3 +590,62 @@ re-scraped and already-uploaded media is skipped by `check_existing_media`.
 `gs://<bucket>/data/cache/to_scrape_youtube.json` shrinks per batch. Close the
 shell (drops `FYP_FORCE_GCS`), then run **Consolidate & Refresh** from the web
 UI — it folds in the locally-written parquets automatically.
+
+### Backlog Annotation on a Second Machine (Local Model Against Prod GCS)
+
+A machine with its own annotator (a Mac running local Qwen) can work through
+the large remainder of unannotated videos while the hosted Hub keeps
+annotating with the admin-selected backend. The two never share a queue:
+
+- **The hosted Hub** reads `cache/to_annotate.json`, as always.
+- **The second machine** reads the **backlog**, `cache/annotate_backlog.json`,
+  through `web_interface/workers/backlog_annotator.py`. It takes a chunk
+  at a time by writing a **claim** (`cache/annotate_backlog_claims.json`,
+  heartbeat every 60 s, stale after 15 min). A claim removes nothing from the
+  backlog, so a killed worker loses only its chunk, which is taken again once
+  the claim is stale. Claims are written with `data_io.update_json`
+  (compare-and-swap), so several copies of the worker can share one backlog.
+- **The backlog gives way.** A claim passes over ids that are queued for or in
+  flight with the hosted annotator, and drops ids that enrichment status
+  shows as annotated (or not annotatable) since they were listed. Where both
+  annotators still produce an annotation of the same video, studies read the
+  hosted one: backends listed in `[machine] yielding_backends` never hide
+  another annotator's successful annotation
+  (`annotation_versioning.newest_row_mask`).
+- **Only the hosted Hub consolidates.** The worker writes raw and refined
+  result files (tagged with the machine's name) and nothing else; they are
+  folded in by the next **Consolidate & Refresh**.
+
+Two environment variables make a machine a second annotator. Neither is ever
+set on the hosted Hub:
+
+| Variable | Meaning |
+|---|---|
+| `FYP_ANNOTATION_BACKEND` | This machine's annotator (a backend id or variant, e.g. `qwen_local`). Goes before the shared admin setting, for this process and the workers it starts. Required by the backlog worker. |
+| `FYP_ANNOTATION_MACHINE` | Tag added to this machine's raw result file names. The backlog worker defaults it to the host name. |
+
+**Prerequisites (once):** the deployed commit (as for the scrape drain: the
+annotation contract is code-baked, and the hosted Hub must already run a
+release that knows `yielding_backends`); `gcloud auth application-default
+login` with write access to the bucket; the local model installed
+([docs/installation.md](docs/installation.md#enabling-local-qwen-annotation)).
+
+**List the backlog** (every video that may be annotated, by the one
+eligibility rule, `collection_enrichment.annotation_eligible`):
+
+```bash
+FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> python -m web_interface.workers.backlog_annotator --list-eligible
+```
+
+**Run:**
+
+```bash
+FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> FYP_ANNOTATION_BACKEND=qwen_local caffeinate -i -s python -m web_interface.workers.backlog_annotator --chunk 50
+```
+
+Ctrl-C (or SIGTERM) stops after the chunk in progress. Progress shows on
+**Data Management → Annotation** and in the daily operations report, which
+turns red when videos remain but the worker has gone quiet. The first
+consolidation after the local model's annotation version is registered
+re-derives every item's view once (the view rule's name then lists the
+yielding versions).

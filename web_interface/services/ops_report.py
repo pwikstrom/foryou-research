@@ -494,6 +494,51 @@ def _section_workers(ctx: SimpleNamespace) -> None:
     ctx.stats_doc = stats_doc
 
 
+def _backlog_check(check, sec) -> None:
+    """One line on the annotation backlog (a second machine's annotator), when there is one.
+
+    Red when ids remain but the worker has gone quiet: that machine is meant to
+    run unattended for months, so a stop should be seen the next morning.
+    """
+    try:
+        from web_interface.services import annotation_backlog
+
+        status = annotation_backlog.read_status()
+    except Exception as exc:
+        check(sec, "Annotation backlog", "yellow", f"Could not read the backlog ({exc})")
+        return
+    if not status["exists"]:
+        return
+    worker = status["worker"] or {}
+    done = int(worker.get("ok") or 0) + int(worker.get("fail") or 0)
+    detail = [
+        f"{status['failed']:,} failed so far; {status['claimed']:,} being annotated now",
+        f"worker on {worker.get('host', '?')} ({worker.get('backend', '?')}), "
+        f"{done:,} done since {str(worker.get('started_at', '?'))[:16]}, "
+        f"{worker.get('seconds_per_video') or '?'} s per video, "
+        f"last heard {str(worker.get('heartbeat_at', '?'))[:16]} UTC"
+        + (f"; {worker['note']}" if worker.get("note") else ""),
+    ]
+    if status["running"]:
+        check(
+            sec,
+            "Annotation backlog",
+            "blue",
+            f"Running, {status['remaining']:,} video(s) left",
+            detail,
+        )
+    elif status["remaining"]:
+        check(
+            sec,
+            "Annotation backlog",
+            "red",
+            f"Not running, {status['remaining']:,} video(s) left",
+            detail,
+        )
+    else:
+        check(sec, "Annotation backlog", "green", "Backlog empty", detail)
+
+
 def _section_pipeline(ctx: SimpleNamespace) -> None:
     """Build the "Pipeline & queues" section: scrape and annotation queues, refresh runs and enrichment plans."""
     import fyp.core.data_io as data_io
@@ -533,6 +578,7 @@ def _section_pipeline(ctx: SimpleNamespace) -> None:
             "blue" if ann else "green",
             (f"{delta:+d} since last report" if delta else "unchanged") if prev_queues else "",
         )
+        _backlog_check(check, sec)
         batch = data_io.load_json(storage_location="cache", filename="annotate_batch_job.json")
         if isinstance(batch, dict) and isinstance(batch.get("jobs"), list):
             jobs = [j for j in batch["jobs"] if isinstance(j, dict)]
