@@ -111,6 +111,21 @@ pricing = {input = 0.10, output = 0.80}
 # identity. No pricing — runs locally for free.
 # max_audio_seconds: how much of the audio track the model hears. The model
 # files default to 30; 120 is the longest value tested (2026-11, 20/20 clean).
+# max_tokens: the longest answer allowed. Valid answers in the 2026-11 tests
+# stayed under 1,300 tokens; the cap bounds what a runaway answer costs (about
+# 30 s at 2,000, against a minute at the old 4,096).
+# Optional, all off by default (each changes the annotation version when used):
+#   video_input = "video"   the model watches the video itself at `fps` frames
+#                           per second instead of `max_frames` still frames.
+#   speech_model = "mlx-community/Qwen3-ASR-1.7B-8bit"
+#                           a separate speech model transcribes the audio first
+#                           and Qwen is given its text. Needs the
+#                           local_qwen_speech extra.
+#   copies = 2              that many copies of the model side by side, each in
+#                           its own process (memory per copy: 4-bit 23 GB,
+#                           8-bit 40 GB). Two 8-bit copies ran 1.4 times as
+#                           fast as one on an M5 Max with 128 GB; three did not
+#                           fit the graphics memory. Does not change the version.
 # Install: pip install -e ".[local_qwen]" — see
 # docs/installation.md#enabling-local-qwen-annotation.
 [machine.qwen_local]
@@ -118,10 +133,13 @@ model_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit"
 max_frames = 8
 frame_scale = 448
 fps = 1.0
-max_tokens = 4096
+max_tokens = 2000
 repetition_penalty = 1.08
 with_audio = true
 max_audio_seconds = 120
+video_input = "frames"
+speech_model = ""
+copies = 1
 
 
 # ── Local MiniCPM-o 9B (Apple Silicon + MLX only) ───────────────────────────

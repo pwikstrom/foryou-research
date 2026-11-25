@@ -658,7 +658,11 @@ flatten/refine/versioning are backend-agnostic. The four implementations:
   account rate limit (~5 videos/min), so `max_workers` stays small.
 - `qwen_local` — Qwen3-Omni-30B via mlx-vlm, Apple Silicon only,
   frames+audio, llguidance-constrained JSON; needs mlx-vlm 0.8.1+ (no local
-  patches); `max_audio_seconds` lifts the model files' 30 s audio cap;
+  patches); `max_audio_seconds` lifts the model files' 30 s audio cap; optional
+  `video_input = "video"` (the video itself instead of stills),
+  `speech_model` (a separate mlx-audio transcript given to Qwen, extra
+  `local_qwen_speech`) and `copies` (model copies in child processes,
+  `qwen_copies.py`, `max_workers` = `copies`);
   `mlx-vlm` ships as the `local_qwen` pyproject extra, never in
   requirements.txt.
 - `minicpm_local` — MiniCPM-o 4.5 9B, the same mlx-vlm frames+audio recipe

@@ -310,6 +310,26 @@ exactly what to fix (see step 1).
   in `[machine.qwen_local]` raises that limit (the shipped value is 120, the
   longest tested). It is part of the annotation-version identity, so changing
   it starts a new version.
+* **Watching the video instead of still frames: `video_input = "video"`.**
+  By default the model sees `max_frames` still frames. With this setting it
+  is given the video itself, sampled at `fps` frames per second, which
+  follows the story of a clip better at a cost of a few seconds per video.
+* **A separate speech transcript: `speech_model`.** Qwen sometimes mixes
+  on-screen text into the transcript and can fall into repeating a lyric on
+  music clips. Setting `speech_model` to an mlx-audio speech model (tested:
+  `mlx-community/Qwen3-ASR-1.7B-8bit`) transcribes the audio first and gives
+  Qwen that text next to the audio. Install it with
+  `pip install -e ".[local_qwen_speech]"`.
+* **Using more of a large Mac: `copies`.** One copy of the model leaves the
+  graphics processor idle for part of every video. `copies = 2` runs two
+  copies side by side, each in its own process, and the annotation worker
+  feeds both. On an M5 Max with 128 GB, two copies of the 8-bit model
+  processed 1.4 times as many videos per hour as one; three did not fit. Each
+  copy needs the model's full memory (4-bit 23 GB, 8-bit 40 GB). A copy that
+  crashes or reports a graphics-processor error is restarted automatically.
+* **Answer length: `max_tokens`.** The shipped cap is 2,000 tokens. Valid
+  answers in testing stayed under 1,300; the cap limits how long a runaway
+  answer can run before the item is marked failed.
 * **mlx-vlm version pin.** The backend needs mlx-vlm 0.8.1 or newer. Older
   0.6.x installs crashed the GPU on long audio or larger frame budgets; if
   you installed the extra before November 2026, run

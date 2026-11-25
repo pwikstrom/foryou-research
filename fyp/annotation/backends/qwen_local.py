@@ -17,13 +17,23 @@ Productizes a validated local pilot (20/20 valid vs Gemini; ~8 s/video and
   still hit GPU faults on inputs above ~5,200 prompt tokens (long audio or
   more frames); 0.8.1 runs the same inputs cleanly without patches.
 
-The model is loaded once per process and kept resident; ``max_workers`` is 1
-(sequential loop). Config lives in ``[machine.qwen_local]``; the prompt
+* ``video_input = "video"`` hands the model the video itself, sampled at
+  ``fps`` frames per second, instead of the still frames.
+* ``speech_model`` names a separate speech-recognition model (mlx-audio). When
+  set, it transcribes the audio track first and the transcript is given to
+  Qwen next to the audio, which keeps on-screen text out of the transcript
+  field and steadies Qwen on music clips.
+* ``copies`` runs that many copies of the model side by side, each in its own
+  child process (see ``qwen_copies``).
+
+The model is loaded once per process and kept resident; ``max_workers`` equals
+``copies`` (1 = a sequential loop in this process). Config lives in ``[machine.qwen_local]``; the prompt
 addendum below is part of the version identity by design (it changes the
 prompt hash, correctly forking a new ``av_`` version).
 """
 
 import datetime as _dt
+import hashlib
 import json
 import math
 import os
@@ -32,6 +42,7 @@ import subprocess
 import tempfile
 import threading
 
+from fyp.annotation.backends import qwen_copies
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 from fyp.core.fyp_config import get_config
 from fyp.core.logging_setup import get_logger
@@ -54,6 +65,26 @@ PROMPT_ADDENDUM = (
 )
 
 
+# Given to Qwen in the user message together with the speech model's text.
+SPEECH_NOTE = (
+    "\n\nA separate speech-recognition model listened to the full audio track and "
+    "produced the transcript below. Treat it as the record of what is SPOKEN or SUNG. "
+    "Use it for the transcript field (you may correct obvious mishearings using what "
+    "you hear) and to understand the story. Text that is only visible on screen "
+    "belongs in text_overlays, never in the transcript. If the transcript is empty, "
+    "no speech was detected.\n<speech_transcript>\n{transcript}\n</speech_transcript>"
+)
+
+
+def _speech_token_cap(audio_seconds: float) -> int:
+    """The most tokens the speech model may write for a clip of this length.
+
+    Speech rarely exceeds four tokens a second; the library default of 8,192
+    lets a transcript that has fallen into a loop run for most of a minute.
+    """
+    return int(60 + 8 * max(0.0, audio_seconds))
+
+
 def _qwen_cf() -> dict:
     """The ``[machine.qwen_local]`` config block with pilot-tuned defaults."""
     stored = get_config()["machine"].get("qwen_local", {}) or {}
@@ -67,6 +98,12 @@ def _qwen_cf() -> dict:
         "with_audio": True,
         # 30 = what the published MLX conversions do on their own.
         "max_audio_seconds": 30,
+        # "frames" = still frames; "video" = the video itself at `fps`.
+        "video_input": "frames",
+        # Hugging Face id of an mlx-audio speech model; "" = no separate transcript.
+        "speech_model": "",
+        # Copies of the model running side by side (each needs its own memory).
+        "copies": 1,
     }
     return {**defaults, **stored}
 
@@ -108,7 +145,19 @@ class QwenLocalBackend(AnnotationBackend):
     _model = None
     _processor = None
     _loaded_model_id = None
+    _speech = None
+    _loaded_speech_id = None
     _load_lock = threading.Lock()
+
+    def __init__(self, overrides: dict | None = None, selection: str | None = None):
+        super().__init__(overrides=overrides, selection=selection)
+        self.max_workers = self._copies()
+
+    def _copies(self) -> int:
+        """How many model copies this process should spread items over."""
+        if qwen_copies.is_child():
+            return 1
+        return max(1, int(self._effective_cf()["copies"]))
 
     def _effective_cf(self) -> dict:
         """The ``[machine.qwen_local]`` config with variant overrides applied."""
@@ -151,7 +200,7 @@ class QwenLocalBackend(AnnotationBackend):
     def version_extra_params(self) -> dict:
         """Frame/audio sampling parameters (output-affecting → identity)."""
         qwen_cf = self._effective_cf()
-        return {
+        params = {
             "n_frames": qwen_cf["max_frames"],
             "frame_scale": qwen_cf["frame_scale"],
             "fps": qwen_cf["fps"],
@@ -159,6 +208,14 @@ class QwenLocalBackend(AnnotationBackend):
             "repetition_penalty": qwen_cf["repetition_penalty"],
             "max_audio_seconds": int(qwen_cf["max_audio_seconds"]),
         }
+        # Added only when switched on, so a version made before these options
+        # existed keeps its identity.
+        if qwen_cf["video_input"] != "frames":
+            params["video_input"] = qwen_cf["video_input"]
+        if qwen_cf["speech_model"]:
+            params["speech_model"] = qwen_cf["speech_model"]
+            params["speech_note"] = hashlib.sha256(SPEECH_NOTE.encode()).hexdigest()[:12]
+        return params
 
     def _ensure_model(self):
         """Load the model once per process (thread-safe); returns (model, processor)."""
@@ -182,6 +239,32 @@ class QwenLocalBackend(AnnotationBackend):
                 cls._loaded_model_id = model_id
                 logger.info("Local Qwen model loaded")
         return cls._model, cls._processor
+
+    def _ensure_speech_model(self, speech_id: str):
+        """Load the speech-recognition model once per process."""
+        cls = QwenLocalBackend
+        with cls._load_lock:
+            if cls._speech is None or cls._loaded_speech_id != speech_id:
+                try:
+                    from mlx_audio.stt.utils import load_model
+                except ImportError as exc:
+                    raise RuntimeError(
+                        'mlx-audio is not installed — pip install -e ".[local_qwen_speech]"'
+                    ) from exc
+                logger.info(f"Loading speech model {speech_id} (one-time per process) ...")
+                cls._speech = load_model(speech_id)
+                cls._loaded_speech_id = speech_id
+        return cls._speech
+
+    def _transcribe(self, audio: str | None, speech_id: str) -> str:
+        """The speech model's text for one audio file ("" without audio)."""
+        if not audio:
+            return ""
+        seconds = (os.path.getsize(audio) - 44) / 32000  # mono 16 kHz, 16-bit
+        out = self._ensure_speech_model(speech_id).generate(
+            audio, max_tokens=_speech_token_cap(seconds)
+        )
+        return (getattr(out, "text", None) or "").strip()
 
     def annotate_one(
         self,
@@ -207,9 +290,26 @@ class QwenLocalBackend(AnnotationBackend):
         Returns:
             The raw-row dict (failures in-band, DNF finish_reasons).
         """
+        if self._copies() > 1:
+            row = qwen_copies.get_pool(self._copies(), self.overrides).run(
+                {
+                    "item_id": item_id,
+                    "platform": platform,
+                    "gen_overrides": gen_overrides,
+                    "prompt_text": prompt_text,
+                    "response_schema": response_schema,
+                }
+            )
+            if row is not None:
+                return row
+            # The copy crashed or hung and has been restarted; fall through to
+            # build the standard failure row without running the model here.
+            copy_failed = True
+        else:
+            copy_failed = False
+
         # Canonical subpackage paths, NOT the flat alias shims — see the
-        # backends package docstring. max_workers is 1 today, but the rule is
-        # the pool body's, not this backend's.
+        # backends package docstring: this body runs on pool threads.
         from fyp.annotation import annotation_versioning
         from fyp.annotation.annotation_schema import get_annotation_json_schema
 
@@ -233,6 +333,11 @@ class QwenLocalBackend(AnnotationBackend):
             "response": "",
         }
 
+        if copy_failed:
+            row["error"] = "the local model copy crashed or timed out on this item"
+            row["finish_reason"] = "DNF - see error"
+            return row
+
         if prompt_text is None:
             prompt_text = annotation_versioning.active_prompt_text()
         system_prompt = prompt_text + self.prompt_suffix()
@@ -253,20 +358,40 @@ class QwenLocalBackend(AnnotationBackend):
                 return row
 
             duration = _probe_duration(local_video) or 60.0
-            frames = _sample_frames(
-                local_video,
-                duration,
-                work_dir,
-                qwen_cf["fps"],
-                qwen_cf["max_frames"],
-                qwen_cf["frame_scale"],
+            native_video = qwen_cf["video_input"] == "video"
+            frames = (
+                []
+                if native_video
+                else _sample_frames(
+                    local_video,
+                    duration,
+                    work_dir,
+                    qwen_cf["fps"],
+                    qwen_cf["max_frames"],
+                    qwen_cf["frame_scale"],
+                )
             )
             audio = _extract_audio(local_video, work_dir) if qwen_cf["with_audio"] else None
 
             model, processor = self._ensure_model()
             start = _dt.datetime.now()
+            transcript = None
+            if qwen_cf["speech_model"]:
+                # Its own audio extraction, so the transcript does not depend
+                # on whether Qwen itself is given the audio.
+                speech_audio = audio or _extract_audio(local_video, work_dir)
+                transcript = self._transcribe(speech_audio, qwen_cf["speech_model"])
             result = _generate(
-                model, processor, frames, audio, duration, system_prompt, response_schema, qwen_cf
+                model,
+                processor,
+                frames,
+                audio,
+                duration,
+                system_prompt,
+                response_schema,
+                qwen_cf,
+                video=os.path.abspath(local_video) if native_video else None,
+                transcript=transcript,
             )
             row["inference_duration"] = (_dt.datetime.now() - start).total_seconds()
 
@@ -428,30 +553,73 @@ def _generate(
     system_prompt: str,
     schema: dict,
     qwen_cf: dict,
+    video: str | None = None,
+    transcript: str | None = None,
 ) -> dict:
-    """Run one constrained generation; returns text + token counts."""
+    """Run one constrained generation; returns text + token counts.
+
+    Args:
+        model: The loaded model.
+        processor: Its processor.
+        frames: Still frames, in order (empty when ``video`` is given).
+        audio: The audio clip, or None.
+        duration: The video's length in seconds.
+        system_prompt: The annotation prompt with the backend addendum.
+        schema: The JSON schema the answer must follow.
+        qwen_cf: The effective backend config.
+        video: Path of the video itself; when given, the model samples it at
+            ``fps`` frames per second and ``frames`` is ignored.
+        transcript: A separate speech model's text; None = no such step
+            ("" is a real result meaning no speech was found).
+
+    Returns:
+        ``text``, ``prompt_tokens`` and ``generation_tokens``.
+    """
     from mlx_vlm.generate import generate
     from mlx_vlm.prompt_utils import apply_chat_template
     from mlx_vlm.structured import build_json_schema_logits_processor
 
-    user_text = (
-        f"These are {len(frames)} frames sampled evenly, in order, "
-        f"from one short video (duration {duration:.0f} seconds)"
-        + (" together with the video's audio track" if audio else "")
-        + ". Analyze this video"
-    )
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text},
-    ]
-    prompt = apply_chat_template(
-        processor,
-        model.config,
-        messages,
-        num_images=len(frames),
-        num_audios=1 if audio else 0,
-        enable_thinking=False,
-    )
+    speech = SPEECH_NOTE.format(transcript=transcript) if transcript is not None else ""
+    if video:
+        content = [{"type": "video", "video": video}]
+        if audio:
+            content.append({"type": "audio", "audio": audio})
+        content.append(
+            {
+                "type": "text",
+                "text": f"This is one short video (duration {duration:.0f} seconds)"
+                + (" with its audio track" if audio else "")
+                + ". Analyze this video"
+                + speech,
+            }
+        )
+        messages = [
+            {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
+            {"role": "user", "content": content},
+        ]
+        prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        media = {"video": [video], "fps": qwen_cf["fps"]}
+    else:
+        user_text = (
+            f"These are {len(frames)} frames sampled evenly, in order, "
+            f"from one short video (duration {duration:.0f} seconds)"
+            + (" together with the video's audio track" if audio else "")
+            + ". Analyze this video"
+            + speech
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ]
+        prompt = apply_chat_template(
+            processor,
+            model.config,
+            messages,
+            num_images=len(frames),
+            num_audios=1 if audio else 0,
+            enable_thinking=False,
+        )
+        media = {"image": frames}
     tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
     logits_processor = build_json_schema_logits_processor(tokenizer, schema)
 
@@ -459,7 +627,7 @@ def _generate(
         model,
         processor,
         prompt,
-        image=frames,
+        **media,
         audio=[audio] if audio else None,
         temperature=qwen_cf.get("temperature", 0.0),
         max_tokens=qwen_cf["max_tokens"],

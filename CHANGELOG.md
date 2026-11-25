@@ -90,6 +90,18 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Local Qwen annotation can watch the video, use a separate transcript, and
+  run two copies at once.** Three new optional settings in
+  `[machine.qwen_local]`, all off by default: `video_input = "video"` gives
+  the model the video itself instead of still frames; `speech_model` has a
+  separate speech model transcribe the audio first and hands Qwen the text
+  (install the new `local_qwen_speech` extra); `copies` runs several copies
+  of the model side by side on Macs with enough memory, which was 1.4 times
+  as fast with two copies on a 128 GB machine. The first two change the
+  annotation version when switched on. The shipped answer-length cap
+  (`max_tokens`) drops from 4,096 to 2,000, so a runaway answer fails in half
+  the time; this also starts a new version for local Qwen annotations.
+
 - **Local Qwen annotation hears more than the first 30 seconds.** The
   published model files limit the audio to 30 seconds, so transcripts of
   longer videos stopped there. A new `max_audio_seconds` setting in

@@ -222,3 +222,93 @@ def test_sample_frames_skips_points_past_the_last_frame(tmp_path):
         fh.write("not a video")
     with pytest.raises(RuntimeError):
         ql._sample_frames(broken, 4.0, str(tmp_path), fps=1.0, max_frames=8, scale=448)
+
+
+def test_new_options_join_the_version_only_when_switched_on():
+    plain = QwenLocalBackend().version_extra_params()
+    assert "video_input" not in plain and "speech_model" not in plain
+
+    on = QwenLocalBackend(
+        overrides={"video_input": "video", "speech_model": "some/speech-model"}
+    ).version_extra_params()
+    assert on["video_input"] == "video"
+    assert on["speech_model"] == "some/speech-model"
+    assert len(on["speech_note"]) == 12
+
+
+def test_speech_cap_grows_with_the_clip():
+    assert ql._speech_token_cap(0) == 60
+    assert ql._speech_token_cap(30) == 300
+    assert ql._speech_token_cap(120) < 8192
+
+
+def test_copies_sets_the_worker_count_but_not_inside_a_copy(monkeypatch):
+    assert QwenLocalBackend().max_workers == 1
+    assert QwenLocalBackend(overrides={"copies": 2}).max_workers == 2
+    monkeypatch.setenv(ql.qwen_copies.CHILD_ENV, "1")
+    assert QwenLocalBackend(overrides={"copies": 2}).max_workers == 1
+
+
+def test_items_go_to_a_copy_and_a_dead_copy_gives_a_failure_row(monkeypatch):
+    class FakePool:
+        def __init__(self, answer):
+            self.answer, self.requests = answer, []
+
+        def run(self, request):
+            self.requests.append(request)
+            return self.answer
+
+    good = FakePool({"item_id": "1", "error": "", "finish_reason": "STOP"})
+    monkeypatch.setattr(ql.qwen_copies, "get_pool", lambda copies, overrides: good)
+    backend = QwenLocalBackend(overrides={"copies": 2})
+    assert backend.annotate_one("1", platform="tiktok")["finish_reason"] == "STOP"
+    assert good.requests[0]["item_id"] == "1"
+
+    dead = FakePool(None)
+    monkeypatch.setattr(ql.qwen_copies, "get_pool", lambda copies, overrides: dead)
+    row = backend.annotate_one("2", platform="tiktok")
+    assert row["item_id"] == "2"
+    assert "copy" in row["error"] and row["finish_reason"].startswith("DNF")
+
+
+def test_native_video_and_transcript_reach_the_model(monkeypatch):
+    seen = {}
+
+    class Processor:
+        tokenizer = object()
+
+        def apply_chat_template(self, messages, **kwargs):
+            seen["messages"] = messages
+            return "PROMPT"
+
+    def fake_generate(model, processor, prompt, **kwargs):
+        seen["kwargs"] = kwargs
+        return type("R", (), {"text": "{}", "prompt_tokens": 1, "generation_tokens": 1})()
+
+    import importlib
+
+    pytest.importorskip("mlx_vlm")
+    # ``mlx_vlm.generate`` the attribute is a function; the module needs importlib.
+    gen_mod = importlib.import_module("mlx_vlm.generate")
+    structured_mod = importlib.import_module("mlx_vlm.structured")
+
+    monkeypatch.setattr(gen_mod, "generate", fake_generate)
+    monkeypatch.setattr(structured_mod, "build_json_schema_logits_processor", lambda t, s: "LP")
+    cf = {"fps": 1.0, "max_tokens": 10, "repetition_penalty": 1.08}
+    ql._generate(
+        None,
+        Processor(),
+        [],
+        "/tmp/a.wav",
+        12.0,
+        "SYS",
+        {},
+        cf,
+        video="/tmp/v.mp4",
+        transcript="hello",
+    )
+    assert seen["kwargs"]["video"] == ["/tmp/v.mp4"] and seen["kwargs"]["fps"] == 1.0
+    assert "image" not in seen["kwargs"]
+    user = seen["messages"][1]["content"]
+    assert user[0] == {"type": "video", "video": "/tmp/v.mp4"}
+    assert "<speech_transcript>\nhello\n</speech_transcript>" in user[-1]["text"]

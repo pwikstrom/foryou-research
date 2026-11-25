@@ -62,6 +62,11 @@ dev = [
 local_qwen = [
     "mlx-vlm>=0.8.1,<0.9; sys_platform == 'darwin'",
 ]
+# Optional speech-recognition step for the local Qwen backend
+# ([machine.qwen_local] speech_model). Tested with mlx-audio 0.6.7 and 0.6.8.
+local_qwen_speech = [
+    "mlx-audio>=0.6.7,<0.7; sys_platform == 'darwin'",
+]
 # Local MiniCPM annotation backend (Apple Silicon + MLX only). Same runtime
 # and pin as local_qwen (one environment holds one mlx-vlm).
 local_minicpm = [
