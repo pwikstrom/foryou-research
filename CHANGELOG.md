@@ -98,9 +98,10 @@ public version. Entries below describe the Hub as it stands at that release.
   (install the new `local_qwen_speech` extra); `copies` runs several copies
   of the model side by side on Macs with enough memory, which was 1.4 times
   as fast with two copies on a 128 GB machine. The first two change the
-  annotation version when switched on. The shipped answer-length cap
-  (`max_tokens`) drops from 4,096 to 2,000, so a runaway answer fails in half
-  the time; this also starts a new version for local Qwen annotations.
+  annotation version when switched on. With a speech model the
+  answer-length limit follows each video's transcript (1,300 tokens plus 0.45
+  per character, up to `max_tokens`), so long talking videos are no longer
+  cut off and a runaway answer on a music clip fails sooner.
 
 - **Local Qwen annotation hears more than the first 30 seconds.** The
   published model files limit the audio to 30 seconds, so transcripts of

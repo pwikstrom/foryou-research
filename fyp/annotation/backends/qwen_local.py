@@ -85,6 +85,25 @@ def _speech_token_cap(audio_seconds: float) -> int:
     return int(60 + 8 * max(0.0, audio_seconds))
 
 
+# Answer length follows speech length: over 980 valid answers (2026-11) the
+# tokens written tracked the transcript's characters at r = 0.91, and this
+# line sits above all of them, including the longest (3,737 tokens).
+ANSWER_CAP_BASE = 1300
+ANSWER_CAP_PER_TRANSCRIPT_CHAR = 0.45
+
+
+def _answer_token_cap(max_tokens: int, transcript: str | None) -> int:
+    """The most tokens the model may write for one video.
+
+    With a separate transcript the cap follows its length, so a long talking
+    video gets room for its answer while a runaway answer on a music clip is
+    cut after about 1,300 tokens. Without one it is ``max_tokens``.
+    """
+    if transcript is None:
+        return int(max_tokens)
+    return int(min(max_tokens, ANSWER_CAP_BASE + ANSWER_CAP_PER_TRANSCRIPT_CHAR * len(transcript)))
+
+
 def _qwen_cf() -> dict:
     """The ``[machine.qwen_local]`` config block with pilot-tuned defaults."""
     stored = get_config()["machine"].get("qwen_local", {}) or {}
@@ -215,6 +234,7 @@ class QwenLocalBackend(AnnotationBackend):
         if qwen_cf["speech_model"]:
             params["speech_model"] = qwen_cf["speech_model"]
             params["speech_note"] = hashlib.sha256(SPEECH_NOTE.encode()).hexdigest()[:12]
+            params["answer_cap"] = f"{ANSWER_CAP_BASE}+{ANSWER_CAP_PER_TRANSCRIPT_CHAR}c"
         return params
 
     def _ensure_model(self):
@@ -630,7 +650,7 @@ def _generate(
         **media,
         audio=[audio] if audio else None,
         temperature=qwen_cf.get("temperature", 0.0),
-        max_tokens=qwen_cf["max_tokens"],
+        max_tokens=_answer_token_cap(qwen_cf["max_tokens"], transcript),
         repetition_penalty=qwen_cf["repetition_penalty"],
         repetition_context_size=60,
         logits_processors=[logits_processor],

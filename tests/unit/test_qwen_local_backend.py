@@ -234,6 +234,16 @@ def test_new_options_join_the_version_only_when_switched_on():
     assert on["video_input"] == "video"
     assert on["speech_model"] == "some/speech-model"
     assert len(on["speech_note"]) == 12
+    assert on["answer_cap"] == "1300+0.45c"
+    assert "answer_cap" not in plain
+
+
+def test_answer_cap_follows_the_transcript():
+    """No transcript → the ceiling; a short one → a low cap; a long one → the ceiling."""
+    assert ql._answer_token_cap(4096, None) == 4096
+    assert ql._answer_token_cap(4096, "") == 1300
+    assert ql._answer_token_cap(4096, "x" * 1000) == 1750
+    assert ql._answer_token_cap(4096, "x" * 20000) == 4096
 
 
 def test_speech_cap_grows_with_the_clip():

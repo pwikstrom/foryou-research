@@ -111,9 +111,10 @@ pricing = {input = 0.10, output = 0.80}
 # identity. No pricing — runs locally for free.
 # max_audio_seconds: how much of the audio track the model hears. The model
 # files default to 30; 120 is the longest value tested (2026-11, 20/20 clean).
-# max_tokens: the longest answer allowed. Valid answers in the 2026-11 tests
-# stayed under 1,300 tokens; the cap bounds what a runaway answer costs (about
-# 30 s at 2,000, against a minute at the old 4,096).
+# max_tokens: the longest answer allowed. With a speech_model the limit for
+# each video follows its transcript (1,300 tokens plus 0.45 per character, up
+# to max_tokens): long talking videos need up to 3,700 tokens, and a runaway
+# answer on a music clip is cut early. Without one, every video gets max_tokens.
 # Optional, all off by default (each changes the annotation version when used):
 #   video_input = "video"   the model watches the video itself at `fps` frames
 #                           per second instead of `max_frames` still frames.
@@ -133,7 +134,7 @@ model_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit"
 max_frames = 8
 frame_scale = 448
 fps = 1.0
-max_tokens = 2000
+max_tokens = 4096
 repetition_penalty = 1.08
 with_audio = true
 max_audio_seconds = 120

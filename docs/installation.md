@@ -327,9 +327,10 @@ exactly what to fix (see step 1).
   processed 1.4 times as many videos per hour as one; three did not fit. Each
   copy needs the model's full memory (4-bit 23 GB, 8-bit 40 GB). A copy that
   crashes or reports a graphics-processor error is restarted automatically.
-* **Answer length: `max_tokens`.** The shipped cap is 2,000 tokens. Valid
-  answers in testing stayed under 1,300; the cap limits how long a runaway
-  answer can run before the item is marked failed.
+* **Answer length: `max_tokens`.** The shipped ceiling is 4,096 tokens. With
+  a `speech_model`, each video's limit follows its transcript (1,300 tokens
+  plus 0.45 per character): long talking videos need up to about 3,700 tokens,
+  while a runaway answer on a music clip is cut early and marked failed.
 * **mlx-vlm version pin.** The backend needs mlx-vlm 0.8.1 or newer. Older
   0.6.x installs crashed the GPU on long audio or larger frame budgets; if
   you installed the extra before November 2026, run
