@@ -595,57 +595,80 @@ UI — it folds in the locally-written parquets automatically.
 
 A machine with its own annotator (a Mac running local Qwen) can work through
 the large remainder of unannotated videos while the hosted Hub keeps
-annotating with the admin-selected backend. The two never share a queue:
+annotating with the admin-selected backend. Everything here is **off by
+default**: an admin switches it on under **Admin → Backends → Second
+machine** (setting `second_machine_annotates`). While it is off, no control
+or status is shown, the nightly consolidation does not run, and annotation
+views are picked exactly as before, so a Hub that runs on one machine is
+unaffected. (Such a Hub that wants local Qwen simply selects it as the
+annotation backend.)
+
+The two annotators never share a queue:
 
 - **The hosted Hub** reads `cache/to_annotate.json`, as always.
 - **The second machine** reads the **backlog**, `cache/annotate_backlog.json`,
-  through `web_interface/workers/backlog_annotator.py`. It takes a chunk
-  at a time by writing a **claim** (`cache/annotate_backlog_claims.json`,
-  heartbeat every 60 s, stale after 15 min). A claim removes nothing from the
-  backlog, so a killed worker loses only its chunk, which is taken again once
-  the claim is stale. Claims are written with `data_io.update_json`
-  (compare-and-swap), so several copies of the worker can share one backlog.
+  through `web_interface/workers/backlog_annotator.py`. The backlog has three
+  **lanes**, taken in this order: `urgent` (videos an admin named), `coverage`
+  and `rest`. The machine takes 50 videos at a time by writing a **claim**
+  (`cache/annotate_backlog_claims.json`, heartbeat every 60 s, stale after
+  15 min). A claim removes nothing from the backlog, so a killed process
+  loses only its chunk, which is taken again once the claim is stale. Claims
+  are written with `data_io.update_json` (compare-and-swap), so several
+  copies can share one backlog.
 - **The backlog gives way.** A claim passes over ids that are queued for or in
   flight with the hosted annotator, and drops ids that enrichment status
   shows as annotated (or not annotatable) since they were listed. Where both
   annotators still produce an annotation of the same video, studies read the
-  hosted one: backends listed in `[machine] yielding_backends` never hide
-  another annotator's successful annotation
-  (`annotation_versioning.newest_row_mask`).
-- **Only the hosted Hub consolidates.** The worker writes raw and refined
-  result files (tagged with the machine's name) and nothing else; they are
-  folded in by the next **Consolidate & Refresh**.
+  hosted one: while the setting is on, backends listed in
+  `[machine] yielding_backends` never hide another annotator's successful
+  annotation (`annotation_versioning.newest_row_mask`).
+- **Only the hosted Hub consolidates.** The second machine writes raw and
+  refined result files (tagged with its name) and nothing else. The hosted
+  Hub starts a **Consolidate & Refresh once a night** (01:00 to 05:00 local
+  time, on the hourly enrichment heartbeat) when that machine has written
+  results since the last consolidation
+  (`run_enrichment_supervisor._second_machine_nightly`; independent of the
+  automatic-enrichment switch).
+
+**Steering it.** On the hosted Hub, Admin → Backends → Second machine adds or
+removes a study's or a collection's videos (to a lane, optionally at its
+front), pauses, empties a lane and lists failed videos again; it needs the
+Backends permission. Data Management → Annotation shows one read-only line,
+and the daily operations report turns red when videos remain but the machine
+has gone quiet. The same actions exist as commands on the second machine:
+
+```bash
+python -m web_interface.workers.backlog_annotator status
+python -m web_interface.workers.backlog_annotator add --study "My study" --front
+python -m web_interface.workers.backlog_annotator add --collection <id> --lane coverage
+python -m web_interface.workers.backlog_annotator add --all            # every annotatable video, to the last lane
+python -m web_interface.workers.backlog_annotator pause                # also: resume, retry-failed, empty [--lane], remove --file ids.txt
+```
 
 Two environment variables make a machine a second annotator. Neither is ever
 set on the hosted Hub:
 
 | Variable | Meaning |
 |---|---|
-| `FYP_ANNOTATION_BACKEND` | This machine's annotator (a backend id or variant, e.g. `qwen_local`). Goes before the shared admin setting, for this process and the workers it starts. Required by the backlog worker. |
-| `FYP_ANNOTATION_MACHINE` | Tag added to this machine's raw result file names. The backlog worker defaults it to the host name. |
+| `FYP_ANNOTATION_BACKEND` | This machine's annotator (a backend id or variant, e.g. `qwen_local`). Goes before the shared admin setting, for this process and the workers it starts. Required by `backlog_annotator run`. |
+| `FYP_ANNOTATION_MACHINE` | Tag added to this machine's raw result file names. `backlog_annotator run` defaults it to the host name. |
 
 **Prerequisites (once):** the deployed commit (as for the scrape drain: the
-annotation contract is code-baked, and the hosted Hub must already run a
-release that knows `yielding_backends`); `gcloud auth application-default
-login` with write access to the bucket; the local model installed
-([docs/installation.md](docs/installation.md#enabling-local-qwen-annotation)).
+annotation contract is code-baked); `gcloud auth application-default login`
+with write access to the bucket; the local model installed
+([docs/installation.md](docs/installation.md#enabling-local-qwen-annotation))
+and its recipe in `config/config.local.toml`; the Second machine setting
+switched on.
 
-**List the backlog** (every video that may be annotated, by the one
-eligibility rule, `collection_enrichment.annotation_eligible`):
-
-```bash
-FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> python -m web_interface.workers.backlog_annotator --list-eligible
-```
-
-**Run:**
+**Run** (every command above takes the same two storage variables):
 
 ```bash
-FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> FYP_ANNOTATION_BACKEND=qwen_local caffeinate -i -s python -m web_interface.workers.backlog_annotator --chunk 50
+FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> FYP_ANNOTATION_BACKEND=qwen_local caffeinate -i -s python -m web_interface.workers.backlog_annotator run --log-dir ~/fyp_local/logs
 ```
 
-Ctrl-C (or SIGTERM) stops after the chunk in progress. Progress shows on
-**Data Management → Annotation** and in the daily operations report, which
-turns red when videos remain but the worker has gone quiet. The first
-consolidation after the local model's annotation version is registered
-re-derives every item's view once (the view rule's name then lists the
-yielding versions).
+Ctrl-C (or SIGTERM) stops after the chunk in progress. With an empty or
+paused backlog it waits and looks again every two minutes (`--exit-when-empty`
+to stop instead). On macOS a notification is shown when it stops for any
+reason other than a request. The first consolidation after the local model's
+annotation version is registered re-derives every item's view once (the view
+rule's name then lists the yielding versions).

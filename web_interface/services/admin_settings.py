@@ -17,6 +17,7 @@ from fyp.analysis.embedding_backends.settings import (
 )
 from fyp.annotation.backends.settings import (
     ANNOTATION_BACKEND_KEY,
+    SECOND_MACHINE_ANNOTATES_KEY,
 )
 from fyp.annotation.backends.settings import (
     get_annotation_backend as get_annotation_backend,  # re-export (read side lives in fyp)
@@ -81,6 +82,12 @@ DEFAULTS: dict = {
     # unattended, so it must be turned on deliberately. Individual collections
     # are armed separately, in the Edit Collections modal.
     "auto_enrichment_enabled": False,
+    # "Second machine" (Admin -> Backends): another machine on the same
+    # storage works through the annotation backlog with its own annotator
+    # (web_interface/services/annotation_backlog.py). Default OFF: while off,
+    # no backlog control or status is shown, the nightly consolidation does
+    # not run, and annotation views are picked exactly as before.
+    SECOND_MACHINE_ANNOTATES_KEY: False,
     "sessions_min_plays": 4,
     "sessions_min_minutes": 0.0,
     "sessions_min_coverage_pct": 0.0,

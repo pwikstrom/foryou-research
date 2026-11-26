@@ -14,6 +14,11 @@ import fyp.core.data_io as data_io
 SETTINGS_FILENAME = "admin_settings.json"
 
 ANNOTATION_BACKEND_KEY = "annotation_backend"
+# "Second machine" (Admin -> Backends): another machine on the same storage
+# annotates the backlog with its own annotator. Ships off; while off, nothing
+# about a second machine is shown or applied, so a single-machine Hub behaves
+# exactly as it did before the feature existed.
+SECOND_MACHINE_ANNOTATES_KEY = "second_machine_annotates"
 
 
 def _load_settings() -> dict:
@@ -37,3 +42,12 @@ def get_annotation_backend() -> str:
     """
     value = _load_settings().get(ANNOTATION_BACKEND_KEY)
     return value if isinstance(value, str) and value else "gemini"
+
+
+def second_machine_annotates() -> bool:
+    """Whether an admin has switched on backlog annotation by a second machine.
+
+    Returns:
+        The stored switch; ``False`` when unset or unreadable.
+    """
+    return _load_settings().get(SECOND_MACHINE_ANNOTATES_KEY) is True

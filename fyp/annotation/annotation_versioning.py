@@ -69,7 +69,10 @@ ANNOTATED_OK_COL = "annotated_ok"
 VIEW_RULE = "successful_then_newest_inference_ts"
 # Annotators that give way: a successful annotation by one of these backends is
 # shown only where no other annotator has a successful annotation of the video.
-# Config: ``[machine] yielding_backends``.
+# Applies only while the "Second machine" admin setting is on (a second
+# machine annotates the backlog); which backends give way then is
+# ``[machine] yielding_backends``. With the setting off nothing gives way, and
+# the newest successful annotation is shown as always.
 DEFAULT_YIELDING_BACKENDS = ("qwen_local",)
 
 # The file-based prompt that predates the declarative-contract / generated-prompt
@@ -710,7 +713,18 @@ def _failed_rows(df: pd.DataFrame, ok_col: str = ANNOTATED_OK_COL) -> np.ndarray
 
 
 def yielding_backends() -> tuple[str, ...]:
-    """Backend ids whose annotations give way to every other annotator's."""
+    """Backend ids whose annotations give way to every other annotator's.
+
+    Empty unless an admin has switched on backlog annotation by a second
+    machine (``backends.settings.second_machine_annotates``).
+    """
+    try:
+        from fyp.annotation.backends.settings import second_machine_annotates
+
+        if not second_machine_annotates():
+            return ()
+    except Exception:
+        return ()
     try:
         value = _cf()["machine"].get("yielding_backends")
     except Exception:

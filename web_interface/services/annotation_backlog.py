@@ -9,9 +9,11 @@ consolidates.
 Three small files in ``cache``:
 
 ``annotate_backlog.json``
-    ``{"items": [...], "failed": [...]}``. The ids still to annotate, in the
-    order to take them. An id leaves ``items`` only when it is finished
-    (annotated, failed, or found to need no annotation any more).
+    ``{"lanes": {"urgent": [...], "coverage": [...], "rest": [...]}, "failed":
+    [...], "retry": [...], "paused": bool}``. The ids still to annotate. A
+    worker empties a more urgent lane before it takes from the next, and
+    takes a lane from its front. An id leaves its lane only when it is
+    finished (annotated, failed, or found to need no annotation any more).
 
 ``annotate_backlog_claims.json``
     ``{"claims": {claim_id: {...}}}``. A claim marks the ids one worker is
@@ -78,66 +80,235 @@ def _load(filename: str):
 # ---- the backlog ------------------------------------------------------------
 
 
-def load_backlog() -> dict:
-    """The backlog as ``{"items": [...], "failed": [...]}`` (empty when absent)."""
-    data = _load(BACKLOG_FILENAME)
-    if not isinstance(data, dict):
-        return {"items": [], "failed": []}
+# Lanes, most urgent first. A worker empties a lane before it takes from the next.
+LANES = ("urgent", "coverage", "rest")
+
+
+def _norm(data) -> dict:
+    """A stored backlog (either format, or nothing) as lanes / failed / retry / paused."""
+    data = data if isinstance(data, dict) else {}
+    stored = data.get("lanes") if isinstance(data.get("lanes"), dict) else {}
+    lanes = {lane: [str(i) for i in stored.get(lane) or []] for lane in LANES}
+    # The first format had one list, ``items``: it is the last lane.
+    lanes["rest"] += [str(i) for i in data.get("items") or []]
     return {
-        **data,
-        "items": [str(i) for i in data.get("items") or []],
+        "version": 2,
+        "created_at": data.get("created_at") or _now().isoformat(),
+        "updated_at": data.get("updated_at"),
+        "lanes": lanes,
         "failed": [str(i) for i in data.get("failed") or []],
+        "retry": [str(i) for i in data.get("retry") or []],
+        "paused": bool(data.get("paused")),
     }
 
 
-def eligible_ids(item_ids=None) -> list[str]:
+def _ordered(lanes: dict) -> list[str]:
+    return list(dict.fromkeys(i for lane in LANES for i in lanes[lane]))
+
+
+def load_backlog() -> dict:
+    """The backlog: ``lanes`` (ids per lane), ``items`` (all ids in the order they
+    are taken), ``failed``, ``retry`` (failed ids being tried again) and ``paused``."""
+    backlog = _norm(_load(BACKLOG_FILENAME))
+    return {**backlog, "items": _ordered(backlog["lanes"])}
+
+
+def _update(change) -> dict:
+    """Apply ``change(backlog)`` (in place, on the normalised form) atomically."""
+    result: dict = {}
+
+    def _mutate(current):
+        backlog = _norm(current)
+        change(backlog)
+        backlog["updated_at"] = _now().isoformat()
+        result["backlog"] = backlog
+        return backlog
+
+    data_io.update_json(storage_location=LOCATION, filename=BACKLOG_FILENAME, mutate=_mutate)
+    return result["backlog"]
+
+
+def eligible_ids(item_ids=None, retry_ids=()) -> list[str]:
     """Ids that may be annotated, by the Hub's one eligibility rule.
 
     Args:
         item_ids: Candidates in the order to keep; ``None`` means every item
             in enrichment status, in its stored order.
+        retry_ids: Candidates whose earlier failed annotation is to be ignored.
 
     Returns:
-        The eligible ids (scraped, media downloaded, not annotated, not failed).
+        The eligible ids (scraped, media downloaded, not annotated, and not
+        failed unless listed in ``retry_ids``).
     """
     from web_interface.services import collection_enrichment as ce
 
     status = ce.load_status(item_ids)
     if status is None:
         return []
-    candidates = list(status.index.astype(str)) if item_ids is None else item_ids
-    return ce.annotation_eligible(candidates, status)
+    candidates = list(status.index.astype(str)) if item_ids is None else [str(i) for i in item_ids]
+    keep = set(ce.annotation_eligible(candidates, status))
+    again = [i for i in candidates if i in set(retry_ids)]
+    if again:
+        keep |= set(ce.annotation_eligible(again, status, retry_failed=True))
+    return [i for i in candidates if i in keep]
+
+
+def add(item_ids, lane: str = "rest", front: bool = False) -> dict:
+    """Put ids in a lane (at its end, or at its front).
+
+    An id already in a more urgent lane stays there; one in a less urgent lane
+    moves up. Ids recorded as failed are left out (see :func:`retry_failed`).
+    The ids are taken as given: pass them through :func:`eligible_ids` first.
+
+    Returns:
+        ``{"added": n, "lanes": {lane: size}}``.
+    """
+    if lane not in LANES:
+        raise ValueError(f"Unknown lane {lane!r} (lanes: {', '.join(LANES)})")
+    wanted = list(dict.fromkeys(str(i) for i in item_ids))
+    out: dict = {}
+
+    def _change(backlog):
+        lanes = backlog["lanes"]
+        above = {i for name in LANES[: LANES.index(lane)] for i in lanes[name]}
+        skip = above | set(backlog["failed"]) - set(backlog["retry"])
+        new = [i for i in wanted if i not in skip]
+        moving = set(new)
+        for name in LANES[LANES.index(lane) + 1 :]:
+            lanes[name] = [i for i in lanes[name] if i not in moving]
+        if front:
+            lanes[lane] = new + [i for i in lanes[lane] if i not in moving]
+        else:
+            here = set(lanes[lane])
+            lanes[lane] += [i for i in new if i not in here]
+        out["added"] = len(new)
+
+    backlog = _update(_change)
+    return {"added": out["added"], "lanes": {k: len(v) for k, v in backlog["lanes"].items()}}
 
 
 def set_backlog(item_ids, append: bool = False) -> int:
-    """Write the backlog from an ordered id list (replacing it unless ``append``).
+    """Write the last lane from an ordered id list (replacing it unless ``append``).
 
     The ids are taken as given: pass them through :func:`eligible_ids` first.
-    Ids recorded as failed stay recorded and are not listed again.
+    The more urgent lanes are left as they are; ids recorded as failed stay
+    recorded and are not listed again.
 
     Returns:
-        The number of ids listed after the write.
+        The number of ids in the backlog after the write.
     """
-    wanted = list(dict.fromkeys(str(i) for i in item_ids))
-    result: dict = {}
+    if not append:
+        _update(lambda backlog: backlog["lanes"].__setitem__("rest", []))
+    add(item_ids, lane="rest")
+    return len(load_backlog()["items"])
 
-    def _mutate(current):
-        current = current if isinstance(current, dict) else {}
-        failed = [str(i) for i in current.get("failed") or []]
-        base = [str(i) for i in current.get("items") or []] if append else []
-        skip = set(failed) | set(base)
-        items = base + [i for i in wanted if i not in skip]
-        result["n"] = len(items)
-        return {
-            "version": 1,
-            "created_at": current.get("created_at") or _now().isoformat(),
-            "updated_at": _now().isoformat(),
-            "items": items,
-            "failed": failed,
-        }
 
-    data_io.update_json(storage_location=LOCATION, filename=BACKLOG_FILENAME, mutate=_mutate)
-    return result.get("n", 0)
+def remove(item_ids) -> int:
+    """Take ids out of every lane (they are not recorded as failed). Returns ids left."""
+    gone = {str(i) for i in item_ids}
+
+    def _change(backlog):
+        for name in LANES:
+            backlog["lanes"][name] = [i for i in backlog["lanes"][name] if i not in gone]
+
+    return len(_ordered(_update(_change)["lanes"]))
+
+
+def empty(lane: str | None = None) -> None:
+    """Empty one lane, or every lane when ``lane`` is None. Failures stay recorded."""
+    if lane is not None and lane not in LANES:
+        raise ValueError(f"Unknown lane {lane!r} (lanes: {', '.join(LANES)})")
+
+    def _change(backlog):
+        for name in LANES if lane is None else (lane,):
+            backlog["lanes"][name] = []
+
+    _update(_change)
+
+
+def set_paused(paused: bool) -> None:
+    """Ask workers to stop taking new chunks (or to carry on)."""
+    _update(lambda backlog: backlog.__setitem__("paused", bool(paused)))
+
+
+def retry_failed(lane: str = "rest") -> int:
+    """List the failed ids again; their earlier failure is ignored when they are claimed.
+
+    Returns:
+        The number of ids listed again.
+    """
+    if lane not in LANES:
+        raise ValueError(f"Unknown lane {lane!r} (lanes: {', '.join(LANES)})")
+    out: dict = {}
+
+    def _change(backlog):
+        again = list(backlog["failed"])
+        out["n"] = len(again)
+        backlog["retry"] = list(dict.fromkeys(backlog["retry"] + again))
+        backlog["failed"] = []
+        listed = {i for name in LANES for i in backlog["lanes"][name]}
+        backlog["lanes"][lane] += [i for i in again if i not in listed]
+
+    _update(_change)
+    return out["n"]
+
+
+def study_item_ids(study_name: str) -> list[str]:
+    """Every video of a study's frame (its cached dataset; built if missing)."""
+    filename = f"{study_name}_recoded.parquet"
+    frame = None
+    if data_io.exists(storage_location=LOCATION, filename=filename):
+        frame = data_io.load_parquet_selective(
+            storage_location=LOCATION, filename=filename, columns=["item_id"]
+        )
+    if frame is None or frame.empty:
+        from fyp.analysis.organize_datasets import create_study_recoded_dataset
+
+        frame = create_study_recoded_dataset(
+            study_name=study_name, save_to_cache=True, verbose=False
+        )
+    if frame is None or frame.empty:
+        return []
+    return list(dict.fromkeys(frame["item_id"].dropna().astype(str)))
+
+
+def collection_item_ids(collection_id: str) -> list[str]:
+    """Every video a collection's donor viewed, in viewing order."""
+    from web_interface.services import collection_enrichment as ce
+
+    activity = ce.load_activity(collection_id)
+    if activity is None or activity.empty:
+        return []
+    return list(dict.fromkeys(activity.sort_values("day")["item_id"].astype(str)))
+
+
+def add_from(
+    study: str | None = None,
+    collection: str | None = None,
+    item_ids=None,
+    lane: str = "urgent",
+    front: bool = False,
+) -> dict:
+    """Put a study's, a collection's or a list's annotatable videos in a lane.
+
+    Exactly one source is given. Only videos that may be annotated are added
+    (scraped, media downloaded, not annotated, not failed).
+
+    Returns:
+        ``{"source", "candidates", "eligible", "added", "lanes"}``.
+    """
+    given = [x for x in (study, collection, item_ids) if x is not None]
+    if len(given) != 1:
+        raise ValueError("Give exactly one of study, collection or item_ids")
+    if study is not None:
+        source, candidates = f"study {study}", study_item_ids(study)
+    elif collection is not None:
+        source, candidates = f"collection {collection}", collection_item_ids(collection)
+    else:
+        source, candidates = "list", list(dict.fromkeys(str(i) for i in item_ids))
+    wanted = eligible_ids(candidates) if candidates else []
+    result = add(wanted, lane=lane, front=front)
+    return {"source": source, "candidates": len(candidates), "eligible": len(wanted), **result}
 
 
 # ---- claims -----------------------------------------------------------------
@@ -201,15 +372,16 @@ def claim(n: int, check_eligibility: bool = True) -> dict | None:
         ``{"claim_id", "items", "dropped"}``, or ``None`` when nothing is left
         to claim right now.
     """
-    items = load_backlog()["items"]
-    if not items or n <= 0:
+    backlog = load_backlog()
+    items = backlog["items"]
+    if not items or n <= 0 or backlog["paused"]:
         return None
     taken = claimed_ids() | hosted_annotator_ids()
     candidates = [i for i in items[: n * _SCAN_FACTOR + len(taken)] if i not in taken]
     candidates = candidates[: n * _SCAN_FACTOR]
     dropped: list[str] = []
     if check_eligibility and candidates:
-        wanted = set(eligible_ids(candidates))
+        wanted = set(eligible_ids(candidates, retry_ids=backlog["retry"]))
         dropped = [i for i in candidates if i not in wanted]
         candidates = [i for i in candidates if i in wanted]
         if dropped:
@@ -275,20 +447,15 @@ def release(claim_id: str) -> None:
 
 def _remove_from_backlog(done, failed) -> int:
     gone = {str(i) for i in done} | {str(i) for i in failed}
-    left: dict = {}
 
-    def _mutate(current):
-        if not isinstance(current, dict):
-            return None
-        items = [str(i) for i in current.get("items") or [] if str(i) not in gone]
-        known = [str(i) for i in current.get("failed") or []]
-        seen = set(known)
-        known += [str(i) for i in failed if str(i) not in seen]
-        left["n"] = len(items)
-        return {**current, "items": items, "failed": known, "updated_at": _now().isoformat()}
+    def _change(backlog):
+        for name in LANES:
+            backlog["lanes"][name] = [i for i in backlog["lanes"][name] if i not in gone]
+        backlog["retry"] = [i for i in backlog["retry"] if i not in gone]
+        seen = set(backlog["failed"])
+        backlog["failed"] += [str(i) for i in failed if str(i) not in seen]
 
-    data_io.update_json(storage_location=LOCATION, filename=BACKLOG_FILENAME, mutate=_mutate)
-    return left.get("n", 0)
+    return len(_ordered(_update(_change)["lanes"]))
 
 
 def complete(claim_id: str, ok_ids, fail_ids) -> int:
@@ -372,7 +539,8 @@ def read_status() -> dict:
     """The backlog as the Hub shows it.
 
     Returns:
-        ``{"exists", "remaining", "failed", "claimed", "running", "worker"}``.
+        ``{"exists", "remaining", "lanes", "paused", "failed", "claimed",
+        "running", "worker"}``.
         ``worker`` is the last status the worker wrote (or ``None``);
         ``running`` is True while that status is fresh and not marked stopped.
     """
@@ -381,6 +549,8 @@ def read_status() -> dict:
     return {
         "exists": bool(backlog["items"] or backlog["failed"] or worker),
         "remaining": len(backlog["items"]),
+        "lanes": {lane: len(ids) for lane, ids in backlog["lanes"].items()},
+        "paused": backlog["paused"],
         "failed": len(backlog["failed"]),
         "claimed": len(claimed_ids()),
         "running": bool(worker and worker["running"]),

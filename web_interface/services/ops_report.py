@@ -501,8 +501,11 @@ def _backlog_check(check, sec) -> None:
     run unattended for months, so a stop should be seen the next morning.
     """
     try:
+        from fyp.annotation.backends.settings import second_machine_annotates
         from web_interface.services import annotation_backlog
 
+        if not second_machine_annotates():
+            return
         status = annotation_backlog.read_status()
     except Exception as exc:
         check(sec, "Annotation backlog", "yellow", f"Could not read the backlog ({exc})")

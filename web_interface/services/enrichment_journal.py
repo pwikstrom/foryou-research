@@ -75,6 +75,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "annotate.finished": ("Annotation finished", FAMILY_WORKER),
     "consolidate.finished": ("Consolidated", FAMILY_CONSOLIDATE),
     "results.settled": ("Late results consolidated", FAMILY_CONSOLIDATE),
+    "consolidate.nightly": ("Nightly consolidation started", FAMILY_CONSOLIDATE),
     "finalize.dispatched": ("Analysis refresh started", FAMILY_REFRESH),
     "refresh.finished": ("Analyses refreshed", FAMILY_REFRESH),
 }

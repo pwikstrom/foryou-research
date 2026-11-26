@@ -150,6 +150,8 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/schema` | GET | `management_bp.get_schema` |
 | management_bp | `/api/manage/schema` | POST | `management_bp.save_schema_endpoint` |
 | management_bp | `/api/manage/schema/validate` | POST | `management_bp.validate_schema_endpoint` |
+| management_bp | `/api/manage/second-machine` | GET | `management_bp.second_machine_status` |
+| management_bp | `/api/manage/second-machine/backlog` | POST | `management_bp.second_machine_backlog` |
 | management_bp | `/api/manage/studies` | GET | `management_bp.list_studies` |
 | management_bp | `/api/manage/studies/<study>/annotation-version` | POST | `management_bp.set_study_annotation_version` |
 | management_bp | `/api/manage/studies/<study>/set_viz` | GET | `management_bp.study_set_viz` |
@@ -210,4 +212,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-199 routes total.
+201 routes total.

@@ -287,6 +287,93 @@ def _scraper_blocked(platform: str) -> str | None:
     return str((alert.get("kind") if isinstance(alert, dict) else None) or "scraper_alert")
 
 
+# Second machine: the hours (local, [misc] TIME_ZONE; start inclusive, end
+# exclusive) in which its results are consolidated, once a night.
+SECOND_MACHINE_NIGHT_HOURS = (1, 5)
+SECOND_MACHINE_NIGHT_KEY = "second_machine_consolidated_on"
+
+
+def _as_utc(stamp) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(stamp))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _second_machine_nightly(reporter, now: datetime | None = None) -> dict | None:
+    """Start the night's Consolidate & Refresh for a second machine's results.
+
+    A second machine writes result files to the shared storage, but it is not
+    one of this Hub's workers, so nothing here notices them (the checks above
+    compare this Hub's own workers' finish times with the last consolidation).
+    While the "Second machine" setting is on, this runs once a night, in
+    :data:`SECOND_MACHINE_NIGHT_HOURS`, and only when that machine has written
+    results since the last consolidation. It is independent of the automatic
+    enrichment switch. The hourly heartbeat brings it back within the window
+    when something was in the way.
+
+    Returns:
+        The tick's result when a consolidation was started, else ``None``.
+        Never raises.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        from fyp.annotation.backends.settings import second_machine_annotates
+        from fyp.core.fyp_config import fyp_cf
+        from web_interface.services import annotation_backlog, refresh_pipeline
+        from web_interface.services.worker_status import workers_blocking_consolidate
+        from web_interface.tasks.process_manager import load_process_stats, process_stats
+
+        if not second_machine_annotates():
+            return None
+        try:
+            zone = ZoneInfo(fyp_cf.get("misc", {}).get("TIME_ZONE", "UTC"))
+        except Exception:
+            zone = UTC
+        local = (now or datetime.now(UTC)).astimezone(zone)
+        if not SECOND_MACHINE_NIGHT_HOURS[0] <= local.hour < SECOND_MACHINE_NIGHT_HOURS[1]:
+            return None
+        tonight = local.date().isoformat()
+        if ce.get_meta(SECOND_MACHINE_NIGHT_KEY) == tonight:
+            return None
+        worker = annotation_backlog.worker_status() or {}
+        written = _as_utc(worker.get("last_chunk_at"))
+        if written is None:
+            return None
+        load_process_stats()
+        consolidated = _as_utc(
+            process_stats.get("consolidate_enrichment", {}).get("last_consolidation")
+        )
+        if consolidated is not None and written <= consolidated:
+            return None
+        blocking = workers_blocking_consolidate()
+        if blocking or _pipeline_in_flight() or refresh_pipeline.run_in_flight():
+            reporter.log(
+                "Second machine: results await the nightly consolidation; waiting for "
+                f"{', '.join(blocking) or 'the running refresh'}."
+            )
+            return None
+        ok, msg = _start_consolidation(
+            {"auto_refresh": True}, mode="refresh", started_by="nightly (second machine)"
+        )
+        reporter.log(f"Second machine: nightly Consolidate & Refresh: {msg}")
+        if not ok:
+            return None
+        ce.set_meta(SECOND_MACHINE_NIGHT_KEY, tonight)
+        journal.record(
+            "consolidate.nightly",
+            f"Nightly Consolidate & Refresh started for the second machine's results "
+            f"({worker.get('host', 'unknown machine')})",
+            actor="enrichment_supervisor",
+        )
+        return {"action": "consolidate", "after": "second_machine", "started": True}
+    except Exception as exc:
+        reporter.log(f"Second machine: nightly consolidation check failed ({exc}).")
+        return None
+
+
 def run_enrichment_supervisor(
     reporter: TaskStatusReporter, task_args: dict | None = None
 ) -> dict | None:
@@ -294,6 +381,12 @@ def run_enrichment_supervisor(
     task_args = task_args or {}
     started = time.perf_counter()
     forced = str(task_args.get("collection_id") or "")
+
+    if not forced:
+        nightly = _second_machine_nightly(reporter)
+        if nightly:
+            reporter.emit_data(nightly)
+            return None
 
     if not forced and not _admin_kill_switch():
         reporter.log(
@@ -864,7 +957,9 @@ def _settle(reporter) -> dict | None:
     }
 
 
-def _start_consolidation(task_args: dict) -> tuple[bool, str]:
+def _start_consolidation(
+    task_args: dict, mode: str = "consolidate_only", started_by: str = "automatic enrichment"
+) -> tuple[bool, str]:
     """Start a consolidation the way the Consolidate button does: with a run
     record, so the Refresh Pipeline chart draws it.
 
@@ -874,7 +969,10 @@ def _start_consolidation(task_args: dict) -> tuple[bool, str]:
     """
     from web_interface.services import refresh_pipeline
 
-    record = _seed_consolidation_run(task_args)
+    if mode == "consolidate_only" and started_by == "automatic enrichment":
+        record = _seed_consolidation_run(task_args)
+    else:
+        record = _seed_consolidation_run(task_args, mode=mode, started_by=started_by)
     if record:
         task_args = {
             **task_args,
@@ -893,18 +991,22 @@ def _start_consolidation(task_args: dict) -> tuple[bool, str]:
     return ok, msg
 
 
-def _seed_consolidation_run(task_args: dict) -> dict | None:
-    """Plan and persist the consolidate-only run record. Never raises."""
+def _seed_consolidation_run(
+    task_args: dict, mode: str = "consolidate_only", started_by: str = "automatic enrichment"
+) -> dict | None:
+    """Plan and persist the run record (consolidate-only unless ``mode`` says
+    ``"refresh"``, which plans the downstream steps provisionally, as the
+    Consolidate & Refresh button does). Never raises."""
     try:
         from web_interface.services import refresh_pipeline
 
         record = refresh_pipeline.plan_run(
             "consolidate_enrichment",
             kind="consolidate",
-            started_by="automatic enrichment",
-            mode="consolidate_only",
+            started_by=started_by,
+            mode=mode,
             origin_task_args=dict(task_args),
-            provisional=False,
+            provisional=mode == "refresh",
         )
         return refresh_pipeline.seed_run(record)
     except Exception as exc:

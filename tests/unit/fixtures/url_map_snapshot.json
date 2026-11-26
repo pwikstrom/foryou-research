@@ -898,6 +898,20 @@
   ]
  ],
  [
+  "/api/manage/second-machine",
+  "management_bp.second_machine_status",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/second-machine/backlog",
+  "management_bp.second_machine_backlog",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/studies",
   "management_bp.list_studies",
   [

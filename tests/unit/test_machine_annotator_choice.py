@@ -59,8 +59,23 @@ def _frame():
     )
 
 
+def _second_machine(monkeypatch, on: bool):
+    monkeypatch.setattr("fyp.annotation.backends.settings.second_machine_annotates", lambda: on)
+
+
+def test_nothing_gives_way_while_the_second_machine_setting_is_off(monkeypatch):
+    """A single-machine Hub with local Qwen keeps reading the newest annotation."""
+    monkeypatch.setattr(av, "load_registry", lambda: REGISTRY)
+    _second_machine(monkeypatch, False)
+    assert av.yielding_versions() == frozenset()
+    assert av.view_rule() == av.VIEW_RULE
+    view = av.select_latest_view(_frame())
+    assert dict(zip(view.item_id, view.annotation_version))["a"] == "av_qwen"
+
+
 def test_a_yielding_annotator_never_hides_another(monkeypatch):
     monkeypatch.setattr(av, "load_registry", lambda: REGISTRY)
+    _second_machine(monkeypatch, True)
     assert av.yielding_versions() == frozenset({"av_qwen"})
 
     for view in (av.select_latest_view(_frame()), av.select_preferred_view(_frame(), "av_gem")):
@@ -76,6 +91,7 @@ def test_view_rule_names_the_yielding_versions(monkeypatch):
     monkeypatch.setattr(
         av, "load_registry", lambda: {"versions": {"av_gem": {}}, "preferred": None}
     )
+    _second_machine(monkeypatch, True)
     assert av.view_rule() == av.VIEW_RULE
     monkeypatch.setattr(av, "load_registry", lambda: REGISTRY)
     assert av.view_rule() == av.VIEW_RULE + "|yielding:av_qwen"
@@ -83,5 +99,6 @@ def test_view_rule_names_the_yielding_versions(monkeypatch):
 
 def test_without_yielding_versions_the_views_are_unchanged(monkeypatch):
     monkeypatch.setattr(av, "load_registry", lambda: {"versions": {}, "preferred": None})
+    _second_machine(monkeypatch, True)
     view = av.select_latest_view(_frame())
     assert dict(zip(view.item_id, view.annotation_version))["a"] == "av_qwen"

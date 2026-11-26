@@ -30,6 +30,9 @@
         if (pageId === 'admin-page-ops-report' && typeof loadOpsReport === 'function') {
             loadOpsReport();
         }
+        if (pageId === 'admin-page-backends' && typeof loadSecondMachine === 'function') {
+            loadSecondMachine();
+        }
 
         document.querySelectorAll('#admin .dm-page').forEach(page => {
             page.classList.remove('active');

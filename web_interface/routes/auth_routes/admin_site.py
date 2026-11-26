@@ -81,7 +81,7 @@ def api_admin_settings():
     if unknown:
         return jsonify({"error": f"Unknown settings: {unknown}"}), 400
 
-    _BACKEND_SETTING_KEYS = {"annotation_backend", "embedding_backend"}
+    _BACKEND_SETTING_KEYS = {"annotation_backend", "embedding_backend", "second_machine_annotates"}
     for k in data:
         required = "tab.admin.backends" if k in _BACKEND_SETTING_KEYS else "tab.admin.general"
         if not user_has_permission(current_user, required):

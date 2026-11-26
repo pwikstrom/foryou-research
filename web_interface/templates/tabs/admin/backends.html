@@ -70,3 +70,54 @@
         style="display: none; margin: 0 0 14px 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-elevated); max-width: 680px;">
     </div>
 </section>
+
+<!-- Second machine: another machine on the same storage annotates the backlog
+     with its own annotator (web_interface/services/annotation_backlog.py).
+     Rendered by static/js/admin_second_machine.js. Off by default; while off
+     nothing about a second machine is shown anywhere else in the Hub. -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Second machine</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted); max-width: 680px;">
+        For a Hub whose storage is shared with a second computer (for example a Mac running a local
+        model) that annotates the videos this Hub has not annotated. That computer works through
+        its own list, the <em>backlog</em>, and never the annotation queue above. It gives way to
+        this Hub: it skips videos queued here, and where both have annotated a video, studies read
+        this Hub's annotation. A Hub that runs on one computer does not need this; choose the
+        annotation backend above instead. Setting up the second computer:
+        <span class="font-mono">DEVELOPING.md</span>, &ldquo;Backlog Annotation on a Second Machine&rdquo;.
+    </p>
+    <label class="text-sm" style="display: flex; align-items: center; gap: 8px; color: var(--color-text-primary); margin-bottom: 12px;">
+        <input type="checkbox" id="setting-second-machine" onchange="saveSecondMachineSetting(this)" disabled />
+        A second machine annotates the backlog
+        <span id="setting-second-machine-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </label>
+
+    <div id="second-machine-panel" style="display: none; max-width: 680px;">
+        <div id="second-machine-state" class="text-xs"
+            style="padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-elevated); margin-bottom: 12px; white-space: pre-line;"></div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <label class="text-sm" for="second-machine-study" style="color: var(--color-text-primary);">Study</label>
+            <select id="second-machine-study" class="control-input" style="width: 220px;"></select>
+            <span class="text-sm" style="color: var(--color-text-muted);">or collection id</span>
+            <input type="text" id="second-machine-collection" class="control-input" style="width: 200px;" placeholder="collection id" />
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
+            <label class="text-sm" for="second-machine-lane" style="color: var(--color-text-primary);">Lane</label>
+            <select id="second-machine-lane" class="control-input" style="width: 140px;"></select>
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; color: var(--color-text-tertiary);">
+                <input type="checkbox" id="second-machine-front" /> at the front of the lane
+            </label>
+            <button type="button" class="action-btn" onclick="secondMachineAction('add', this)">Add its videos</button>
+            <button type="button" class="btn-stop text-xs" style="padding: 4px 8px;" onclick="secondMachineAction('remove', this)">Remove its videos</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <button type="button" class="action-btn" id="second-machine-pause" onclick="secondMachineAction('pause', this)">Pause</button>
+            <button type="button" class="action-btn" onclick="secondMachineAction('retry_failed', this)">List failed videos again</button>
+            <button type="button" class="btn-stop text-xs" style="padding: 4px 8px;" onclick="secondMachineAction('empty', this)">Empty the selected lane</button>
+            <button type="button" class="action-btn" onclick="loadSecondMachine()">Refresh</button>
+        </div>
+        <div id="second-machine-result" class="text-xs" style="margin-top: 8px; color: var(--color-text-secondary);"></div>
+    </div>
+</section>
+<script src="{{ asset_url('js/admin_second_machine.js') }}" defer></script>

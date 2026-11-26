@@ -16,7 +16,13 @@ from fyp.scrape.platform_scraper import get_scraper
 from web_interface.tasks import worker_registry
 
 from ...auth.permissions import permission_required
-from ...services import activity_log, collection_enrichment, refresh_pipeline, system_health
+from ...services import (
+    activity_log,
+    admin_settings,
+    collection_enrichment,
+    refresh_pipeline,
+    system_health,
+)
 from ...services.stats_service import (
     evaluate_consolidation_staleness,
     evaluate_version_promotion_staleness,
@@ -61,9 +67,12 @@ def _annotation_backlog_status() -> dict | None:
     if now - _BACKLOG_STATUS_CACHE["at"] < _BACKLOG_STATUS_TTL_S:
         return _BACKLOG_STATUS_CACHE["value"]
     try:
+        from fyp.annotation.backends.settings import SECOND_MACHINE_ANNOTATES_KEY
         from web_interface.services import annotation_backlog
 
-        value = annotation_backlog.worker_status()
+        # Nothing about a second machine is shown unless an admin switched it on.
+        enabled = admin_settings.get_setting(SECOND_MACHINE_ANNOTATES_KEY) is True
+        value = annotation_backlog.worker_status() if enabled else None
     except Exception:
         value = None
     _BACKLOG_STATUS_CACHE.update(at=now, value=value)
@@ -1737,3 +1746,102 @@ def api_refresh_staleness():
             "version_promotion": promotion,
         }
     )
+
+
+# ---- Second machine: backlog annotation (Admin -> Backends) ------------------
+
+
+@management_bp.route("/api/manage/second-machine", methods=["GET"])
+@permission_required("tab.admin.backends")
+def second_machine_status():
+    """The second-machine switch, the backlog and the worker's last report.
+
+    Returns:
+        ``{enabled, backlog: annotation_backlog.read_status() | None, lanes,
+        studies}``. ``backlog`` is read only while the switch is on.
+    """
+    from fyp.annotation.backends.settings import SECOND_MACHINE_ANNOTATES_KEY
+    from web_interface.services import annotation_backlog
+
+    enabled = admin_settings.get_setting(SECOND_MACHINE_ANNOTATES_KEY) is True
+    return jsonify(
+        {
+            "enabled": enabled,
+            "backlog": annotation_backlog.read_status() if enabled else None,
+            "lanes": list(annotation_backlog.LANES),
+            "studies": admin_settings.study_names() if enabled else [],
+        }
+    )
+
+
+@management_bp.route("/api/manage/second-machine/backlog", methods=["POST"])
+@permission_required("tab.admin.backends")
+def second_machine_backlog():
+    """Steer the backlog: add or remove a study's / collection's videos, empty a
+    lane, pause, resume, or list the failed videos again.
+
+    Body: ``{action, study?, collection?, lane?, front?}`` with ``action`` one of
+    ``add``, ``remove``, ``empty``, ``pause``, ``resume``, ``retry_failed``.
+    Refused while the second-machine switch is off.
+    """
+    from fyp.annotation.backends.settings import SECOND_MACHINE_ANNOTATES_KEY
+    from web_interface.services import annotation_backlog as backlog
+
+    if admin_settings.get_setting(SECOND_MACHINE_ANNOTATES_KEY) is not True:
+        return jsonify({"error": "Backlog annotation by a second machine is switched off."}), 409
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    lane = data.get("lane") or None
+    if lane is not None and lane not in backlog.LANES:
+        return jsonify({"error": f"Unknown lane {lane!r}"}), 400
+    study = (data.get("study") or "").strip() or None
+    collection = (data.get("collection") or "").strip() or None
+    try:
+        if action == "add":
+            if bool(study) == bool(collection):
+                return jsonify({"error": "Give a study or a collection."}), 400
+            out = backlog.add_from(
+                study=study,
+                collection=collection,
+                lane=lane or "urgent",
+                front=bool(data.get("front")),
+            )
+            message = (
+                f"{out['eligible']:,} of {out['candidates']:,} video(s) of {out['source']} may be "
+                f"annotated; {out['added']:,} added to the {lane or 'urgent'} lane."
+            )
+            if out["added"]:
+                _journal(
+                    "queue.built",
+                    f"Annotation backlog: {out['added']:,} video(s) of {out['source']} added "
+                    f"to the {lane or 'urgent'} lane by {current_actor()}",
+                    added=out["added"],
+                    lane=lane or "urgent",
+                )
+        elif action == "remove":
+            if bool(study) == bool(collection):
+                return jsonify({"error": "Give a study or a collection."}), 400
+            ids = (
+                backlog.study_item_ids(study) if study else backlog.collection_item_ids(collection)
+            )
+            before = backlog.read_status()["remaining"]
+            left = backlog.remove(ids)
+            message = f"{before - left:,} video(s) removed from the backlog."
+        elif action == "empty":
+            backlog.empty(lane)
+            message = f"Emptied {('the ' + lane + ' lane') if lane else 'the whole backlog'}."
+            _journal("queue.emptied", f"Annotation backlog: {message} ({current_actor()})")
+        elif action in ("pause", "resume"):
+            backlog.set_paused(action == "pause")
+            message = "Paused." if action == "pause" else "Resumed."
+        elif action == "retry_failed":
+            message = f"{backlog.retry_failed(lane or 'rest'):,} failed video(s) listed again."
+        else:
+            return jsonify({"error": f"Unknown action {action!r}"}), 400
+    except Exception as exc:
+        from .._errors import internal_error_message, log_unexpected
+
+        ref = log_unexpected(exc, "on POST /api/manage/second-machine/backlog")
+        return jsonify({"error": internal_error_message(ref)}), 500
+    _BACKLOG_STATUS_CACHE["at"] = 0.0
+    return jsonify({"status": "success", "message": message, "backlog": backlog.read_status()})

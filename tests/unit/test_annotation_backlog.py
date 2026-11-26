@@ -22,7 +22,7 @@ def store(tmp_path, monkeypatch):
 
     monkeypatch.setattr(data_io, "resolve_paths", _resolve)
     # No status table in these tests: every listed id counts as eligible.
-    monkeypatch.setattr(backlog, "eligible_ids", lambda ids=None: list(ids or []))
+    monkeypatch.setattr(backlog, "eligible_ids", lambda ids=None, retry_ids=(): list(ids or []))
     return tmp_path
 
 
@@ -82,7 +82,9 @@ def test_backlog_gives_way_to_the_hosted_annotator(store):
 def test_ids_that_no_longer_need_annotating_are_dropped(store, monkeypatch):
     ids = _ids(5)
     backlog.set_backlog(ids)
-    monkeypatch.setattr(backlog, "eligible_ids", lambda c=None: [i for i in c if i != ids[1]])
+    monkeypatch.setattr(
+        backlog, "eligible_ids", lambda c=None, retry_ids=(): [i for i in c if i != ids[1]]
+    )
     c = backlog.claim(3)
     assert c["items"] == [ids[0], ids[2], ids[3]] and c["dropped"] == [ids[1]]
     state = backlog.load_backlog()
@@ -157,3 +159,109 @@ def test_worker_releases_its_claim_when_annotation_raises(store):
         worker.run(chunk=5, annotate=boom)
     assert backlog.claimed_ids() == set() and len(backlog.load_backlog()["items"]) == 5
     assert backlog.read_status()["worker"]["state"] == "stopped"
+
+
+def test_urgent_lane_goes_first_and_ids_move_up_not_down(store):
+    rest, urgent = _ids(6), _ids(2, 4)
+    backlog.set_backlog(rest)
+    backlog.add(_ids(1, 2), lane="coverage")
+    out = backlog.add(urgent, lane="urgent")
+    assert out["added"] == 2 and out["lanes"] == {"urgent": 2, "coverage": 1, "rest": 3}
+    # Taken in lane order; an id sits in one lane only.
+    assert backlog.load_backlog()["items"] == urgent + _ids(1, 2) + _ids(2) + _ids(1, 3)
+    # Adding an urgent id to a less urgent lane leaves it where it is.
+    assert backlog.add(urgent, lane="rest")["added"] == 0
+    assert backlog.claim(3)["items"] == urgent + _ids(1, 2)
+
+    backlog.add(_ids(1, 3), lane="urgent", front=True)
+    assert backlog.load_backlog()["lanes"]["urgent"][0] == _ids(1, 3)[0]
+
+
+def test_first_format_backlog_is_read_as_the_last_lane(store):
+    data_io.save_json(
+        data={"version": 1, "items": _ids(3), "failed": _ids(1, 9)},
+        storage_location="cache",
+        filename=backlog.BACKLOG_FILENAME,
+    )
+    state = backlog.load_backlog()
+    assert state["lanes"]["rest"] == _ids(3) and state["failed"] == _ids(1, 9)
+    backlog.add(_ids(1, 5), lane="urgent")
+    assert backlog.load_backlog()["items"] == _ids(1, 5) + _ids(3)
+
+
+def test_remove_empty_and_pause(store):
+    backlog.set_backlog(_ids(6))
+    backlog.add(_ids(2, 6), lane="urgent")
+    assert backlog.remove(_ids(1) + _ids(1, 6)) == 6
+    backlog.empty("urgent")
+    assert backlog.load_backlog()["items"] == _ids(5, 1)
+
+    backlog.set_paused(True)
+    assert backlog.claim(3) is None and backlog.read_status()["paused"] is True
+    waited = []
+    out = worker.run(
+        chunk=3,
+        annotate=lambda ids: (ids, []),
+        sleep=lambda s: (waited.append(s), backlog.set_paused(False)),
+    )
+    assert waited == [worker.IDLE_WAIT_S] and out["ok"] == 5
+
+    backlog.empty()
+    assert backlog.load_backlog()["items"] == []
+
+
+def test_failed_ids_are_listed_again_only_on_request(store, monkeypatch):
+    backlog.set_backlog(_ids(2))
+    c = backlog.claim(2)
+    backlog.complete(c["claim_id"], ok_ids=[], fail_ids=c["items"])
+    assert backlog.add(_ids(2), lane="urgent")["added"] == 0  # failures are not re-listed
+
+    seen = {}
+    monkeypatch.setattr(
+        backlog,
+        "eligible_ids",
+        lambda ids=None, retry_ids=(): (seen.setdefault("retry", list(retry_ids)), list(ids))[1],
+    )
+    assert backlog.retry_failed() == 2
+    state = backlog.load_backlog()
+    assert state["items"] == _ids(2) and state["failed"] == [] and state["retry"] == _ids(2)
+    c = backlog.claim(2)
+    assert seen["retry"] == _ids(2)  # the earlier failure is ignored for these ids
+    backlog.complete(c["claim_id"], ok_ids=c["items"], fail_ids=[])
+    assert backlog.load_backlog()["retry"] == []
+
+
+def test_worker_waits_for_new_videos_when_asked_to(store):
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        if len(waits) == 1:
+            backlog.add(_ids(3), lane="urgent")
+
+    stop = lambda: len(waits) >= 2  # noqa: E731
+    out = worker.run(
+        chunk=5,
+        annotate=lambda ids: (ids, []),
+        sleep=sleep,
+        stop_requested=stop,
+        wait_when_empty=True,
+    )
+    assert out["ok"] == 3 and out["reason"] == "stopped by request"
+
+
+def test_status_text_and_commands(store, capsys):
+    backlog.set_backlog(_ids(4))
+    assert worker.main(["add", "--file", str(_write(store, _ids(2, 10))), "--front"]) == 0
+    assert worker.main(["pause"]) == 0 and backlog.load_backlog()["paused"] is True
+    assert worker.main(["resume"]) == 0 and worker.main(["status"]) == 0
+    text = capsys.readouterr().out
+    assert "6 video(s) left" in text and "urgent 2" in text and "has never reported" in text
+    assert worker.main(["empty", "--lane", "urgent"]) == 0
+    assert len(backlog.load_backlog()["items"]) == 4
+
+
+def _write(folder, ids):
+    path = folder / "ids.txt"
+    path.write_text("\n".join(ids))
+    return path
