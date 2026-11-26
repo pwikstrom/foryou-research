@@ -254,13 +254,28 @@ Two workers are notable for how they deviate:
   running. What it and the workers do is written to the **enrichment
   history** (`services/enrichment_journal.py`, a bounded ring in
   `cache/enrichment_journal.json`), shown on Dataset Assembly and, per
-  collection, in the Edit Collections panel.
+  collection, in the Edit Collections panel. The same tick also starts the
+  nightly Consolidate & Refresh for a second machine
+  (`_second_machine_nightly`), before it looks at the automatic-enrichment
+  switch.
 - **`ops_report`** — the daily operational health report (`run_ops_report.py`
   + `services/ops_report.py`): checks across the whole system, an AI-written
   assessment, and an emailed copy; artifacts land under `cache/ops_report/`.
   It is the one worker that is deliberately **not** queue-retry-safe — a
   queue retry would re-send the email — so a failed run goes straight to the
   task-failures ledger instead of being retried.
+
+One program in `workers/` is deliberately **not** a registered worker:
+`backlog_annotator.py` (no `run_` prefix, which `test_worker_registry.py`
+reserves for registered workers). It is a command-line program for a second
+machine that annotates the backlog with its own annotator, started by hand
+or by the operating system, never by the Hub. Its state lives in
+`services/annotation_backlog.py`; the Hub reads it through
+`GET /api/manage/second-machine` and changes it through
+`POST /api/manage/second-machine/backlog` (both need the Backends
+permission and answer 409 while the admin setting is off). The admin
+section is `static/js/admin_second_machine.js`. See
+[pipeline.md](pipeline.md#a-second-machine-on-the-backlog).
 
 ## Frontend
 

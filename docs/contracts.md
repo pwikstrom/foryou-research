@@ -260,6 +260,15 @@ not it had failed) is rebuilt once at the next consolidation, and the videos
 whose annotation changed are reported as changed so that studies and
 everything after them refresh.
 
+One addition applies only where an admin has switched on a second machine
+(Admin → Backends → Second machine). Annotations from the backends named in
+`[machine] yielding_backends` (local Qwen by default) then give way: a
+successful annotation from any other annotator is chosen first, whichever is
+the preferred version and whichever is more recent. The rule's name gains a
+`|yielding:<versions>` suffix when such a version is registered, which
+triggers the one rebuild described above
+([decision 0029](decisions/0029-second-machine-backlog-annotation.md)).
+
 **Versions on test runs and human validation.** A test run (Admin →
 Contracts) annotates a fixed set of videos without touching the research
 data, so its answers carry no stamp of their own. The run's record supplies

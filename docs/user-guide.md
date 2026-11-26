@@ -632,7 +632,11 @@ keeps every past result. The **Annotator** card runs the queue immediately
 with the active backend (shown as a badge; changed under Admin → Backends);
 where media is cloud-stored, a **Gemini Async Annotator** card runs the same
 queue through the Gemini Batch API at roughly half the cost with a
-minutes-to-24h turnaround.
+minutes-to-24h turnaround. Where an admin has switched on a second machine
+(Admin → Backends), one read-only line under the cards says how many videos
+that machine still has waiting and when it was last heard. Videos you queue
+here are annotated by the Hub's own annotator and the second machine leaves
+them alone.
 
 **Dataset Assembly.** Folds finished scrape/annotation output into the
 datasets the analysis tabs read. The **Consolidate Scrape and Annotation
@@ -685,6 +689,28 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   the embedding backend, with per-backend health and requirement checks.
   Backend parameters live in the configuration files — see
   [configuration.md](configuration.md).
+
+  The page ends with a **Second machine** section, for a site where a
+  second computer with its own annotator (for example a Mac running local
+  Qwen) works through the videos the Hub's annotator has not reached. It is
+  one checkbox, off by default, and a Hub that runs on one computer should
+  leave it off. With it on, the section shows the **backlog**: the list of
+  videos waiting for the second machine, in three lanes that are taken in
+  this order: *urgent*, *coverage*, *rest*. You pick a study (or type a
+  collection id), a lane, and whether the videos go to the front of that
+  lane, then **Add** or **Remove** them. **Pause** and **Resume** hold and
+  release the second machine, **Empty** clears a lane, and **Retry failed**
+  lists the videos that failed once more. The second machine takes 50
+  videos at a time, so a change takes effect when it has finished the 50 it
+  holds. The same section shows how many videos are left per lane, which
+  are being annotated now, how many failed, the speed, and when the machine
+  was last heard. Two things follow from the checkbox. Where both
+  annotators have annotated the same video, studies read the Hub's own
+  annotation. And the Hub consolidates and refreshes once a night when the
+  second machine has added results, so its work shows up in studies without
+  anyone pressing a button. Setting up the second machine itself is a
+  developer task, described in
+  [DEVELOPING.md](../DEVELOPING.md#backlog-annotation-on-a-second-machine-local-model-against-prod-gcs).
 - **Contracts** — author, test (A/B evaluation runs) and activate annotation
   contracts: the recipe for what the AI is asked about each video and the
   form its answers must take. A test set holds up to 50 videos unless the

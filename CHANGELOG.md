@@ -27,9 +27,10 @@ public version. Entries below describe the Hub as it stands at that release.
   annotation (`[machine] yielding_backends`). The hosted Hub consolidates and
   refreshes once a night when the second machine has added results. A machine
   chooses its annotator with `FYP_ANNOTATION_BACKEND`, and its result files
-  carry its name. Progress shows on Data Management → Annotation and in the
+  carry its name. Progress shows on Data Pipeline → Annotation and in the
   daily operations report. Registering a new annotation version is now safe
-  when two machines meet it at the same moment. Runbook in DEVELOPING.md.
+  when two machines meet it at the same moment. Runbook in DEVELOPING.md;
+  the reasoning is decision 0029 (`docs/decisions/`).
 - **Quality-rating tasks for free-text and other open answers.** Agreement
   can't assess a video story, so raters now judge the contract's answers
   against the video: one answer per variable per video, with questions that

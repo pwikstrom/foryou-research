@@ -633,7 +633,7 @@ The two annotators never share a queue:
 **Steering it.** On the hosted Hub, Admin → Backends → Second machine adds or
 removes a study's or a collection's videos (to a lane, optionally at its
 front), pauses, empties a lane and lists failed videos again; it needs the
-Backends permission. Data Management → Annotation shows one read-only line,
+Backends permission. Data Pipeline → Annotation shows one read-only line,
 and the daily operations report turns red when videos remain but the machine
 has gone quiet. The same actions exist as commands on the second machine:
 

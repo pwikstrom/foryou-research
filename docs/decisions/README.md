@@ -70,3 +70,4 @@ records; describe what happened, not who or where.
 | [0026](0026-only-final-scrape-failures-count.md) | 2026-09-25 | Only final scrape failures count | Retryable failures stay recorded but no longer exclude an item |
 | [0027](0027-network-outages-are-waited-out.md) | 2026-09-27 | Network outages are waited out | A connectivity gate keeps outages away from the guards and alerts |
 | [0028](0028-offfeed-signals.md) | 2026-10-13 | Off-feed signals annotate plays | Plays the For You feed probably did not serve are marked, not filtered; one implementation in fyp |
+| [0029](0029-second-machine-backlog-annotation.md) | 2026-11-26 | A second machine annotates the backlog | Its own list with claims, it gives way to the hosted annotator, one consolidation a night; off by default |

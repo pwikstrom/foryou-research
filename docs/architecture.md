@@ -58,6 +58,14 @@ single-flight leases, durable run logs, chain-aware status, and the
 `enrichment_supervisor` and `ops_report` workers — is described in
 [web_interface.md](web_interface.md#background-workers).
 
+**An optional second machine.** A site may add a fourth process: a
+command-line annotator on another computer (for example a Mac with a local
+model) that uses the Hub's code against the same storage and works through
+the videos the hosted annotator has not reached. It is not a second Hub: it
+serves no pages and consolidates nothing, and the two coordinate only through
+small files in the `cache` location. It is off by default
+([pipeline.md](pipeline.md#a-second-machine-on-the-backlog)).
+
 **Packaging / reuse.** `fyp` is an installable package (`pip install -e .` is
 the recommended dev setup; see `pyproject.toml`), but installation is never
 required — the repo also runs from a plain checkout, and the Docker image

@@ -262,6 +262,13 @@ exactly what to fix (see step 1).
    hf download mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit
    ```
 
+   This is the 4-bit model the shipped settings use. A Mac with enough
+   memory can run the larger 8-bit model instead
+   (`mlx-community/Qwen3-Omni-30B-A3B-Instruct-8bit`, about 40 GB of memory
+   per copy; tested on 128 GB): download that one and set `model_id` under
+   `[machine.qwen_local]` in `config/config.local.toml`. A different model
+   is a different annotation version.
+
    The weights land in `~/.cache/huggingface/` and are shared with anything
    else that uses Hugging Face. To store them elsewhere, set `HF_HOME` before
    downloading (and start the app with the same variable set).

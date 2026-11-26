@@ -741,6 +741,53 @@ run folder (`ab_eval.stored_arms`), annotates only the videos without a
 saved answer, and the last link writes the report. The task has the 1800 s
 dispatch deadline.
 
+### A second machine on the backlog
+
+A site can let a second computer with its own annotator work through the
+videos the hosted annotator has not reached. It is off unless an admin
+switches it on (Admin → Backends → Second machine, setting
+`second_machine_annotates`), and nothing below applies while it is off.
+
+- **Its own list.** The second machine never reads `to_annotate.json`. It
+  reads the backlog, `cache/annotate_backlog.json`, which has three lanes
+  taken in order (`urgent`, `coverage`, `rest`), through
+  `web_interface/workers/backlog_annotator.py` and
+  `web_interface/services/annotation_backlog.py`.
+- **Claims.** It takes 50 videos at a time by writing a claim
+  (`annotate_backlog_claims.json`, renewed every 60 s, treated as abandoned
+  after 15 minutes). A claim removes nothing from the backlog, so a process
+  that dies loses only the 50 it held. Claims are written with
+  `data_io.update_json`, so two copies can share one backlog without
+  annotating a video twice.
+- **It gives way.** A claim passes over videos that are in the hosted
+  annotator's queue or in one of its batch jobs, and drops videos that
+  enrichment status now shows as annotated or as not annotatable.
+- **Which annotation studies read.** Backends named in
+  `[machine] yielding_backends` (default: `qwen_local`) never hide another
+  annotator's successful annotation of the same video. The order within
+  `annotation_versioning.newest_row_mask()` is then: successful, not
+  yielding, preferred version, most recent. The rule's name in the
+  consolidation ledger gains a `|yielding:<versions>` suffix, so the first
+  consolidation after a yielding version is registered rebuilds the view
+  once ([decision 0029](decisions/0029-second-machine-backlog-annotation.md)).
+- **Result files.** The machine writes raw and refined result files only,
+  with its name in the raw file names (`FYP_ANNOTATION_MACHINE`), and stamps
+  them with its own annotation version (`FYP_ANNOTATION_BACKEND` selects its
+  annotator before the shared admin setting). It never consolidates.
+- **Consolidation.** The hosted Hub does not look for result files it did
+  not produce, so the enrichment supervisor starts one Consolidate & Refresh
+  a night (between 01:00 and 05:00 in the Hub's time zone, on the hourly
+  heartbeat) when the second machine has written results since the last
+  consolidation. This does not depend on the automatic-enrichment switch,
+  and it waits while a scraper, an annotator or a pipeline step is running.
+- **Watching it.** The machine writes `annotate_backlog_status.json`; the
+  admin section, a read-only line on Data Pipeline → Annotation and the daily
+  operations report read it. The report turns red when videos remain and the
+  machine has not been heard for 15 minutes.
+
+The commands and the set-up are in
+[DEVELOPING.md](../DEVELOPING.md#backlog-annotation-on-a-second-machine-local-model-against-prod-gcs).
+
 ### The Gemini batch-API lane
 
 The Gemini *batch-API* lane (`run_queue_annotator_batch.py`) stages its
