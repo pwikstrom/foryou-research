@@ -646,10 +646,10 @@ def _section_pipeline(ctx: SimpleNamespace) -> None:
         cons = stats_doc.get("consolidate_enrichment") or {}
         last_cons = _parse_iso(cons.get("last_success"))
         pending_files = 0
-        for name in data_io.listdir(storage_location="machine_annotations_raw"):
-            mtime = data_io.getmtime(storage_location="machine_annotations_raw", filename=name)
-            if mtime is None:
-                continue
+        # One listing, not one request per file: a second machine annotating
+        # the backlog adds thousands of raw files.
+        raw_mtimes = data_io.list_mtimes(storage_location="machine_annotations_raw")
+        for mtime in raw_mtimes.values():
             mdt = datetime.fromtimestamp(mtime, tz=UTC)
             if last_cons is None or mdt > last_cons:
                 pending_files += 1

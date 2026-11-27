@@ -851,6 +851,19 @@ auto-promotes the full rebuild. Golden equality tests:
 `tests/golden/run_safety_net.py` (and so by `scripts/verify.sh` and CI) —
 plain `pytest` collects only `tests/unit/`.
 
+**Open answers are kept as given.** Refinement no longer replaces labels by
+"other category" within a file. Until 2026-11 it kept, for each open-answer
+variable (main activity, objects, symbols and brands, text overlays, music,
+sounds), the labels that covered 95% of the labels in that one file and
+replaced the rest, and skipped the step when the file held more than 1,000
+different labels. Which labels were lost therefore depended on the file a
+video happened to share: the same 4,927 answers lost 4% of their main
+activities when cleaned in files of 50, 5% in files of 500 and none as one
+file. Variables with an accepted list are unaffected (the fuzzy match against
+the list settles them). Annotations cleaned before the change keep their
+"other category" values until they are re-cleaned (next paragraph); the
+model's original answers are in the raw files.
+
 **Re-cleaning stored annotations.** Refinement (flatten, recode, label
 clean-up) runs once per raw batch, so a cleaning error stays in the stored
 rows of every batch refined while it existed.

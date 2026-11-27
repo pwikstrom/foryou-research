@@ -522,6 +522,59 @@ def _write_text_file(text: str):
     return _write
 
 
+def list_mtimes(storage_location: str = "cache") -> dict[str, float]:
+    """Modification times of the files directly in a storage location.
+
+    One listing instead of one request per file: on GCS the listing already
+    carries each object's update time, so a location with thousands of files
+    costs a handful of requests where ``getmtime`` per file costs thousands.
+
+    Args:
+        storage_location: A named storage location.
+
+    Returns:
+        ``{filename: modification time as a POSIX timestamp}``; folders are
+        left out, and a failed GCS listing degrades to an empty dict (as in
+        :func:`listdir`).
+    """
+    if storage_location == "cache":
+        use_gcs = _cf()["data_io"]["use_gcs_for_cache"]
+    else:
+        use_gcs = _cf()["data_io"]["use_gcs_for_data"]
+    gcs_base = _cf()["gcs_paths"][storage_location] if use_gcs else False
+
+    if use_gcs and gcs_base:
+        out: dict[str, float] = {}
+        try:
+            bucket = _cf()["data_io"]["bucket"]
+            if not bucket:
+                raise ValueError("GCS bucket not initialized for list_mtimes")
+            prefix = gcs_base if gcs_base.endswith("/") else gcs_base + "/"
+            for blob in bucket.list_blobs(prefix=prefix, delimiter="/"):
+                rel_name = blob.name[len(prefix) :]
+                if rel_name and blob.updated:
+                    out[rel_name] = blob.updated.timestamp()
+        except Exception:
+            return {}
+        return out
+
+    if storage_location not in _cf()["paths"]:
+        raise ValueError(f"Invalid storage location: '{storage_location}'.")
+    local_dir = _cf()["paths"][storage_location]
+    if not os.path.isdir(local_dir):
+        return {}
+    out = {}
+    for name in os.listdir(local_dir):
+        path = os.path.join(local_dir, name)
+        if _is_atomic_tmp(name) or not os.path.isfile(path):
+            continue
+        try:
+            out[name] = os.path.getmtime(path)
+        except OSError:
+            continue
+    return out
+
+
 def listdir(
     storage_location: str = "cache", return_absolute_path: bool = False, verbose: bool = False
 ) -> list:

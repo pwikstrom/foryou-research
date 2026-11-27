@@ -132,85 +132,13 @@ def clean_up_machine_annotations(some_events, verbose=False):
                     f"    {c}: Recoded against accepted labels with fuzzy matching... {valid_items.nunique()} ({pre_fuzzy_nunique})"
                 )
 
-        # Check mean length
-        # Vectorized string length based on a sample of 500 items.
-        # A fixed random_state keeps the length estimate — and the rare-label
-        # consolidation decision that branches on it — reproducible run-to-run.
-        # Without it the whole refinement pipeline is non-deterministic.
-
-        sample_size = min(500, len(valid_items))
-        avg_len = (
-            valid_items.sample(sample_size, replace=False, random_state=0)
-            .astype(str)
-            .str.len()
-            .mean()
-        )
-
-        if avg_len < 60:
-            # Step 2: Cutoff logic
-            # frequency of unique valid items
-            counts = valid_items.value_counts()
-
-            total_count = counts.sum()
-
-            # if we have an accepted list, we want to keep all of them
-            if pd.notna(accepted):
-                target = total_count * 1
-            else:
-                target = total_count * 0.95
-
-            # cumulative sum
-            cum_counts = counts.cumsum()
-
-            # find how many labels needed to cross target
-            # we keep labels where cumsum < target, plus the one that crosses it
-            cutoff_idx = cum_counts.searchsorted(target)
-            # keep at least 3 labels
-            num_keep = max(3, cutoff_idx + 1)
-            # clamp to length
-            num_keep = min(num_keep, len(counts))
-
-            # Heuristic: If we are keeping a huge portion of the labels to satisfy the coverage,
-            # or the absolute number of kept labels is huge (e.g. 90k out of 100k), then consolidation is inefficient/useless.
-            # User guideline: "if the sum of occurrences of top X labels constitute more than y% ... and there still are a lot of small labels" -> consolidate.
-            # But "100k rare labels -> 90k" -> don't consolidate.
-            # Logic: If num_keep is > 80% of len(counts) and len(counts) > 1000, skip.
-
-            if (len(counts) > 1000) and (num_keep > len(counts) * 0.80):
-                if verbose:
-                    logger.info(
-                        f"    {c}: Skipping consolidation. Tail is too thick/flat (would keep {num_keep}/{len(counts)})."
-                    )
-                continue
-
-            okay_list = counts.index[:num_keep].tolist()
-
-            # fast lookup set
-            keep_set = set(okay_list).union(exclude_set)
-
-            # Step 3: Replacement
-            # We need to iterate rows since we want to preserve list structure [[a, b], [c]] -> [[a, OTHER], [c]]
-            # A simple map with set lookup is fastest for object columns with lists.
-            # NOTE: `series` here is either the original series (when there is
-            # no accepted_labels list) or the fuzzy-match-normalized series
-            # (when there is). That keeps the membership check against
-            # keep_set consistent with how keep_set was built.
-            def _fast_replace(x, keep_set=keep_set):
-                if isinstance(x, (list, np.ndarray)):
-                    return [y if y in keep_set else _cf()["labels"]["OTHER_THINGS"] for y in x]
-                if isinstance(x, str):
-                    return x if x in keep_set else _cf()["labels"]["OTHER_THINGS"]
-                return x  # keep NA or other
-
-            some_cleaned_up_events[c] = series.apply(_fast_replace)
-
-            if verbose:
-                # approximated stats
-                logger.info(f"    {c}: Cleaned up rare labels (kept top {num_keep})")
-
-        else:
-            if verbose:
-                logger.info(f"    {c}: Avg string length > 60, not consolidating rare labels")
+        # Open answers are kept as the model gave them. Until 2026-11 the
+        # labels beyond the ones covering 95% of a FILE's labels were replaced
+        # by OTHER_THINGS here. Which labels that hit depended on the file a
+        # video happened to share, not on how rare the label is in the corpus
+        # (the same answers lost 4% of main activities in 50-video files and
+        # none in one 5,000-video file), so it is gone. A variable with an
+        # accepted list is settled by the fuzzy match above.
 
     return some_cleaned_up_events
 

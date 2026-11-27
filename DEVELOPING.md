@@ -657,10 +657,30 @@ set on the hosted Hub:
 annotation contract is code-baked); `gcloud auth application-default login`
 with write access to the bucket; the local model installed
 ([docs/installation.md](docs/installation.md#enabling-local-qwen-annotation))
-and its recipe in `config/config.local.toml`; the Second machine setting
-switched on.
+and its Qwen settings in `config/config.local.toml`; the Second machine
+setting switched on.
 
-**Run** (every command above takes the same two storage variables):
+**The machine's Qwen settings.** Declare them as a variant of the local
+backend in `config/config.local.toml`, and select the variant with
+`FYP_ANNOTATION_BACKEND`. Plain `qwen_local` then keeps the shipped settings,
+and the variant still registers under the backend `qwen_local`, so the
+giving-way rule covers it. The settings define the annotation version, so fix
+them before a long run (`copies` is the one key that does not enter it):
+
+```toml
+[machine.qwen_local.variants.qwen_local_8bit]
+label = "Local Qwen 30B 8-bit (video + transcript)"
+model_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-8bit"
+video_input = "video"
+fps = 1.0
+max_audio_seconds = 120
+speech_model = "mlx-community/Qwen3-ASR-1.7B-8bit"
+max_tokens = 4096
+copies = 2
+```
+
+**Run** (every command above takes the same two storage variables; with the
+variant above, `FYP_ANNOTATION_BACKEND=qwen_local_8bit`):
 
 ```bash
 FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> FYP_ANNOTATION_BACKEND=qwen_local caffeinate -i -s python -m web_interface.workers.backlog_annotator run --log-dir ~/fyp_local/logs
@@ -669,6 +689,10 @@ FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<prod-bucket> FYP_ANNOTATION_BACKEND=qwen_lo
 Ctrl-C (or SIGTERM) stops after the chunk in progress. With an empty or
 paused backlog it waits and looks again every two minutes (`--exit-when-empty`
 to stop instead). On macOS a notification is shown when it stops for any
-reason other than a request. The first consolidation after the local model's
+reason other than a request. To run it as a macOS background service, use a LaunchAgent that sets the
+same variables, restarts on a crash only (`KeepAlive` with `SuccessfulExit`
+false) and starts a small script that runs `caffeinate -i -s -w $$ &` and
+then `exec`s the command above without `caffeinate`, so that a stop signal
+reaches the annotator itself. The first consolidation after the local model's
 annotation version is registered re-derives every item's view once (the view
 rule's name then lists the yielding versions).

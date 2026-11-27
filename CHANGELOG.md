@@ -109,6 +109,17 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Open answers are no longer folded into "other category" per file.** The
+  cleaning step replaced the least frequent 5% of a file's labels for main
+  activity, objects, symbols and brands, text overlays, music and sounds. In
+  a small file nearly every such label occurs once, so the ones removed were
+  an arbitrary pick, and the result depended on the size of the file. The
+  answers are now kept as the model gave them. Stored annotations are
+  unchanged until re-cleaned.
+- **The daily operations report reads the dates of the raw annotation files
+  in one request.** It asked storage about every file separately, which grows
+  slow once a second machine adds thousands of files
+  (`data_io.list_mtimes`).
 - **Local Qwen annotation can watch the video, use a separate transcript, and
   run two copies at once.** Three new optional settings in
   `[machine.qwen_local]`, all off by default: `video_input = "video"` gives
